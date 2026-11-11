@@ -9,6 +9,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/plugin"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
@@ -80,12 +81,12 @@ func registerPluginProviders(errw io.Writer) {
 			complete = false
 			continue
 		}
-		var tree *plugin.Plugin
-		st, p := plugin.State(n, e, store, pluginOpts())
+		var tree *core.Plugin
+		st, p := core.State(n, e, store, pluginOpts())
 		switch st {
-		case plugin.StatusActive:
+		case core.StatusActive:
 			tree = p
-		case plugin.StatusDisabled:
+		case core.StatusDisabled:
 			// State does not open a disabled plugin; its providers are still
 			// needed, inactive, to retire what they installed.
 			if t, err := store.Open(n, e.Approved, pluginOpts()); err == nil {

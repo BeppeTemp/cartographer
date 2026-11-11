@@ -7,7 +7,7 @@ import (
 	"io"
 	"maps"
 
-	"github.com/BeppeTemp/cartographer/internal/plugin"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"go.starlark.net/lib/json"
 	"go.starlark.net/lib/math"
 	"go.starlark.net/lib/time"
@@ -39,7 +39,7 @@ type callCtx struct {
 	ctx    context.Context
 	// perms are the manifest's granted permissions; the capability modules of
 	// the following changes read them here, never from the script.
-	perms *plugin.Permissions
+	perms *core.Permissions
 
 	lookupEnv func(string) (string, bool)
 	net       *netState

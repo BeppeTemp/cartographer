@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/BeppeTemp/cartographer/internal/plugin"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 )
@@ -52,9 +52,9 @@ func loadError(err error) *LoadError {
 	return &LoadError{Msg: err.Error()}
 }
 
-// Check is plugin.Options.CheckScripts: the problems of a tree's scripts.
-func Check(side plugin.Side, files []plugin.TreeFile) []string {
-	if side != plugin.SideClient {
+// Check is core.Options.CheckScripts: the problems of a tree's scripts.
+func Check(side core.Side, files []core.TreeFile) []string {
+	if side != core.SideClient {
 		return nil // no other side has a script entry in this build
 	}
 	if _, err := Load(files); err != nil {
@@ -66,20 +66,20 @@ func Check(side plugin.Side, files []plugin.TreeFile) []string {
 // Load runs plugin.star once, with lib/*.star loadable from it, and reports
 // what it registered. It reads the files it is given and nothing else. A tree
 // without plugin.star and without lib/ is not a script plugin: (nil, nil).
-func Load(files []plugin.TreeFile) (*Program, error) {
+func Load(files []core.TreeFile) (*Program, error) {
 	srcs := map[string][]byte{}
 	libs := 0
 	for _, f := range files {
-		if !plugin.IsScriptPath(f.Path) {
+		if !core.IsScriptPath(f.Path) {
 			continue
 		}
 		switch {
-		case f.Path != plugin.ScriptEntry && !plugin.IsLibPath(f.Path):
+		case f.Path != core.ScriptEntry && !core.IsLibPath(f.Path):
 			return nil, &LoadError{Msg: fmt.Sprintf("%s: only plugin.star and lib/<name>.star are scripts", f.Path)}
-		case len(f.Content) > plugin.MaxScriptBytes:
-			return nil, &LoadError{Msg: fmt.Sprintf("%s: %d bytes, over the %d cap of a script", f.Path, len(f.Content), plugin.MaxScriptBytes)}
+		case len(f.Content) > core.MaxScriptBytes:
+			return nil, &LoadError{Msg: fmt.Sprintf("%s: %d bytes, over the %d cap of a script", f.Path, len(f.Content), core.MaxScriptBytes)}
 		}
-		if f.Path != plugin.ScriptEntry {
+		if f.Path != core.ScriptEntry {
 			libs++
 		}
 		srcs[f.Path] = f.Content
@@ -87,12 +87,12 @@ func Load(files []plugin.TreeFile) (*Program, error) {
 	if len(srcs) == 0 {
 		return nil, nil
 	}
-	_, ok := srcs[plugin.ScriptEntry]
+	_, ok := srcs[core.ScriptEntry]
 	if !ok {
 		return nil, &LoadError{Msg: "lib/ needs a plugin.star at the plugin root"}
 	}
-	if libs > plugin.MaxLibFiles {
-		return nil, &LoadError{Msg: fmt.Sprintf("lib/: %d files, over the %d cap", libs, plugin.MaxLibFiles)}
+	if libs > core.MaxLibFiles {
+		return nil, &LoadError{Msg: fmt.Sprintf("lib/: %d files, over the %d cap", libs, core.MaxLibFiles)}
 	}
 
 	return run(srcs, &settingsValue{}, nil, nil)
@@ -103,7 +103,7 @@ func Load(files []plugin.TreeFile) (*Program, error) {
 // where later changes hand the host adapters over). A CALL runs it again for
 // its own thread, with its own settings: see settingsValue.
 func run(srcs map[string][]byte, settings *settingsValue, extra starlark.StringDict, lim *runLimits) (*Program, error) {
-	entry := srcs[plugin.ScriptEntry]
+	entry := srcs[core.ScriptEntry]
 	reg := &registry{}
 	ctx := &callCtx{phase: phaseLoad, reg: reg}
 	pure, caps := pureModules(), merge(capabilityModules(settings), extra)
@@ -119,9 +119,9 @@ func run(srcs map[string][]byte, settings *settingsValue, extra starlark.StringD
 	}
 	mem := watchHeap(base, l.cancelAll)
 	defer mem.stop()
-	thread := l.newThread(plugin.ScriptEntry)
+	thread := l.newThread(core.ScriptEntry)
 	entryEnv := merge(pure, caps, registrars())
-	globals, err := l.exec(thread, plugin.ScriptEntry, entry, entryEnv)
+	globals, err := l.exec(thread, core.ScriptEntry, entry, entryEnv)
 	if mem.hit.Load() {
 		if lim != nil {
 			lim.memHit.Store(true)
@@ -213,7 +213,7 @@ func (l *loader) exec(t *starlark.Thread, name string, src []byte, env starlark.
 }
 
 func (l *loader) load(_ *starlark.Thread, module string) (starlark.StringDict, error) {
-	if !plugin.IsLibPath(module) {
+	if !core.IsLibPath(module) {
 		return nil, fmt.Errorf("cannot load %q: a plugin loads only lib/<name>.star from its own tree", module)
 	}
 	if e, ok := l.cache[module]; ok {

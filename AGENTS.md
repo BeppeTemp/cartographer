@@ -88,7 +88,8 @@ internal/mcpbridge              is the local stdio MCP server scoped to a folder
 internal/mcpserver              implements the control plane
 internal/okf                    parser/serializer for the YAML subset used in OKF frontmatter
 internal/openapi                builds an OpenAPI document from Go types
-internal/plugin                 reads and checks a Cartographer plugin
+internal/plugin                 is the client side of a Cartographer plugin
+internal/plugin/core            is the half of the plugin system the server and the Surveyor link
 internal/plugin/star            runs the Starlark script of a plugin
 internal/procattr               sets the process attributes every child of Cartographer shares
 internal/provisioning           manages the synchronization of artifacts (skill, agent, hook — D48

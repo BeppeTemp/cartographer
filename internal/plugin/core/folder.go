@@ -1,4 +1,4 @@
-package plugin
+package core
 
 import (
 	"fmt"
@@ -12,11 +12,11 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
-// readFolder walks root with Lstat: a symlink or any non-regular file is
+// ReadFolder walks root with Lstat: a symlink or any non-regular file is
 // returned as a Special entry, for ReadTree to list among the findings (a stored
 // tree holding one is ErrModified, see specialIn), and the entries ReadTree
 // ignores are not read.
-func readFolder(root string) ([]TreeFile, error) {
+func ReadFolder(root string) ([]TreeFile, error) {
 	var files []TreeFile
 	total := 0
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
@@ -29,7 +29,7 @@ func readFolder(root string) ([]TreeFile, error) {
 		}
 		rel = filepath.ToSlash(rel)
 		first, _, _ := strings.Cut(rel, "/")
-		if ignored(first) {
+		if Ignored(first) {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}

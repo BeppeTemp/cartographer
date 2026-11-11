@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
-	"github.com/BeppeTemp/cartographer/internal/plugin"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
@@ -263,7 +263,7 @@ func withStderrCode(t *testing.T, f func() int) (code int) {
 
 func TestPluginConfigShowsAnUnsetSettingAsUnset(t *testing.T) {
 	var b bytes.Buffer
-	p := plugin.Plugin{Manifest: plugin.Manifest{Settings: map[string]plugin.Setting{"token": {Type: "string"}}}}
+	p := core.Plugin{Manifest: core.Manifest{Settings: map[string]core.Setting{"token": {Type: "string"}}}}
 	printPluginSettings(&b, p, clientconfig.PluginEntry{})
 	if !strings.Contains(b.String(), "token = (unset)  (default)") || strings.Contains(b.String(), "<nil>") {
 		t.Errorf("%q", b.String())

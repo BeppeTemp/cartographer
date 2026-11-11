@@ -1,6 +1,7 @@
-// Package plugin reads and checks a Cartographer plugin: a folder or git
-// repository with a cartographer-plugin.yaml manifest at its root. This part is
-// pure data checking: the manifest, the version ranges it speaks, the
-// contribution-point registry and the reader of an in-memory tree, and nothing
-// that touches disk, git or the network.
+// Package plugin is the client side of a Cartographer plugin: the loaders and
+// previews of the skill, agent, hook and provider points, the acquisition of a
+// source (folder or git repository), the diff of two trees and the provider
+// cells handed to provisioning. The data it works on (manifest, tree reader,
+// pinned store, point registry) lives in internal/plugin/core, which the
+// server may link; this package may not be linked by the server.
 package plugin

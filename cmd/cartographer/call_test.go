@@ -16,7 +16,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
-	"github.com/BeppeTemp/cartographer/internal/plugin"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/testtree"
 )
@@ -359,9 +359,9 @@ tool("status", status, "reads the KB")
 // environment's config (newCallEnv has already set HOME).
 func installCallPlugin(t *testing.T, name, script string) {
 	t.Helper()
-	store := plugin.Store{Root: filepath.Join(t.TempDir(), "plugins")}
+	store := core.Store{Root: filepath.Join(t.TempDir(), "plugins")}
 	oldStore, oldTTY := pluginStoreFn, pluginInteractive
-	pluginStoreFn = func() (plugin.Store, error) { return store, nil }
+	pluginStoreFn = func() (core.Store, error) { return store, nil }
 	pluginInteractive = func() bool { return false }
 	t.Cleanup(func() {
 		pluginStoreFn, pluginInteractive = oldStore, oldTTY

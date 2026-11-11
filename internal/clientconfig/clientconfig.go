@@ -88,7 +88,7 @@ type Config struct {
 	// Plugins records the plugins installed and approved on this machine, by
 	// name. USER-owned, written only by the plugin commands, never by sync. Read
 	// it through Plugin, never directly: only an approved, enabled entry whose
-	// tree is in the store is active (plugin.State).
+	// tree is in the store is active (core.State).
 	Plugins map[string]PluginEntry `yaml:"plugins,omitempty"`
 
 	// Workspaces is the per-provider workspace↔KB binding (D193): which KBs a

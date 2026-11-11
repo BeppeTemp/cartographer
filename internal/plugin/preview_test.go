@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 )
 
 func TestPreviewEscapesPluginStrings(t *testing.T) {
-	p, probs := ReadTree(goodTree(), testOpts)
+	p, probs := core.ReadTree(goodTree(), testOpts)
 	if len(probs) != 0 {
 		t.Fatal(probs)
 	}

@@ -12,6 +12,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/plugin"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
@@ -36,7 +37,7 @@ type pluginResult struct {
 // lifecycleCtx is what every lifecycle command starts from.
 type lifecycleCtx struct {
 	dir    string
-	store  plugin.Store
+	store  core.Store
 	json   bool
 	yes    bool
 	out    io.Writer // os.Stdout, or Discard in JSON mode
@@ -76,10 +77,10 @@ func newLifecycle(action string, args []string, min, max int, yes bool) (lifecyc
 }
 
 // keepMap is what the store's GC preserves for the configured plugins.
-func keepMap(cfg *clientconfig.Config) map[string]plugin.Keep {
-	keep := map[string]plugin.Keep{}
+func keepMap(cfg *clientconfig.Config) map[string]core.Keep {
+	keep := map[string]core.Keep{}
 	for n, e := range cfg.Plugins {
-		keep[n] = plugin.Keep{Installed: e.Installed, Approved: e.Approved}
+		keep[n] = core.Keep{Installed: e.Installed, Approved: e.Approved}
 	}
 	return keep
 }
@@ -111,7 +112,7 @@ func unknownPlugin(name string) int {
 }
 
 // dependents names the other enabled plugins whose approved tree depends on name.
-func dependents(cfg *clientconfig.Config, store plugin.Store, name string) []string {
+func dependents(cfg *clientconfig.Config, store core.Store, name string) []string {
 	var out []string
 	for n, e := range cfg.Plugins {
 		if n == name || !e.Enabled || e.Approved == "" {
@@ -129,7 +130,7 @@ func dependents(cfg *clientconfig.Config, store plugin.Store, name string) []str
 
 // unmetDepends returns one sentence per entry of p's `depends` that is not an
 // enabled, active plugin whose version meets the range.
-func unmetDepends(cfg *clientconfig.Config, store plugin.Store, name string, p plugin.Plugin) []string {
+func unmetDepends(cfg *clientconfig.Config, store core.Store, name string, p core.Plugin) []string {
 	var out []string
 	deps := make([]string, 0, len(p.Manifest.Depends))
 	for d := range p.Manifest.Depends {
@@ -139,9 +140,9 @@ func unmetDepends(cfg *clientconfig.Config, store plugin.Store, name string, p p
 	for _, d := range deps {
 		rng := p.Manifest.Depends[d]
 		e, ok := cfg.Plugin(d)
-		var dp *plugin.Plugin
+		var dp *core.Plugin
 		if ok {
-			_, dp = plugin.State(d, e, store, pluginOpts())
+			_, dp = core.State(d, e, store, pluginOpts())
 		}
 		switch {
 		case dp == nil:
@@ -155,7 +156,7 @@ func unmetDepends(cfg *clientconfig.Config, store plugin.Store, name string, p p
 
 // printConsent is the full text a consent covers: the preview, then the content
 // of every artifact (hook scripts, hook.json, frontmatter that declares commands).
-func printConsent(w io.Writer, p plugin.Plugin, e clientconfig.PluginEntry, cfg *clientconfig.Config) {
+func printConsent(w io.Writer, p core.Plugin, e clientconfig.PluginEntry, cfg *clientconfig.Config) {
 	pluginPreview(w, p, e, cfg)
 	for _, a := range p.Artifacts {
 		fmt.Fprintf(w, "%s %q:\n", a.Kind, a.Name)
@@ -213,10 +214,10 @@ func (c lifecycleCtx) finishApprove(name, digest, version string) int {
 	registerPluginProviders(os.Stderr)
 	if enabled {
 		fmt.Fprintf(c.out, "Enabled %s %s\n", name, version)
-		c.emit(pluginResult{Name: name, Changed: true, State: string(plugin.StatusActive)})
+		c.emit(pluginResult{Name: name, Changed: true, State: string(core.StatusActive)})
 	} else {
 		fmt.Fprintf(c.out, "Approved %s %s; it stays disabled\n", name, version)
-		c.emit(pluginResult{Name: name, Changed: true, State: string(plugin.StatusDisabled)})
+		c.emit(pluginResult{Name: name, Changed: true, State: string(core.StatusDisabled)})
 	}
 	return 0
 }
@@ -243,7 +244,7 @@ func pluginApprove(args []string) int {
 	// Only the installed tree, read back and re-validated, can be approved.
 	p, err := c.store.Open(name, e.Installed, pluginOpts())
 	if err != nil {
-		if errors.Is(err, plugin.ErrNotFetched) || errors.Is(err, plugin.ErrModified) || errors.Is(err, plugin.ErrInvalid) {
+		if errors.Is(err, core.ErrNotFetched) || errors.Is(err, core.ErrModified) || errors.Is(err, core.ErrInvalid) {
 			return pluginFail(1, "the stored tree of %s cannot be used (%s): run `cartographer plugin update %s`; nothing was approved", name, escapeControl(err.Error()), name)
 		}
 		return pluginFail(1, "%s", escapeControl(err.Error()))
@@ -412,7 +413,7 @@ func (c lifecycleCtx) resetInstalled(name string, e clientconfig.PluginEntry, sh
 // that is added or changed against the approved tree: what the consent covers
 // when the digest moves. Scripts, hook.json and command-declaring frontmatter
 // come out of printApprovalContent's rule; the other changed files in full.
-func printChangedContent(w io.Writer, old, next plugin.Plugin) {
+func printChangedContent(w io.Writer, old, next core.Plugin) {
 	for _, a := range next.Artifacts {
 		prev := map[string][]byte{}
 		for _, o := range old.Artifacts {
@@ -460,7 +461,7 @@ func pluginEnable(args []string) int {
 		}
 		if e.Enabled && e.Approved != "" {
 			fmt.Fprintf(c.out, "%s is already enabled\n", name)
-			c.emit(pluginResult{Name: name, State: string(plugin.StatusActive)})
+			c.emit(pluginResult{Name: name, State: string(core.StatusActive)})
 			return 0
 		}
 		if e.Approved == "" {
@@ -468,7 +469,7 @@ func pluginEnable(args []string) int {
 		}
 		probe := e
 		probe.Enabled = true
-		st, p := plugin.State(name, probe, c.store, pluginOpts())
+		st, p := core.State(name, probe, c.store, pluginOpts())
 		if p == nil {
 			return pluginFail(1, "%s is %s: its approved tree cannot be used; run `cartographer plugin update %s`", name, st, name)
 		}
@@ -487,7 +488,7 @@ func pluginEnable(args []string) int {
 		}
 		registerPluginProviders(os.Stderr)
 		fmt.Fprintf(c.out, "Enabled %s %s\n", name, p.Manifest.Version)
-		c.emit(pluginResult{Name: name, Changed: true, State: string(plugin.StatusActive)})
+		c.emit(pluginResult{Name: name, Changed: true, State: string(core.StatusActive)})
 		return 0
 	})
 }
@@ -505,7 +506,7 @@ func pluginDisable(args []string) int {
 		}
 		if !e.Enabled {
 			fmt.Fprintf(c.out, "%s is already disabled\n", name)
-			c.emit(pluginResult{Name: name, State: string(plugin.StatusDisabled)})
+			c.emit(pluginResult{Name: name, State: string(core.StatusDisabled)})
 			return 0
 		}
 		if deps := dependents(cfg, c.store, name); len(deps) > 0 {
@@ -520,13 +521,13 @@ func pluginDisable(args []string) int {
 		}
 		registerPluginProviders(os.Stderr)
 		fmt.Fprintf(c.out, "Disabled %s; it stays installed and its contributions are retracted at the next sync\n", name)
-		c.emit(pluginResult{Name: name, Changed: true, State: string(plugin.StatusDisabled)})
+		c.emit(pluginResult{Name: name, Changed: true, State: string(core.StatusDisabled)})
 		return 0
 	})
 }
 
 // pluginProviderNames are the providers the approved tree of name declares.
-func pluginProviderNames(t plugin.Plugin) []string {
+func pluginProviderNames(t core.Plugin) []string {
 	var out []string
 	for _, c := range t.Contributions["providers"] {
 		out = append(out, c.Name)

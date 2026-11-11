@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/plugin"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"github.com/BeppeTemp/cartographer/internal/plugin/star"
 )
 
@@ -17,8 +18,8 @@ import (
 // A schema 2 plugin whose client side is absent or has an unmet sdk is not
 // loaded either, the same rule points and CheckScripts apply (tree.go): (nil,
 // nil), as for a plugin without scripts.
-func pluginProgram(p plugin.Plugin) (*star.Program, error) {
-	if p.Unsupported != nil && (p.Unsupported[plugin.SideClient] != "" || !slices.Contains(p.Sides, plugin.SideClient)) {
+func pluginProgram(p core.Plugin) (*star.Program, error) {
+	if p.Unsupported != nil && (p.Unsupported[core.SideClient] != "" || !slices.Contains(p.Sides, core.SideClient)) {
 		return nil, nil
 	}
 	return star.Load(p.Files)
@@ -26,7 +27,7 @@ func pluginProgram(p plugin.Plugin) (*star.Program, error) {
 
 // pluginToolNames are the names of the tools a plugin registers, sorted: the
 // `tools` hint recorded at approval. A tree that does not load yields none.
-func pluginToolNames(p plugin.Plugin) []string {
+func pluginToolNames(p core.Plugin) []string {
 	prog, err := pluginProgram(p)
 	if err != nil || prog == nil {
 		return nil
@@ -53,7 +54,7 @@ func registrationLines(name string, prog *star.Program) []string {
 // previewScripts prints the Scripts and Registers blocks of the approval
 // preview: the files that will run, with their size and hash, and what they
 // register. Everything a script supplies is escaped.
-func previewScripts(w io.Writer, p plugin.Plugin) {
+func previewScripts(w io.Writer, p core.Plugin) {
 	prog, err := pluginProgram(p)
 	if err != nil {
 		fmt.Fprintf(w, "scripts: DO NOT LOAD: %s\n", escapeControl(err.Error()))
@@ -73,17 +74,17 @@ func previewScripts(w io.Writer, p plugin.Plugin) {
 }
 
 // printScriptContent prints every script file in full, never truncated: the
-// approved digest covers the whole file, and plugin.MaxBytes bounds its size.
-func printScriptContent(w io.Writer, p plugin.Plugin) {
+// approved digest covers the whole file, and core.MaxBytes bounds its size.
+func printScriptContent(w io.Writer, p core.Plugin) {
 	for _, f := range p.Files {
-		if plugin.IsScriptPath(f.Path) {
+		if core.IsScriptPath(f.Path) {
 			printScriptFile(w, f)
 		}
 	}
 }
 
 // printScriptFile prints one script file in full.
-func printScriptFile(w io.Writer, f plugin.TreeFile) {
+func printScriptFile(w io.Writer, f core.TreeFile) {
 	lines := strings.Split(strings.TrimRight(string(f.Content), "\n"), "\n")
 	fmt.Fprintf(w, "--- %s ---\n", escapeControl(f.Path))
 	for _, l := range lines {
@@ -93,13 +94,13 @@ func printScriptFile(w io.Writer, f plugin.TreeFile) {
 
 // printScriptChanges prints, after the update diff, the script files that are
 // added or changed in full, and the registrations the new version adds or drops.
-func printScriptChanges(w io.Writer, old, next plugin.Plugin) {
+func printScriptChanges(w io.Writer, old, next core.Plugin) {
 	prev := map[string][]byte{}
 	for _, f := range old.Files {
 		prev[f.Path] = f.Content
 	}
 	for _, f := range next.Files {
-		if was, ok := prev[f.Path]; plugin.IsScriptPath(f.Path) && (!ok || string(was) != string(f.Content)) {
+		if was, ok := prev[f.Path]; core.IsScriptPath(f.Path) && (!ok || string(was) != string(f.Content)) {
 			printScriptFile(w, f)
 		}
 	}

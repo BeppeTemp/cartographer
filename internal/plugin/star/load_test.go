@@ -8,19 +8,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/BeppeTemp/cartographer/internal/plugin"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"go.starlark.net/starlark"
 )
 
-func tree(kv ...string) []plugin.TreeFile {
-	var out []plugin.TreeFile
+func tree(kv ...string) []core.TreeFile {
+	var out []core.TreeFile
 	for i := 0; i < len(kv); i += 2 {
-		out = append(out, plugin.TreeFile{Path: kv[i], Content: []byte(kv[i+1])})
+		out = append(out, core.TreeFile{Path: kv[i], Content: []byte(kv[i+1])})
 	}
 	return out
 }
 
-func entry(src string) []plugin.TreeFile { return tree("plugin.star", src) }
+func entry(src string) []core.TreeFile { return tree("plugin.star", src) }
 
 const full = `
 def hello(args):
@@ -137,7 +137,7 @@ func TestLoadLib(t *testing.T) {
 func TestLoadRefusals(t *testing.T) {
 	cases := []struct {
 		name  string
-		files []plugin.TreeFile
+		files []core.TreeFile
 		want  string
 	}{
 		{"missing lib", entry(`load("lib/nope.star", "x")`), "no such file"},
@@ -154,7 +154,7 @@ func TestLoadRefusals(t *testing.T) {
 		{"recursion", entry("def f():\n    f()\nf()\n"), "recurs"},
 		{"top level loop", entry("for i in [1]:\n    pass\n"), "for"},
 		{"global reassign", entry("x = 1\nx = 2\n"), "reassign"},
-		{"over the cap", entry("# " + strings.Repeat("x", plugin.MaxScriptBytes)), "over the"},
+		{"over the cap", entry("# " + strings.Repeat("x", core.MaxScriptBytes)), "over the"},
 		{"endless at top level", entry("def f():\n    for i in range(1000000000):\n        pass\nf()\n"), "plugin.star:2:5: the script ran more than 20000000 steps"},
 	}
 	for _, c := range cases {
@@ -167,8 +167,8 @@ func TestLoadRefusals(t *testing.T) {
 	}
 	t.Run("too many lib files", func(t *testing.T) {
 		files := entry("")
-		for i := 0; i <= plugin.MaxLibFiles; i++ {
-			files = append(files, plugin.TreeFile{Path: fmt.Sprintf("lib/f%d.star", i)})
+		for i := 0; i <= core.MaxLibFiles; i++ {
+			files = append(files, core.TreeFile{Path: fmt.Sprintf("lib/f%d.star", i)})
 		}
 		if _, err := Load(files); err == nil || !strings.Contains(err.Error(), "over the 32 cap") {
 			t.Errorf("error %v", err)
@@ -180,7 +180,7 @@ func TestLoadRefusals(t *testing.T) {
 // exec, and a script cannot grant itself a capability by reaching for one.
 func TestNoAmbientAuthority(t *testing.T) {
 	for _, name := range []string{"os", "open", "exec", "subprocess", "input", "getenv"} {
-		for _, files := range [][]plugin.TreeFile{
+		for _, files := range [][]core.TreeFile{
 			entry("def f():\n    return " + name + "\nf()\n"),
 			tree("plugin.star", `load("lib/a.star", "a")`, "lib/a.star", "a = "+name+"\n"),
 		} {
@@ -269,10 +269,10 @@ on("connect.after", mutate)
 }
 
 func TestCheckReportsTheLoadError(t *testing.T) {
-	if got := Check(plugin.SideClient, entry("x = 1\n")); got != nil {
+	if got := Check(core.SideClient, entry("x = 1\n")); got != nil {
 		t.Errorf("valid: %v", got)
 	}
-	got := Check(plugin.SideClient, entry("x = 1\ny = z\n"))
+	got := Check(core.SideClient, entry("x = 1\ny = z\n"))
 	if len(got) != 1 || !strings.HasPrefix(got[0], "plugin.star:2:") {
 		t.Errorf("got %q", got)
 	}
@@ -297,7 +297,7 @@ func lowHeapCap(t *testing.T) {
 
 func TestLoadMemoryCap(t *testing.T) {
 	lowHeapCap(t)
-	for _, files := range map[string][]plugin.TreeFile{
+	for _, files := range map[string][]core.TreeFile{
 		"entry": entry(allocSrc + "grow()\n"),
 		"lib":   tree("plugin.star", `load("lib/a.star", "a")`, "lib/a.star", allocSrc+"a = grow()\n"),
 	} {
@@ -322,7 +322,7 @@ func TestCallMemoryCap(t *testing.T) {
 func TestCallRerunMemoryCap(t *testing.T) {
 	p := mustLoad(t, "def f(p):\n    return \"ok\"\ntool(\"f\", f, \"f\")\n")
 	lowHeapCap(t)
-	p.srcs[plugin.ScriptEntry] = []byte(allocSrc + "grow()\ndef f(p):\n    return \"ok\"\ntool(\"f\", f, \"f\")\n")
+	p.srcs[core.ScriptEntry] = []byte(allocSrc + "grow()\ndef f(p):\n    return \"ok\"\ntool(\"f\", f, \"f\")\n")
 	_, err := p.Call(context.Background(), toolReq("f", `{}`))
 	ce := callErr(t, err, LimitExceeded)
 	if !strings.Contains(ce.Msg, "memory use grew past") {
@@ -346,7 +346,7 @@ tool("f", f, "f")
 	old := HeapSampleEvery
 	HeapSampleEvery = time.Millisecond
 	t.Cleanup(func() { HeapSampleEvery = old })
-	p.srcs[plugin.ScriptEntry] = []byte(tail + `held = ["y" * 1000000 for i in range(24)]` + "\n")
+	p.srcs[core.ScriptEntry] = []byte(tail + `held = ["y" * 1000000 for i in range(24)]` + "\n")
 	runtime.GC() // the baseline must not carry the garbage of earlier tests
 	_, err := p.call(context.Background(), toolReq("f", `{}`), callOpts{steps: 1 << 40})
 	ce := callErr(t, err, LimitExceeded)

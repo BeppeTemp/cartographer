@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/json"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
-	"github.com/BeppeTemp/cartographer/internal/plugin"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"os"
 	"path/filepath"
 	"strings"
@@ -177,18 +177,18 @@ func TestSyncReportsAModifiedSourceWithoutRunningItsScript(t *testing.T) {
 
 // A side with an unmet sdk (or no client side at all) is not loaded, scripts
 // included: pluginProgram returns no program for it, the same rule the points
-// and CheckScripts follow in internal/plugin/tree.go.
+// and CheckScripts follow in internal/plugin/core/tree.go.
 func TestPluginProgramSkipsAnUnloadableClientSide(t *testing.T) {
-	files := []plugin.TreeFile{{Path: "plugin.star", Content: []byte(scriptV1)}}
+	files := []core.TreeFile{{Path: "plugin.star", Content: []byte(scriptV1)}}
 	cases := []struct {
 		name string
-		p    plugin.Plugin
+		p    core.Plugin
 		want bool
 	}{
-		{"schema 1", plugin.Plugin{Files: files}, true},
-		{"client supported", plugin.Plugin{Files: files, Sides: []plugin.Side{plugin.SideClient}, Unsupported: map[plugin.Side]string{}}, true},
-		{"client unmet sdk", plugin.Plugin{Files: files, Sides: []plugin.Side{plugin.SideClient}, Unsupported: map[plugin.Side]string{plugin.SideClient: "needs sdk scripts 9"}}, false},
-		{"no client side", plugin.Plugin{Files: files, Sides: []plugin.Side{plugin.SideServer}, Unsupported: map[plugin.Side]string{}}, false},
+		{"schema 1", core.Plugin{Files: files}, true},
+		{"client supported", core.Plugin{Files: files, Sides: []core.Side{core.SideClient}, Unsupported: map[core.Side]string{}}, true},
+		{"client unmet sdk", core.Plugin{Files: files, Sides: []core.Side{core.SideClient}, Unsupported: map[core.Side]string{core.SideClient: "needs sdk scripts 9"}}, false},
+		{"no client side", core.Plugin{Files: files, Sides: []core.Side{core.SideServer}, Unsupported: map[core.Side]string{}}, false},
 	}
 	for _, c := range cases {
 		prog, err := pluginProgram(c.p)

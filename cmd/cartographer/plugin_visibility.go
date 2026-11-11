@@ -7,13 +7,13 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
-	"github.com/BeppeTemp/cartographer/internal/plugin"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 )
 
 // statusStoreUnavailable is the state of an enabled, approved plugin when the
 // plugin store itself cannot be used (no cache directory): neither "not fetched"
 // nor "modified" would be true. doctor says why.
-const statusStoreUnavailable plugin.Status = "store unavailable"
+const statusStoreUnavailable core.Status = "store unavailable"
 
 // pluginStatus is one configured plugin as `status` and `agents` report it.
 // Additive to the status schema, present only when a plugin is configured.
@@ -27,18 +27,18 @@ type pluginStatus struct {
 	SHA       string `json:"sha,omitempty"`
 	Installed string `json:"installed,omitempty"`
 	Approved  string `json:"approved,omitempty"`
-	// State is one of plugin.Status, or "store unavailable".
+	// State is one of core.Status, or "store unavailable".
 	State string `json:"state"`
 	// UpdateAvailable: a newer tree is installed than the approved one.
 	UpdateAvailable bool `json:"update_available"`
 }
 
-// pluginStateOf is plugin.State with the store's own failure folded in.
-func pluginStateOf(store plugin.Store, storeErr error, name string, e clientconfig.PluginEntry) plugin.Status {
+// pluginStateOf is core.State with the store's own failure folded in.
+func pluginStateOf(store core.Store, storeErr error, name string, e clientconfig.PluginEntry) core.Status {
 	if storeErr != nil && e.Enabled && e.Approved != "" {
 		return statusStoreUnavailable
 	}
-	st, _ := plugin.State(name, e, store, pluginOpts())
+	st, _ := core.State(name, e, store, pluginOpts())
 	return st
 }
 
@@ -96,7 +96,7 @@ func printPluginSection(w io.Writer, s statusSnapshot) {
 			line += "  update available"
 		}
 		fmt.Fprintln(w, escapeControl(line))
-		if p.State == string(plugin.StatusPending) {
+		if p.State == string(core.StatusPending) {
 			fmt.Fprintf(w, "    pending approval: cartographer plugin approve %s\n", escapeControl(p.Name))
 		}
 		for _, pr := range s.Providers {

@@ -1,4 +1,4 @@
-package plugin
+package core
 
 import (
 	"errors"
@@ -174,7 +174,7 @@ func (s Store) Open(name, digest string, opts Options) (Plugin, error) {
 	if err := safewrite.CheckPath(s.Root, dir); err != nil {
 		return Plugin{}, fmt.Errorf("%w: %v", ErrModified, err)
 	}
-	files, err := readFolder(dir)
+	files, err := ReadFolder(dir)
 	if err != nil {
 		return Plugin{}, fmt.Errorf("%w: %v", ErrModified, err)
 	}
@@ -204,7 +204,7 @@ func specialIn(files []TreeFile) string {
 }
 
 func checkDir(dir, want string, opts Options) error {
-	files, err := readFolder(dir)
+	files, err := ReadFolder(dir)
 	if err != nil {
 		return err
 	}

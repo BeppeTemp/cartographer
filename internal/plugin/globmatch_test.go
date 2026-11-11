@@ -1,6 +1,10 @@
 package plugin
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
+)
 
 func TestGlobMatch(t *testing.T) {
 	for _, c := range []struct {
@@ -28,36 +32,8 @@ func TestGlobMatch(t *testing.T) {
 	}
 }
 
-func TestExpandAnchor(t *testing.T) {
-	env := ProviderEnv{GOOS: "linux", Home: "/home/user", Getenv: func(k string) string {
-		return map[string]string{"XDG_CONFIG_HOME": "/home/user/cfg"}[k]
-	}, Documents: func(h string) string { return h + "/Docs" }}
-	for a, want := range map[string]string{"home": "/home/user", "xdg_config": "/home/user/cfg", "documents": "/home/user/Docs"} {
-		if got, err := ExpandAnchor(env, a); err != nil || got != want {
-			t.Errorf("%s = %q, %v; want %q", a, got, err, want)
-		}
-	}
-	env.Getenv = func(string) string { return "/etc" }
-	if _, err := ExpandAnchor(env, "xdg_config"); err == nil {
-		t.Error("an XDG_CONFIG_HOME outside home")
-	}
-	env.Documents = func(string) string { return "/elsewhere" }
-	if _, err := ExpandAnchor(env, "documents"); err == nil {
-		t.Error("Documents outside home")
-	}
-	for _, a := range []string{"app_data", "local_app_data"} {
-		if _, err := ExpandAnchor(env, a); err == nil {
-			t.Errorf("%s on linux", a)
-		}
-	}
-	env.Home = ""
-	if _, err := ExpandAnchor(env, "home"); err == nil {
-		t.Error("unknown home")
-	}
-}
-
 // GlobMatch and the manifest validator are one dialect: every glob below passes
-// globProblem and matches what the manifest documents. (A bare ** or * segment
+// core.GlobProblem and matches what the manifest documents. (A bare ** or * segment
 // is not manifest-valid, it reaches Cartographer's own state; ** is still
 // matched, by the table above.)
 func TestGlobMatchAgreesWithTheValidator(t *testing.T) {
@@ -73,7 +49,7 @@ func TestGlobMatchAgreesWithTheValidator(t *testing.T) {
 		{"{app_data}/t/f?.json", []string{"{app_data}/t/f1.json"}, []string{"{app_data}/t/f10.json"}},
 		{"{local_app_data}/t/[ab].log", []string{"{local_app_data}/t/a.log"}, []string{"{local_app_data}/t/c.log"}},
 	} {
-		if why := globProblem(c.glob); why != "" {
+		if why := core.GlobProblem(c.glob); why != "" {
 			t.Errorf("%q is not manifest-valid: %s", c.glob, why)
 		}
 		for _, m := range c.match {

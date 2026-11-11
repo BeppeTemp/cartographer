@@ -15,6 +15,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/plugin"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"github.com/BeppeTemp/cartographer/internal/plugin/star"
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
@@ -37,14 +38,14 @@ const pluginUsage = `Usage: cartographer plugin new <name> [<dir>]
 
 // Seams for the tests: the store lives in the user cache dir and the prompt needs a terminal.
 var (
-	pluginStoreFn     = plugin.DefaultStore
+	pluginStoreFn     = core.DefaultStore
 	pluginInteractive = func() bool { return isTerminal(os.Stdin.Fd()) }
 )
 
 // pluginOpts is what the manifest check needs from this binary. A plugin may not
 // take the name of a command: the table plus the commands dispatched but not listed.
-func pluginOpts() plugin.Options {
-	return plugin.Options{RunningVersion: version, Side: plugin.SideClient, CheckScripts: star.Check, ReservedName: func(n string) bool {
+func pluginOpts() core.Options {
+	return core.Options{RunningVersion: version, Side: core.SideClient, CheckScripts: star.Check, ReservedName: func(n string) bool {
 		return n == "hook" || n == "plugin" || slices.ContainsFunc(subcommands, func(c subcommand) bool { return c.name == n })
 	}}
 }
@@ -119,11 +120,11 @@ func printJSON(v any) {
 // scaffold is the tree `plugin new` writes. Not every point gets a folder: git
 // does not keep an empty one, and a `.gitkeep` inside a point is a file the
 // tree reader refuses, so the README names the points instead.
-func scaffold(name string) []plugin.TreeFile {
-	rng := plugin.Floor(version)
-	file := func(p, c string) plugin.TreeFile { return plugin.TreeFile{Path: p, Content: []byte(c)} }
-	return []plugin.TreeFile{
-		file(plugin.ManifestFile, fmt.Sprintf("schema: 2\nname: %s\nversion: 0.1.0\ndisplay_name: %s\ndescription: A Cartographer plugin.\ncartographer: %q\ncomponents:\n  client:\n    sdk:\n      artifacts: 1\n", name, name, rng)),
+func scaffold(name string) []core.TreeFile {
+	rng := core.Floor(version)
+	file := func(p, c string) core.TreeFile { return core.TreeFile{Path: p, Content: []byte(c)} }
+	return []core.TreeFile{
+		file(core.ManifestFile, fmt.Sprintf("schema: 2\nname: %s\nversion: 0.1.0\ndisplay_name: %s\ndescription: A Cartographer plugin.\ncartographer: %q\ncomponents:\n  client:\n    sdk:\n      artifacts: 1\n", name, name, rng)),
 		file("README.md", "# "+name+"\n\nA Cartographer plugin. Add skills/, agents/ or hooks/, then run `cartographer plugin validate .`.\n"),
 		file("skills/"+name+"-example/SKILL.md", fmt.Sprintf("---\nname: %s-example\ndescription: Example skill of the %s plugin, replace it with your own.\n---\n\n# Example\n\nSay what this skill does.\n", name, name)),
 	}
@@ -145,7 +146,7 @@ func pluginNew(args []string) int {
 	// it must not fail on its own output.
 	opts := pluginOpts()
 	opts.RunningVersion = ""
-	p, probs := plugin.ReadTree(files, opts)
+	p, probs := core.ReadTree(files, opts)
 	if len(probs) == 0 && p.Manifest.Name != name {
 		probs = []string{fmt.Sprintf("name: %q is not a plugin name", name)}
 	}
@@ -170,20 +171,20 @@ func pluginNew(args []string) int {
 }
 
 // pluginRead acquires a source into memory and validates it.
-func pluginRead(src plugin.Source) (files []plugin.TreeFile, sha string, p plugin.Plugin, probs []string, err error) {
+func pluginRead(src plugin.Source) (files []core.TreeFile, sha string, p core.Plugin, probs []string, err error) {
 	return pluginReadWith(src, pluginOpts())
 }
 
 // pluginReadWith is pluginRead with the options given, so a caller can read a
 // tree without running its scripts.
-func pluginReadWith(src plugin.Source, opts plugin.Options) (files []plugin.TreeFile, sha string, p plugin.Plugin, probs []string, err error) {
+func pluginReadWith(src plugin.Source, opts core.Options) (files []core.TreeFile, sha string, p core.Plugin, probs []string, err error) {
 	tmp, err := os.MkdirTemp("", "cartographer-plugin-")
 	if err != nil {
 		return
 	}
 	defer os.RemoveAll(tmp)
 	if files, sha, err = plugin.Fetch(context.Background(), src, tmp); err == nil {
-		p, probs = plugin.ReadTree(files, opts)
+		p, probs = core.ReadTree(files, opts)
 	}
 	return
 }
@@ -222,9 +223,9 @@ func pluginValidate(args []string) int {
 			doc["scripts"] = prog.Files
 			doc["registers"] = registrationLines(p.Manifest.Name, prog)
 		}
-		if p.Manifest.Schema != nil && *p.Manifest.Schema == plugin.SchemaVersion {
+		if p.Manifest.Schema != nil && *p.Manifest.Schema == core.SchemaVersion {
 			// Additive, schema 2 only: a schema 1 document stays what 0.28 printed.
-			doc["sides"], doc["unsupported"], doc["unknown"] = append([]plugin.Side{}, p.Sides...), p.Unsupported, append([]string{}, p.Unknown...)
+			doc["sides"], doc["unsupported"], doc["unknown"] = append([]core.Side{}, p.Sides...), p.Unsupported, append([]string{}, p.Unknown...)
 		}
 		printJSON(doc)
 	} else if len(probs) == 0 {
@@ -305,7 +306,7 @@ func pluginInstall(args []string) int {
 	}
 	previous := entry.Approved
 	entry.Source, entry.Ref, entry.SHA, entry.Version, entry.Installed = recorded, src.Ref, sha, p.Manifest.Version, p.Digest
-	// A new entry is enabled but unapproved: plugin.State reads that as pending approval, not disabled.
+	// A new entry is enabled but unapproved: core.State reads that as pending approval, not disabled.
 	entry.Enabled = entry.Enabled || !had
 	save := func(c *clientconfig.Config) error {
 		if err := c.SetPlugin(name, entry); err != nil {
@@ -358,27 +359,27 @@ func pluginInstall(args []string) int {
 	return 0
 }
 
-func pluginPreview(w io.Writer, p plugin.Plugin, e clientconfig.PluginEntry, cfg *clientconfig.Config) {
+func pluginPreview(w io.Writer, p core.Plugin, e clientconfig.PluginEntry, cfg *clientconfig.Config) {
 	have := func(n string) (string, bool) { o, ok := cfg.Plugin(n); return o.Version, ok }
-	plugin.Preview(w, p, plugin.PreviewInfo{Source: gitx.RedactRemoteURL(e.Source), Ref: e.Ref, SHA: e.SHA, Side: plugin.SideClient, Have: have}, pluginOpts())
+	plugin.Preview(w, p, plugin.PreviewInfo{Source: gitx.RedactRemoteURL(e.Source), Ref: e.Ref, SHA: e.SHA, Side: core.SideClient, Have: have}, pluginOpts())
 	previewScripts(w, p)
 }
 
 // clientSideProblem is why the client cannot take a plugin, "" when it can: a
 // schema 2 plugin that declares no client side, or one this build cannot load.
-func clientSideProblem(p plugin.Plugin) string {
-	if p.Manifest.Schema == nil || *p.Manifest.Schema != plugin.SchemaVersion {
+func clientSideProblem(p core.Plugin) string {
+	if p.Manifest.Schema == nil || *p.Manifest.Schema != core.SchemaVersion {
 		return ""
 	}
 	name := escapeControl(p.Manifest.Name)
-	if !slices.Contains(p.Sides, plugin.SideClient) {
+	if !slices.Contains(p.Sides, core.SideClient) {
 		var to []string
 		for _, s := range p.Sides {
 			to = append(to, string(s))
 		}
 		return fmt.Sprintf("plugin %s has no client side (it contributes to: %s)", name, strings.Join(to, ", "))
 	}
-	if why := p.Unsupported[plugin.SideClient]; why != "" {
+	if why := p.Unsupported[core.SideClient]; why != "" {
 		return fmt.Sprintf("the client side of plugin %s cannot load here: %s", name, escapeControl(why))
 	}
 	return ""
@@ -386,8 +387,8 @@ func clientSideProblem(p plugin.Plugin) string {
 
 // printSides names what a schema 2 plugin declares: its sides, the ones this
 // build cannot load and the entries it holds that no family of this build owns.
-func printSides(w io.Writer, p plugin.Plugin) {
-	if p.Manifest.Schema == nil || *p.Manifest.Schema != plugin.SchemaVersion {
+func printSides(w io.Writer, p core.Plugin) {
+	if p.Manifest.Schema == nil || *p.Manifest.Schema != core.SchemaVersion {
 		return
 	}
 	var sides []string
@@ -407,8 +408,8 @@ func printSides(w io.Writer, p plugin.Plugin) {
 
 // pluginView is the tree a command shows for an entry: the approved one when the
 // plugin is active, else the installed one; tree says which, "" when neither can be read.
-func pluginView(store plugin.Store, name string, e clientconfig.PluginEntry) (state plugin.Status, p plugin.Plugin, tree string) {
-	st, active := plugin.State(name, e, store, pluginOpts())
+func pluginView(store core.Store, name string, e clientconfig.PluginEntry) (state core.Status, p core.Plugin, tree string) {
+	st, active := core.State(name, e, store, pluginOpts())
 	if active != nil {
 		return st, *active, "approved"
 	}
@@ -417,10 +418,10 @@ func pluginView(store plugin.Store, name string, e clientconfig.PluginEntry) (st
 			return st, ip, "installed"
 		}
 	}
-	return st, plugin.Plugin{}, ""
+	return st, core.Plugin{}, ""
 }
 
-func pluginLoad() (*clientconfig.Config, plugin.Store, int) {
+func pluginLoad() (*clientconfig.Config, core.Store, int) {
 	store, err := pluginStoreFn()
 	if err != nil {
 		return nil, store, pluginFail(1, "%v", err)
@@ -451,7 +452,7 @@ type pluginRow struct {
 	UpdateAvailable bool           `json:"update_available"`
 }
 
-func newPluginRow(name string, e clientconfig.PluginEntry, st plugin.Status, p plugin.Plugin) pluginRow {
+func newPluginRow(name string, e clientconfig.PluginEntry, st core.Status, p core.Plugin) pluginRow {
 	r := pluginRow{Name: name, Version: e.Version, Source: gitx.RedactRemoteURL(e.Source), SHA: e.SHA, Installed: e.Installed,
 		Approved: e.Approved, State: string(st), Contributions: map[string]int{}, UpdateAvailable: e.Approved != "" && e.Installed != e.Approved}
 	for pt, cs := range p.Contributions {

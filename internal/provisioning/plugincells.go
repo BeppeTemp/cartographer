@@ -295,7 +295,7 @@ func checkDispatcherCells(name, home string, cells map[string]contract.Destinati
 // the same directory). Project cells are otherwise exempt from the overlap rule,
 // as among built-ins (several clients share .agents/skills and AGENTS.md). A
 // provider is never compared with itself. Containment under the home is the
-// resolver's (plugin.ResolveProvider) and safewrite's at write time.
+// resolver's (core.ResolveProvider) and safewrite's at write time.
 func validatePluginCells(c PluginCells, home string, others map[configurator.Provider]contract.PluginEntry) error {
 	if c.Name == "" {
 		return fmt.Errorf("plugin provider: empty name")

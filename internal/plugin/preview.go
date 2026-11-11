@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 )
 
 // PreviewInfo is what a preview needs besides the tree: where it came from and
@@ -17,7 +19,7 @@ type PreviewInfo struct {
 	// Side is the component the preview is for: only its sdk levels,
 	// permissions and contributions are shown, and the other sides are named
 	// as not loaded. Empty shows every side (plugin validate).
-	Side Side
+	Side core.Side
 	// Have reports the version of a configured plugin, for `depends`.
 	Have func(name string) (string, bool)
 }
@@ -50,7 +52,7 @@ func escAll(ss []string) string {
 // Preview prints what installing p would do, in plain words: every
 // plugin-supplied string goes through esc, and each point prints its own
 // contributions. The printed block is the record of what the user consented to.
-func Preview(w io.Writer, p Plugin, in PreviewInfo, opts Options) {
+func Preview(w io.Writer, p core.Plugin, in PreviewInfo, opts core.Options) {
 	m := p.Manifest
 	fmt.Fprintf(w, "plugin %s %s  (%s)\n", esc(m.Name), esc(m.Version), esc(m.DisplayName))
 	fmt.Fprintf(w, "  %s\n", esc(m.Description))
@@ -63,7 +65,7 @@ func Preview(w io.Writer, p Plugin, in PreviewInfo, opts Options) {
 	}
 	fmt.Fprintf(w, "  source: %s\n  digest: %s\n", src, p.Digest[:12])
 	met := "unknown"
-	if ok, err := RangeMet(m.Cartographer, opts.RunningVersion); err == nil {
+	if ok, err := core.RangeMet(m.Cartographer, opts.RunningVersion); err == nil {
 		met = map[bool]string{true: "met", false: "NOT met"}[ok]
 	}
 	fmt.Fprintf(w, "  needs Cartographer %s: %s by this build\n", esc(m.Cartographer), met)
@@ -75,7 +77,7 @@ func Preview(w io.Writer, p Plugin, in PreviewInfo, opts Options) {
 		fmt.Fprintf(w, "  depends on %s %s: %s\n", esc(n), esc(m.Depends[n]), state)
 	}
 
-	if p.isSchema2() {
+	if isSchema2(p) {
 		previewSides(w, p, in)
 	} else {
 		previewPermissions(w, "permissions:", m.Permissions)
@@ -89,7 +91,7 @@ func Preview(w io.Writer, p Plugin, in PreviewInfo, opts Options) {
 	}
 
 	var runs []string
-	for _, pt := range RegisteredPoints() {
+	for _, pt := range core.RegisteredPoints() {
 		cs := p.Contributions[pt.Dir]
 		if len(cs) == 0 || (in.Side != "" && pt.Side != in.Side) {
 			continue
@@ -111,12 +113,12 @@ func Preview(w io.Writer, p Plugin, in PreviewInfo, opts Options) {
 }
 
 // isSchema2 reports a plugin read from a schema 2 manifest.
-func (p Plugin) isSchema2() bool {
-	return p.Manifest.Schema != nil && *p.Manifest.Schema == SchemaVersion
+func isSchema2(p core.Plugin) bool {
+	return p.Manifest.Schema != nil && *p.Manifest.Schema == core.SchemaVersion
 }
 
 // previewPermissions prints one permission block under head.
-func previewPermissions(w io.Writer, head string, pm *Permissions) {
+func previewPermissions(w io.Writer, head string, pm *core.Permissions) {
 	fmt.Fprintln(w, head)
 	n := 0
 	say := func(what string, vals ...string) {
@@ -145,12 +147,12 @@ func previewPermissions(w io.Writer, head string, pm *Permissions) {
 // previewSides prints, for the side asked for (every declared side when none),
 // its sdk levels and permissions, then what the other sides and the tree hold
 // that this build does not load.
-func previewSides(w io.Writer, p Plugin, in PreviewInfo) {
+func previewSides(w io.Writer, p core.Plugin, in PreviewInfo) {
 	shown := p.Sides
 	if in.Side != "" {
 		shown = nil
 		if slices.Contains(p.Sides, in.Side) {
-			shown = []Side{in.Side}
+			shown = []core.Side{in.Side}
 		}
 	}
 	for _, side := range shown {
@@ -193,6 +195,6 @@ func previewSides(w io.Writer, p Plugin, in PreviewInfo) {
 
 // RangeMetOK is RangeMet with a malformed range counting as not met.
 func RangeMetOK(rng, v string) bool {
-	ok, err := RangeMet(rng, v)
+	ok, err := core.RangeMet(rng, v)
 	return err == nil && ok
 }

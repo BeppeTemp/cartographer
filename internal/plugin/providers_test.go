@@ -4,23 +4,25 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 )
 
 // fakeMachine points the point's loader and preview at a fake Linux home.
 func fakeMachine(t *testing.T) {
 	t.Helper()
 	old := providerEnv
-	providerEnv = func() ProviderEnv { return fakeEnv("linux", nil) }
+	providerEnv = func() core.ProviderEnv { return fakeEnv("linux", nil) }
 	t.Cleanup(func() { providerEnv = old })
 }
 
-func providerTree() []TreeFile {
-	return []TreeFile{tf(ManifestFile, validManifest), tf("providers/fork-cli.yaml", forkCLI), tf("providers/fork-ext.yaml", forkExt)}
+func providerTree() []core.TreeFile {
+	return []core.TreeFile{tf(core.ManifestFile, validManifest), tf("providers/fork-cli.yaml", forkCLI), tf("providers/fork-ext.yaml", forkExt)}
 }
 
 func TestProvidersPointLoadsDescriptorsAndInstallsNoArtifact(t *testing.T) {
 	fakeMachine(t)
-	p, probs := ReadTree(providerTree(), testOpts)
+	p, probs := core.ReadTree(providerTree(), testOpts)
 	if len(probs) != 0 {
 		t.Fatal(probs)
 	}
@@ -37,7 +39,7 @@ func TestProvidersPointLoadsDescriptorsAndInstallsNoArtifact(t *testing.T) {
 
 func TestProviderPreviewPrintsThePathsOfThisMachine(t *testing.T) {
 	fakeMachine(t)
-	p, probs := ReadTree(providerTree(), testOpts)
+	p, probs := core.ReadTree(providerTree(), testOpts)
 	if len(probs) != 0 {
 		t.Fatal(probs)
 	}
@@ -70,12 +72,12 @@ func TestProviderPreviewPrintsThePathsOfThisMachine(t *testing.T) {
 func TestValidateReportsAProviderTheRegistriesRefuse(t *testing.T) {
 	fakeMachine(t)
 	clash := strings.ReplaceAll(strings.ReplaceAll(forkCLI, "fork-cli", "fork-clash"), "{xdg_config}/fork-clash/skills", "{home}/.claude/skills")
-	_, probs := ReadTree([]TreeFile{tf(ManifestFile, validManifest), tf("providers/fork-clash.yaml", clash)}, testOpts)
+	_, probs := core.ReadTree([]core.TreeFile{tf(core.ManifestFile, validManifest), tf("providers/fork-clash.yaml", clash)}, testOpts)
 	if len(probs) == 0 || !strings.Contains(strings.Join(probs, "\n"), "providers/fork-clash.yaml") {
 		t.Errorf("a provider whose root is a built-in's was accepted: %v", probs)
 	}
 	// A stem that differs from the name, a stray file and a nested folder.
-	_, probs = ReadTree([]TreeFile{tf(ManifestFile, validManifest), tf("providers/other.yaml", forkCLI), tf("providers/notes.txt", "x"), tf("providers/sub/a.yaml", forkCLI)}, testOpts)
+	_, probs = core.ReadTree([]core.TreeFile{tf(core.ManifestFile, validManifest), tf("providers/other.yaml", forkCLI), tf("providers/notes.txt", "x"), tf("providers/sub/a.yaml", forkCLI)}, testOpts)
 	if len(probs) < 3 {
 		t.Errorf("problems: %v", probs)
 	}

@@ -45,7 +45,7 @@ func LoadPlugins(dir string) (map[string]PluginEntry, error) {
 
 // PluginEntry is one installed plugin of the `plugins` key. Only the plugin
 // commands write it; a plugin's own files never do. Approved empty means the
-// install is pending approval; the plugin is active only through plugin.State.
+// install is pending approval; the plugin is active only through core.State.
 type PluginEntry struct {
 	// Source is a git remote or an absolute folder, as plugin.ParseSource reads it.
 	Source string `yaml:"source"`
@@ -69,7 +69,7 @@ type PluginEntry struct {
 	Settings map[string]any `yaml:"settings,omitempty"`
 }
 
-// PluginEnabled and PluginApproved make the entry a plugin.Entry (the plugin
+// PluginEnabled and PluginApproved make the entry a core.Entry (the plugin
 // package cannot import this one).
 func (e PluginEntry) PluginEnabled() bool    { return e.Enabled }
 func (e PluginEntry) PluginApproved() string { return e.Approved }

@@ -16,7 +16,7 @@ const modPath = "github.com/BeppeTemp/cartographer/"
 // the data plane, however far down the import chain.
 var client = []string{
 	"agents", "artifactsig", "blocktext", "client", "clientconfig", "componentproto", "configurator",
-	"defaults", "execbit", "feedback", "gitx", "jsonorder", "mcpbridge", "okf", "plugin",
+	"defaults", "execbit", "feedback", "gitx", "jsonorder", "mcpbridge", "okf", "plugin", "plugin/core",
 	"procattr", "provisioning", "provisioning/contract", "repoindex", "safewrite", "secretscan", "settingschema", "skill",
 	"skillbundle", "updatecheck",
 }
@@ -140,15 +140,20 @@ func TestEveryImportedPackageIsClassified(t *testing.T) {
 	}
 }
 
-// The server links the wire contract of provisioning, never the half that writes
-// into other people's home directories (D-new-client-import-firewall). Transitive,
-// like the client firewall: the first hop of the chain is named.
+// The server links the wire contract of provisioning and the plugin core
+// (internal/plugin/core), never the half that writes into other people's home
+// directories: provisioning, plugin and mcpbridge (D-new-client-import-firewall,
+// D-new-plugin-core). Transitive, like the client firewall: the first hop of the
+// chain is named.
 func TestServerNeverLinksTheApply(t *testing.T) {
 	apply := []string{"provisioning", "plugin", "mcpbridge"}
-	for _, pkg := range []string{"mcpserver", "lint", "kb", "config", "audit", "auth", "sqlindex", "search"} {
+	for _, pkg := range []string{"mcpserver", "lint", "kb", "config", "audit", "auth", "sqlindex", "search", "surveyor", "surveyorconfig"} {
 		if c := chainTo(t, pkg, apply); c != nil {
 			t.Errorf("server-side internal/%s reaches the apply half: %s", pkg, strings.Join(c, " -> "))
 		}
+	}
+	if c := chainTo(t, "plugin/core", apply); c != nil {
+		t.Errorf("internal/plugin/core reaches the apply half: %s", strings.Join(c, " -> "))
 	}
 	if c := chainTo(t, "provisioning/contract", []string{"kb", "provisioning", "plugin", "mcpbridge"}); c != nil {
 		t.Errorf("internal/provisioning/contract reaches the data plane or the apply half: %s", strings.Join(c, " -> "))

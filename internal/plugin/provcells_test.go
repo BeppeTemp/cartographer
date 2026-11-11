@@ -3,6 +3,7 @@ package plugin
 import (
 	"testing"
 
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
@@ -12,7 +13,7 @@ import (
 func TestResolvedProviderCellsRegisterWithProvisioning(t *testing.T) {
 	var cells []provisioning.PluginCells
 	for _, tc := range []struct{ name, src string }{{"fork-cli", forkCLI}, {"fork-ext", forkExt}} {
-		r, _ := ResolveProvider(parsed(t, tc.name, tc.src), fakeEnv("linux", nil))
+		r, _ := core.ResolveProvider(parsed(t, tc.name, tc.src), fakeEnv("linux", nil))
 		c := ProviderCells(r, true)
 		if c.Name != tc.name || c.Base != r.Base || !c.Active {
 			t.Fatalf("%s: %+v", tc.name, c)
@@ -30,7 +31,7 @@ func TestResolvedProviderCellsRegisterWithProvisioning(t *testing.T) {
 	if cells[1].Global.Hook == nil || cells[1].Global.Instructions == nil || cells[0].Global.Skill == nil {
 		t.Errorf("a cell was lost in the conversion: %+v", cells)
 	}
-	if r, _ := ResolveProvider(parsed(t, "fork-ext", forkExt), fakeEnv("linux", nil)); ProviderCells(r, false).Active {
+	if r, _ := core.ResolveProvider(parsed(t, "fork-ext", forkExt), fakeEnv("linux", nil)); ProviderCells(r, false).Active {
 		t.Error("Active is the plugin's, not the descriptor's")
 	}
 }

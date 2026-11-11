@@ -9,13 +9,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BeppeTemp/cartographer/internal/plugin"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 )
 
 // fileEnv is a temporary home with its config and cache directories.
 type fileEnv struct {
 	home, config, cache string
-	perms               *plugin.Permissions
+	perms               *core.Permissions
 	readOnly            bool
 }
 
@@ -23,7 +23,7 @@ func newFileEnv(t *testing.T, read, write []string) *fileEnv {
 	t.Helper()
 	home := t.TempDir()
 	e := &fileEnv{home: home, config: filepath.Join(home, "cfgdir"), cache: filepath.Join(home, "cachedir")}
-	e.perms = &plugin.Permissions{Files: &plugin.Files{Read: read, Write: write}}
+	e.perms = &core.Permissions{Files: &core.Files{Read: read, Write: write}}
 	return e
 }
 

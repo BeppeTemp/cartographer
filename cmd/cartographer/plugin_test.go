@@ -14,6 +14,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/plugin"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
@@ -21,9 +22,9 @@ func pluginFixture(t *testing.T) (home string) {
 	t.Helper()
 	home = t.TempDir()
 	setHome(t, home)
-	store := plugin.Store{Root: filepath.Join(t.TempDir(), "plugins")}
+	store := core.Store{Root: filepath.Join(t.TempDir(), "plugins")}
 	oldStore, oldTTY := pluginStoreFn, pluginInteractive
-	pluginStoreFn = func() (plugin.Store, error) { return store, nil }
+	pluginStoreFn = func() (core.Store, error) { return store, nil }
 	pluginInteractive = func() bool { return false }
 	t.Cleanup(func() {
 		pluginStoreFn, pluginInteractive = oldStore, oldTTY
@@ -226,7 +227,7 @@ func TestPluginNewOnAnOlderCore(t *testing.T) {
 	if code, out := runPlugin(t, "new", "team-forks", dir); code != 0 {
 		t.Fatalf("new on 0.28.3: exit %d\n%s", code, out)
 	}
-	data, err := os.ReadFile(filepath.Join(dir, plugin.ManifestFile))
+	data, err := os.ReadFile(filepath.Join(dir, core.ManifestFile))
 	if err != nil || !strings.Contains(string(data), `cartographer: ">=0.29.0"`) {
 		t.Errorf("manifest %q, err %v", data, err)
 	}
@@ -301,7 +302,7 @@ func TestPluginVendorFillsAPinnedStore(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("vendor: exit %d\n%s", code, out)
 	}
-	_, probs := plugin.ReadTree(mustTree(t, src), plugin.Options{RunningVersion: version})
+	_, probs := core.ReadTree(mustTree(t, src), core.Options{RunningVersion: version})
 	if len(probs) != 0 {
 		t.Fatal(probs)
 	}
@@ -317,12 +318,12 @@ func TestPluginVendorFillsAPinnedStore(t *testing.T) {
 	if _, err := os.Stat(clientconfig.Path(home)); err == nil {
 		t.Error("vendor wrote the client config")
 	}
-	pins := map[string]plugin.Pin{"feeds": {Enabled: true, Digest: m[1]}}
-	got, pp := plugin.LoadPinned(to, pins, plugin.SideSurveyor, pluginOpts())
+	pins := map[string]core.Pin{"feeds": {Enabled: true, Digest: m[1]}}
+	got, pp := core.LoadPinned(to, pins, core.SideSurveyor, pluginOpts())
 	if len(pp) != 0 || len(got) != 1 {
 		t.Fatalf("LoadPinned: %v %v", got, pp)
 	}
-	if _, pp = plugin.LoadPinned(to, pins, plugin.SideServer, pluginOpts()); len(pp) != 1 || !strings.Contains(pp[0].Reason, "no server side") {
+	if _, pp = core.LoadPinned(to, pins, core.SideServer, pluginOpts()); len(pp) != 1 || !strings.Contains(pp[0].Reason, "no server side") {
 		t.Errorf("a plugin without the side: %v", pp)
 	}
 
@@ -338,7 +339,7 @@ func TestPluginVendorFillsAPinnedStore(t *testing.T) {
 	}
 }
 
-func mustTree(t *testing.T, dir string) []plugin.TreeFile {
+func mustTree(t *testing.T, dir string) []core.TreeFile {
 	t.Helper()
 	files, _, err := plugin.Fetch(context.Background(), plugin.Source{Path: dir}, t.TempDir())
 	if err != nil {

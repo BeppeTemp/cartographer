@@ -10,14 +10,15 @@ import (
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // DefaultProviderEnv is the machine ResolveProvider reads at run time.
-func DefaultProviderEnv() ProviderEnv {
+func DefaultProviderEnv() core.ProviderEnv {
 	home, _ := os.UserHomeDir()
-	return ProviderEnv{GOOS: runtime.GOOS, Home: home, Getenv: os.Getenv}
+	return core.ProviderEnv{GOOS: runtime.GOOS, Home: home, Getenv: os.Getenv}
 }
 
 // providerEnv is the environment the point's loader and preview resolve against;
@@ -29,10 +30,10 @@ var providerEnv = DefaultProviderEnv
 // validate` catches a provider that collides with a built-in or is refused by
 // the registry offline. A path left out by the resolver is not a problem (it is
 // shown by the preview); a provider the registries would refuse is.
-func loadProviders(files []TreeFile) ([]Contribution, []string) {
+func loadProviders(files []core.TreeFile) ([]core.Contribution, []string) {
 	var problems []string
-	var out []Contribution
-	var specs []ProviderSpec
+	var out []core.Contribution
+	var specs []core.ProviderSpec
 	env := providerEnv()
 	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
 	for _, f := range files {
@@ -42,7 +43,7 @@ func loadProviders(files []TreeFile) ([]Contribution, []string) {
 			problems = append(problems, fmt.Sprintf("%s: expected a file providers/<id>.yaml", f.Path))
 			continue
 		}
-		spec, probs := ParseProvider(stem, f.Content)
+		spec, probs := core.ParseProvider(stem, f.Content)
 		for _, pr := range probs {
 			problems = append(problems, f.Path+": "+pr)
 		}
@@ -50,7 +51,7 @@ func loadProviders(files []TreeFile) ([]Contribution, []string) {
 			continue
 		}
 		if env.Home != "" {
-			r, _ := ResolveProvider(spec, env)
+			r, _ := core.ResolveProvider(spec, env)
 			if err := configurator.CheckPlugin(r.Registration("check", true)); err != nil {
 				problems = append(problems, f.Path+": "+err.Error())
 				continue
@@ -62,22 +63,22 @@ func loadProviders(files []TreeFile) ([]Contribution, []string) {
 		}
 		specs = append(specs, spec)
 		s := spec
-		out = append(out, Contribution{Point: "providers", Kind: "provider", Name: spec.Name, Files: []contract.ArtifactFile{{Path: path.Base(f.Path), Content: f.Content}}, Provider: &s})
+		out = append(out, core.Contribution{Point: "providers", Kind: "provider", Name: spec.Name, Files: []contract.ArtifactFile{{Path: path.Base(f.Path), Content: f.Content}}, Provider: &s})
 	}
-	problems = append(problems, ProviderNameClashes(specs)...)
+	problems = append(problems, core.ProviderNameClashes(specs)...)
 	return out, problems
 }
 
 // previewProvider prints what a provider would do on this machine: the places it
 // is detected, the files it writes, its MCP mode and hook root, and the
 // capabilities it claims. Every string passes through esc.
-func previewProvider(w io.Writer, c Contribution) {
+func previewProvider(w io.Writer, c core.Contribution) {
 	s := c.Provider
 	if s == nil {
 		return
 	}
 	env := providerEnv()
-	r, reasons := ResolveProvider(*s, env)
+	r, reasons := core.ResolveProvider(*s, env)
 	fmt.Fprintf(w, "provider %s (%s), a fork of %s\n", esc(s.Name), esc(s.DisplayName), esc(s.Base))
 	home := env.Home
 	abs := func(segs []string) string {
@@ -117,18 +118,4 @@ func previewProvider(w io.Writer, c Contribution) {
 	for _, why := range reasons {
 		fmt.Fprintf(w, "  left out: %s\n", esc(why))
 	}
-}
-
-// Providers returns the providers of p resolved for env, in name order, with the
-// reasons paths were left out kept in each one's LeftOut.
-func (p Plugin) Providers(env ProviderEnv) []ResolvedProvider {
-	var out []ResolvedProvider
-	for _, c := range p.Contributions["providers"] {
-		if c.Provider == nil {
-			continue
-		}
-		r, _ := ResolveProvider(*c.Provider, env) // the reasons stay in r.LeftOut
-		out = append(out, r)
-	}
-	return out
 }

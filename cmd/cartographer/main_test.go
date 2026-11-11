@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/BeppeTemp/cartographer/internal/plugin"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"github.com/BeppeTemp/cartographer/internal/repodocs"
 )
 
@@ -453,7 +453,7 @@ func TestCommandTableMatchesDispatchAndDocs(t *testing.T) {
 	// `cartographer <plugin> <command>` is dispatched to an installed plugin, not a
 	// case of run(): the docs tutorial cites the example plugin's, so its name is accepted.
 	examplePlugin := ""
-	if m, err := plugin.ParseManifest([]byte(read("test/e2e/fixtures/plugin-example/cartographer-plugin.yaml")), plugin.Options{}); len(err) == 0 {
+	if m, err := core.ParseManifest([]byte(read("test/e2e/fixtures/plugin-example/cartographer-plugin.yaml")), core.Options{}); len(err) == 0 {
 		examplePlugin = m.Name
 	} else {
 		t.Fatalf("the example plugin's manifest: %v", err)
