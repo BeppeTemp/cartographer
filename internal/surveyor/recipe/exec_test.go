@@ -3,6 +3,7 @@ package recipe
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -340,7 +341,7 @@ func TestSystemCheckRefusalsNeverList(t *testing.T) {
 		}
 	}
 	// The codes are a contract (the Atlas shows feed_error).
-	if CodeIdentityNotReadOnly != "identity_not_read_only" || CodeCheckFailed != "check_failed" {
+	if CodeIdentityNotReadOnly != "identity_not_read_only" || CodeCheckFailed != "check_failed" || CodeSpecInvalid != "spec_invalid" {
 		t.Error("code changed")
 	}
 	// Start failure and a timeout are failures of the check too.
@@ -422,10 +423,97 @@ func TestExecDeleteLinesBecomeRemovedEntries(t *testing.T) {
 
 func TestExecVerbsThatAreNotImplementedExitSixtyFour(t *testing.T) {
 	r := helper(t, "exit64")
+	if _, err := r.(Specer).Spec(context.Background()); err != ErrUnsupported {
+		t.Errorf("spec = %v", err)
+	}
 	if _, err := r.(Checker).Check(context.Background(), Request{ID: "s"}); err != ErrUnsupported {
 		t.Errorf("feed check = %v", err)
 	}
 	listErr(t, r, CodeListFailed, "does not implement list")
+}
+
+const goodSpec = `{"spec":{"title":"Wiki changes","description":"Pages of a wiki.","shapes":["feed"],"verbs":["spec","check","list"],` +
+	`"settings":{"space":{"type":"string","description":"The space.","required":true},"limit":{"type":"int","default":50}},"env":["WIKI_TOKEN"]}}`
+
+func TestExecSpecIsSelfDescriptionHeldToItsShape(t *testing.T) {
+	log := filepath.Join(t.TempDir(), "verbs")
+	sp, err := helper(t, "byverb", log, goodSpec, "-").(Specer).Spec(context.Background())
+	if err != nil || sp.Title != "Wiki changes" || !sp.Declares(VerbCheck) || sp.Declares(VerbFetch) || sp.Settings["space"].Type != "string" || sp.Env[0] != "WIKI_TOKEN" {
+		t.Fatalf("spec = %+v, %v", sp, err)
+	}
+	if got := verbs_(t, log); len(got) != 1 || got[0] != "spec" {
+		t.Errorf("verbs = %v", got)
+	}
+	wrap := func(mut func(m map[string]any)) string {
+		var m map[string]map[string]any
+		_ = json.Unmarshal([]byte(goodSpec), &m)
+		mut(m["spec"])
+		b, _ := json.Marshal(m)
+		return string(b)
+	}
+	for name, tc := range map[string]struct{ answer, want string }{
+		"no title":     {wrap(func(m map[string]any) { m["title"] = "" }), "title"},
+		"long title":   {wrap(func(m map[string]any) { m["title"] = strings.Repeat("t", 121) }), "title"},
+		"no shapes":    {wrap(func(m map[string]any) { m["shapes"] = []string{} }), "shapes"},
+		"bad shape":    {wrap(func(m map[string]any) { m["shapes"] = []string{"stream"} }), "stream"},
+		"other shape":  {wrap(func(m map[string]any) { m["shapes"] = []string{"system"} }), "configured as shape feed"},
+		"no list":      {wrap(func(m map[string]any) { m["verbs"] = []string{"spec", "check"} }), "declare list"},
+		"unknown verb": {wrap(func(m map[string]any) { m["verbs"] = []string{"list", "delete"} }), "delete"},
+		"setting name": {wrap(func(m map[string]any) { m["settings"] = map[string]any{"Bad-Name": map[string]any{"type": "string"}} }), "Bad-Name"},
+		"setting type": {wrap(func(m map[string]any) { m["settings"] = map[string]any{"a": map[string]any{"type": "list"}} }), "type"},
+		"setting deflt": {wrap(func(m map[string]any) {
+			m["settings"] = map[string]any{"a": map[string]any{"type": "int", "default": "x"}}
+		}), "default"},
+		"env name":      {wrap(func(m map[string]any) { m["env"] = []string{"lower"} }), "lower"},
+		"not wrapped":   {`{"title":"x"}`, "not exactly one"},
+		"two objects":   {goodSpec + goodSpec, "not exactly one"},
+		"wrong type":    {`{"spec":{"title":5}}`, "wrong type"},
+		"exit non-zero": {"exit3", "exit 3"},
+	} {
+		_, err := helper(t, "byverb", filepath.Join(t.TempDir(), "v"), tc.answer, "-").(Specer).Spec(context.Background())
+		if e, ok := err.(*Error); !ok || e.Code != CodeSpecInvalid || !strings.Contains(e.Detail, tc.want) {
+			t.Errorf("%s: %v, want spec_invalid containing %q", name, err, tc.want)
+		}
+	}
+}
+
+func TestSpecChecksTheOperatorsSettings(t *testing.T) {
+	sp, err := helper(t, "byverb", filepath.Join(t.TempDir(), "v"), goodSpec, "-").(Specer).Spec(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, tc := range map[string]struct {
+		cfg  map[string]any
+		want string
+	}{
+		"ok":         {map[string]any{"space": "ENG", "limit": 10}, ""},
+		"float int":  {map[string]any{"space": "ENG", "limit": 10.0}, ""},
+		"defaulted":  {map[string]any{"space": "ENG"}, ""},
+		"required":   {map[string]any{"limit": 10}, `"space" is required`},
+		"unknown":    {map[string]any{"space": "ENG", "extra": true}, `"extra" is not one the recipe declares`},
+		"wrong type": {map[string]any{"space": 3}, `"space" must be a string`},
+		"fractional": {map[string]any{"space": "a", "limit": 1.5}, `"limit" must be a int`},
+	} {
+		err := sp.CheckSettings(tc.cfg)
+		if (tc.want == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), tc.want)) {
+			t.Errorf("%s: %v, want %q", name, err, tc.want)
+		}
+	}
+}
+
+func TestExecSettingsTravelAsConfigToEveryVerb(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "stdin.json")
+	r := helperWith(t, func(c *ExecConfig) { c.Settings = map[string]any{"space": "ENG", "limit": 50} }, "stdin", f)
+	if _, err := r.List(context.Background(), Request{ID: "s"}); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(f); !strings.Contains(string(b), `"config":{"limit":50,"space":"ENG"}`) {
+		t.Errorf("list stdin = %s", b)
+	}
+	_, _ = r.(Specer).Spec(context.Background()) // refused for its answer; the stdin is what counts
+	if b, _ := os.ReadFile(f); !strings.Contains(string(b), `"verb":"spec"`) || !strings.Contains(string(b), `"config":{"limit":50,"space":"ENG"}`) || strings.Contains(string(b), `"source"`) {
+		t.Errorf("spec stdin = %s", b)
+	}
 }
 
 func TestExecFeedCheckAnswersAndRedacts(t *testing.T) {
@@ -455,5 +543,48 @@ func TestExecFeedCheckAnswersAndRedacts(t *testing.T) {
 	v, err = mk(`{"check":{"ok":true,"identity":"`+strings.Repeat("i", 200)+`","detail":"`+strings.Repeat("d", 400)+`"}}`).Check(context.Background(), Request{ID: "s"})
 	if err != nil || len([]rune(v.Identity())) != 120 || len([]rune(v.Detail())) != 300 {
 		t.Errorf("limits: %d %d %v", len(v.Identity()), len(v.Detail()), err)
+	}
+}
+
+func TestScalarsAreFiniteAndInRange(t *testing.T) {
+	for name, tc := range map[string]struct {
+		typ  string
+		v    any
+		want bool
+	}{
+		"nan number":    {"number", math.NaN(), false},
+		"inf number":    {"number", math.Inf(1), false},
+		"inf int":       {"int", math.Inf(-1), false},
+		"nan int":       {"int", math.NaN(), false},
+		"huge float":    {"int", 1e300, false},
+		"huge uint":     {"int", uint64(math.MaxUint64), false},
+		"huge uint num": {"number", uint64(math.MaxUint64), false},
+		"ok int":        {"int", 42.0, true},
+		"ok number":     {"number", 0.5, true},
+	} {
+		if got := scalarFits(tc.typ, tc.v); got != tc.want {
+			t.Errorf("%s: %v, want %v", name, got, tc.want)
+		}
+	}
+}
+
+func TestExecSpecTextIsRedactedAndCleanedLikeACheck(t *testing.T) {
+	t.Setenv("WIKI_TOKEN", "s3cr3t-token-value")
+	spec := `{"spec":{"title":"Wiki s3cr3t-token-value\u001b[31m","description":"d\nline s3cr3t-token-value","shapes":["feed"],"verbs":["list"],` +
+		`"settings":{"space":{"type":"string","default":"x\u0007s3cr3t-token-value","description":"tok s3cr3t-token-value"}},"env":[]}}`
+	r := helperWith(t, func(c *ExecConfig) { c.Env = map[string]string{"API_TOKEN": "WIKI_TOKEN"} }, "byverb", filepath.Join(t.TempDir(), "v"), spec, "-")
+	sp, err := r.(Specer).Spec(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := sp.Title + sp.Description + sp.Settings["space"].Description + sp.Settings["space"].Default.(string)
+	if strings.Contains(all, "s3cr3t") || strings.ContainsAny(all, "\x1b\n\x07") || !strings.Contains(sp.Title, "***") {
+		t.Errorf("spec text not cleaned: %+v", sp)
+	}
+	// An error quotes the script's text too.
+	bad := `{"spec":{"title":"t","description":"d","shapes":["feed"],"verbs":["list","s3cr3t-token-value"],"settings":{},"env":[]}}`
+	r = helperWith(t, func(c *ExecConfig) { c.Env = map[string]string{"API_TOKEN": "WIKI_TOKEN"} }, "byverb", filepath.Join(t.TempDir(), "v"), bad, "-")
+	if _, err := r.(Specer).Spec(context.Background()); err == nil || strings.Contains(err.Error(), "s3cr3t") || !strings.Contains(err.Error(), "***") {
+		t.Errorf("error = %v", err)
 	}
 }

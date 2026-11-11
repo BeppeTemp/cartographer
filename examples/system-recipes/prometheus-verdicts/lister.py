@@ -2,7 +2,7 @@
 """A system lister that reports verdicts, not metrics, from a Prometheus HTTP API.
 
 It speaks protocol v2 of the Surveyor's exec recipes (docs/surveyor-recipes.md):
-one JSON request on stdin, verb "check" or "list", the answer on stdout.
+one JSON request on stdin, verb "spec", "check" or "list", the answer on stdout.
 The computing happens at the source, in PromQL; this script only turns each
 answer into one word of a fixed scale. A value that moves inside its band
 changes nothing, so the group keeps its revision and the poll spends no token.
@@ -173,6 +173,11 @@ def listing(req, checks):
     return out
 
 
+def spec():
+    return {"spec": {"title": "Metrics verdicts", "description": "One group per responsibility, each signal a word of a fixed scale, from a Prometheus HTTP API.",
+                     "shapes": ["system"], "verbs": ["spec", "check", "list"], "settings": {}, "env": ["METRICS_URL", "METRICS_TOKEN"]}}
+
+
 def check(identity):
     flags = api("/api/v1/status/flags")
     if not isinstance(flags, dict) or WRITE_FLAGS[0] not in flags:
@@ -194,12 +199,14 @@ def main():
         if req.get("protocol") != 2:
             return 64  # a protocol this script does not speak
         verb = req.get("verb")
-        if verb == "check":
+        if verb == "spec":
+            lines = [spec()]
+        elif verb == "check":
             lines = [check(identity)]
         elif verb == "list":
             lines = listing(req, checks)
         else:
-            return 64  # a verb this script does not implement
+            return 64  # a verb this script does not implement (fetch)
     except Failure as e:
         sys.stderr.write("lister: %s\n" % e)
         return 2

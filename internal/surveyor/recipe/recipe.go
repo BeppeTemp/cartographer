@@ -67,6 +67,12 @@ type Recipe interface {
 	List(ctx context.Context, req Request) (Listing, error)
 }
 
+// Specer is a recipe that can describe itself (the spec verb). A recipe that
+// does not implement the verb answers ErrUnsupported.
+type Specer interface {
+	Spec(ctx context.Context) (Spec, error)
+}
+
 // Checker is a recipe that can check its credentials and reachability (the
 // check verb); for a system recipe the check also proves the identity read-only.
 // A recipe that does not implement the verb answers ErrUnsupported.
@@ -75,8 +81,8 @@ type Checker interface {
 }
 
 // ErrUnsupported is what a verb answers when the script exits 64 with no
-// output: it does not implement that verb. Check treats it as "nothing to say";
-// for list it is a failure.
+// output: it does not implement that verb. Spec and check treat it as "nothing
+// to say"; for list it is a failure.
 var ErrUnsupported = errors.New("recipe: the verb is not implemented by this recipe")
 
 // Error is a listing failure with the code that goes to the Source's
@@ -93,8 +99,10 @@ const (
 	CodeCursorInvalid  = "cursor_invalid"
 	CodeListFailed     = "list_failed"
 	// CodeCheckFailed is a check that answered ok: false, exited non-zero or gave
-	// an unreadable answer; the detail is shown.
+	// an unreadable answer; the detail is shown. CodeSpecInvalid is a spec that
+	// failed or breaks the shape of a spec (exec.go).
 	CodeCheckFailed = "check_failed"
+	CodeSpecInvalid = "spec_invalid"
 	// CodeIdentityNotReadOnly is the feed_error code of a system check that did
 	// not answer read_only: true: a contract, the Atlas shows it (D1372).
 	CodeIdentityNotReadOnly = "identity_not_read_only"

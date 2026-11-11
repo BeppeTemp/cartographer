@@ -6,15 +6,19 @@ The full contract is `docs/surveyor-recipes.md` in the Cartographer repository; 
 
 One JSON object, then closed:
 
-- `protocol`: `2`; `verb`: `"list"`, and optionally `"check"` (can the credentials
+- `protocol`: `2`; `verb`: `"list"`, and optionally `"spec"` (describe yourself) and `"check"` (can the credentials
   reach the source?); a system recipe must implement `"check"`. A script receiving another protocol number or a verb it
   does not implement exits 64 with no output.
-- `config`: an object, `{}` for now.
+- `config`: the operator's `recipes.<name>.settings` (scalars; `{}` if none).
 - `source` (`check`, `list`): `id`, `title`, `locator`, `source_kind`, `source_shape`, `include` (list of globs, `[]` if none).
 - `cursor` (`list`): the string returned last time, `null` on the first listing; `max_entries`, `max_content_bytes`:
   limits the script keeps to.
 
 ## The answers (stdout)
+
+`spec`: exactly one line `{"spec": {"title", "description", "shapes": ["feed"], "verbs": ["spec", "check", "list"],
+"settings": {name: {"type": "string|int|number|bool", "default", "description", "required"}}, "env": ["NAME"]}}`.
+`verbs` must include `list`.
 
 `check`: exactly one line `{"check": {"ok": true, "detail": "...", "identity": "...", "read_only": true}}`;
 `ok: false` (or a non-zero exit) fails the check with `detail` shown. `read_only` is required for a system recipe.
@@ -54,6 +58,7 @@ recipes:
       args: ["--space", "ENG"]
       env: {WIKI_TOKEN: WIKI_API_TOKEN}
       timeout: 5m
+    settings: {space: ENG}   # optional scalars, sent as `config`; `source test` checks them against the spec
 ```
 
 - `command` with a path separator is resolved against the config file's directory; it needs a shebang and the
@@ -72,6 +77,11 @@ req = json.load(sys.stdin)
 if req.get("protocol") != 2:
     sys.exit(64)  # a protocol this script does not speak
 verb = req.get("verb")
+if verb == "spec":
+    print(json.dumps({"spec": {"title": "Wiki changes", "description": "Pages of a wiki changed since the cursor.",
+                               "shapes": ["feed"], "verbs": ["spec", "check", "list"],
+                               "settings": {}, "env": ["WIKI_TOKEN"]}}))
+    sys.exit(0)
 if verb == "check":  # can the credentials reach the source? a system recipe also proves read_only here
     print(json.dumps({"check": {"ok": True, "read_only": False, "identity": "TODO", "detail": "replace with a real check"}}))
     sys.exit(0)

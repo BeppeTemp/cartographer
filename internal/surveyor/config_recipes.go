@@ -1,6 +1,8 @@
 package surveyor
 
 import (
+	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -19,6 +21,10 @@ type rawRecipe struct {
 	Connector        string   `yaml:"connector"`
 	Shape            string   `yaml:"shape"`
 	Exec             *rawExec `yaml:"exec"`
+
+	// Settings is sent to the script as config; only `source test` checks it
+	// against the script's spec, because a config load never runs a script.
+	Settings map[string]any `yaml:"settings"`
 }
 
 type rawExec struct {
@@ -73,8 +79,8 @@ func (v *validator) recipes() error {
 			}
 			continue
 		}
-		if raw.Exec != nil || raw.Connector != "" || raw.Shape != "" {
-			return v.errf(at, ln, "a built-in recipe takes only instructions_file; exec, connector and shape belong to a recipe of your own")
+		if raw.Exec != nil || raw.Connector != "" || raw.Shape != "" || raw.Settings != nil {
+			return v.errf(at, ln, "a built-in recipe takes only instructions_file; exec, connector, shape and settings belong to a recipe of your own")
 		}
 		text, err := v.instructions(at, name, raw.InstructionsFile, ln)
 		if err != nil {
@@ -163,8 +169,11 @@ func (v *validator) execRecipe(name string, r rawRecipe) error {
 			return v.errf(at+".connector", key("connector"), "%q is not a connector of this config (git, fetch or one under connectors)", r.Connector)
 		}
 	}
+	if err := checkSettings(r.Settings); err != nil {
+		return v.errf(at+".settings", key("settings"), "%v", err)
+	}
 	x := r.Exec
-	c := recipe.ExecConfig{Name: name, Shape: r.Shape, Command: x.Command, Args: x.Args, Env: x.Env, Connector: r.Connector,
+	c := recipe.ExecConfig{Settings: r.Settings, Name: name, Shape: r.Shape, Command: x.Command, Args: x.Args, Env: x.Env, Connector: r.Connector,
 		Instructions: text, Timeout: defaultExecTimeout, MaxOutput: defaultExecOutput, MaxContent: defaultExecContent}
 	if strings.ContainsAny(x.Command, `/\`) {
 		// Made absolute before the child's working directory is set to a temp dir.
@@ -202,6 +211,45 @@ func (v *validator) execRecipe(name string, r rawRecipe) error {
 		}
 	}
 	v.c.ExecRecipes = append(v.c.ExecRecipes, c)
+	return nil
+}
+
+// Limits of recipes.<name>.settings: they travel to the script on every call and
+// are shown by the dry run, so they are small scalars.
+const (
+	maxSettings        = 64
+	maxSettingNameLen  = 64
+	maxSettingStringKB = 4
+)
+
+// checkSettings holds the settings to scalars of a sane size: a string, a bool,
+// a finite number, at most maxSettings keys and 4 KiB per string.
+func checkSettings(m map[string]any) error {
+	if len(m) > maxSettings {
+		return fmt.Errorf("holds %d settings, at most %d", len(m), maxSettings)
+	}
+	for k, val := range m {
+		if k == "" || len(k) > maxSettingNameLen {
+			return fmt.Errorf("a setting name is 1 to %d bytes", maxSettingNameLen)
+		}
+		switch x := val.(type) {
+		case string:
+			if len(x) > maxSettingStringKB<<10 || !utf8.ValidString(x) {
+				return fmt.Errorf("%s: a string is UTF-8 and at most %d KiB", k, maxSettingStringKB)
+			}
+		case bool, int, int64:
+		case uint64:
+			if x > math.MaxInt64 {
+				return fmt.Errorf("%s: the number is out of range", k)
+			}
+		case float64:
+			if math.IsNaN(x) || math.IsInf(x, 0) {
+				return fmt.Errorf("%s: the number must be finite", k)
+			}
+		default:
+			return fmt.Errorf("%s: must be a scalar (string, number or boolean)", k)
+		}
+	}
 	return nil
 }
 

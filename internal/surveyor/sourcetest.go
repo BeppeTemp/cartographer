@@ -61,9 +61,10 @@ type SourceTestReport struct {
 	Recipe, Shape, Kind, Locator string
 	SourceID                     string // "" when not registered
 	CursorIn, NextCursor         string
-	Identity, StateStatus        string // system recipes: the check's label and how the stored state was found
-	CheckRefused                 bool   // Failure came from a system recipe's check: exit class 3
-	CheckLabel                   string // a feed recipe's clean check: identity and detail, when it implements check
+	Identity, StateStatus        string       // system recipes: the check's label and how the stored state was found
+	CheckRefused                 bool         // Failure came from a system recipe's check: exit class 3
+	Spec                         *recipe.Spec // what the script says about itself, when it implements spec
+	CheckLabel                   string       // a feed recipe's clean check: identity and detail, when it implements check
 	MaxEntries                   int
 	PollDefaults                 bool // no poll task in the config: the defaults above were used
 	Entries                      []SourceTestEntry
@@ -192,7 +193,7 @@ func SourceTest(ctx context.Context, cfg *Config, in SourceTestInput) (*SourceTe
 		}
 	}
 
-	if err := rep.describe(ctx, rec, f, isSystem); err != nil || rep.Failure != nil {
+	if err := rep.describe(ctx, rec, f, cfg, isSystem); err != nil || rep.Failure != nil {
 		return rep, err
 	}
 	if isSystem {
@@ -231,18 +232,45 @@ func SourceTest(ctx context.Context, cfg *Config, in SourceTestInput) (*SourceTe
 	return rep, nil
 }
 
-// describe is the part of the dry run that only a protocol-v2 script has: for a
-// feed, its check. The poll itself runs it for a system recipe (observeSystem)
-// and not for a feed. A script that does not implement check (exit 64) is
-// skipped. A failure is in rep.Failure (exit class 1); an error is the context
-// ending.
-func (rep *SourceTestReport) describe(ctx context.Context, rec recipe.Recipe, f feed.Feed, isSystem bool) error {
-	ck, ok := rec.(recipe.Checker)
-	if isSystem || !ok {
+// describe is the part of the dry run that only a protocol-v2 script has: its
+// spec (printed, and the operator's recipes.<name>.settings are type-checked
+// against it: a config load never runs a script) and, for a feed, its check. The
+// poll itself runs neither for a feed, and a system poll runs the check in
+// observeSystem. A verb the script does not implement (exit 64) is skipped; a
+// verb its spec does not declare is not called. A failure is in rep.Failure
+// (exit class 1); an error is the context ending or a settings mismatch.
+func (rep *SourceTestReport) describe(ctx context.Context, rec recipe.Recipe, f feed.Feed, cfg *Config, isSystem bool) error {
+	sp, ok := rec.(recipe.Specer)
+	if !ok {
 		return nil
 	}
-	cctx, cancel := context.WithTimeout(ctx, pollListTimeout)
+	sctx, cancel := context.WithTimeout(ctx, pollListTimeout)
 	defer cancel()
+	spec, err := sp.Spec(sctx)
+	switch {
+	case ctx.Err() != nil:
+		return ctx.Err()
+	case errors.Is(err, recipe.ErrUnsupported):
+	case err != nil:
+		rep.Failure = failureOf(err, recipe.CodeSpecInvalid)
+		return nil
+	default:
+		rep.Spec = &spec
+		for _, x := range cfg.ExecRecipes {
+			if x.Name == f.Recipe {
+				if err := spec.CheckSettings(x.Settings); err != nil {
+					return startErr("recipe %s: %v", f.Recipe, err)
+				}
+			}
+		}
+	}
+	ck, ok := rec.(recipe.Checker)
+	if isSystem || !ok || (rep.Spec != nil && !rep.Spec.Declares(recipe.VerbCheck)) {
+		return nil
+	}
+	// The check has a budget of its own: a slow spec must not use it up.
+	cctx, ccancel := context.WithTimeout(ctx, pollListTimeout)
+	defer ccancel()
 	v, err := ck.Check(cctx, feedRequest(f, 0))
 	switch {
 	case ctx.Err() != nil:

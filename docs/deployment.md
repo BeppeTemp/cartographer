@@ -780,8 +780,8 @@ recipes:
 ```
 
 **Exec recipes (D1262).** A recipe of your own is an executable declared under `recipes.<name>` with an `exec` block
-(`command`, `args`, `env`, `timeout`, `max_output_bytes`, `max_content_bytes`), an `instructions_file`, and optionally
-a `connector`; it lists a feed over a JSON stdin/stdout protocol, with no shell, a per-call temp directory and only
+(`command`, `args`, `env`, `timeout`, `max_output_bytes`, `max_content_bytes`), an `instructions_file`, optionally
+a `connector` and `settings` (scalars sent to the script as `config`); it lists a feed over a JSON stdin/stdout protocol, with no shell, a per-call temp directory and only
 the environment variables you list. The keys, protocol v2 and the trust model are in
 [surveyor-recipes.md](surveyor-recipes.md), which also describes `cartographer surveyor source test`, the dry run of a recipe. A script that needs an interpreter runs from a
 derived image (`FROM` the Surveyor image, §Example: a derived image for exec recipes) or from a mounted read-only volume, and the Surveyor now needs a

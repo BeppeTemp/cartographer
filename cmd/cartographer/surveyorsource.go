@@ -190,6 +190,9 @@ func printSourceTest(out, errw io.Writer, config string, r *surveyor.SourceTestR
 		}
 		return sourceTestFail
 	}
+	if r.Spec != nil {
+		fmt.Fprintf(out, "spec:\t%s\tverbs %s\n", clip(r.Spec.Title, 120), clip(strings.Join(r.Spec.Verbs, ","), 80))
+	}
 	if r.Shape == "system" {
 		fmt.Fprintf(out, "check:\tread_only, identity %s\nstate:\t%s\n", clip(r.Identity, 80), clip(r.StateStatus, 200))
 	} else if r.CheckLabel != "" {

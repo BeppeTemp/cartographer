@@ -55,6 +55,7 @@ type ExecConfig struct {
 	Shape        string // "" or feed, or system (D1372)
 	Connector    string // how the unit executor reads an entry's locator; "" = the Source's own
 	Instructions string
+	Settings     map[string]any // recipes.<name>.settings: typed scalars, sent to every verb as config
 }
 
 // execSlot lets one script run at a time per replica: feeds are handled one by
@@ -82,8 +83,8 @@ func (e *execRecipe) Instructions() string { return e.c.Instructions }
 func (e *execRecipe) Connector() string { return e.c.Connector }
 
 // request is the stdin of every verb: protocol v2. A feed recipe is sent
-// list; the dry run also sends a feed check; a system recipe is sent check, then
-// list after a clean answer.
+// list, and spec, check and fetch when it declares them; a system recipe is sent
+// check, then list after a clean answer.
 type request struct {
 	Protocol int            `json:"protocol"`
 	Verb     string         `json:"verb"`
@@ -100,10 +101,13 @@ type listRequest struct {
 	MaxContentBytes int     `json:"max_content_bytes"`
 }
 
-// base is the request of a verb: config is always an object, never null (empty
-// until the operator's settings reach it).
+// base is the request of a verb: config is always an object, never null.
 func (e *execRecipe) base(verb string, src *source) request {
-	return request{Protocol: ProtocolVersion, Verb: verb, Config: map[string]any{}, Source: src}
+	cfg := e.c.Settings
+	if cfg == nil {
+		cfg = map[string]any{}
+	}
+	return request{Protocol: ProtocolVersion, Verb: verb, Config: cfg, Source: src}
 }
 
 type source struct {
@@ -145,7 +149,7 @@ func (e *execRecipe) List(ctx context.Context, req Request) (Listing, error) {
 }
 
 // unsupportedIsFailure turns the exit-64 answer into a failure of the verb for
-// the verbs that cannot go without (list); check keeps ErrUnsupported.
+// the verbs that cannot go without (list); spec and check keep ErrUnsupported.
 func unsupportedIsFailure(err error, code, verb string) error {
 	if errors.Is(err, ErrUnsupported) {
 		return fail(code, "the script does not implement %s (it exited %d)", verb, exitUnsupported)
@@ -520,11 +524,15 @@ func systemEntryOf(raw json.RawMessage, maxContent int) (Entry, error) {
 	return Entry{Key: w.Key, Title: w.Title, Locator: w.Locator, Content: *w.Content}, nil
 }
 
-// Limits of the check answer, in runes and bytes.
+// Limits of the check answer, in runes, and of a spec.
 const (
-	maxIdentity = 120
-	maxDetail   = 300
-	maxAnswer   = 16 << 10
+	maxIdentity    = 120
+	maxDetail      = 300
+	maxAnswer      = 16 << 10
+	maxSpecTitle   = 120
+	maxSpecText    = 500
+	maxSpecEntries = 32
+	maxSpecDefault = 200
 )
 
 // label is a script-printed text as one clean line: redacted, control
@@ -542,7 +550,7 @@ func (e *execRecipe) label(s string, max int) string {
 	return s
 }
 
-// readAnswer reads the one-object answer of a verb such as check: exactly one JSON
+// readAnswer reads the one-object answer of spec and check: exactly one JSON
 // object with the single key, at most maxAnswer bytes, nothing after it.
 func readAnswer(r io.Reader, key string, v any) (bool, error) {
 	b, err := io.ReadAll(io.LimitReader(r, maxAnswer+1))

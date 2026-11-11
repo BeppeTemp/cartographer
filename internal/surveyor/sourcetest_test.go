@@ -40,23 +40,37 @@ func TestSourceTestRecipeModeListsAndPassesTheCursorOn(t *testing.T) {
 	}
 }
 
-func TestSourceTestRunsTheFeedCheck(t *testing.T) {
-	run := func(mode string) (*SourceTestReport, error) {
+func TestSourceTestPrintsTheSpecAndRunsTheFeedCheck(t *testing.T) {
+	run := func(mode string, settings map[string]any) (*SourceTestReport, error) {
 		cfg := execCfg(mode, nil)
+		cfg.ExecRecipes[0].Settings = settings
 		return SourceTest(context.Background(), &cfg, SourceTestInput{Recipe: "my-feed", Locator: "x"})
 	}
-	rep, err := run("v2")
-	if err != nil || rep.Failure != nil || rep.CheckLabel != "svc-reader — 12 spaces" || len(rep.Entries) != 1 {
+	good := map[string]any{"space": "ENG"}
+	rep, err := run("v2", good)
+	if err != nil || rep.Failure != nil || rep.Spec == nil || rep.Spec.Title != "Wiki" || rep.CheckLabel != "svc-reader — 12 spaces" || len(rep.Entries) != 1 {
 		t.Fatalf("%v %+v", err, rep)
 	}
+	// The operator's settings are held to the spec here, and only here.
+	for name, settings := range map[string]map[string]any{"unknown": {"space": "ENG", "extra": 1}, "wrong type": {"space": 3}, "required": nil} {
+		if _, err := run("v2", settings); !IsSourceTestError(err) || !strings.Contains(err.Error(), "my-feed") {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
 	// A check that fails is the poll-class failure (1) with the check's own code, and nothing is listed.
-	rep, err = run("v2-badcheck")
+	rep, err = run("v2-badcheck", good)
 	if err != nil || rep.Failure == nil || rep.Failure.Code != recipe.CodeCheckFailed || rep.CheckRefused || len(rep.Entries) != 0 {
 		t.Errorf("a failed feed check: %v %+v", err, rep)
 	}
-	// A script that implements list only is listed as before.
-	rep, err = run("")
-	if err != nil || rep.Failure != nil || rep.CheckLabel != "" {
+	// A verb the spec does not declare is not called.
+	rep, err = run("v2-nocheck", good)
+	if err != nil || rep.Failure != nil || rep.CheckLabel != "" || len(rep.Entries) != 1 {
+		t.Errorf("an undeclared check: %v %+v", err, rep)
+	}
+	// A script with neither verb is listed as before.
+	cfg := execCfg("", nil)
+	rep, err = SourceTest(context.Background(), &cfg, SourceTestInput{Recipe: "my-feed", Locator: "x"})
+	if err != nil || rep.Failure != nil || rep.Spec != nil || rep.CheckLabel != "" {
 		t.Errorf("a list-only script: %v %+v", err, rep)
 	}
 }
@@ -227,7 +241,7 @@ func codeBlock(t *testing.T, text, lang string) string {
 
 func TestListerReferenceNamesTheProtocol(t *testing.T) {
 	ref := readRef(t)
-	for _, want := range []string{"`protocol`: `2`", `"list"`, `"check"`, recipe.Added, recipe.Modified, "delete", "next_cursor", "read_only", "64"} {
+	for _, want := range []string{"`protocol`: `2`", `"list"`, `"spec"`, `"check"`, recipe.Added, recipe.Modified, "delete", "next_cursor", "read_only", "64"} {
 		if !strings.Contains(ref, want) {
 			t.Errorf("lister-protocol.md lacks %q", want)
 		}
@@ -283,7 +297,11 @@ func TestListerReferenceSkeletonProducesWhatTheRunnerAccepts(t *testing.T) {
 	if err != nil || len(l.Entries) != 0 || l.NextCursor != "" {
 		t.Errorf("listing = %+v, %v", l, err)
 	}
-	// check (feed): the skeleton passes its check.
+	// spec and check (feed): the skeleton describes itself and passes its check.
+	sp, err := fr.(recipe.Specer).Spec(context.Background())
+	if err != nil || !sp.Declares(recipe.VerbList) || !sp.Declares(recipe.VerbCheck) {
+		t.Errorf("the skeleton's spec: %+v, %v", sp, err)
+	}
 	if _, err := fr.(recipe.Checker).Check(context.Background(), recipe.Request{ID: "s"}); err != nil {
 		t.Errorf("the skeleton's feed check: %v", err)
 	}
@@ -338,8 +356,8 @@ func TestSourceTestSystemRecipeChecksListsAndHasNoState(t *testing.T) {
 	if rep.Entries[0].Key != "namespace/team-a" || rep.Entries[0].Revision != system.Revision("deployment api image:v1\n"+snapCanary) {
 		t.Errorf("entry = %+v", rep.Entries[0])
 	}
-	if s.verbs() != "check,list" {
-		t.Errorf("verbs = %s: the check must precede the listing", s.verbs())
+	if s.verbs() != "spec,check,list" {
+		t.Errorf("verbs = %s: the spec is asked once and the check must precede the listing", s.verbs())
 	}
 	if strings.Contains(fmt.Sprintf("%+v", rep), snapCanary) {
 		t.Error("the snapshot reached the report without --show")
@@ -433,7 +451,7 @@ func TestSourceTestSystemRefusedCheckListsNothing(t *testing.T) {
 			if !rep.CheckRefused || rep.Failure == nil || rep.Failure.Code != tc.code || len(rep.Entries) != 0 {
 				t.Errorf("%+v", rep)
 			}
-			if s.verbs() != "check" {
+			if s.verbs() != "spec,check" {
 				t.Errorf("verbs = %s: nothing may be listed after a refusal", s.verbs())
 			}
 		})
@@ -443,7 +461,7 @@ func TestSourceTestSystemRefusedCheckListsNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	rep := sysTest(t, s, SourceTestInput{Recipe: "k8s", Locator: "x"})
-	if !rep.CheckRefused || s.verbs() != "check" {
+	if !rep.CheckRefused || s.verbs() != "spec,check" {
 		t.Errorf("a check that crashes is a refusal: %+v (%s)", rep, s.verbs())
 	}
 }

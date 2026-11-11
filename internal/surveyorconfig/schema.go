@@ -115,6 +115,8 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 		Description: "Exec recipe: the connector (git, fetch or one under connectors) the unit executor uses to read an entry's locator; omit it when the script returns the content inline."},
 	{Path: "recipes.{name}.shape", Scope: settingschema.ScopeSurveyor, Type: "string", Values: "feed, system", Default: `"feed"`,
 		Description: "Exec recipe: the shape of Source it serves: feed (documents with revisions) or system (a live read-only system, listed after a check of its identity)."},
+	{Path: "recipes.{name}.settings", Scope: settingschema.ScopeSurveyor, Type: "map", Default: "{}",
+		Description: "Exec recipe: scalar settings (at most 64, finite numbers, strings of at most 4 KiB) sent to the script as config in every verb; `cartographer surveyor source test` checks them against the settings the script declares in its spec."},
 	{Path: "recipes.{name}.exec.command", Scope: settingschema.ScopeSurveyor, Type: "string", Default: `""`,
 		Description: "Exec recipe: the program that lists the feed; a path with a separator is resolved against the config file's directory, a bare name is looked up on PATH. Run without a shell, from a temp directory."},
 	{Path: "recipes.{name}.exec.args", Scope: settingschema.ScopeSurveyor, Type: "list", Default: "[]",

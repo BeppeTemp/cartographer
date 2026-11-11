@@ -666,8 +666,28 @@ func TestLoadConfigExecRecipes(t *testing.T) {
 	if c, err = load("recipes:\n  mine:\n    instructions_file: feed.md\n    shape: system\n    exec: {command: x}\n"); err != nil || c.ExecRecipes[0].Shape != "system" {
 		t.Errorf("system shape: %v", err)
 	}
+	if c, err = load("recipes:\n  mine:\n    instructions_file: feed.md\n    settings: {space: ENG, limit: 50, deep: true, ratio: 0.5}\n    exec: {command: x}\n"); err != nil ||
+		c.ExecRecipes[0].Settings["space"] != "ENG" || c.ExecRecipes[0].Settings["limit"] != 50 || c.ExecRecipes[0].Settings["deep"] != true || c.ExecRecipes[0].Settings["ratio"] != 0.5 {
+		t.Errorf("settings: %v", err)
+	}
 	if _, err := load("recipes:\n  mine:\n    instructions_file: feed.md\n    shape: collection\n    exec: {command: x}\n"); err == nil || !strings.Contains(err.Error(), "one of feed, system") {
 		t.Errorf("unknown shape message: %v", err)
+	}
+	many := "{"
+	for i := 0; i < 65; i++ {
+		many += fmt.Sprintf("k%d: 1, ", i)
+	}
+	for name, settings := range map[string]string{
+		"infinite":  "{a: .inf}",
+		"not a num": "{a: .nan}",
+		"too big":   "{a: 18446744073709551615}",
+		"long text": "{a: " + strings.Repeat("x", 4097) + "}",
+		"too many":  many + "}",
+		"long name": "{" + strings.Repeat("n", 65) + ": 1}",
+	} {
+		if _, err := load("recipes:\n  mine:\n    instructions_file: feed.md\n    settings: " + settings + "\n    exec: {command: x}\n"); err == nil || !strings.Contains(err.Error(), "recipes.mine.settings (line ") {
+			t.Errorf("settings %s: %v", name, err)
+		}
 	}
 	for name, tc := range map[string]struct{ yaml, want string }{
 		"builtin with exec":  {"recipes:\n  git-docs:\n    instructions_file: feed.md\n    exec: {command: x}\n", "recipes.git-docs (line "},
@@ -676,6 +696,8 @@ func TestLoadConfigExecRecipes(t *testing.T) {
 		"system no text":     {"recipes:\n  mine:\n    shape: system\n    exec: {command: x}\n", "recipes.mine.instructions_file (line "},
 		"skip_preflight":     {"recipes:\n  mine:\n    instructions_file: feed.md\n    shape: system\n    skip_preflight: true\n    exec: {command: x}\n", "unknown key"},
 		"preflight in exec":  {"recipes:\n  mine:\n    instructions_file: feed.md\n    shape: system\n    exec: {command: x, preflight: false}\n", "unknown key"},
+		"builtin settings":   {"recipes:\n  git-docs:\n    instructions_file: feed.md\n    settings: {a: b}\n", "recipes.git-docs (line "},
+		"settings list":      {"recipes:\n  mine:\n    instructions_file: feed.md\n    settings: {a: [1]}\n    exec: {command: x}\n", "recipes.mine.settings (line "},
 		"other shape":        {"recipes:\n  mine:\n    instructions_file: feed.md\n    shape: collection\n    exec: {command: x}\n", "recipes.mine.shape (line "},
 		"bad name":           {"recipes:\n  Bad_Name:\n    instructions_file: feed.md\n    exec: {command: x}\n", "recipes.Bad_Name (line "},
 		"no exec":            {"recipes:\n  mine:\n    instructions_file: feed.md\n", "recipes.mine (line "},

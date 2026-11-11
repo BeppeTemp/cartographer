@@ -24,5 +24,6 @@ result only the dry run and the author read; the poll calls the verbs its shape 
 
 **Consequences.** `recipe.Verified` now proves a clean `check`, for both shapes; the two failure codes of a system check
 are `identity_not_read_only` (the identity is not read-only, or `read_only` is absent) and `check_failed` (everything
-else), and `source test` exits 3 for both. `check_failed` is a new `feed_error` code. A change to what
+else), and `source test` exits 3 for both. `check_failed` is a new `feed_error` code. The verbs a spec declares gate the calls of `source test` only: the poll never runs `spec`
+and calls `check` (system) and `list` by contract, so a spec is a description, not a permission. A change to what
 is sent or accepted needs a new protocol number (D1262).

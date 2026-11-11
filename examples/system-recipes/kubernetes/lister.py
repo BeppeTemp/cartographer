@@ -2,7 +2,7 @@
 """A system lister for Kubernetes: the reference recipe of `shape: system`.
 
 It speaks protocol v2 of the Surveyor's exec recipes (docs/surveyor-recipes.md):
-one JSON request on stdin, verb "check" or "list", the answer on stdout.
+one JSON request on stdin, verb "spec", "check" or "list", the answer on stdout.
 It talks to the cluster only through kubectl and never uses the request's
 source.locator to choose a context, namespace, file or command.
 
@@ -79,6 +79,11 @@ def can_i(verb, resource):
     if answer not in ("yes", "no") or code not in (0, 1):
         raise Failure("kubectl auth can-i %s %s gave no yes or no" % (verb, resource))
     return answer
+
+
+def spec():
+    return {"spec": {"title": "Kubernetes namespaces", "description": "One group per namespace: its workloads, services and config, read through kubectl.",
+                     "shapes": ["system"], "verbs": ["spec", "check", "list"], "settings": {}, "env": []}}
 
 
 def check():
@@ -172,12 +177,14 @@ def main():
         if req.get("protocol") != 2:
             return 64  # a protocol this script does not speak
         verb = req.get("verb")
-        if verb == "check":
+        if verb == "spec":
+            lines = [spec()]
+        elif verb == "check":
             lines = [check()]
         elif verb == "list":
             lines = listing(req)
         else:
-            return 64  # a verb this script does not implement
+            return 64  # a verb this script does not implement (fetch)
     except Failure as e:
         sys.stderr.write("lister: %s\n" % e)
         return 2
