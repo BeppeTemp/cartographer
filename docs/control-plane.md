@@ -445,6 +445,7 @@ changes essentially never; the integer **`protocol`** is the field-level contrac
 | `POST /api/component/v1/heartbeat` | Surveyor | §Surveyor heartbeat (64 KiB) |
 | `POST /api/component/v1/settings` | Surveyor or Compass | §Surveyor settings reports, §Client settings reports; the body's `component` (`surveyor` or `client`) selects the report, anything else is `400` naming `component` |
 | `POST /api/component/v1/usage?kb=<name>&protocol=<n>` | Compass | §Usage reports |
+| `POST /api/component/v1/runs` | Surveyor | §Surveyor runs and alarms (32 KiB) |
 
 **Protocol.** Meridian speaks `protocol` N (1 in 0.29) and serves N-1, N and N+1, so either side can be upgraded
 first: anything else is `426` with code `protocol_unsupported`, and `error.protocol` and `error.min_protocol`
@@ -539,7 +540,39 @@ API. It is `null` (and `idle_seconds` absent) until a call happens after the pro
 reads "idle since `server_started_at`". `now` is Meridian's clock, so the Surveyor never compares its own.
 `activity_known` is `false` when authentication is off: every caller is the local admin and Meridian cannot
 tell the Surveyor from a person. It also carries `settings_wanted`: `true` when Meridian holds no settings report
-for the beat's principal and perimeter (§Surveyor settings reports).
+for the beat's principal and perimeter (§Surveyor settings reports), and `runs_wanted`: `true` when Meridian holds
+no runs for them (§Surveyor runs and alarms), so a restarted Meridian is refilled.
+
+### Surveyor runs and alarms (`POST /api/component/v1/runs`, D1901)
+
+The runs a Surveyor finished and the alarms it raises travel on their own route, not in the heartbeat: the
+beat is liveness and must never fail or grow because of a report (the reason the settings have their own
+route). Meridian accepts at most 20 runs per post; a heartbeat answer carrying `runs_wanted` asks the Surveyor
+for its recent history again.
+
+Body (32 KiB cap): `protocol`, `id` (the replica, as in the heartbeat's `surveyor`), `perimeter`, `runs`
+(at most 20 `{run_id, task, kb, started_at, duration_ms, outcome, error?, tokens_spent}`: `outcome` one of
+`ok`, `failed`, `skipped`, `budget_exhausted`, `error` 200 characters, `tokens_spent` the tokens the task
+spent) and `alarms` (at most 16 `{code, kb?, source?, since,
+detail?}`, `code` one of `feed_failing`, `auth_refused`, `model_unreachable`; a post carries the whole current
+set and replaces the previous one). Answer `{received, last_run_id}`; `received` counts the runs kept: a run
+for a KB the principal cannot write or Meridian does not mount is dropped, not refused. It needs a live
+heartbeat declaration of the same principal, perimeter and replica `id`, else the `404` of an unknown route. Errors as the
+heartbeat, plus `400` naming `runs` or `alarms`.
+
+Memory only, no KB write: at most 20 runs per (principal, perimeter), newest first by start, deduplicated by
+`run_id` (the one held wins), 64 perimeters in total (the least recently posted is evicted), and everything
+goes with the live declaration of the same principal and perimeter. Every record is stamped with
+`received_at`, Meridian's clock: the ages the Atlas shows are computed from it, never from the Surveyor's
+own `started_at`/`since` (clamped to at most a day ahead and 30 days behind), so a skewed Surveyor clock
+cannot make a run look recent or stale.
+
+`GET /api/ui/v1/kbs/{kb}/components` gives each row `runs` (those on this KB, newest first, at most 20,
+`{run_id, replica, task, kb, started_at, duration_ms, outcome, error?, tokens_spent, received_at}`) and `alarms`
+(`{code, kb?, source?, since?, detail?, received_at?, origin}`): the reported ones for this KB or for none
+(`origin: "reported"`, shown as reported; an alarm with no `kb` is shown with its code and time only, `source` and
+`detail` blanked, because no KB check vouches for its text) plus the ones Meridian computes (`origin: "server"`: `silent`,
+`degraded` from the health state, `protocol_skew` per skewed replica). No principal id leaves the server.
 
 ### Surveyor settings reports (`POST /api/component/v1/settings`, D1259)
 

@@ -73,8 +73,9 @@ func (s *surveyorStore) evictSettingsLocked(principal string) {
 	delete(s.settings[op], oper)
 }
 
-// pruneSettingsLocked drops the reports no live declaration of the same principal and perimeter backs.
-func (s *surveyorStore) pruneSettingsLocked() {
+// pruneReportsLocked drops the reports no live declaration of the same principal and perimeter backs.
+func (s *surveyorStore) pruneReportsLocked() {
+	s.pruneRunsLocked()
 	for p, m := range s.settings {
 		for per := range m {
 			held := false

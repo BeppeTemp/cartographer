@@ -68,3 +68,20 @@ as `human` and the two cannot be told apart: enforcement bites only where an ope
 declared a machine kind. A token declared `surveyor` is excluded from the idle signal by
 kind. Known limit: a registry entry is not bound to a principal, so a writer of a KB can
 impersonate the expected perimeter on it.
+
+**Runs and alarms.** A Surveyor reports its finished tasks (at most 20 per post)
+and its open alarms on their own route, `POST /api/component/v1/runs`, not in the
+heartbeat: the beat is liveness and must never fail or grow because of a report.
+Meridian keeps them in bounded memory (20 runs per principal and perimeter,
+64 perimeters, gone with the live declaration), asks for them again through
+`runs_wanted` in the heartbeat answer after a restart, and shows them in the
+`runs` and `alarms` of each `components` row. Every record is stamped with the
+server's receive time and ages are computed from that stamp, never from the
+Surveyor's clock. Reported alarms (`feed_failing`, `auth_refused`,
+`model_unreachable`) are shown as reported; `silent`, `degraded` and
+`protocol_skew` are computed by Meridian and never accepted on the wire. The task
+name of a run follows the heartbeat's pattern rather than a closed list, so a
+newer Surveyor with a new task kind is not refused.
+A kb-less alarm (not tied to a KB the principal was checked against) is shown on
+every KB of the perimeter with its code and time only: its free text is blanked.
+The replica id of a post must be one the principal has live.

@@ -45,6 +45,11 @@ type componentView struct {
 	MinReplicas  int                    `json:"min_replicas"`
 	LastSeenAt   *time.Time             `json:"last_seen_at"`
 	KBs          []string               `json:"kbs"`
+	// Runs are the recent runs on this KB, newest first (at most 20); Alarms
+	// the ones reported for it plus the ones the server computes. Ages come
+	// from received_at, the server's stamp.
+	Runs   []surveyorRun   `json:"runs"`
+	Alarms []surveyorAlarm `json:"alarms"`
 }
 
 type componentsServerView struct {
@@ -111,6 +116,8 @@ func (m *MultiKBServer) uiComponents(w http.ResponseWriter, r *http.Request, nam
 			})
 		}
 		v.KindDeclared = len(v.Replicas) > 0 && all
+		v.Runs, v.Alarms = m.surveyors.runsFor(name, c.Name, byName[c.Name])
+		v.Alarms = append(v.Alarms, serverAlarms(c, v.Replicas)...)
 		for k := range kbs {
 			v.KBs = append(v.KBs, k)
 		}
@@ -123,6 +130,24 @@ func (m *MultiKBServer) uiComponents(w http.ResponseWriter, r *http.Request, nam
 		"server":       componentsServerView{Version: m.version, StartedAt: processStartedAt},
 		"components":   rows,
 	})
+}
+
+// serverAlarms are the alarms computed from health and protocol skew: never
+// reported, never stored.
+func serverAlarms(c ComponentRow, reps []componentReplicaView) []surveyorAlarm {
+	out := []surveyorAlarm{}
+	switch c.State {
+	case componentproto.StateSilent:
+		out = append(out, surveyorAlarm{Code: componentproto.AlarmSilent, Since: c.LastSeenAt, Origin: "server"})
+	case componentproto.StateDegraded:
+		out = append(out, surveyorAlarm{Code: componentproto.AlarmDegraded, Origin: "server"})
+	}
+	for _, r := range reps {
+		if r.ProtocolSkew != "" {
+			out = append(out, surveyorAlarm{Code: componentproto.AlarmProtocolSkew, Source: r.ID, Detail: "replica is " + r.ProtocolSkew, Origin: "server"})
+		}
+	}
+	return out
 }
 
 // repairInfo is the maintenance object's repair part: who repairs this KB.

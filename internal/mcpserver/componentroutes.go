@@ -31,6 +31,11 @@ func (m *MultiKBServer) handleComponent(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		m.handleSurveyors(w, r)
+	case componentproto.RunsPath:
+		if !requireKind(w, r, componentproto.KindSurveyor) {
+			return
+		}
+		m.handleSurveyorRuns(w, r)
 	case componentproto.SettingsPath:
 		m.handleComponentSettings(w, r)
 	case componentproto.UsagePath:

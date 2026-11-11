@@ -202,8 +202,11 @@ type surveyorStore struct {
 	by  map[string]map[string]surveyorDecl
 	// settings are the reports of POST /api/surveyor-settings, per principal and
 	// perimeter. A report lives only while a live declaration of the same
-	// principal and perimeter does (pruneSettingsLocked): it needs no clock.
+	// principal and perimeter does (pruneReportsLocked): it needs no clock.
 	settings map[string]map[string]surveyorSettings
+	// runs are the runs and alarms of POST /api/component/v1/runs, per principal
+	// and perimeter, swept with the declaration like the settings.
+	runs map[string]map[string]*runBook
 }
 
 func (s *surveyorStore) clock() time.Time {
@@ -226,7 +229,7 @@ func (s *surveyorStore) sweepLocked(now time.Time) {
 			delete(s.by, p)
 		}
 	}
-	s.pruneSettingsLocked()
+	s.pruneReportsLocked()
 }
 
 func (s *surveyorStore) put(d surveyorDecl) {
@@ -258,7 +261,7 @@ func (s *surveyorStore) put(d surveyorDecl) {
 		}
 		delete(s.by[op], oid)
 	}
-	s.pruneSettingsLocked()
+	s.pruneReportsLocked()
 }
 
 func evictOldest(m map[string]surveyorDecl) {
@@ -287,7 +290,7 @@ func (s *surveyorStore) remove(principal, surveyor string) {
 	if len(s.by[principal]) == 0 {
 		delete(s.by, principal)
 	}
-	s.pruneSettingsLocked()
+	s.pruneReportsLocked()
 }
 
 // hasLive reports whether a principal has a live declaration. It is the one
@@ -546,7 +549,10 @@ func (m *MultiKBServer) handleSurveyors(w http.ResponseWriter, r *http.Request) 
 		// True when no settings report is held for this perimeter: the surveyor
 		// posts it at start and again only after a server restart.
 		"settings_wanted": !m.surveyors.hasSettings(p.ID, beat.Perimeter),
-		"kbs":             kbs,
+		// True when no runs are held for this perimeter, so a restarted server
+		// is refilled by the Surveyor's recent history.
+		"runs_wanted": !m.surveyors.hasRuns(p.ID, beat.Perimeter),
+		"kbs":         kbs,
 		// With authentication off every caller is the local admin and the
 		// server cannot tell the surveyor from a person.
 		"activity_known":    !p.Local,

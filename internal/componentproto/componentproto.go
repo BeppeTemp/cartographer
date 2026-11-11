@@ -23,10 +23,11 @@ const (
 	HeartbeatPath = Prefix + "heartbeat"
 	SettingsPath  = Prefix + "settings"
 	UsagePath     = Prefix + "usage"
+	RunsPath      = Prefix + "runs"
 )
 
 // Paths lists every route of the family.
-func Paths() []string { return []string{HeartbeatPath, SettingsPath, UsagePath} }
+func Paths() []string { return []string{HeartbeatPath, SettingsPath, UsagePath, RunsPath} }
 
 // The 0.28 routes. They were released, so they stay served as aliases of the
 // family for the whole 0.29 series, frozen and treated as protocol 0.
@@ -66,6 +67,37 @@ const (
 	SkewNone   = ""
 	SkewAhead  = "ahead"
 )
+
+// The outcomes of a reported run (a closed set).
+const (
+	OutcomeOK              = "ok"
+	OutcomeFailed          = "failed"
+	OutcomeSkipped         = "skipped"
+	OutcomeBudgetExhausted = "budget_exhausted"
+)
+
+// Outcomes lists the run outcomes.
+func Outcomes() []string {
+	return []string{OutcomeOK, OutcomeFailed, OutcomeSkipped, OutcomeBudgetExhausted}
+}
+
+// The alarm codes a Surveyor reports (a closed set). The server adds its own
+// to a component row (AlarmSilent, AlarmDegraded, AlarmProtocolSkew): those
+// are computed from health and are never accepted on the wire.
+const (
+	AlarmFeedFailing      = "feed_failing"
+	AlarmAuthRefused      = "auth_refused"
+	AlarmModelUnreachable = "model_unreachable"
+
+	AlarmSilent       = "silent"
+	AlarmDegraded     = "degraded"
+	AlarmProtocolSkew = "protocol_skew"
+)
+
+// ReportedAlarms lists the alarm codes a Surveyor may report.
+func ReportedAlarms() []string {
+	return []string{AlarmFeedFailing, AlarmAuthRefused, AlarmModelUnreachable}
+}
 
 // Error codes of the family.
 const (
