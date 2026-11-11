@@ -140,6 +140,9 @@ type Options struct {
 	FetchHosts   []string          // fetch.allow_hosts
 	InsecureHTTP bool              // fetch.allow_insecure_http
 	Get          GetFunc           // http-pages' fetch; nil = every request fails
+	// Plugin are recipes a pinned plugin supplies, already built; each is
+	// registered under its qualified name, Name() = "<plugin>/<local>".
+	Plugin []Recipe
 }
 
 // Registry holds the built-ins, always available under their own names.
@@ -176,6 +179,18 @@ func NewRegistry(o Options) (*Registry, error) {
 			return nil, fmt.Errorf("recipe %s: the name is taken", c.Name)
 		}
 		r.byName[c.Name] = NewExec(c)
+	}
+	for _, p := range o.Plugin {
+		name := p.Name()
+		if !ValidQualified(name) {
+			return nil, fmt.Errorf("recipe %s: a plugin recipe is named <plugin>/<name>", name)
+		}
+		// By grammar a qualified name cannot equal a built-in or an operator-local
+		// one; the check is a guard for the day the grammar changes.
+		if _, dup := r.byName[name]; dup {
+			return nil, fmt.Errorf("recipe %s: the name is taken", name)
+		}
+		r.byName[name] = p
 	}
 	return r, nil
 }

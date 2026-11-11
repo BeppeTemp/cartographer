@@ -139,6 +139,9 @@ func (v *validator) execRecipe(name string, r rawRecipe) error {
 		}
 		return ln
 	}
+	if strings.Contains(name, "/") {
+		return v.errf(at, ln, "a recipe name cannot contain \"/\": names of the form <plugin>/<name> belong to plugins, yours are unprefixed")
+	}
 	if !recipeNameRE.MatchString(name) {
 		return v.errf(at, ln, "a recipe name is 1 to 40 characters of a-z, 0-9 and -")
 	}

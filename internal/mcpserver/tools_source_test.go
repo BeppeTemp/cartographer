@@ -701,6 +701,21 @@ func TestSourceRegisterWithoutCuratedIndexStillRegisters(t *testing.T) {
 	}
 }
 
+// A plugin's connector or recipe is named <plugin>/<name>; the server does not judge it.
+func TestSourceRegisterAcceptsQualifiedNames(t *testing.T) {
+	t.Parallel()
+	k, s := sourceFixture(t, true)
+	out := registerSource(t, s, `{"title":"Q","source_kind":"space","source_shape":"feed","connector":"acme-wiki/wiki","recipe":"acme-wiki/wiki","locator":"https://wiki.example.com/space"}`)
+	data, err := k.ReadConcept(okfID(out["id"]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fm, _ := okf.ParseFrontmatter(data.FrontmatterRaw)
+	if fmString(fm, "connector") != "acme-wiki/wiki" || fmString(fm, "recipe") != "acme-wiki/wiki" {
+		t.Fatalf("frontmatter = %q", data.FrontmatterRaw)
+	}
+}
+
 // D1201: the ledger knows collections, feeds and systems.
 func TestSourceRegisterShapes(t *testing.T) {
 	t.Parallel()
