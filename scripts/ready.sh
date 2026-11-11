@@ -14,7 +14,11 @@
 # A change built on another queued change (its branch holds that change's commits) is
 # queued with AFTER=<slug>: it is squashed onto the commit of the branch whose tree is
 # `ready/<slug>`'s, as a child of `ready/<slug>`, so it carries only its own diff. Queue
-# that change first, and again after it changes, then this one.
+# that change first, and again after it changes, then this one. Once the predecessor has
+# landed (`ready/<slug>` is gone), AFTER=<slug> still works: the commit is squashed from the
+# `Lander-Tip` of the predecessor's landed commit (a child of that head, after checking the
+# landed commit is exactly that head's change). A slug neither queued nor
+# landed is refused, with the rebase to run.
 #
 # Trailers the lander reads: `Lander-After: <slug>` (land after that change),
 # `Lander-Hold: yes` (queued, not landed until queued again without it) and
@@ -52,6 +56,7 @@ esac
 git remote get-url upstream >/dev/null 2>&1 && die "the lander works on the upstream repository itself: origin must be it, not a fork"
 
 git fetch -q origin main "+refs/heads/ready/*:refs/remotes/origin/ready/*" || die "cannot fetch origin"
+[ -z "${AFTER:-}" ] || [[ "$AFTER" =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "AFTER must be a slug of lowercase letters, digits and dashes: $AFTER"
 base=$(git merge-base origin/main HEAD) parent=$base
 if [ -n "${AFTER:-}" ] && after=$(git rev-parse -q --verify "refs/remotes/origin/ready/$AFTER^{commit}"); then
   # The commit of this branch whose tree is the queued change's: this change starts there.
@@ -62,7 +67,32 @@ if [ -n "${AFTER:-}" ] && after=$(git rev-parse -q --verify "refs/remotes/origin
   [ -n "$base" ] || die "no commit of this branch matches ready/$AFTER: rebase on that change's branch as queued, then make ready again"
   parent=$after
 elif [ -n "${AFTER:-}" ]; then
-  echo "ready: warning: ready/$AFTER is not queued (landed, or never queued): this change is squashed onto main" >&2
+  # Not queued: either it landed (main holds it squashed, with the lander's trailers) or it
+  # never was. A landed predecessor's branch head, when this branch holds it, is where this
+  # change starts, on main; the commits before it are already there.
+  # A fixed-string search narrows the log (a slug is not a regex); the trailer decides, whole.
+  landed=
+  trailer() { git log -1 --format=%B "$1" | git interpret-trailers --parse | sed -n "s/^$2: //p" | tail -n 1; }
+  for c in $(git log origin/main --format=%H --fixed-strings --grep="Lander-Slug: $AFTER"); do
+    [ "$(trailer "$c" Lander-Slug)" = "$AFTER" ] && { landed=$c; break; }
+  done
+  [ -n "$landed" ] || die "ready/$AFTER is not queued and nothing on main landed as $AFTER: rebase this branch onto origin/main (git rebase --onto origin/main <the predecessor's last commit>), or queue $AFTER first"
+  tip=$(trailer "$landed" Lander-Tip)
+  if tip=$(git rev-parse -q --verify "$tip^{commit}") && git merge-base --is-ancestor "$tip" HEAD; then
+    # The trailers on main are text a contributor's squash-merged PR body can carry, and a
+    # change landed with a conflict resolution differs from its tip: the tip is where this
+    # change starts only if the landed commit is exactly the tip's change.
+    # Limit: in a chain A -> B -> C whose first two landed, AFTER=B is refused (the merge-base
+    # predates A, so the diff holds A and B against B alone); it fails safe, rebase as said.
+    mb=$(git merge-base "$tip" "$landed^") || die "$AFTER landed from a head unrelated to its parent on main: rebase this branch onto origin/main (git rebase --onto origin/main <the predecessor's last commit>)"
+    want=$(git diff "$mb" "$tip" | git patch-id --stable | cut -d' ' -f1)
+    got=$(git diff "$landed^" "$landed" | git patch-id --stable | cut -d' ' -f1)
+    [ -n "$want" ] && [ "$want" = "$got" ] || die "$AFTER landed with a diff other than its head's (a conflict resolution, or trailers that are not the lander's): rebase this branch onto origin/main (git rebase --onto origin/main <the predecessor's last commit>)"
+    # A child of the tip: the queued diff is exactly tip..HEAD, whatever landed since.
+    base=$tip parent=$tip
+  else
+    echo "ready: warning: $AFTER landed but its head is not in this branch: this change is squashed onto main" >&2
+  fi
 fi
 [ "$(git rev-list --count "$base"..HEAD)" -gt 0 ] || die "the branch has no commit over its base"
 

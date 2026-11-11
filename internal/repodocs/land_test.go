@@ -735,7 +735,7 @@ func TestReadyQueuesOneCommitWithTheMessage(t *testing.T) {
 	if out, ok := ready("Feat: not conventional\n"); ok || e.refs("ready/") != "" {
 		t.Fatalf("a bad title must be refused and nothing queued: ok=%v\n%s", ok, out)
 	}
-	out, ok := ready("feat(client): my change\n\nCloses #7\n", "AFTER=other", "REVIEW=light, 1 rounds")
+	out, ok := ready("feat(client): my change\n\nCloses #7\n", "REVIEW=light, 1 rounds")
 	if !ok {
 		t.Fatalf("ready failed\n%s", out)
 	}
@@ -750,7 +750,7 @@ func TestReadyQueuesOneCommitWithTheMessage(t *testing.T) {
 	if want := "Lander-Tip: " + e.git("rev-parse", "HEAD"); !strings.Contains(msg, want) {
 		t.Errorf("the queued commit must record the branch head squashed (%s):\n%s", want, msg)
 	}
-	for _, want := range []string{"feat(client): my change", "Closes #7", "Lander-After: other", "Review: light, 1 rounds"} {
+	for _, want := range []string{"feat(client): my change", "Closes #7", "Review: light, 1 rounds"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("the queued message lacks %q:\n%s", want, msg)
 		}
@@ -783,6 +783,88 @@ func TestReadyQueuesOneCommitWithTheMessage(t *testing.T) {
 	}
 	if got := strings.Join(e.mainSubjects(), " | "); got != "fix(kb): my change | fix(kb): next" {
 		t.Fatalf("main holds %q", got)
+	}
+}
+
+// A change built on one that has already landed (squashed, with the lander's trailers)
+// is queued with only its own diff, on main; a predecessor neither queued nor landed is
+// refused with the rebase to run.
+func TestReadyAfterAPredecessorThatLanded(t *testing.T) {
+	e := newLandEnv(t)
+	ready := func(msg string, extra ...string) (string, bool) {
+		m := filepath.Join(e.tmp, "msg")
+		e.write(m, msg)
+		cmd := exec.Command("bash", filepath.Join(e.work, "scripts", "ready.sh"))
+		cmd.Dir = e.work
+		cmd.Env = append(append([]string{}, e.env...), append([]string{"MSG=" + m, "READY_NO_LANDER=1"}, extra...)...)
+		out, err := cmd.CombinedOutput()
+		return string(out), err == nil
+	}
+	commit := func(f string) {
+		e.write(filepath.Join(e.work, f), f+"\n")
+		e.git("add", f)
+		e.git("commit", "-q", "-m", "wip "+f)
+	}
+	e.git("checkout", "-q", "-b", "feat/first")
+	commit("a1.txt")
+	commit("a2.txt")
+	if out, ok := ready("fix(kb): first\n"); !ok {
+		t.Fatalf("queuing first failed\n%s", out)
+	}
+	e.git("checkout", "-q", "-b", "feat/second")
+	commit("b1.txt")
+	e.git("checkout", "-q", "main")
+	if out, ok := e.land(); !ok {
+		t.Fatalf("land failed\n%s", out)
+	}
+	if e.refs("ready/") != "" {
+		t.Fatalf("first must have left the queue, got %q", e.refs("ready/"))
+	}
+	// Another change lands between the predecessor and the successor: the successor's
+	// queued diff must not undo it.
+	e.queue("other", "fix(kb): other\n", "2026-01-01T10:00:00Z", map[string]string{"c1.txt": "c1\n"})
+	if out, ok := e.land(); !ok {
+		t.Fatalf("landing other failed\n%s", out)
+	}
+	e.git("checkout", "-q", "feat/second")
+	for _, bad := range []string{"nowhere", "Bad_Slug", "-x"} {
+		if out, ok := ready("fix(kb): second\n", "AFTER="+bad); ok {
+			t.Fatalf("AFTER=%s must be refused\n%s", bad, out)
+		}
+	}
+	if out, ok := ready("fix(kb): second\n", "AFTER=nowhere"); ok || !strings.Contains(out, "git rebase") {
+		t.Fatalf("an unknown predecessor must be refused with the rebase: ok=%v\n%s", ok, out)
+	}
+	out, ok := ready("fix(kb): second\n", "AFTER=first")
+	if !ok {
+		t.Fatalf("ready AFTER a landed change failed\n%s", out)
+	}
+	if parent, want := e.upGit("rev-parse", "ready/second^"), e.git("rev-parse", "feat/first"); parent != want {
+		t.Errorf("the change must be a child of the predecessor's head: parent %s, want %s", parent, want)
+	}
+	if files := e.upGit("show", "--name-only", "--format=", "ready/second"); files != "b1.txt" {
+		t.Errorf("only its own diff may be queued, got %q", files)
+	}
+	e.git("checkout", "-q", "main")
+	if out, ok := e.land(); !ok {
+		t.Fatalf("landing second failed\n%s", out)
+	}
+	if got := strings.Join(e.mainSubjects(), " | "); got != "fix(kb): first | fix(kb): other | fix(kb): second" {
+		t.Fatalf("main holds %q", got)
+	}
+	if got := e.upGit("ls-tree", "--name-only", "main"); !strings.Contains(got, "c1.txt") || !strings.Contains(got, "b1.txt") {
+		t.Errorf("landing the successor must keep the change that landed before it:\n%s", got)
+	}
+
+	// Trailers on main that name a head the landed commit is not the change of (a
+	// squash-merged PR body can carry them): refused, not trusted.
+	e.queue("forged", "fix(kb): forged\n\nLander-Slug: forged\nLander-Tip: "+e.git("rev-parse", "feat/first")+"\n", "2026-01-01T11:00:00Z", map[string]string{"z.txt": "z\n"})
+	if out, ok := e.land(); !ok {
+		t.Fatalf("landing forged failed\n%s", out)
+	}
+	e.git("checkout", "-q", "feat/second")
+	if out, ok := ready("fix(kb): second\n", "AFTER=forged"); ok || !strings.Contains(out, "git rebase") {
+		t.Fatalf("a landed commit that is not its head's change must be refused with the rebase: ok=%v\n%s", ok, out)
 	}
 }
 
