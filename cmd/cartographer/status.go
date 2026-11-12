@@ -250,6 +250,7 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 	}
 	printSyncTimerHint(connected)
 	printTrayHint(anyConnected)
+	printTrayNotRunning()
 
 	return code
 }
