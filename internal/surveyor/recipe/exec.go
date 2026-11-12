@@ -63,12 +63,19 @@ type ExecConfig struct {
 // one, and a second script would multiply the child processes a surveyor holds.
 var execSlot = make(chan struct{}, 1)
 
-type execRecipe struct{ c ExecConfig }
+type execRecipe struct {
+	c ExecConfig
+	// inproc, when set, answers a verb in this process instead of a child: a
+	// Starlark recipe (starlark.go). It is handed the request an exec script
+	// would get on stdin and answers the lines it would print, so the listing,
+	// check, spec and fetch parsers below judge both the same.
+	inproc func(ctx context.Context, body []byte) ([]byte, error)
+}
 
 var _ SystemRecipe = (*execRecipe)(nil)
 
 // NewExec returns the recipe that runs an operator-declared executable.
-func NewExec(c ExecConfig) Recipe { return &execRecipe{c} }
+func NewExec(c ExecConfig) Recipe { return &execRecipe{c: c} }
 
 func (e *execRecipe) Name() string { return e.c.Name }
 func (e *execRecipe) Shape() string {
@@ -178,6 +185,9 @@ func (e *execRecipe) runScript(ctx context.Context, fc string, body []byte, read
 		defer func() { <-execSlot }()
 	case <-ctx.Done():
 		return ctx.Err()
+	}
+	if e.inproc != nil {
+		return e.runInProc(ctx, fc, body, read)
 	}
 	env, err := connector.ChildEnv(e.c.Env)
 	if err != nil {

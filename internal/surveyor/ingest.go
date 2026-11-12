@@ -133,7 +133,7 @@ func (in *ingestInstance) Bind(cfg *Config, p Profile) {
 	in.tier, in.allowPrivate, in.gitHosts = p.Tier, cfg.FetchAllowPrivate, cfg.GitAllowHosts
 	in.connectors = cfg.Connectors
 	in.sysRecipes = map[string]string{}
-	for _, x := range cfg.ExecRecipes {
+	for _, x := range cfg.runnable() {
 		if x.Shape == recipe.ShapeSystem {
 			in.sysRecipes[x.Name] = x.Instructions
 		}

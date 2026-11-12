@@ -9,6 +9,7 @@ import (
 	"sort"
 
 	"github.com/BeppeTemp/cartographer/internal/plugin/core"
+	"github.com/BeppeTemp/cartographer/internal/plugin/starcore/recipes"
 	"github.com/BeppeTemp/cartographer/internal/surveyor/connector"
 	"github.com/BeppeTemp/cartographer/internal/surveyor/recipe"
 )
@@ -112,8 +113,37 @@ func (c *Config) addPluginPoints() error {
 			c.Connectors = append(c.Connectors, cfg)
 		}
 
+		prog, err := recipes.Load(p.Files)
+		if err != nil {
+			return fail("%v", err)
+		}
+		scripted := map[string]recipes.Recipe{}
+		if prog != nil {
+			for _, sr := range prog.Recipes() {
+				scripted[sr.Name] = sr
+			}
+		}
 		for _, rc := range p.Contributions["recipes"] {
 			r := rc.Recipe
+			if r.Script {
+				sr, ok := scripted[rc.Name]
+				if !ok {
+					return fail("recipe %s has no recipe.yaml and surveyor.star does not register it", rc.Name)
+				}
+				delete(scripted, rc.Name)
+				q := recipe.Qualified(name, rc.Name)
+				if !recipe.ValidQualified(q) {
+					return fail("recipe %s: %q is not a valid qualified name (at most %d characters, no - at the edge of a part)", rc.Name, q, recipe.MaxQualifiedLen)
+				}
+				sc := recipe.StarConfig{
+					ExecConfig: recipe.ExecConfig{Name: q, Shape: sr.Shape, Env: maps.Clone(pin.Env), Instructions: r.Instructions, Settings: pin.Settings,
+						Timeout: defaultExecTimeout, MaxOutput: defaultExecOutput, MaxContent: defaultExecContent},
+					Program: prog, Local: rc.Name, Plugin: name, Version: p.Manifest.Version,
+					Permissions: p.Manifest.Components[core.SideSurveyor].Permissions, Declared: p.Manifest.Settings,
+				}
+				c.StarRecipes = append(c.StarRecipes, sc)
+				continue
+			}
 			q := recipe.Qualified(name, rc.Name)
 			if !recipe.ValidQualified(q) {
 				return fail("recipe %s: %q is not a valid qualified name (at most %d characters, no - at the edge of a part)", rc.Name, q, recipe.MaxQualifiedLen)
@@ -139,6 +169,11 @@ func (c *Config) addPluginPoints() error {
 				ec.MaxContent = r.MaxContent
 			}
 			c.ExecRecipes = append(c.ExecRecipes, ec)
+		}
+		// A registration with no folder or with a recipe.yaml is a tree problem the
+		// script check reports; this is the guard for a tree read without it.
+		for _, n := range slices.Sorted(maps.Keys(scripted)) {
+			return fail("surveyor.star registers recipe %s, which has no recipes/%s/ folder of instructions.md alone", n, n)
 		}
 	}
 	if err := connector.CheckAliases(c.Connectors); err != nil {

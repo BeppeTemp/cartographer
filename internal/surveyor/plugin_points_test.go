@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/plugin/core"
+	"github.com/BeppeTemp/cartographer/internal/plugin/starcore/recipes"
 )
 
 const (
@@ -43,7 +44,7 @@ func TestLoadPluginRecipes(t *testing.T) {
 		want  string
 	}{
 		"no instructions": {append(noInstr[1:2:2], noInstr[2]), "instructions.md is required"},
-		"no recipe.yaml":  {[]core.TreeFile{noYAML[0], noYAML[2]}, "recipe.yaml is required"},
+		"no recipe.yaml":  {[]core.TreeFile{noYAML[0], noYAML[2]}, "instructions.md alone"},
 		"flat file":       {[]core.TreeFile{tf("recipes/x.yaml", "", false)}, "expected a folder"},
 		"bad name":        {recipeTree("Feed", okRecipeYAML), "1 to 40 characters"},
 		"unknown key":     {recipeTree("feed", okRecipeYAML+"colour: red\n"), "colour not found"},
@@ -265,5 +266,83 @@ func TestQualifiedRecipeNameIsJudgedByTheTreeReader(t *testing.T) {
 				t.Fatalf("problems %v", probs)
 			}
 		})
+	}
+}
+
+// A Starlark recipe of a pinned plugin is read by the tree reader (the script
+// check), loaded by the config and polled end to end under its qualified name;
+// its env.get sees only the mapped variable.
+func TestStarlarkPluginRecipePollsEndToEnd(t *testing.T) {
+	manifest := pointsManifest
+	script := `
+def lst(req):
+    t = env.get("WIKI_TOKEN")
+    return {"entries": [{"key": "p1", "title": "Page", "revision": "1", "change": "added", "content": "token length " + str(len(t))}], "next_cursor": "c1"}
+
+recipe("feed", lst)
+`
+	files := []core.TreeFile{tf(core.ManifestFile, manifest, false), tf("recipes/feed/instructions.md", "Read the entries.", false), tf(core.SurveyorScript, script, false)}
+	opts := core.Options{RunningVersion: "0.29.0", CheckScripts: recipes.Check}
+	p, probs := core.ReadTree(files, opts)
+	if len(probs) != 0 {
+		t.Fatal(probs)
+	}
+	// A plugin with no script and no recipe folder reads clean.
+	if _, probs := core.ReadTree(files[:1:1], opts); len(probs) != 0 {
+		t.Fatalf("a plugin without the script: %v", probs)
+	}
+	bad := []core.TreeFile{files[0], files[2]}
+	if _, probs := core.ReadTree(bad, opts); !strings.Contains(strings.Join(probs, "\n"), "needs recipes/feed/instructions.md") {
+		t.Fatalf("problems %v", probs)
+	}
+	store := t.TempDir()
+	if err := (core.Store{Root: store}).Put("acme-wiki", files, p.Digest, opts); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("OPERATOR_WIKI", "abcd")
+	c, err := cfgLoad(t, cfgGolden+"plugins_dir: "+store+"\nplugins:\n  acme-wiki:\n    digest: "+p.Digest+"\n    env: {WIKI_TOKEN: OPERATOR_WIKI}\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.LoadPlugins(opts); err != nil {
+		t.Fatal(err)
+	}
+	if len(c.StarRecipes) != 1 || c.StarRecipes[0].Name != "acme-wiki/feed" || len(c.ExecRecipes) != 0 {
+		t.Fatalf("%+v", c.StarRecipes)
+	}
+	e := newPollEnv(t, Config{})
+	e.in = e.instance(Config{GitAllowHosts: []string{"git.example.com"}, StarRecipes: c.StarRecipes})
+	e.feed()["recipe"], e.feed()["locator"] = "acme-wiki/feed", "wiki:space/ops"
+	delete(e.feed(), "feed_include")
+	if _, _, err := e.poll(); err != nil {
+		t.Fatal(err)
+	}
+	if fe, _ := e.feed()["feed_error"].(string); fe != "" || len(e.k.units()) == 0 {
+		t.Fatalf("feed_error %q, units %v", fe, e.k.units())
+	}
+}
+
+func TestStarlarkRecipeGuards(t *testing.T) {
+	script := "def l(r):\n    return {}\nrecipe(\"feed\", l)\n"
+	// Read without the script check (a tree read by a binary that links none), the
+	// config still refuses a registration with no folder.
+	p := pointsPlugin(t, pointsManifest, tf(core.SurveyorScript, script, false))
+	c := pointsConfig(t, p, map[string]string{"WIKI_TOKEN": "A"})
+	if err := c.addPluginPoints(); err == nil || !strings.Contains(err.Error(), "registers recipe feed") {
+		t.Errorf("registration without a folder: %v", err)
+	}
+	// A folder with instructions.md alone and no registration.
+	p = pointsPlugin(t, pointsManifest, tf("recipes/feed/instructions.md", "x", false))
+	c = pointsConfig(t, p, map[string]string{"WIKI_TOKEN": "A"})
+	if err := c.addPluginPoints(); err == nil || !strings.Contains(err.Error(), "does not register it") {
+		t.Errorf("folder without a registration: %v", err)
+	}
+	// The preview names the Starlark recipe.
+	var b strings.Builder
+	for _, c := range p.Contributions["recipes"] {
+		previewPluginRecipe(&b, c)
+	}
+	if !strings.Contains(b.String(), "Starlark, registered by surveyor.star") {
+		t.Errorf("preview %q", b.String())
 	}
 }

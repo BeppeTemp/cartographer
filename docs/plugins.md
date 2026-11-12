@@ -69,7 +69,7 @@ components:
 - A tree folder or file of a registered family whose side does not declare that family is a problem
   (`skills/: declare sdk.artifacts under components.client`). Under schema 2 a top-level entry no family claims is stored, digested and reported in `Plugin.Unknown` (`entry <name>`), never loaded; under schema 1 it stays the error it was.
 - Families (`core.Families`): client `artifacts` (`skills/`, `agents/`, `hooks/`), `providers` (`providers/`), `scripts`
-  (`plugin.star`, `lib/`); server `presets` (`presets/`) and `roles` (`roles/`); surveyor `recipes` (`recipes/`, and the root file `surveyor.star`, stored with the family; the Surveyor does not run it in this version) and `connectors` (`connectors/`); atlas `views` (`views/`), `apps` (`apps/`) and `branding` (`branding/`). A name belongs to one family only. The client
+  (`plugin.star`, `lib/`); server `presets` (`presets/`) and `roles` (`roles/`); surveyor `recipes` (`recipes/`, and the root file `surveyor.star`, stored with the family; the Surveyor runs the Starlark recipes it registers) and `connectors` (`connectors/`); atlas `views` (`views/`), `apps` (`apps/`) and `branding` (`branding/`). A name belongs to one family only. The client
   families load on the client; the server families `roles/` and `presets/` are loaded by `internal/pluginserver` (the server side of the plugin package, which may reach the data plane to
   judge what it reads; `internal/plugin` is client-only and `internal/pluginserver` imports `internal/plugin/core`) and are data only; the atlas families `views/` and `apps/` are loaded by `internal/atlasext` (below) and `branding/` by `internal/pluginserver`, all data only; the Surveyor families `recipes/` and `connectors/` are loaded by `internal/surveyor` (below).
 - Permissions per side: the client may ask for everything schema 1 allows; the Surveyor for `net` and `env` (`kb` and `files` are
@@ -274,6 +274,18 @@ It runs code on the Surveyor, so the preview lists every file with the execute b
   An unknown key is a problem. A folder name is `[a-z0-9-]`, 1 to 40 characters, but the qualified `<plugin>/<name>`
   is at most 31 characters in all and no part starts or ends with `-`; the tree reader reports a recipe that breaks
   this, so `plugin vendor` and the preview refuse it.
+- A **Starlark recipe** has no `recipe.yaml` and no process: its folder holds `instructions.md` alone, and the root
+  `surveyor.star` (one file, no `load()`; declare `sdk.recipes` under `components.surveyor`) registers it with
+  `recipe(name, list, shape="feed", spec=None, check=None, fetch=None)`, `name` being the folder's local name. Each verb
+  is a function of the request dict (the stdin of an exec recipe without `protocol` and `verb`) that returns a dict:
+  `list` -> `{"entries": [...], "deletes": [keys], "next_cursor": str}`, `fetch` -> `{"contents": {key: text}}`,
+  `spec` and `check` -> the object an exec script prints. The host writes the dict as the lines an exec script prints
+  and the same parser judges it, so a listing is valid by one definition. The script has `http` (the manifest's `net`),
+  `env` (the names of `permissions.env` the Surveyor config maps), `log`, `settings` and `json`, `math`, `time`; there is
+  no `files` or `kb`, and a script that names one does not load. Every verb call has 5 minutes and 100 million steps and
+  takes the same one-at-a-time slot as an exec recipe. A recipe has no `connector`: the units read the Source's own. The
+  tree reader loads `surveyor.star` before any approval and reports a registration without a folder, a folder without
+  `recipe.yaml` that nothing registers, and a name that is both exec and Starlark.
 - `connectors/<name>.yaml` is `transport` (`stdio` or `http`), `command` (a file under `connectors/`, with the execute
   bit, given as `bin/server`; or a bare program name looked up on the Surveyor's PATH, which runs code too: the preview prints its `args`
   and labels the line "runs code on the Surveyor") and

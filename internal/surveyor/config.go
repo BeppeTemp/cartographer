@@ -126,6 +126,11 @@ type Config struct {
 	// ExecRecipes are the recipes.<name> of kind exec (protocol v2, D1262), commands
 	// already resolved; they come from this file and from nowhere else.
 	ExecRecipes []recipe.ExecConfig
+	// StarRecipes are the Starlark recipes of the pinned plugins' surveyor.star,
+	// under their qualified names; LoadPlugins fills them. Their ExecConfig is
+	// read like an exec recipe's by everything that only needs the name, shape,
+	// env or settings (runnable).
+	StarRecipes []recipe.StarConfig
 	// PluginsDir is plugins_dir resolved against the config directory and
 	// PluginPins the plugins entries, by name; LoadPlugins turns them into
 	// Plugins at start.
@@ -939,4 +944,24 @@ func checkURL(s string, allowInsecure bool) error {
 		return errors.New("credentials in the URL are refused: put the secret in an environment variable named by a *_env key")
 	}
 	return client.CheckServerURL(s, allowInsecure)
+}
+
+// runnable are the recipes that run code of the Surveyor's own config or of a
+// pinned plugin, exec and Starlark alike: the ones whose name, shape, env and
+// settings the poll, the unit executor and `source test` read.
+func (c *Config) runnable() []recipe.ExecConfig {
+	out := append([]recipe.ExecConfig(nil), c.ExecRecipes...)
+	for _, s := range c.StarRecipes {
+		out = append(out, s.ExecConfig)
+	}
+	return out
+}
+
+// starlarkRecipes builds the recipes of StarRecipes.
+func (c *Config) starlarkRecipes() []recipe.Recipe {
+	out := make([]recipe.Recipe, 0, len(c.StarRecipes))
+	for _, s := range c.StarRecipes {
+		out = append(out, recipe.NewStarlark(s))
+	}
+	return out
 }

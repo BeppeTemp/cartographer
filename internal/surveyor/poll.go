@@ -105,7 +105,7 @@ func NewRecipeRegistry(cfg *Config, clone recipe.CloneFunc) (*recipe.Registry, e
 	return recipe.NewRegistry(recipe.Options{
 		GitHosts: cfg.GitAllowHosts, Instructions: cfg.RecipeInstructions, Clone: clone,
 		FetchHosts: cfg.FetchAllowHosts, InsecureHTTP: cfg.FetchAllowInsecureHTTP, Get: f.page,
-		Exec: cfg.ExecRecipes,
+		Exec: cfg.ExecRecipes, Plugin: cfg.starlarkRecipes(),
 	})
 }
 
@@ -118,7 +118,7 @@ func (in *pollInstance) Bind(cfg *Config, _ Profile) {
 	for k, v := range builtinConnector {
 		in.connector[k] = v
 	}
-	for _, x := range cfg.ExecRecipes {
+	for _, x := range cfg.runnable() {
 		in.connector[x.Name] = x.Connector
 		for k, v := range x.Env {
 			in.secret["recipe-"+x.Name+"/"+k] = v

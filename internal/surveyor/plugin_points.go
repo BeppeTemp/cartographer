@@ -116,7 +116,15 @@ func loadPluginRecipes(files []core.TreeFile) ([]core.Contribution, []string) {
 			bad("instructions.md must be non-empty UTF-8 text of at most 16 KiB")
 			continue
 		case !haveYML:
-			bad("recipe.yaml is required")
+			// A recipe without recipe.yaml is a Starlark one: surveyor.star registers
+			// it (core.ReadTree's script check judges that) and nothing in its
+			// folder runs, so a second file is a mistake.
+			if len(fs) != 1 {
+				bad("a recipe without recipe.yaml is a Starlark recipe and its folder holds instructions.md alone")
+				continue
+			}
+			out = append(out, core.Contribution{Point: "recipes", Kind: "recipe", Name: name,
+				Files: []contract.ArtifactFile{{Path: "instructions.md", Content: instr}}, Recipe: &core.SurveyorRecipe{Script: true, Instructions: string(instr)}})
 			continue
 		}
 		var rf pluginRecipeFile
@@ -312,6 +320,10 @@ func checkPluginRecipeName(plugin string, c core.Contribution) []string {
 
 func previewPluginRecipe(w io.Writer, c core.Contribution) {
 	r := c.Recipe
+	if r.Script {
+		fmt.Fprintf(w, "  recipe %q: Starlark, registered by surveyor.star (runs on the Surveyor, with the http, env and log modules, no process)\n", c.Name)
+		return
+	}
 	fmt.Fprintf(w, "  recipe %q: %s, exec %q (runs code on the Surveyor)\n", c.Name, r.Shape, r.Command)
 	if r.Connector != "" {
 		fmt.Fprintf(w, "    reads entries through connector %q\n", r.Connector)

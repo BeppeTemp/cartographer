@@ -271,7 +271,7 @@ func (rep *SourceTestReport) describe(ctx context.Context, rec recipe.Recipe, f 
 		return nil
 	default:
 		rep.Spec = &spec
-		for _, x := range cfg.ExecRecipes {
+		for _, x := range cfg.runnable() {
 			if x.Name == f.Recipe {
 				if err := spec.CheckSettings(x.Settings); err != nil {
 					return startErr("recipe %s: %v", f.Recipe, err)
@@ -315,7 +315,7 @@ func failureOf(err error, code string) *SourceTestFailure {
 // execEnvCheck requires only the variables the chosen exec recipe lists: they are
 // read when the script runs, and an unset one is named here, never its value.
 func execEnvCheck(cfg *Config, name string) error {
-	for _, x := range cfg.ExecRecipes {
+	for _, x := range cfg.runnable() {
 		if x.Name != name {
 			continue
 		}
