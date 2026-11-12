@@ -17,9 +17,14 @@
 # landing it fails with 75.
 #
 #   HOSTED_CHECK_DRY=1            build the commit and print the branch, push nothing
-#   HOSTED_CHECK_POLL=5           seconds between polls
+#   HOSTED_CHECK_POLL=15          seconds before the first poll of the run; doubles after each poll
+#   HOSTED_CHECK_POLL_MAX=60      ceiling of that back-off (a run costs ~15 calls, not ~720 an hour:
+#                                 parallel checks share one REST quota)
+#   HOSTED_CHECK_DISPATCH_POLL=5  seconds between the polls for the dispatched run to appear
 #   HOSTED_CHECK_DISPATCH_TRIES=30  polls for the dispatched run to appear
-#   HOSTED_CHECK_TRIES=360        polls of the run (30 min), then cancel and exit 1
+#   HOSTED_CHECK_TIMEOUT=3600     seconds of waiting for the run, then cancel and exit 1
+#   HOSTED_CHECK_RATE_FLOOR=0     a failed poll with this many core calls left or fewer waits for
+#                                 the quota reset (capped at the timeout) instead of counting as lost
 #   HOSTED_CHECK_TAIL=150         lines of the failed log printed
 set -euo pipefail
 
@@ -47,7 +52,8 @@ for w in $pkgs; do
 done
 
 dry=${HOSTED_CHECK_DRY:-}
-poll=${HOSTED_CHECK_POLL:-5}
+poll=${HOSTED_CHECK_POLL:-15}
+poll_max=${HOSTED_CHECK_POLL_MAX:-60}
 here=${BASH_SOURCE[0]%/*}
 
 # 2. Preconditions (75: GitHub cannot run it).
@@ -139,14 +145,31 @@ gh workflow run hosted-check.yml -R "$repo" --ref "$branch" -f pkgs="$pkgs" -f e
 for _ in $(seq 1 "${HOSTED_CHECK_DISPATCH_TRIES:-30}"); do
   id=$(list_runs 2>/dev/null | sort -n | awk -v b="$before" '$1 > b { print; exit }' || true)
   [ -z "$id" ] || break
-  sleep "$poll"
+  sleep "${HOSTED_CHECK_DISPATCH_POLL:-5}"
 done
 [ -n "$id" ] || unavailable "the dispatched run of $branch did not appear"
 note "run $id on $branch"
 
-# 8. Wait.
-last='' fails=0 concl=''
-for _ in $(seq 1 "${HOSTED_CHECK_TRIES:-360}"); do
+# 8. Wait. Back-off: the interval doubles up to poll_max, and the ceiling is elapsed time. The
+# elapsed time is the larger of the wall clock and the sum of the naps (a stubbed sleep in tests).
+timeout=${HOSTED_CHECK_TIMEOUT:-3600}
+last='' fails=0 concl='' slept=0 interval=$poll start=$SECONDS
+nap() { sleep "$1"; slept=$((slept + $1)); }
+elapsed() { local e=$((SECONDS - start)); [ "$slept" -le "$e" ] || e=$slept; echo "$e"; }
+# Core quota exhausted: print the seconds to wait for its reset (capped at the time left), else nothing.
+# `gh api rate_limit` does not count against the quota.
+quota_wait() {
+  local rl rem reset w left
+  rl=$(gh api rate_limit --jq '.resources.core | "\(.remaining) \(.reset)"' 2>/dev/null) || return 0
+  read -r rem reset <<<"$rl"
+  [[ "$rem" =~ ^[0-9]+$ && "$reset" =~ ^[0-9]+$ ]] || return 0
+  [ "$rem" -le "${HOSTED_CHECK_RATE_FLOOR:-0}" ] || return 0
+  w=$((reset - $(date +%s) + 1)); [ "$w" -ge 1 ] || w=1
+  left=$((timeout - $(elapsed))); [ "$w" -le "$left" ] || w=$left
+  [ "$w" -ge 1 ] || w=1
+  echo "$w"
+}
+while [ "$(elapsed)" -lt "$timeout" ]; do
   if v=$(gh run view "$id" -R "$repo" --json status,conclusion --jq '.status + " " + .conclusion' 2>/dev/null); then
     fails=0
     status=${v%% *}
@@ -155,11 +178,16 @@ for _ in $(seq 1 "${HOSTED_CHECK_TRIES:-360}"); do
       last=$status
     fi
     if [ "$status" = completed ]; then done_=1; concl=${v#* }; break; fi
+  elif w=$(quota_wait) && [ -n "$w" ]; then
+    note "GitHub API quota exhausted: waiting ${w}s for its reset"
+    nap "$w"
+    continue
   else
     fails=$((fails + 1))
     [ "$fails" -lt 3 ] || unavailable "lost GitHub while waiting for run $id (cancelled if reachable, else it expires)"
   fi
-  sleep "$poll"
+  nap "$interval"
+  interval=$((interval * 2)); [ "$interval" -le "$poll_max" ] || interval=$poll_max
 done
 if [ "$done_" = 0 ]; then
   note "run $id still running after the ceiling: cancelling"

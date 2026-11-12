@@ -228,7 +228,7 @@ func TestHostedCheckRun(t *testing.T) {
 			run(repo, "config", "url."+bare+".insteadOf", "https://example.com/owner/name.git")
 			stubs := stubBin(t, map[string]string{"gh": ghStub})
 			path := stubs + string(os.PathListSeparator) + filepath.Dir(git) + string(os.PathListSeparator) + "/usr/bin" + string(os.PathListSeparator) + "/bin"
-			env := append([]string{"GH_STATE=" + state, "GH_CONCL=" + c.concl, "HOSTED_CHECK_POLL=0"}, gitEnv...)
+			env := append([]string{"GH_STATE=" + state, "GH_CONCL=" + c.concl, "HOSTED_CHECK_POLL=0", "HOSTED_CHECK_DISPATCH_POLL=0"}, gitEnv...)
 			if c.listBad {
 				env = append(env, "GH_LIST_FAIL=1")
 			}
@@ -350,7 +350,7 @@ func TestHostedCheckSweepKeepsOtherWorktrees(t *testing.T) {
 	run(repo, "remote", "add", "origin", bare)
 	stubs := stubBin(t, map[string]string{"gh": ghStub})
 	path := stubs + string(os.PathListSeparator) + filepath.Dir(git) + string(os.PathListSeparator) + "/usr/bin" + string(os.PathListSeparator) + "/bin"
-	env := append([]string{"GH_STATE=" + state, "GH_CONCL=success", "HOSTED_CHECK_POLL=0"}, gitEnv...)
+	env := append([]string{"GH_STATE=" + state, "GH_CONCL=success", "HOSTED_CHECK_POLL=0", "HOSTED_CHECK_DISPATCH_POLL=0"}, gitEnv...)
 	// This worktree's branch name, from a dry run.
 	_, out := runHostedCheck(t, repo, path, append([]string{"HOSTED_CHECK_DRY=1"}, env...), "check-run", "CHECK_PKGS=./a")
 	m := regexp.MustCompile(`(check/[a-z0-9-]+-[0-9a-f]{6})-[0-9a-f]{12}`).FindStringSubmatch(out)
@@ -412,4 +412,95 @@ func TestHostedCheckRefusesUntrackedCode(t *testing.T) {
 	if code != 2 || !strings.Contains(out, "internal/newpkg/x.go") || !strings.Contains(out, "git add the new files first") {
 		t.Errorf("exit %d, want 2 naming the file:\n%s", code, out)
 	}
+}
+
+// A fake gh on PATH and a sleep that only advances a virtual clock: a 10-minute run costs a
+// bounded number of `run view` calls, and an exhausted core quota waits for its reset instead of
+// counting as a lost GitHub (exit 75).
+func TestHostedCheckPollBudget(t *testing.T) {
+	needBash(t)
+	const gh = `S="$GH_STATE"
+now() { cat "$S/clock" 2>/dev/null || echo 0; }
+case "$1 $2" in
+"auth status") exit 0 ;;
+"workflow run") exit 0 ;;
+"run list") if [ -e "$S/dispatched" ] || [ "$(now)" -gt 0 ]; then echo 101; fi; : > "$S/dispatched"; exit 0 ;;
+"api rate_limit")
+  if [ -n "$GH_QUOTA_OUT" ] && [ ! -e "$S/recovered" ]; then echo "0 $(( $(date +%s) + 120 ))"; else echo "4000 0"; fi
+  exit 0 ;;
+"run view")
+  echo x >> "$S/views"
+  if [ -n "$GH_QUOTA_OUT" ] && [ ! -e "$S/recovered" ]; then
+    if [ "$(now)" -ge 120 ]; then : > "$S/recovered"; else exit 1; fi
+  fi
+  if [ "$(now)" -ge 600 ]; then echo "completed success"; else echo "in_progress "; fi
+  exit 0 ;;
+"run cancel") exit 0 ;;
+esac
+exit 99`
+	const sleep = `S="$GH_STATE"
+echo "$1" >> "$S/sleeps"
+n=$(cat "$S/clock" 2>/dev/null || echo 0); echo $((n + ${1%.*})) > "$S/clock"`
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git not on PATH")
+	}
+	gitEnv := []string{"GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null",
+		"GIT_AUTHOR_NAME=u", "GIT_AUTHOR_EMAIL=u@example.com", "GIT_COMMITTER_NAME=u", "GIT_COMMITTER_EMAIL=u@example.com"}
+	for _, quota := range []bool{false, true} {
+		name := "ten minutes"
+		if quota {
+			name = "quota exhausted"
+		}
+		t.Run(name, func(t *testing.T) {
+			bare, repo, state := t.TempDir(), t.TempDir(), t.TempDir()
+			run := func(dir string, args ...string) {
+				c := exec.Command(git, args...)
+				c.Dir = dir
+				c.Env = append(os.Environ(), gitEnv...)
+				if out, err := c.CombinedOutput(); err != nil {
+					t.Fatalf("git %v: %v\n%s", args, err, out)
+				}
+			}
+			run(bare, "init", "-q", "--bare")
+			run(repo, "init", "-q", "-b", "main")
+			if err := os.WriteFile(filepath.Join(repo, "a.txt"), []byte("a"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			run(repo, "add", "a.txt")
+			run(repo, "commit", "-q", "-m", "init")
+			run(repo, "remote", "add", "origin", bare)
+			stubs := stubBin(t, map[string]string{"gh": gh, "sleep": sleep})
+			path := stubs + string(os.PathListSeparator) + filepath.Dir(git) + string(os.PathListSeparator) + "/usr/bin" + string(os.PathListSeparator) + "/bin"
+			env := append([]string{"GH_STATE=" + state}, gitEnv...)
+			if quota {
+				env = append(env, "GH_QUOTA_OUT=1")
+			}
+			code, out := runHostedCheck(t, repo, path, env, "check-run", "CHECK_PKGS=./a")
+			if code != 0 || !strings.Contains(out, "check: OK") {
+				t.Fatalf("exit %d, want 0:\n%s", code, out)
+			}
+			views := strings.Count(readFileAbs(t, filepath.Join(state, "views")), "x")
+			if views > 20 {
+				t.Errorf("%d run view calls for a 10-minute run, want <= 20", views)
+			}
+			if quota {
+				if !strings.Contains(out, "quota exhausted") {
+					t.Errorf("the quota wait was not announced:\n%s", out)
+				}
+				if !regexp.MustCompile(`(?m)^1[12][0-9]$`).MatchString(readFileAbs(t, filepath.Join(state, "sleeps"))) {
+					t.Errorf("no sleep until the reset:\n%s", readFileAbs(t, filepath.Join(state, "sleeps")))
+				}
+			}
+		})
+	}
+}
+
+func readFileAbs(t *testing.T, p string) string {
+	t.Helper()
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }
