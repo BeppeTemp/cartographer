@@ -14,7 +14,7 @@ function files(dir: string): string[] {
   });
 }
 const drawn = [
-  ...files(join(src, "components")).filter((f) => /\/(extension\/|ExtensionView\.tsx$)/.test(f)),
+  ...files(join(src, "components")).filter((f) => /\/(extension\/|ExtensionView\.tsx$|Plugins\.tsx$)/.test(f)),
   join(src, "lib", "extension.ts"),
 ];
 

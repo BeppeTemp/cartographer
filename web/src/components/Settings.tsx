@@ -1,7 +1,9 @@
 import { createContext, useContext, useEffect, useState, type CSSProperties } from "react";
 import { SourceFile } from "./SourceFile";
-import { fetchPlaceholders, fetchSettings, fetchWhoami } from "../api/client";
+import { fetchExtensions, fetchPlaceholders, fetchSettings, fetchWhoami } from "../api/client";
+import { PluginsPanel } from "./Plugins";
 import type {
+  Extensions,
   PlaceholderList,
   SettingEntry,
   SettingOrigin,
@@ -179,6 +181,24 @@ export function Settings({
     return () => controller.abort();
   }, [reloadKey]);
 
+  // The installed plugins: null until the first answer; a failed read keeps the last good list and says so,
+  // with a retry, so an outage never reads as "no plugin installed".
+  const [extensions, setExtensions] = useState<Extensions | null>(null);
+  const [extError, setExtError] = useState<unknown>(null);
+  const [extTry, setExtTry] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchExtensions(controller.signal)
+      .then((data) => {
+        setExtensions(data);
+        setExtError(null);
+      })
+      .catch((err: unknown) => {
+        if (!controller.signal.aborted) setExtError(err);
+      });
+    return () => controller.abort();
+  }, [reloadKey, extTry]);
+
   useEffect(() => {
     const controller = new AbortController();
     fetchSettings(controller.signal)
@@ -261,10 +281,12 @@ export function Settings({
   // A surveyor tab opens on its perimeter; with none reported, on the template.
   const surveyors = view.surveyors ?? [];
   // Tabs are keyed by position: two principals can run the same perimeter name.
+  const plugins = tab === "plugins";
   const surveyor = tab.startsWith("surveyor") ? (surveyors[Number(tab.split(":")[1])] ?? surveyors[0] ?? null) : undefined;
   const surveyorId = surveyor ? `surveyor:${surveyors.indexOf(surveyor)}` : "surveyor";
-  const current =
-    surveyor !== undefined
+  const current = plugins
+    ? "plugins"
+    : surveyor !== undefined
       ? surveyorId
       : client !== undefined
         ? client
@@ -279,7 +301,9 @@ export function Settings({
       <PageHeader
         eyebrow="Settings"
         title={
-          surveyor !== undefined
+          plugins
+            ? "Plugins"
+            : surveyor !== undefined
             ? (surveyor?.perimeter ?? "Surveyor")
             : client !== undefined
               ? (client?.machine ?? "Compass")
@@ -289,7 +313,9 @@ export function Settings({
         }
         subtitle={
           <>
-            {surveyor !== undefined
+            {plugins
+              ? "The plugins installed on each component, read-only: approval is a command on the component (cartographer plugin approve on Compass; headless components approve by digest in their own config)"
+              : surveyor !== undefined
               ? surveyor
                 ? `Surveyor${surveyor.version ? ` ${surveyor.version}` : ""} · ${surveyor.replicas} replica${surveyor.replicas === 1 ? "" : "s"} · ${surveyor.kbs.join(", ")} · reported ${new Date(surveyor.received_at).toLocaleString("en")} · read-only`
                 : "No Surveyor has reported: every key at its default, read-only"
@@ -306,7 +332,7 @@ export function Settings({
             )}
           </>
         }
-        actions={headerActions}
+        actions={plugins ? undefined : headerActions}
       />
 
       {error != null && (
@@ -349,11 +375,16 @@ export function Settings({
               </Tab>
             );
           })}
+          <Tab id="plugins" current={current === "plugins"} onSelect={setTab}>
+            Plugins
+          </Tab>
         </div>
       </div>
 
       <div role="tabpanel" aria-labelledby={`settings-tab-${current}`}>
-        {surveyor !== undefined ? (
+        {plugins ? (
+          <PluginsPanel extensions={extensions} error={extError} onRetry={() => setExtTry((n) => n + 1)} operatorOnly={!who?.admin} />
+        ) : surveyor !== undefined ? (
           <SurveyorPanel surveyor={surveyor} template={view.surveyor_template} mode={mode} query={query} />
         ) : client !== undefined ? (
           <ClientValues.Provider value={true}>
