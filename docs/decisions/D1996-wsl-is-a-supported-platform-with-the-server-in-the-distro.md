@@ -1,0 +1,21 @@
+---
+topic: deployment-release
+---
+
+# D1996 — On Windows with WSL the server runs in the distro, a Windows task only keeps the distro alive
+
+**Decision.** WSL2 is a supported platform; a WSL1 kernel is detected and reported unsupported. On a Windows machine with WSL, Meridian runs **inside the distro**, with its data on the Linux filesystem (never `/mnt/*`) and bound to `127.0.0.1:39273`, managed by the Linux backend (systemd user unit, or cron, D1682). A per-user Windows Scheduled Task, `\Cartographer\WslKeepAlive`, registered from inside the distro through the interop `powershell.exe`, only **keeps the distro alive**: it runs `cartographer wsl keepalive`, never `serve`, and on the cron backend that process runs the idempotent `Ensure` every 60 s. The task is registered with an S4U logon (session 0, no window, no password); if the scheduler refuses S4U it is registered once more with an interactive token and `wslg.exe` (no window either); a task that would open a terminal is never registered, and when neither works the install warns and names the `.wslconfig` `[general] instanceIdleTimeout=-1` alternative. On systemd the install also runs `loginctl enable-linger` best effort. On Windows, `cartographer.exe service install|uninstall|start|stop|restart|status` act on the WSL server only when an explicit marker, `%LOCALAPPDATA%\cartographer\wsl-server.json`, names the distro (written by `service install --wsl <distro>` and by a `connect` that finds the server in a running distro, removed by the delegated `uninstall`); with no marker the native task is the service, as before. Each side's `connect` provisions only its own home; Windows clients use the literal `127.0.0.1`. Mirrored networking is documented as not verified. Amends D217 and D1682.
+
+**Why.** A Windows machine with WSL runs agents on both sides (desktop apps reading `%USERPROFILE%`, CLIs reading the distro's `$HOME`), and one server must serve both. WSL forwards Windows' `127.0.0.1` into the distro (not `[::1]`) and the peer looks like `127.0.0.1`, so the local trust model holds unchanged; the distro's own filesystem is where git and SQLite behave. WSL terminates an idle distro about 15 s after the last `wsl.exe` exits, and nothing in the distro starts a cron daemon at boot, so something on the Windows side must hold the distro up and something must bring a cron server back. Keeping the task away from `serve` leaves one owner for the server process. The marker exists because `Backend()` on Windows cannot tell "the server is the WSL one" from anything it can probe without starting a distro.
+
+**Alternatives rejected.**
+
+- *The server as a native Windows process, WSL agents connecting out.* Data on NTFS through the git and SQLite paths the Linux build is tuned for, and the WSL side gains nothing.
+- *The task runs `serve` itself.* Two owners for one process: `service stop` in the distro would fight the task's restart-on-failure.
+- *`sleep infinity` as the keep-alive.* Holds the distro but never restarts a cron server after `wsl --shutdown` or a reboot.
+- *An Interactive task with `wsl.exe`.* Opens a terminal window at every logon.
+- *Registering the task from the Windows binary.* A second implementation, and useless with no Windows binary installed; delegation reaches the WSL one for free.
+- *Delegating whenever a distro answers.* Implicit: a probe could start a distro or pick the wrong one; the marker makes the choice explicit and reversible.
+- *`connect` in WSL also sets up the Windows side.* It would run a Windows binary of unknown version against `%USERPROFILE%` from a Linux process.
+
+**Consequences.** Loopback is not a trust boundary on such a machine: every distro and every Windows process reaches the server as `127.0.0.1`, and `\\wsl.localhost\<distro>` exposes the KB to Windows processes as the distro's default user — the same model as a native local server, with `auth: off` pinned for loopback (D268). `wsl.exe` and the interop `powershell.exe` (matched by base name) are in the scheduler guard. `wsl.exe -l` prints UTF-16LE. CI cannot run WSL, so the S4U registration by a non-admin user, linger, and the restart after `wsl --shutdown` are verified only by the manual checklist in `docs/testing.md`.
