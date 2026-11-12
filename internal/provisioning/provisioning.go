@@ -284,6 +284,19 @@ type ApplyOptions struct {
 	// Only read for ScopeProject.
 	InstructionsRel string
 
+	// WithholdLocalPaths keeps this machine's absolute paths out of the
+	// instructions block (#1897): the "Local paths" table has no rows, and the
+	// {{repo:<key>}}/{{path:<name>}} placeholders in the KB's own instruction
+	// text stay as written instead of being expanded; the paragraph that closes
+	// the block points to `cartographer resolve`. The client sets it, from
+	// InstructionsDestTracked, when the project-scope file the block goes into
+	// is tracked by git (or lands outside the workspace): a file everyone who
+	// clones the repository shares. Skills, agents and the other kinds are
+	// written to their own files and are expanded as usual. It is part of what
+	// Apply and the status diff both judge the recorded PathsSectionHash with,
+	// so the two callers set it from the same answer.
+	WithholdLocalPaths bool
+
 	// HookSettingsRel, when non-empty, is the project-scope settings file
 	// Claude Code hooks are registered in, instead of .claude/settings.json:
 	// a derived workspace binding never edits a settings.json git tracks, so
@@ -2274,7 +2287,7 @@ func applyInstructionsGroup(m contract.Manifest, diff Diff, opts ApplyOptions, t
 		if err != nil {
 			return fmt.Errorf("provisioning: instructions content %s: %w", a.Name, err)
 		}
-		content = expandPlaceholders(content, opts, tracker)
+		content = expandInstructionsText(content, opts, tracker)
 		expandedContent[a.Name] = content
 
 		// The lock records the manifest's hash, the one ComputeDiff compares on
@@ -2333,7 +2346,7 @@ func applyInstructionsGroup(m contract.Manifest, diff Diff, opts ApplyOptions, t
 		}
 	}
 	if opts.ExpandPlaceholders && len(signed) > 0 {
-		pathsSection = buildPathsSection(tracker.resolved)
+		pathsSection = buildPathsSection(pathsTableRows(opts, tracker))
 		*pathsHash = pathsSectionHash(sharedSection + "\x00" + pathsSection + cliHashPart)
 		if !triggered && *pathsHash != opts.Lock.PathsSectionHash {
 			triggered = true
@@ -4081,7 +4094,7 @@ func instructionsResolutionDrift(m contract.Manifest, opts ApplyOptions, tracker
 			return nil
 		}
 		signed = append(signed, a)
-		sections = append(sections, string(expandPlaceholders(content, opts, tracker)))
+		sections = append(sections, string(expandInstructionsText(content, opts, tracker)))
 	}
 	if len(signed) == 0 {
 		return nil
@@ -4092,7 +4105,7 @@ func instructionsResolutionDrift(m contract.Manifest, opts ApplyOptions, tracker
 	}
 	// The cli sentence is in the hash Apply records, so it is in this one (#1846).
 	cliPart := cliHashPartOf(cliSentenceFor(opts.Provider))
-	if pathsSectionHash(shared+"\x00"+buildPathsSection(tracker.resolved)+cliPart) == opts.Lock.PathsSectionHash {
+	if pathsSectionHash(shared+"\x00"+buildPathsSection(pathsTableRows(opts, tracker))+cliPart) == opts.Lock.PathsSectionHash {
 		return nil
 	}
 	return signed

@@ -69,6 +69,7 @@ var gitRemoteFn = gitRemoteOrigin
 // workspace: a plain directory binds fine, it simply carries no guard).
 func gitRemoteOrigin(dir string) string {
 	cmd := procattr.Hide(exec.Command("git", "-C", dir, "remote", "get-url", "origin"))
+	cmd.Env = gitx.Env() // -C names the repository: a hook's GIT_DIR must not
 	out, err := cmd.Output()
 	if err != nil {
 		return ""

@@ -2,6 +2,7 @@ package gitx
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -22,6 +23,23 @@ func envValue(env []string, key string) (string, bool) {
 func TestGitEnv_NeverPrompts(t *testing.T) {
 	if v, _ := envValue(gitEnv(nil), "GIT_TERMINAL_PROMPT"); v != "0" {
 		t.Errorf("GIT_TERMINAL_PROMPT = %q, want 0", v)
+	}
+}
+
+// A sync run from a git hook inherits the variables that pin a repository; Env
+// is the environment of a command that names its repository with -C.
+func TestEnv_DropsTheRepositoryPins(t *testing.T) {
+	for _, v := range repoPinVars {
+		t.Setenv(v, "/elsewhere")
+	}
+	env := Env()
+	for _, v := range repoPinVars {
+		if got, ok := envValue(env, v); ok {
+			t.Errorf("%s = %q survives in Env()", v, got)
+		}
+	}
+	if v, _ := envValue(env, "LC_ALL"); v != "C" {
+		t.Errorf("LC_ALL = %q, want C", v)
 	}
 }
 
@@ -59,5 +77,99 @@ func TestCheckRepo_TellsNotARepoFromARefusal(t *testing.T) {
 	}
 	if ok, err := CheckRepo(filepath.Join(t.TempDir(), "missing")); ok || err == nil {
 		t.Fatalf("missing directory: ok=%v err=%v, want an error", ok, err)
+	}
+}
+
+// TrackedPathsFold answers for the path as asked, whatever its capitalisation in
+// the index, and does not count a file below a directory that folds to it.
+func TestTrackedPathsFold(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	dir := t.TempDir()
+	mustGit(t, dir, "init", "-q")
+	for p, body := range map[string]string{"agents.md": "x", "Dir/File.md": "y", "star/*.md": "z"} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, p)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, p), []byte(body), 0o644); err != nil {
+			t.Skipf("write %s: %v", p, err) // a filesystem that cannot name a '*' file
+		}
+		mustGit(t, dir, "add", "-f", p)
+	}
+	got, err := TrackedPathsFold(dir, "AGENTS.md", "dir/file.md", "DIR", "star/*.md", "STAR/other.md", "missing.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{"AGENTS.md": true, "dir/file.md": true, "star/*.md": true}
+	if len(got) != len(want) {
+		t.Fatalf("TrackedPathsFold = %v, want %v", got, want)
+	}
+	for p := range want {
+		if !got[p] {
+			t.Errorf("%s must be tracked: %v", p, got)
+		}
+	}
+	if got["DIR"] || got["STAR/other.md"] || got["missing.md"] {
+		t.Errorf("a directory, a glob that is no file and a missing path are not tracked: %v", got)
+	}
+	if none, err := TrackedPathsFold(dir); err != nil || len(none) != 0 {
+		t.Errorf("no paths = %v, %v", none, err)
+	}
+}
+
+// An inherited GIT_LITERAL_PATHSPECS=1 (and its siblings) must not turn
+// `:(literal,icase)X` into a file name: the answer would be "untracked".
+func TestTrackedPathsFold_IgnoresPathspecEnvironment(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	dir := t.TempDir()
+	mustGit(t, dir, "init", "-q")
+	if err := os.WriteFile(filepath.Join(dir, "agents.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(t, dir, "add", "agents.md")
+	t.Setenv("GIT_LITERAL_PATHSPECS", "1")
+	t.Setenv("GIT_GLOB_PATHSPECS", "1")
+	t.Setenv("GIT_NOGLOB_PATHSPECS", "1")
+	t.Setenv("GIT_ICASE_PATHSPECS", "0")
+	got, err := TrackedPathsFold(dir, "AGENTS.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got["AGENTS.md"] {
+		t.Errorf("with GIT_*_PATHSPECS inherited, a tracked file reads as untracked: %v", got)
+	}
+}
+
+// git may list a name composed (core.precomposeunicode) that was asked
+// decomposed: the file is still the file asked about.
+func TestTrackedPathsFold_UnicodeNormalisation(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	dir := t.TempDir()
+	mustGit(t, dir, "init", "-q")
+	nfc := "d\u00e9j\u00e0/\u00e9.md"
+	nfd := "de\u0301ja\u0300/e\u0301.md"
+	if err := os.MkdirAll(filepath.Join(dir, filepath.Dir(nfc)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, nfc), []byte("x"), 0o644); err != nil {
+		t.Skipf("write: %v", err)
+	}
+	mustGit(t, dir, "add", "-f", "--", nfc)
+	probe := exec.Command("git", "-C", dir, "ls-files", "--", nfd)
+	probe.Env = gitEnv(nil)
+	if b, err := probe.Output(); err != nil || len(b) == 0 {
+		t.Skip("this filesystem/git does not precompose Unicode names")
+	}
+	got, err := TrackedPathsFold(dir, nfd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got[nfd] {
+		t.Errorf("a decomposed request for a tracked file reads as untracked: %v", got)
 	}
 }

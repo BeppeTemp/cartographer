@@ -92,6 +92,7 @@ modifies files a user did not ask about.
   dropped, Claude Code hooks register through `ApplyOptions.HookSettingsRel`
   (`settings.local.json`, D1198); anything new a projection writes into a shared
   file needs the same answer for a derived binding.
+- **An instructions block that goes into a file git tracks carries none of this machine's paths** (#1897). `ApplyOptions.WithholdLocalPaths` (set by the client from `InstructionsDestTracked`, for `Apply` and the status diff alike) empties the "Local paths" table and leaves the KB's own placeholders unexpanded: the instructions text goes through `expandInstructionsText`, never `expandPlaceholders`, and a new client-written text in the block that names a path of this machine needs the same answer. A git command here names its repository with `-C` and runs with `gitx.Env()` (a sync from a git hook inherits `GIT_DIR`).
 
 ## Scope note
 

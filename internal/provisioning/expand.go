@@ -221,6 +221,23 @@ func placeholderSources(m contract.Manifest, opts ApplyOptions) map[string][]str
 // unresolved placeholder is left verbatim in the output and recorded on
 // tracker — it never blocks materialization (D75 WP3).
 func expandPlaceholders(content []byte, opts ApplyOptions, tracker *expansionTracker) []byte {
+	return expandPlaceholdersAs(content, opts, tracker, true)
+}
+
+// expandInstructionsText is expandPlaceholders for the text of an instructions
+// block. With opts.WithholdLocalPaths the block goes into a file git tracks, so
+// no placeholder is resolved: it stays as the KB wrote it, and the paragraph
+// the block ends with tells the agent how to resolve it on this machine. An
+// escaped placeholder is still unescaped and the documentation metasyntax is
+// still verbatim, exactly as when it is resolved (#1897).
+func expandInstructionsText(content []byte, opts ApplyOptions, tracker *expansionTracker) []byte {
+	return expandPlaceholdersAs(content, opts, tracker, !opts.WithholdLocalPaths)
+}
+
+// expandPlaceholdersAs is the shared walk: resolve says whether a placeholder
+// that is neither escaped nor metasyntax is looked up (and recorded on tracker)
+// or left verbatim.
+func expandPlaceholdersAs(content []byte, opts ApplyOptions, tracker *expansionTracker, resolve bool) []byte {
 	if !opts.ExpandPlaceholders || !okf.PlaceholderRe.Match(content) {
 		return content
 	}
@@ -240,6 +257,9 @@ func expandPlaceholders(content []byte, opts ApplyOptions, tracker *expansionTra
 		// the generic form inside a skill produced eleven warnings per sync, which
 		// trains people to ignore warnings.
 		if okf.IsPlaceholderMetasyntax(p.Key) {
+			return match
+		}
+		if !resolve {
 			return match
 		}
 
@@ -278,6 +298,17 @@ const placeholderParagraph = "### Local paths\n\n" +
 	// more manual mapping on every machine.
 	"When writing to a KB, cite only the keys declared in its `paths.yaml` (read it with `artifact_read`), " +
 	"and declare a new key there in the same change that first cites it."
+
+// pathsTableRows is what the "Local paths" table of this Apply is built from:
+// everything resolved, or nothing when opts.WithholdLocalPaths keeps the
+// machine's absolute paths out of a tracked file (#1897). Apply and the status
+// diff both go through it, so the hash they compare is built from the same rows.
+func pathsTableRows(opts ApplyOptions, tracker *expansionTracker) map[string]string {
+	if opts.WithholdLocalPaths {
+		return nil
+	}
+	return tracker.resolved
+}
 
 // buildPathsSection renders the placeholder part of the instructions block:
 // the fixed paragraph, then the "Local paths" table when anything resolved.
