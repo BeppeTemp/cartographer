@@ -1326,7 +1326,7 @@ With `web.enabled` on — the default in HTTP mode — the same binary also serv
   and where it went and why, read from the root `log.md` (D1146: the Retired tab is gone, and
   `panel=retired` links land on Activity); an archive map wears an "Archive" badge in the rail; the command palette's "Include archived" toggle adds archived pages to a search;
   pending sources are Work's "to ingest" column. Settings has the tabs Compass, Meridian,
-  Knowledge Base, Surveyor and Plugins (the last, always present and read-only, lists each installed plugin with its state on Meridian, Compass and Surveyor (`approved`, `pending`, `changed`, `refused`, `not reported`), the short digest (the full one on hover) and, for `changed`, that the installed tree differs from the approved one; a row opens the plugin's views and apps as text before anyone opens an app; approval is a command on the component, never a button, and a narrowed token sees "Visible to the operator only"; D1976) (no counts on them; the Surveyor tab shows each reported Surveyor perimeter's typed values (no YAML pane), or the template of every key at its default while none has reported, and one tab per perimeter when several are visible), and opens on the Compass one: Compass's own settings first, as the
+  Knowledge Base, Surveyor and Plugins (the last, always present and read-only, lists each installed plugin with its state on Meridian, Compass and Surveyor (`approved`, `pending`, `changed`, `refused`, `not reported`), the short digest (the full one on hover) and, for `changed`, that the installed tree differs from the approved one; a row opens the plugin's views and apps as text before anyone opens an app; approval is a command on the component, never a button, and a narrowed token sees "Visible to the operator only"; D1976) (no counts on them; the Surveyor tab shows each reported Surveyor perimeter's typed values (no YAML pane), or the template of every key at its default while none has reported, and one tab per perimeter when several are visible; under the values a Sources block counts the picked KB's Sources by ingest status (pending, ingested, skipped; at the server's list cap of 500 a count reads "N+" and a status not seen "—") and lists the feeds whose last poll failed, whether or not a Surveyor has reported, and keeps the last good block when a read fails for a reason that may pass (it retries with back-off), and is absent on a 404; D1985), and opens on the Compass one: Compass's own settings first, as the
   viewer's last `sync` reported them (its agents, the workspaces with their isolation), then the KBs as a row
   of pills (the active one picked) and, for the picked one, the Compass keys that concern it: which of the machine's agents receive it and where (everywhere, or only the folders
   bound to it, through the bridge or over HTTP) and where its placeholders resolve on that machine. Each key
@@ -1600,6 +1600,12 @@ Under the timeline, the *Journal* section shows the tail of the KB's log
 (`concept_patch: map/id`) is one compact line whose concept opens; an agent's note shows its first line as the lead,
 the rest clamped with a Show more, as written and not rendered as Markdown.
 
+Activity gains a **Surveyor runs** section (D1985) between the timeline and the Journal, only when the
+`components` read has at least one run reported for the KB: the Surveyor, the task, when the server received it, the outcome
+and the tokens, and a link that filters the timeline by the Surveyor's author; each replica's last run follows, labelled "any KB"
+because it is not per KB. Ages are worded against the server's clock (`server.now` of the read), not the browser's. With no run, or when the
+read fails, there is no section, no header and no empty state.
+
 The **Work** panel is where a person answers or decides (D302, D948). It is `work_list` for the reader:
 the concepts in an open phase, the concepts that are work by their `reason` (open contradictions, open gaps,
 pages past their `review_after`) and the unchecked items, to which it adds what has no page of its own, the
@@ -1618,7 +1624,10 @@ review list are each optional: without one (a caller that cannot see the whole K
 shows the rest. Above the board a strip lists, read-only, the live `cartographer surveyor` processes that declared the KB
 (perimeter and state, last run, one bar per model profile with `spent / limit` and its tier, when it was last seen,
 its next window; `GET /api/ui/v1/kbs/<kb>/Surveyors`), then the Sources whose last poll failed (title, shape, the error,
-when it was checked, a link to the concept; `.../feeds`, keyed on the `feed_error` field). Nothing renders when both
+when it was checked, a link to the concept; `.../feeds`, keyed on the `feed_error` field). On top of the strip
+come the Surveyor alarms, one `error` row each with a one-line cause and the server's time (never one a Surveyor declared): an
+the alarms the `components` read carries for this KB or for none, in words (silent, degraded, protocol skew, and the ones a
+Surveyor reported; an alarm that names another KB is left out), and a replica whose budget is spent (once per replica). Nothing renders when all three
 are empty, and a failing or `404` route leaves the page as it was.
 
 The **Components** panel (D1901) is the read-only answer to "what is deployed and healthy" for the active KB: a

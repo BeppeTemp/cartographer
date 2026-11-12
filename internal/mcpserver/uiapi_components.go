@@ -55,6 +55,9 @@ type componentView struct {
 type componentsServerView struct {
 	Version   string `json:"version"`
 	StartedAt string `json:"started_at"`
+	// Now is the server's clock at the answer: the Atlas words every age
+	// against it, never against the browser's clock.
+	Now string `json:"now"`
 }
 
 func (m *MultiKBServer) uiComponents(w http.ResponseWriter, r *http.Request, name string, srv *Server) {
@@ -127,7 +130,7 @@ func (m *MultiKBServer) uiComponents(w http.ResponseWriter, r *http.Request, nam
 	writeUIJSON(w, http.StatusOK, map[string]any{
 		"protocol":     componentproto.Protocol,
 		"min_protocol": componentproto.MinProtocol,
-		"server":       componentsServerView{Version: m.version, StartedAt: processStartedAt},
+		"server":       componentsServerView{Version: m.version, StartedAt: processStartedAt, Now: time.Now().UTC().Format(time.RFC3339)},
 		"components":   rows,
 	})
 }

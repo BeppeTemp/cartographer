@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, type CSSProperties } fr
 import { SourceFile } from "./SourceFile";
 import { fetchExtensions, fetchPlaceholders, fetchSettings, fetchWhoami } from "../api/client";
 import { PluginsPanel } from "./Plugins";
+import { SourcesBlock } from "./Surveyors";
 import type {
   Extensions,
   PlaceholderList,
@@ -385,7 +386,10 @@ export function Settings({
         {plugins ? (
           <PluginsPanel extensions={extensions} error={extError} onRetry={() => setExtTry((n) => n + 1)} operatorOnly={!who?.admin} />
         ) : surveyor !== undefined ? (
-          <SurveyorPanel surveyor={surveyor} template={view.surveyor_template} mode={mode} query={query} />
+          <>
+            <SurveyorPanel surveyor={surveyor} template={view.surveyor_template} mode={mode} query={query} />
+            <SourcesBlock kb={selected?.name ?? null} />
+          </>
         ) : client !== undefined ? (
           <ClientValues.Provider value={true}>
             <ClientPanel

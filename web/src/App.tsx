@@ -894,6 +894,7 @@ export function App() {
               kb={activeKB}
               live={live}
               collections={overview?.collections}
+              components={components}
               snapshot={snapshot}
               onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId })}
             />
