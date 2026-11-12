@@ -241,31 +241,40 @@ func (kb *KB) GraphSnapshot(opts GraphSnapshotOptions) (GraphSnapshot, error) {
 	for i, id := range ids {
 		index[id] = i
 	}
-	g := &graphalgo.Graph{N: len(ids), Out: make([][]int, len(ids)), In: make([][]int, len(ids))}
-	for key := range edgeSet {
-		u, v := index[key.source], index[key.target]
-		g.Out[u] = append(g.Out[u], v)
-		g.In[v] = append(g.In[v], u)
-	}
-	degree := make([]int, len(ids))
-	for i, id := range ids {
-		sort.Ints(g.Out[i])
-		sort.Ints(g.In[i])
-		degree[i] = inDegree[id] + outDegree[id]
-	}
-	pagerank := graphalgo.PageRank(g, 0.85, 1e-9, 100)
-	prOf := func(id okf.ConceptID) float64 { return pagerank[index[id]] }
-	// Boilerplate edges weigh less (D317), counted over the visible concepts
-	// only, as LinkGraph counts them.
-	counts := linkLineCounts(ids, func(id okf.ConceptID) map[okf.ConceptID][]string { return metas[id].linkLines })
-	weights := make([][]float64, len(ids))
-	for i, id := range ids {
-		weights[i] = make([]float64, len(g.Out[i]))
-		for k, j := range g.Out[i] {
-			weights[i][k] = linkEdgeWeight(metas[id].linkLines[ids[j]], counts)
+	// The ranking is memoized by (generation, visible set): a snapshot that
+	// differs only in scope or limit, or a repeated page load, reuses it.
+	// Trap: the key is the fingerprint of the ids the predicate let through,
+	// not the predicate, so a principal that sees fewer concepts can never be
+	// handed a ranking computed over more (D226, D244).
+	rank := kb.snapshotRank(view.generation, ids, func() snapshotRank {
+		g := &graphalgo.Graph{N: len(ids), Out: make([][]int, len(ids)), In: make([][]int, len(ids))}
+		for key := range edgeSet {
+			u, v := index[key.source], index[key.target]
+			g.Out[u] = append(g.Out[u], v)
+			g.In[v] = append(g.In[v], u)
 		}
-	}
-	communityOf, communities := graphalgo.Communities(g, 1, degree, weights)
+		degree := make([]int, len(ids))
+		for i, id := range ids {
+			sort.Ints(g.Out[i])
+			sort.Ints(g.In[i])
+			degree[i] = inDegree[id] + outDegree[id]
+		}
+		pagerank := graphalgo.PageRank(g, 0.85, 1e-9, 100)
+		// Boilerplate edges weigh less (D317), counted over the visible
+		// concepts only, as LinkGraph counts them.
+		counts := linkLineCounts(ids, func(id okf.ConceptID) map[okf.ConceptID][]string { return metas[id].linkLines })
+		weights := make([][]float64, len(ids))
+		for i, id := range ids {
+			weights[i] = make([]float64, len(g.Out[i]))
+			for k, j := range g.Out[i] {
+				weights[i][k] = linkEdgeWeight(metas[id].linkLines[ids[j]], counts)
+			}
+		}
+		communityOf, communities := graphalgo.Communities(g, 1, degree, weights)
+		return snapshotRank{pagerank: pagerank, communityOf: communityOf, communities: communities}
+	})
+	pagerank, communityOf, communities := rank.pagerank, rank.communityOf, rank.communities
+	prOf := func(id okf.ConceptID) float64 { return pagerank[index[id]] }
 
 	// Scope selects the full candidate node set; the limit then cuts it.
 	scoped := ids

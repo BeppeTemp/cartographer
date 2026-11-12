@@ -73,7 +73,8 @@ for (const node of graph.nodes) {
 }
 save("search-index", index);
 
-await api(`${k}/lint`);
+// The Atlas's first lint page (web/src/api/client.ts fetchLint, LINT_PAGE): the demo KB fits in it.
+await api(`${k}/lint?limit=5000`);
 // Activity's windows (web/src/components/Activity.tsx, SINCE).
 for (const since of ["1d", "7d", "30d", "90d", "365d", "36500d"]) {
   await api(`${k}/changes?since=${q(since)}&limit=500`);

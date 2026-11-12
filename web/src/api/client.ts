@@ -224,8 +224,23 @@ export function fetchConcept(kb: string, id: string, signal?: AbortSignal): Prom
   return get<Concept>(`/kbs/${encodeURIComponent(kb)}/concept?id=${encodeURIComponent(id)}`, signal);
 }
 
-export function fetchLint(kb: string, signal?: AbortSignal): Promise<LintReport> {
-  return get<LintReport>(`/kbs/${encodeURIComponent(kb)}/lint`, signal);
+/** The most findings one lint page holds (the server's own ceiling); demo/export.mjs saves this first request. */
+export const LINT_PAGE = 5000;
+
+/**
+ * Every finding of the KB, read a page at a time: Health groups and counts them
+ * all, but a KB with tens of thousands of findings is not one response.
+ */
+export async function fetchLint(kb: string, signal?: AbortSignal): Promise<LintReport> {
+  const base = `/kbs/${encodeURIComponent(kb)}/lint?limit=${LINT_PAGE}`;
+  let report = await get<LintReport>(base, signal);
+  while (report.next_cursor) {
+    const cursor = report.next_cursor;
+    const page = await get<LintReport>(`${base}&cursor=${encodeURIComponent(cursor)}`, signal);
+    // A cursor that does not move would loop forever: stop with what arrived.
+    report = { ...page, findings: [...report.findings, ...page.findings], next_cursor: page.next_cursor === cursor ? undefined : page.next_cursor };
+  }
+  return report;
 }
 
 /** includeArchived asks for archived pages too; a search leaves them out by default (D820). */

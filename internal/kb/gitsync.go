@@ -341,6 +341,9 @@ func (k *KB) checkRebaseState() error {
 func (k *KB) WithGitLock(fn func() error) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
+	// Whatever fn wrote, a poller must not keep trusting a validation older
+	// than it (GraphGenerationWithin).
+	defer k.forgetGraphValidation()
 	// The mutex serialises this process; the advisory lock file serialises
 	// against another one — `cartographer import` writes into the same directory
 	// the sync loop manages, and the two interleaving corrupted the git index

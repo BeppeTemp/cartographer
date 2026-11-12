@@ -187,6 +187,11 @@ func uiWork(w http.ResponseWriter, r *http.Request, srv *Server) {
 // hand back the very value the page already holds.
 var uiRevisionBoot = strconv.FormatInt(time.Now().UnixNano(), 36)
 
+// uiRevisionMaxAge is how long a poll trusts the last validation of the graph
+// cache: every open Atlas tab polls the revision every 10 s, and each poll
+// used to lstat every concept file. A var so a test can shorten it.
+var uiRevisionMaxAge = 3 * time.Second
+
 // GET /kbs/{kb}/revision — an opaque token that changes whenever a concept
 // file is added, removed or edited, by this server or out of band (a pull, an
 // editor): the Atlas polls it to know when to reload (D337). It counts changes
@@ -197,7 +202,7 @@ func uiRevision(w http.ResponseWriter, r *http.Request, k *kb.KB) {
 		writeUINotFound(w)
 		return
 	}
-	gen, err := k.GraphGeneration()
+	gen, err := k.GraphGenerationWithin(uiRevisionMaxAge)
 	if err != nil {
 		writeUIInternal(w, "revision", err)
 		return
