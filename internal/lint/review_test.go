@@ -470,6 +470,41 @@ func TestReviewGlossaryGap(t *testing.T) {
 	}
 }
 
+// TestReviewGlossaryGapMultiWordTerm: candidates are single words, so a
+// multi-word canonical or alias in glossary.yaml covers its own words; a
+// forbidden multi-word form does not (#1863).
+func TestReviewGlossaryGapMultiWordTerm(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, glossary string
+		want           map[string]int
+	}{
+		{"none", "", map[string]int{"ACME": glossaryMinConcepts, "DATA": glossaryMinConcepts}},
+		{"canonical", "terms:\n  - canonical: ACME DATA\n", map[string]int{}},
+		{"alias", "terms:\n  - canonical: Acme Data\n    aliases: [ACME DATA]\n", map[string]int{}},
+		{"forbidden", "terms:\n  - canonical: Initech Systems\n    forbidden: [ACME DATA]\n", map[string]int{"ACME": glossaryMinConcepts, "DATA": glossaryMinConcepts}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			k := tempKB(t)
+			writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
+			for i := 0; i < glossaryMinConcepts; i++ {
+				writeFile(t, k.DataRoot(), fmt.Sprintf("m/d%02d.md", i), "---\ntype: Note\ntitle: D\n---\n# D\n\nThe ACME DATA team owns it.\n")
+			}
+			if tc.glossary != "" {
+				writeFile(t, k.Root, "glossary.yaml", tc.glossary)
+			}
+			terms := map[string]int{}
+			for _, it := range itemsOf(review(t, k), ReviewGlossary) {
+				terms[it.Term] = len(it.Concepts)
+			}
+			if !reflect.DeepEqual(terms, tc.want) {
+				t.Fatalf("glossary terms = %v, want %v", terms, tc.want)
+			}
+		})
+	}
+}
+
 // TestReviewGlossaryGapHTTPMethods: an endpoint table masks its paths, not its
 // methods, and the HTTP methods are HTTP's own vocabulary, so a service page
 // does not make them terms, in a table or in prose (#855). A KB's own
