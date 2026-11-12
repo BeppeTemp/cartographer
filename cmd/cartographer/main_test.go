@@ -404,8 +404,9 @@ func dispatchedCommands(t *testing.T) []string {
 // The usage table (subcommands), the dispatch switch of run() and the documented
 // commands are three lists kept by hand; this compares them (D1124).
 func TestCommandTableMatchesDispatchAndDocs(t *testing.T) {
-	// Dispatched, deliberately absent from the table: hook (D353).
-	internal := map[string]bool{"hook": true}
+	// Dispatched, deliberately absent from the table: hook (D353), and wsl,
+	// which the WSL keep-alive task runs.
+	internal := map[string]bool{"hook": true, "wsl": true}
 
 	dispatched := map[string]bool{}
 	for _, n := range dispatchedCommands(t) {

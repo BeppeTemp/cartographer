@@ -138,6 +138,9 @@ func run(args []string) int {
 	case "hook":
 		// Internal (D353), not in printUsage: the client-generated hooks call it.
 		return hookFn(rest)
+	case "wsl":
+		// Internal, not in printUsage: the WSL keep-alive task runs it.
+		return cmdWsl(rest)
 	case "help", "-h", "--help":
 		printUsage(os.Stdout)
 		return 0

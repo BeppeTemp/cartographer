@@ -22,6 +22,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/defaults"
+	"github.com/BeppeTemp/cartographer/internal/wsl"
 )
 
 func TestRenderLaunchdPlist(t *testing.T) {
@@ -236,10 +237,14 @@ func withTestHome(t *testing.T, os_ string) string {
 	origLook, origAcct := lookPath, accountHome
 	lookPath = func(n string) (string, error) { return "/usr/bin/" + n, nil }
 	accountHome = func() (string, error) { return "/nonexistent-account-home", nil }
+	// Not in WSL, whatever the host is: a suite run inside a distro must not
+	// register a keep-alive task (wslkeepalive_test.go pretends when it needs to).
+	origWSL := wslDetect
+	wslDetect = func() wsl.Info { return wsl.Info{} }
 	origUnload, origUnloadPoll := launchdUnloadTimeout, launchdUnloadPoll
 	launchdUnloadTimeout, launchdUnloadPoll = 50*time.Millisecond, time.Millisecond
 	t.Cleanup(func() {
-		lookPath, accountHome = origLook, origAcct
+		lookPath, accountHome, wslDetect = origLook, origAcct, origWSL
 		userHomeDir, goos, getenv = origHome, origGOOS, origGetenv
 		launchdUnloadTimeout, launchdUnloadPoll = origUnload, origUnloadPoll
 	})
