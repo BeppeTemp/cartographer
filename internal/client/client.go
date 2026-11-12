@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"github.com/BeppeTemp/cartographer/internal/componentproto"
 )
@@ -222,6 +223,39 @@ type HealthKB struct {
 	// controls it (D151). Optional and additive, like ToolPrefix: an older
 	// server simply omits it and a client must stay silent rather than infer.
 	Capabilities map[string]HealthCapability `json:"capabilities,omitempty"`
+	// Push is set while the KB's push failed or its commits stay unpushed past
+	// a few minutes; absent otherwise and on a server that predates it.
+	Push *HealthPush `json:"push,omitempty"`
+}
+
+// HealthPush is the push state of one KB as /health reports it.
+type HealthPush struct {
+	State           string `json:"push_state"`
+	UnpushedCommits int    `json:"unpushed_commits"`
+	// Remedy is one line of the git error, free text from the server.
+	Remedy string `json:"remedy,omitempty"`
+}
+
+// Line words the push state for a human: "3 commits not pushed, <remedy>".
+func (p HealthPush) Line() string {
+	var s string
+	switch {
+	case p.UnpushedCommits == 1:
+		s = "1 commit not pushed"
+	case p.UnpushedCommits > 1:
+		s = fmt.Sprintf("%d commits not pushed", p.UnpushedCommits)
+	default:
+		s = "push failed"
+	}
+	if r := strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, p.Remedy); r != "" {
+		s += ", " + r
+	}
+	return s
 }
 
 // HealthCapability is one gate's state plus the setting controlling it.

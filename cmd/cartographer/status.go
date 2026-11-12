@@ -141,6 +141,9 @@ func printServerLines(w, errw io.Writer, s statusSnapshot) {
 		fmt.Fprintf(w, "mount mode changed: configured %s, server now serves %s — run `cartographer sync` to rewrite the MCP entries\n",
 			mountModeLabel(s.ConfiguredMountMode), mountModeLabel(s.MountMode))
 	}
+	for _, line := range s.PushLag {
+		fmt.Fprintln(w, line)
+	}
 }
 
 func renderStatus(output string, s statusSnapshot, code int) int {

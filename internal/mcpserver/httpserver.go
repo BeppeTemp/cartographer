@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/audit"
 	"github.com/BeppeTemp/cartographer/internal/auth"
@@ -268,6 +269,9 @@ type KBInfo struct {
 	// Omitted when there is no sink. Reported per KB rather than folded into a
 	// single boolean so an operator knows where to look.
 	Audit interface{} `json:"audit,omitempty"`
+	// Push is this KB's push state while it is worth a human's attention
+	// (pushhealth.go); filled per request, only for the KBs the caller reads.
+	Push *KBPush `json:"push,omitempty"`
 }
 
 // KBCapability is one gate's state plus the configuration key controlling it.
@@ -284,6 +288,8 @@ type MultiKBServer struct {
 	kbs     []KBInfo
 	skipped *SkippedKBs // KBs the start could not mount (#1963); nil when none
 	version string
+	// pushHealth memoises each KB's push state for /health (pushhealth.go).
+	pushHealth pushHealthCache
 	// routed is the optional single endpoint advertising the union of the
 	// mounted KBs' tools once, with the KB as a tool argument (D187). Nil —
 	// the default — means only the per-KB endpoints are served. See
@@ -529,6 +535,9 @@ func (m *MultiKBServer) Handler() http.Handler {
 				visible := make([]KBInfo, 0, len(kbs))
 				for _, info := range kbs {
 					if kbRosterVisible(r.Context(), info.Name) {
+						if srv, ok := m.servers[info.Name]; ok && pushHealthVisible(r.Context(), info.Name) {
+							info.Push = m.pushHealth.get(info.Name, srv.kbRef, time.Now())
+						}
 						visible = append(visible, info)
 					}
 				}

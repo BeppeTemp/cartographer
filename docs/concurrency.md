@@ -243,6 +243,8 @@ below are constants, not settings: a 30s freshness window and a 3s push debounce
    `repository rule violations`; Cartographer does not sign commits), a file over the size limit (`GH001`) and a server-side hook that declined. A bare HTTP 403 (it can be a rate limit), a `[remote rejected]` for a
    lock, a ref update or an internal error, a network error, a timeout or a non-fast-forward is still retried.
 
+A push that stays `failed`, or commits unpushed for more than a few minutes, are not left to the agents that read `kb_status`: `/health` carries them per KB (`docs/deployment.md` §Observability), and `status`, `doctor` and the tray show them (to a caller that may read the whole KB).
+
 `sync_status` is the authoritative read-only view of replication: it reports
 whether the KB is not a git repository (`disabled`), has no remote, a push is pending, the latest
 commit/push failed, or writes are blocked (`degraded`), together with the best
