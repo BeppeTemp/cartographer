@@ -18,6 +18,11 @@ type snapshotRank struct {
 	pagerank    []float64
 	communityOf []int
 	communities []graphalgo.Community
+	// members[r] lists the indexes of community r's members by PageRank, then
+	// index (so the smallest id first on a tie): the cluster projection
+	// (graphclusters.go) names and unfolds a community from it without
+	// regrouping the graph on each request.
+	members [][]int
 }
 
 // rankMemo holds the rankings of one graph view generation, by fingerprint of
