@@ -80,6 +80,7 @@ nav:
       - Using the server from any MCP client: mcp-clients.md
       - Deployment: deployment.md
       - Surveyor recipes: surveyor-recipes.md
+      - Surveyor connectors: surveyor-connectors.md
       - Client (configurator): configurator.md
       - Control plane (MCP API): control-plane.md
       - Data plane (KB model): data-plane.md

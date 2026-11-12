@@ -25,7 +25,7 @@ const pluginSchema = "cartographer.plugin/v1"
 
 const pluginUsage = `Usage: cartographer plugin new <name> [<dir>]
        cartographer plugin validate <dir> [--output table|json]
-       cartographer plugin test <dir> [--recipe <name>] [--output table|json]
+       cartographer plugin test <dir> [--recipe <name> | --connector <name>] [--output table|json]
        cartographer plugin install <git-url>[@<ref>] | <folder> [--yes]
        cartographer plugin vendor <git-url>[@<ref>] | <folder> --to <dir> [--side client|surveyor|server|atlas]
        cartographer plugin list [--output table|json]

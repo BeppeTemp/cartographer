@@ -33,11 +33,13 @@ var Checks = []Check{
 	{"fetch", "fetch answers every key it is asked"},
 	{"protocol", "an exec script exits 64 with no output on an unknown verb and on another protocol number"},
 	{"secrets", "no env test value of 4 bytes or more appears in an entry, a content or an error detail"},
+	{"connector", "a stdio connector starts, offers every tool of its allowlist within the schema and name caps, answers its calls capped, and leaks no env test value"},
 }
 
-// automatic runs the checks of Checks, in order. The parser verdict is read
-// last, so it covers every verb call (the steps, the spec, the second listing,
-// the system check and the fetch), and is placed where Checks lists it.
+// automatic runs the checks of Checks that judge a recipe, in order; the last,
+// connector, is RunConnector's. The parser verdict is read last of them, so it
+// covers every verb call (the steps, the spec, the second listing, the system
+// check and the fetch), and is placed where Checks lists it.
 func (x *run) automatic(ctx context.Context) {
 	stage := ""
 	if len(x.lists) > 0 {
