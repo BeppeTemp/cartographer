@@ -135,7 +135,7 @@ type Options struct {
 	// CheckScripts loads the script files of a side's tree (plugin.star and lib/
 	// for the client) and
 	// returns why they do not, one problem each; nil checks nothing. It is a hook
-	// because the Starlark runtime lives in internal/plugin/star, which imports
+	// because the Starlark runtime lives in internal/plugin/star and internal/plugin/starcore, which import
 	// this package.
 	CheckScripts func(side Side, files []TreeFile) []string
 	// Side limits what ReadTree loads to the contribution points of one side:

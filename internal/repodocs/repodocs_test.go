@@ -206,17 +206,18 @@ func TestCodeMapIsUpToDate(t *testing.T) {
 // so a new helper package costs no line of the AGENTS.md budget (#1918).
 func TestCodeMapSkipsHelperPackages(t *testing.T) {
 	for path, want := range map[string]bool{
-		"internal/gitx/gitxtest":         true,
-		"internal/kbtest":                true,
-		"internal/surveyor/surveyortest": true,
-		"internal/testtree":              true,
-		"internal/testkbs":               true,
-		"internal/testkbs/gen":           true,
-		"internal/changelog/gen":         true,
-		"cmd/cartographer":               false,
-		"internal/kb":                    false,
-		"internal/gitx":                  false,
-		"internal/search":                false,
+		"internal/gitx/gitxtest":                 true,
+		"internal/kbtest":                        true,
+		"internal/surveyor/surveyortest":         true,
+		"internal/testtree":                      true,
+		"internal/testkbs":                       true,
+		"internal/testkbs/gen":                   true,
+		"internal/plugin/starcore/internal/seam": true,
+		"internal/changelog/gen":                 true,
+		"cmd/cartographer":                       false,
+		"internal/kb":                            false,
+		"internal/gitx":                          false,
+		"internal/search":                        false,
 	} {
 		if got := IsHelperPackage(path); got != want {
 			t.Errorf("IsHelperPackage(%q) = %v, want %v", path, got, want)

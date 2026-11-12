@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/BeppeTemp/cartographer/internal/plugin/starcore"
 	"io"
 	"math"
 	"time"
@@ -76,46 +77,48 @@ type Result struct {
 	ExitCode int
 }
 
-// callOpts are the seams of tests: lower caps and extra predeclared names.
-type callOpts struct {
-	steps uint64
-	net   *netSeams
-	extra starlark.StringDict
-}
-
 // Call runs one registered function on a fresh thread and returns its result.
 // The error, when there is one, is a *CallError. Calls are independent: they
 // share only the program's sources.
 func (p *Program) Call(ctx context.Context, req Request) (Result, error) {
-	return p.call(ctx, req, callOpts{})
+	return p.exec(ctx, p.spec(req, defaultSteps(req.Kind)))
 }
 
-// call translates the request into the runtime's callSpec: what a command, a
-// tool or an event is given, how its result is read and which state the
-// client-only modules (files, kb) hold are decided here; the runtime (call.go)
-// knows none of them.
-func (p *Program) call(ctx context.Context, req Request, o callOpts) (Result, error) {
-	steps := o.steps
-	if steps == 0 {
-		steps = MaxCallStepsTool
-		if req.Kind == KindCommand {
-			steps = MaxCallStepsCommand
-		}
+// defaultSteps is the step cap of a call by kind: a command is the user's own
+// run, a tool or an event a bridge request or a hook.
+func defaultSteps(kind string) uint64 {
+	if kind == KindCommand {
+		return MaxCallStepsCommand
 	}
-	spec := callSpec{
+	return MaxCallStepsTool
+}
+
+// exec runs a spec and reads its value as a Result.
+func (p *Program) exec(ctx context.Context, spec starcore.CallSpec) (Result, error) {
+	v, err := p.Invoke(ctx, spec)
+	if err != nil {
+		return Result{}, err
+	}
+	return v.(Result), nil
+}
+
+// spec translates the request into the runtime's CallSpec: what a command, a
+// tool or an event is given, how its result is read and which state the
+// client-only modules (files, kb) hold are decided here; the runtime (call.go
+// in starcore) knows none of them.
+func (p *Program) spec(req Request, steps uint64) starcore.CallSpec {
+	return starcore.CallSpec{
 		Kind: req.Kind, Name: req.Name, Plugin: req.Plugin, Version: req.Version,
 		Perms: req.Permissions, Declared: req.Declared, Values: req.Values,
 		LookupEnv: req.Host.LookupEnv, Log: req.Log, Stdout: req.Stdout,
 		PrintToStdout: req.Kind == KindCommand,
 		Timeout:       timeout(req.Kind),
 		Steps:         steps,
-		Net:           o.net,
-		Extra:         o.extra,
 		Arg:           func(reg *Registration) (starlark.Tuple, error) { return argument(reg, req) },
 		Result: func(ctx context.Context, v starlark.Value) (any, error) {
 			return result(ctx, req.Kind, v)
 		},
-		Ext: func(cc *callCtx) any {
+		Ext: func(cc *starcore.CallCtx) any {
 			x := &clientExt{}
 			x.files = &filesState{cc: cc, host: req.Host, readOnly: req.ReadOnly}
 			x.kb = &kbState{cc: cc, caller: req.Host.KB, readOnly: req.ReadOnly || req.KBReadOnly}
@@ -125,11 +128,6 @@ func (p *Program) call(ctx context.Context, req Request, o callOpts) (Result, er
 			return x
 		},
 	}
-	v, err := p.invoke(ctx, spec)
-	if err != nil {
-		return Result{}, err
-	}
-	return v.(Result), nil
 }
 
 // clientExt is the state of the client-only modules in a call's callCtx.
@@ -138,8 +136,8 @@ type clientExt struct {
 	kb    *kbState
 }
 
-func filesOf(c *callCtx) *filesState { return c.ext.(*clientExt).files }
-func kbOf(c *callCtx) *kbState       { return c.ext.(*clientExt).kb }
+func filesOf(c *starcore.CallCtx) *filesState { return c.Ext.(*clientExt).files }
+func kbOf(c *starcore.CallCtx) *kbState       { return c.Ext.(*clientExt).kb }
 
 func timeout(kind string) time.Duration {
 	switch kind {
@@ -156,20 +154,20 @@ func timeout(kind string) time.Duration {
 func argument(reg *Registration, req Request) (starlark.Tuple, error) {
 	switch req.Kind {
 	case KindCommand:
-		v, _ := toStarlark(req.Args)
+		v, _ := starcore.ToStarlark(req.Args)
 		return starlark.Tuple{v}, nil
 	case KindTool:
 		args, err := toolArguments(reg, req.Params)
 		if err != nil {
 			return nil, &CallError{Kind: Failed, Msg: err.Error()}
 		}
-		v, err := toStarlark(args)
+		v, err := starcore.ToStarlark(args)
 		if err != nil {
 			return nil, &CallError{Kind: Failed, Msg: err.Error()}
 		}
 		return starlark.Tuple{v}, nil
 	case KindEvent:
-		v, err := ctxStruct(req.Event)
+		v, err := starcore.CtxStruct(req.Event)
 		if err != nil {
 			return nil, &CallError{Kind: Internal, Msg: err.Error()}
 		}
@@ -260,7 +258,7 @@ func result(ctx context.Context, kind string, v starlark.Value) (Result, error) 
 		return textResult(string(x))
 	}
 	var raw bytes.Buffer
-	if err := encodeJSON(ctx, &raw, v, 0); err != nil {
+	if err := starcore.EncodeJSON(ctx, &raw, v, 0); err != nil {
 		return Result{}, err
 	}
 	var out bytes.Buffer
@@ -272,7 +270,7 @@ func result(ctx context.Context, kind string, v starlark.Value) (Result, error) 
 
 // textResult wraps a size-capped text as a Result.
 func textResult(s string) (Result, error) {
-	s, err := capText(s)
+	s, err := starcore.CapText(s)
 	if err != nil {
 		return Result{}, err
 	}

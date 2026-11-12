@@ -2,6 +2,7 @@ package star
 
 import (
 	"fmt"
+	"github.com/BeppeTemp/cartographer/internal/plugin/starcore"
 	"regexp"
 	"slices"
 	"strings"
@@ -44,14 +45,14 @@ func registrars() starlark.StringDict {
 }
 
 // clientOptions are what a client adds to the runtime.
-func clientOptions() Options {
-	return Options{Registrars: registrars(), Extra: starlark.StringDict{"files": filesModule(), "kb": kbModule()}}
+func clientOptions() starcore.Options {
+	return starcore.Options{Registrars: registrars(), Extra: starlark.StringDict{"files": filesModule(), "kb": kbModule()}}
 }
 
 // Program is a loaded plugin script for a client: the runtime's script and the
 // call of its command, tool and event registrations.
 type Program struct {
-	*script
+	*starcore.Script
 }
 
 // Check is core.Options.CheckScripts: the problems of a tree's scripts.
@@ -69,7 +70,7 @@ func Check(side core.Side, files []core.TreeFile) []string {
 // what it registered. It reads the files it is given and nothing else. A tree
 // without plugin.star and without lib/ is not a script plugin: (nil, nil).
 func Load(files []core.TreeFile) (*Program, error) {
-	s, err := loadScript(files, clientOptions())
+	s, err := starcore.LoadScript(files, clientOptions())
 	if s == nil || err != nil {
 		return nil, err
 	}
@@ -103,7 +104,7 @@ func (p *Program) Lines(plug string) []string {
 }
 
 func registerCommand(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	c, pos, err := registering(thread, "command")
+	reg, pos, err := starcore.Registering(thread, "command")
 	if err != nil {
 		return nil, err
 	}
@@ -115,21 +116,21 @@ func registerCommand(thread *starlark.Thread, b *starlark.Builtin, args starlark
 	if !commandRe.MatchString(name) || name == "help" {
 		return nil, fmt.Errorf("command: name %q must match %s and not be help", name, commandRe)
 	}
-	fn, err := implFunc("command", impl)
+	fn, err := starcore.ImplFunc("command", impl)
 	if err != nil {
 		return nil, err
 	}
-	if err := text("command", "help", help); err != nil {
+	if err := starcore.CheckText("command", "help", help); err != nil {
 		return nil, err
 	}
-	if err := text("command", "usage", usage); err != nil {
+	if err := starcore.CheckText("command", "usage", usage); err != nil {
 		return nil, err
 	}
-	return starlark.None, c.reg.add(Registration{Kind: KindCommand, Name: name, Help: help, Usage: usage, Pos: pos, impl: fn}, "command "+name)
+	return starlark.None, reg.Add(starcore.Registration{Kind: KindCommand, Name: name, Help: help, Usage: usage, Pos: pos, Impl: fn}, "command "+name)
 }
 
 func registerTool(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	c, pos, err := registering(thread, "tool")
+	reg, pos, err := starcore.Registering(thread, "tool")
 	if err != nil {
 		return nil, err
 	}
@@ -142,22 +143,22 @@ func registerTool(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tu
 	if !toolRe.MatchString(name) {
 		return nil, fmt.Errorf("tool: name %q must match %s", name, toolRe)
 	}
-	fn, err := implFunc("tool", impl)
+	fn, err := starcore.ImplFunc("tool", impl)
 	if err != nil {
 		return nil, err
 	}
-	if err := text("tool", "description", desc); err != nil {
+	if err := starcore.CheckText("tool", "description", desc); err != nil {
 		return nil, err
 	}
-	schema, err := paramsSchema(thread, params)
+	schema, err := starcore.ParamsSchema(thread, params)
 	if err != nil {
 		return nil, fmt.Errorf("tool %s: params: %w", name, err)
 	}
-	return starlark.None, c.reg.add(Registration{Kind: KindTool, Name: name, Help: desc, Params: schema, Writes: writes, Pos: pos, impl: fn}, "tool "+name)
+	return starlark.None, reg.Add(starcore.Registration{Kind: KindTool, Name: name, Help: desc, Params: schema, Writes: writes, Pos: pos, Impl: fn}, "tool "+name)
 }
 
 func registerEvent(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	c, pos, err := registering(thread, "on")
+	reg, pos, err := starcore.Registering(thread, "on")
 	if err != nil {
 		return nil, err
 	}
@@ -169,9 +170,9 @@ func registerEvent(thread *starlark.Thread, b *starlark.Builtin, args starlark.T
 	if !slices.Contains(events, event) {
 		return nil, fmt.Errorf("on: unknown event %q, expected one of %s", event, strings.Join(events, ", "))
 	}
-	fn, err := implFunc("on", impl)
+	fn, err := starcore.ImplFunc("on", impl)
 	if err != nil {
 		return nil, err
 	}
-	return starlark.None, c.reg.add(Registration{Kind: KindEvent, Name: event, Pos: pos, impl: fn}, "event "+event)
+	return starlark.None, reg.Add(starcore.Registration{Kind: KindEvent, Name: event, Pos: pos, Impl: fn}, "event "+event)
 }

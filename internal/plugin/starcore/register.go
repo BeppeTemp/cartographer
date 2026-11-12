@@ -1,4 +1,4 @@
-package star
+package starcore
 
 import (
 	"bytes"
@@ -12,13 +12,14 @@ import (
 	"go.starlark.net/starlark"
 )
 
-// registry collects what plugin.star registers while it loads.
-type registry struct {
+// Registry collects what plugin.star registers while it loads.
+type Registry struct {
 	regs []Registration
 	seen map[string]bool
 }
 
-func (r *registry) add(reg Registration, key string) error {
+// Add records a registration under a key that must be unique.
+func (r *Registry) Add(reg Registration, key string) error {
 	if r.seen[key] {
 		return fmt.Errorf("%s is registered twice", key)
 	}
@@ -30,16 +31,20 @@ func (r *registry) add(reg Registration, key string) error {
 	return nil
 }
 
-func registering(thread *starlark.Thread, fn string) (*callCtx, string, error) {
+// Registering is the first step of a registrar: the registry of the run that
+// is loading plugin.star (an error anywhere else) and the position of the
+// registering call, "file:line".
+func Registering(thread *starlark.Thread, fn string) (*Registry, string, error) {
 	c := loading(thread)
 	if c == nil {
 		return nil, "", fmt.Errorf("%s() can only run while plugin.star loads", fn)
 	}
 	f := thread.CallFrame(1)
-	return c, fmt.Sprintf("%s:%d", f.Pos.Filename(), f.Pos.Line), nil
+	return c.reg, fmt.Sprintf("%s:%d", f.Pos.Filename(), f.Pos.Line), nil
 }
 
-func implFunc(fn string, v starlark.Value) (*starlark.Function, error) {
+// ImplFunc checks that v is a function defined in the plugin.
+func ImplFunc(fn string, v starlark.Value) (*starlark.Function, error) {
 	f, ok := v.(*starlark.Function)
 	if !ok {
 		return nil, fmt.Errorf("%s: impl must be a function defined in the plugin, not %s", fn, v.Type())
@@ -47,7 +52,8 @@ func implFunc(fn string, v starlark.Value) (*starlark.Function, error) {
 	return f, nil
 }
 
-func text(fn, what, s string) error {
+// CheckText checks a registration text (help, usage, description) against the cap.
+func CheckText(fn, what, s string) error {
 	switch {
 	case s == "" && what != "usage":
 		return fmt.Errorf("%s: %s is empty", fn, what)
@@ -57,9 +63,9 @@ func text(fn, what, s string) error {
 	return nil
 }
 
-// paramsSchema turns the params dict of a tool into the JSON of an object
+// ParamsSchema turns the params dict of a tool into the JSON of an object
 // schema and checks it resolves, once, at load.
-func paramsSchema(thread *starlark.Thread, v starlark.Value) ([]byte, error) {
+func ParamsSchema(thread *starlark.Thread, v starlark.Value) ([]byte, error) {
 	if v == starlark.None {
 		return []byte(`{"type":"object"}`), nil
 	}

@@ -3,6 +3,7 @@ package star
 import (
 	"errors"
 	"fmt"
+	"github.com/BeppeTemp/cartographer/internal/plugin/starcore"
 	"io"
 	"io/fs"
 	"os"
@@ -37,7 +38,7 @@ import (
 // filesState is the file state of one call: where home is and what Cartographer
 // keeps below it.
 type filesState struct {
-	cc       *callCtx
+	cc       *starcore.CallCtx
 	host     Host
 	readOnly bool
 }
@@ -61,7 +62,7 @@ func fileErr(op, p string, err error) error {
 	if errors.As(err, &pe) {
 		err = pe.Err
 	}
-	return errors.New(escapeLines(fmt.Sprintf("files.%s %s: %v", op, p, err)))
+	return errors.New(starcore.EscapeLines(fmt.Sprintf("files.%s %s: %v", op, p, err)))
 }
 
 // fpath is a parsed placeholder path: its anchor and the segments below it.
@@ -116,12 +117,12 @@ func parseFilePath(s string, pattern bool) (fpath, error) {
 		}
 	}
 	if anchor == "" {
-		return fpath{}, denied("files: %q must start with {home}/, {xdg_config}/, {app_data}/, {local_app_data}/ or {documents}/", s)
+		return fpath{}, starcore.DeniedErr("files: %q must start with {home}/, {xdg_config}/, {app_data}/, {local_app_data}/ or {documents}/", s)
 	}
 	segs := strings.Split(rest, "/")
 	for _, seg := range segs {
 		if why := segProblem(seg, pattern); why != "" {
-			return fpath{}, denied("files: %q %s", s, why)
+			return fpath{}, starcore.DeniedErr("files: %q %s", s, why)
 		}
 	}
 	return fpath{anchor, segs}, nil
@@ -155,7 +156,7 @@ func (s *filesState) homeDir() (string, error) {
 
 func (s *filesState) env(home string) core.ProviderEnv {
 	return core.ProviderEnv{GOOS: runtime.GOOS, Home: home, Getenv: func(k string) string {
-		v, _ := s.cc.lookupEnv(k)
+		v, _ := s.cc.LookupEnv(k)
 		return v
 	}}
 }
@@ -249,16 +250,16 @@ func (s *filesState) deny(home, homeReal string, segs []string) string {
 
 // target runs the checks every operation shares, in order.
 func (s *filesState) target(op, raw string, list func(*core.Files) []string, write bool) (*fileTarget, error) {
-	perms := s.cc.perms
+	perms := s.cc.Perms
 	if perms == nil || perms.Files == nil || len(list(perms.Files)) == 0 {
 		kind := "read"
 		if write {
 			kind = "write"
 		}
-		return nil, denied("files.%s needs permissions.files.%s in the manifest", op, kind)
+		return nil, starcore.DeniedErr("files.%s needs permissions.files.%s in the manifest", op, kind)
 	}
 	if write && s.readOnly {
-		return nil, denied("files.%s: this session is read-only", op)
+		return nil, starcore.DeniedErr("files.%s: this session is read-only", op)
 	}
 	fp, err := parseFilePath(raw, false)
 	if err != nil {
@@ -276,7 +277,7 @@ func (s *filesState) locate(op string, fp fpath, grants []string, match bool) (*
 	}
 	dir, err := core.ExpandAnchor(s.env(home), fp.anchor)
 	if err != nil {
-		return nil, denied("files.%s: %s", op, err)
+		return nil, starcore.DeniedErr("files.%s: %s", op, err)
 	}
 	t := &fileTarget{fp: fp, home: home, dir: filepath.FromSlash(dir), display: fp.String()}
 	t.homeReal = home
@@ -285,14 +286,14 @@ func (s *filesState) locate(op string, fp fpath, grants []string, match bool) (*
 	}
 	var ok bool
 	if t.dirRel, ok = relSegs(home, t.dir); !ok {
-		return nil, denied("files.%s: {%s} resolves outside the home directory", op, fp.anchor)
+		return nil, starcore.DeniedErr("files.%s: {%s} resolves outside the home directory", op, fp.anchor)
 	}
 	t.abs = filepath.Join(append([]string{t.dir}, fp.segs...)...)
 	if why := s.deny(home, t.homeReal, append(slices.Clone(t.dirRel), fp.segs...)); why != "" {
-		return nil, denied("files.%s: %s is denied: %s", op, t.display, why)
+		return nil, starcore.DeniedErr("files.%s: %s is denied: %s", op, t.display, why)
 	}
 	if match && !slices.ContainsFunc(grants, func(g string) bool { return plugin.GlobMatch(g, t.display) }) {
-		return nil, denied("files.%s: %s is outside the paths the manifest grants", op, t.display)
+		return nil, starcore.DeniedErr("files.%s: %s is outside the paths the manifest grants", op, t.display)
 	}
 	if err := s.noLinks(op, t, t.abs); err != nil {
 		return nil, err
@@ -308,7 +309,7 @@ func (s *filesState) noLinks(op string, t *fileTarget, abs string) error {
 	if err := safewrite.CheckPathStrict(t.home, abs); err != nil {
 		// safewrite's text holds absolute paths, a link target and advice for a
 		// user; the script gets none of it.
-		return denied("files.%s: %s goes through a link or a file that is not plain", op, t.display)
+		return starcore.DeniedErr("files.%s: %s goes through a link or a file that is not plain", op, t.display)
 	}
 	existing, tail := abs, []string{}
 	for {
@@ -328,10 +329,10 @@ func (s *filesState) noLinks(op string, t *fileTarget, abs string) error {
 	}
 	segs, ok := relSegs(t.homeReal, real)
 	if !ok {
-		return denied("files.%s: %s resolves outside the home directory", op, t.display)
+		return starcore.DeniedErr("files.%s: %s resolves outside the home directory", op, t.display)
 	}
 	if why := s.deny(t.home, t.homeReal, append(segs, tail...)); why != "" {
-		return denied("files.%s: %s resolves into a denied place: %s", op, t.display, why)
+		return starcore.DeniedErr("files.%s: %s resolves into a denied place: %s", op, t.display, why)
 	}
 	return nil
 }
@@ -342,7 +343,7 @@ func filesRead(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple
 	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "path", &p, "binary?", &binary); err != nil {
 		return nil, err
 	}
-	c, err := callPhase(thread, b.Name())
+	c, err := starcore.CallPhase(thread, b.Name())
 	if err != nil {
 		return nil, err
 	}
@@ -367,7 +368,7 @@ func filesRead(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple
 		return nil, fileErr("read", t.display, err)
 	}
 	if len(data) > MaxFileBytes {
-		return nil, limited("files.read: %s is over the %d MiB cap", t.display, MaxFileBytes>>20)
+		return nil, starcore.LimitErr("files.read: %s is over the %d MiB cap", t.display, MaxFileBytes>>20)
 	}
 	if binary {
 		return starlark.Bytes(data), nil
@@ -393,7 +394,7 @@ func filesWrite(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tupl
 	default:
 		return nil, fmt.Errorf("files.write: data must be a string or bytes, not %s", v.Type())
 	}
-	c, err := callPhase(thread, b.Name())
+	c, err := starcore.CallPhase(thread, b.Name())
 	if err != nil {
 		return nil, err
 	}
@@ -402,7 +403,7 @@ func filesWrite(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tupl
 		return nil, err
 	}
 	if len(data) > MaxFileBytes {
-		return nil, limited("files.write: %d bytes is over the %d MiB cap", len(data), MaxFileBytes>>20)
+		return nil, starcore.LimitErr("files.write: %d bytes is over the %d MiB cap", len(data), MaxFileBytes>>20)
 	}
 	if err := safewrite.MkdirAllNoFollow(t.home, filepath.Dir(t.abs), 0o700); err != nil {
 		return nil, fileErr("write", t.display, err)
@@ -420,7 +421,7 @@ func filesRemove(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tup
 	if err := starlark.UnpackPositionalArgs(b.Name(), args, kwargs, 1, &p); err != nil {
 		return nil, err
 	}
-	c, err := callPhase(thread, b.Name())
+	c, err := starcore.CallPhase(thread, b.Name())
 	if err != nil {
 		return nil, err
 	}
@@ -455,13 +456,13 @@ func filesGlob(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple
 	if err := starlark.UnpackPositionalArgs(b.Name(), args, kwargs, 1, &pat); err != nil {
 		return nil, err
 	}
-	c, err := callPhase(thread, b.Name())
+	c, err := starcore.CallPhase(thread, b.Name())
 	if err != nil {
 		return nil, err
 	}
 	s := filesOf(c)
-	if c.perms == nil || c.perms.Files == nil || len(c.perms.Files.Read) == 0 {
-		return nil, denied("files.glob needs permissions.files.read in the manifest")
+	if c.Perms == nil || c.Perms.Files == nil || len(c.Perms.Files.Read) == 0 {
+		return nil, starcore.DeniedErr("files.glob needs permissions.files.read in the manifest")
 	}
 	fp, err := parseFilePath(pat, true)
 	if err != nil {
@@ -476,11 +477,11 @@ func filesGlob(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple
 		}
 		head.segs = append(head.segs, seg)
 	}
-	t, err := s.locate("glob", head, c.perms.Files.Read, false)
+	t, err := s.locate("glob", head, c.Perms.Files.Read, false)
 	if err != nil {
 		return nil, err
 	}
-	w := &globWalk{s: s, c: c, t: t, grants: c.perms.Files.Read}
+	w := &globWalk{s: s, c: c, t: t, grants: c.Perms.Files.Read}
 	w.walk(t.abs, head.segs, fp.segs[len(head.segs):])
 	if w.err != nil {
 		return nil, w.err
@@ -495,7 +496,7 @@ func filesGlob(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple
 
 type globWalk struct {
 	s      *filesState
-	c      *callCtx
+	c      *starcore.CallCtx
 	t      *fileTarget
 	grants []string
 	out    []string
@@ -508,7 +509,7 @@ func (w *globWalk) done() bool {
 	if w.err != nil || len(w.out) >= MaxGlobResults || w.visits >= MaxGlobVisits {
 		return true
 	}
-	if e := w.c.ctx.Err(); e != nil {
+	if e := w.c.Ctx.Err(); e != nil {
 		w.err = e
 		return true
 	}
@@ -530,7 +531,7 @@ func (w *globWalk) add(rel []string) {
 
 // walk matches pat below dir, whose segments below the anchor are rel.
 func (w *globWalk) walk(dir string, rel, pat []string) {
-	if w.done() || len(pat) == 0 || len(rel) > maxGlobDepth {
+	if w.done() || len(pat) == 0 || len(rel) > starcore.MaxGlobDepth {
 		return
 	}
 	seg, last := pat[0], len(pat) == 1

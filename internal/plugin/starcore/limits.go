@@ -1,4 +1,4 @@
-package star
+package starcore
 
 import "time"
 
@@ -67,5 +67,5 @@ const (
 	MaxGlobResults = 1000
 	// MaxGlobVisits caps the directory entries one files.glob looks at.
 	MaxGlobVisits = 100_000
-	maxGlobDepth  = 32
+	MaxGlobDepth  = 32
 )

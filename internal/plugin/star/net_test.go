@@ -16,10 +16,11 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/plugin/core"
+	"github.com/BeppeTemp/cartographer/internal/plugin/starcore/startest"
 )
 
 // netCall runs body as a tool with the given permissions and returns its result.
-func netCall(t *testing.T, perms *core.Permissions, seams *netSeams, body string) (Result, error) {
+func netCall(t *testing.T, perms *core.Permissions, seams *startest.NetSeams, body string) (Result, error) {
 	t.Helper()
 	src := "def go(a):\n    " + strings.ReplaceAll(strings.TrimSpace(body), "\n", "\n    ") + "\ntool(\"go\", go, \"go\")\n"
 	r := toolReq("go", `{}`)
@@ -37,46 +38,6 @@ func decode(t *testing.T, res Result) map[string]any {
 		t.Fatalf("result %q: %v", res.Text, err)
 	}
 	return m
-}
-
-func TestNetMatch(t *testing.T) {
-	for _, c := range []struct {
-		host string
-		pats []string
-		want bool
-	}{
-		{"api.example.com", []string{"api.example.com"}, true},
-		{"API.Example.com.", []string{"api.example.com"}, true},
-		{"api.example.com", []string{"example.com"}, false},
-		{"a.example.com", []string{"*.example.com"}, true},
-		{"a.b.example.com", []string{"*.example.com"}, true},
-		{"example.com", []string{"*.example.com"}, false},
-		{"evilexample.com", []string{"*.example.com"}, false},
-		{".example.com", []string{"*.example.com"}, false},
-		{"x..example.com", []string{"*.example.com"}, false},
-		{"example.com.evil.org", []string{"*.example.com"}, false},
-	} {
-		if _, got := netMatch(c.host, c.pats); got != c.want {
-			t.Errorf("netMatch(%q, %v) = %v", c.host, c.pats, got)
-		}
-	}
-}
-
-func TestForbiddenAddr(t *testing.T) {
-	for addr, want := range map[string]bool{
-		"127.0.0.1": true, "::1": true, "10.1.2.3": true, "192.168.0.1": true, "172.16.0.1": true,
-		"169.254.169.254": true, "fe80::1": true, "0.0.0.0": true, "224.0.0.1": true, "100.64.0.1": true,
-		"::ffff:127.0.0.1": true, "fc00::1": true,
-		"0.1.2.3": true, "192.0.0.8": true, "198.18.0.1": true, "198.19.255.1": true,
-		"64:ff9b::7f00:1": true, "64:ff9b::a9fe:a9fe": true, "64:ff9b::5db8:d822": false,
-		"2002:7f00:1::": true, "2002:a9fe:a9fe::1": true, "2002:5db8:d822::1": false,
-		"198.20.0.1":    false,
-		"93.184.216.34": false, "2606:4700::1111": false,
-	} {
-		if got := forbiddenAddr(netip.MustParseAddr(addr)); got != want {
-			t.Errorf("forbiddenAddr(%s) = %v", addr, got)
-		}
-	}
 }
 
 func TestNetAbsentWithoutPermission(t *testing.T) {
@@ -120,8 +81,8 @@ func TestEnvGet(t *testing.T) {
 	}
 }
 
-func tlsSeams(srv *httptest.Server) *netSeams {
-	return &netSeams{tls: srv.Client().Transport.(*http.Transport).TLSClientConfig}
+func tlsSeams(srv *httptest.Server) *startest.NetSeams {
+	return &startest.NetSeams{TLS: srv.Client().Transport.(*http.Transport).TLSClientConfig}
 }
 
 func TestHTTPSAllowedHost(t *testing.T) {
@@ -190,7 +151,7 @@ func TestHTTPSchemeAndHostRules(t *testing.T) {
 
 func TestHTTPDialRefusesPrivateAddresses(t *testing.T) {
 	for _, ip := range []string{"127.0.0.1", "10.0.0.5", "169.254.169.254", "::1"} {
-		seams := &netSeams{lookup: func(context.Context, string) ([]netip.Addr, error) {
+		seams := &startest.NetSeams{Lookup: func(context.Context, string) ([]netip.Addr, error) {
 			return []netip.Addr{netip.MustParseAddr(ip)}, nil
 		}}
 		_, err := netCall(t, netPerms("*.example.com"), seams, `return http.request("GET", "https://api.example.com/")`)
@@ -361,12 +322,12 @@ func TestHTTPProxy(t *testing.T) {
 		fmt.Fprint(c, "HTTP/1.1 502 Bad Gateway\r\n\r\n")
 	}()
 	pu := &url.URL{Scheme: "http", Host: ln.Addr().String()}
-	seams := &netSeams{
-		proxy: func(*http.Request) (*url.URL, error) { return pu, nil },
-		lookup: func(context.Context, string) ([]netip.Addr, error) {
+	seams := &startest.NetSeams{
+		Proxy: func(*http.Request) (*url.URL, error) { return pu, nil },
+		Lookup: func(context.Context, string) ([]netip.Addr, error) {
 			return []netip.Addr{netip.MustParseAddr("93.184.216.34")}, nil
 		},
-		tls: &tls.Config{},
+		TLS: &tls.Config{},
 	}
 	_, err = netCall(t, netPerms("api.example.com"), seams, `return http.request("GET", "https://api.example.com/x")`)
 	callErr(t, err, Failed)
@@ -380,17 +341,13 @@ func TestHTTPProxy(t *testing.T) {
 	}
 	// Behind a proxy the target's own resolution is checked here.
 	for _, ip := range []string{"169.254.169.254", "10.0.0.5", "64:ff9b::a9fe:a9fe"} {
-		seams := &netSeams{
-			proxy:  func(*http.Request) (*url.URL, error) { return pu, nil },
-			lookup: func(context.Context, string) ([]netip.Addr, error) { return []netip.Addr{netip.MustParseAddr(ip)}, nil },
+		seams := &startest.NetSeams{
+			Proxy:  func(*http.Request) (*url.URL, error) { return pu, nil },
+			Lookup: func(context.Context, string) ([]netip.Addr, error) { return []netip.Addr{netip.MustParseAddr(ip)}, nil },
 		}
 		_, err = netCall(t, netPerms("api.example.com"), seams, `return http.request("GET", "https://api.example.com/x")`)
 		if ce := callErr(t, err, Denied); !strings.Contains(ce.Msg, "api.example.com") {
-			t.Errorf("%s behind a proxy: %q", ip, ce.Msg)
+			t.Errorf("%s behind a Proxy: %q", ip, ce.Msg)
 		}
-	}
-	// The default is the environment's proxy function.
-	if n := newNetState(&callCtx{}, "", nil); n.seams.proxy == nil {
-		t.Error("no default proxy")
 	}
 }

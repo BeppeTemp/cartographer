@@ -1,4 +1,4 @@
-package star
+package starcore
 
 import (
 	"bytes"
@@ -14,6 +14,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/plugin/core"
+	"github.com/BeppeTemp/cartographer/internal/plugin/starcore/internal/seam"
 	"go.starlark.net/starlark"
 )
 
@@ -61,11 +62,11 @@ type limitError struct{ msg string }
 
 func (e *limitError) Error() string { return e.msg }
 
-// callSpec is one call, as the runtime sees it. The command, tool and event
+// CallSpec is one call, as the runtime sees it. The command, tool and event
 // kinds live in the client half (request.go): it decides what the impl is
 // given (Arg), how its result is read (Result), which state the client-only
 // modules keep in the call's context (Ext), the wall clock and the step cap.
-type callSpec struct {
+type CallSpec struct {
 	Kind, Name string // the registration called
 	Plugin     string // for the log prefix and the User-Agent
 	Version    string // sent in http.request's User-Agent
@@ -91,19 +92,18 @@ type callSpec struct {
 	Arg func(reg *Registration) (starlark.Tuple, error)
 	// Result reads the value the impl returned; ctx carries the call's deadline.
 	Result func(ctx context.Context, v starlark.Value) (any, error)
-	// Ext builds the state of the modules the host adds (callCtx.ext); nil for none.
-	Ext func(cc *callCtx) any
+	// Ext builds the state of the modules the host adds (CallCtx.ext); nil for none.
+	Ext func(cc *CallCtx) any
 	// Same compares what two runs of the script registered; nil is sameRegistrations.
 	Same func(a, b []Registration) bool
 
-	// Test seams: lower network seams and extra predeclared names.
-	Net   *netSeams
-	Extra starlark.StringDict
+	// Seams are the test seams of a call; only startest can build one.
+	Seams *seam.Seams
 }
 
-// invoke runs one registered function on a fresh thread and returns what
+// Invoke runs one registered function on a fresh thread and returns what
 // spec.Result made of its value. The error, when there is one, is a *CallError.
-func (p *script) invoke(ctx context.Context, spec callSpec) (res any, err error) {
+func (p *Script) Invoke(ctx context.Context, spec CallSpec) (res any, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			res, err = nil, &CallError{Kind: Internal, Msg: fmt.Sprintf("plugin %s: internal error: %v", spec.Plugin, r)}
@@ -141,8 +141,12 @@ func (p *script) invoke(ctx context.Context, spec callSpec) (res any, err error)
 	// call's settings (see settingsValue). It is charged to the call's budget.
 	lim := &runLimits{ctx: ctx, budget: steps, base: liveHeap()}
 	opts := p.opts
-	opts.Extra = merge(opts.Extra, spec.Extra)
-	inst, lerr := run(p.srcs, settings, opts, lim)
+	var net *seam.NetSeams
+	if spec.Seams != nil {
+		opts.Extra = Merge(opts.Extra, spec.Seams.Extra)
+		net = spec.Seams.Net
+	}
+	inst, lerr := run(p.sources(), settings, opts, lim)
 	if lerr != nil {
 		if ce := lim.failure(); ce != nil {
 			return nil, ce
@@ -163,13 +167,13 @@ func (p *script) invoke(ctx context.Context, spec callSpec) (res any, err error)
 	settings.open = true
 
 	logw := newCapped(spec.Log)
-	cc := &callCtx{phase: phaseCall, plugin: spec.Plugin, log: logw, ctx: ctx, perms: spec.Perms, lookupEnv: spec.LookupEnv}
-	if cc.lookupEnv == nil {
-		cc.lookupEnv = os.LookupEnv
+	cc := &CallCtx{phase: phaseCall, Plugin: spec.Plugin, Log: logw, Ctx: ctx, Perms: spec.Perms, LookupEnv: spec.LookupEnv}
+	if cc.LookupEnv == nil {
+		cc.LookupEnv = os.LookupEnv
 	}
-	cc.net = newNetState(cc, spec.Version, spec.Net)
+	cc.net = newNetState(cc, spec.Version, net)
 	if spec.Ext != nil {
-		cc.ext = spec.Ext(cc)
+		cc.Ext = spec.Ext(cc)
 	}
 	var printw io.Writer = logw
 	prefix := "plugin " + spec.Plugin + ": "
@@ -247,8 +251,8 @@ func emit(w io.Writer, prefix, msg string) {
 	}
 }
 
-// escapeLines escapes each line of a multi-line text.
-func escapeLines(s string) string {
+// EscapeLines escapes each line of a multi-line text.
+func EscapeLines(s string) string {
 	lines := strings.Split(s, "\n")
 	for i, l := range lines {
 		lines[i] = client.Escape(l)
@@ -256,7 +260,7 @@ func escapeLines(s string) string {
 	return strings.Join(lines, "\n")
 }
 
-func (p *script) find(kind, name string) *Registration {
+func (p *Script) find(kind, name string) *Registration {
 	for i := range p.Registrations {
 		if r := &p.Registrations[i]; r.Kind == kind && r.Name == name {
 			return r
@@ -266,9 +270,9 @@ func (p *script) find(kind, name string) *Registration {
 }
 
 // find on a run's program returns the impl itself.
-func (p *script) implOf(kind, name string) *starlark.Function {
+func (p *Script) implOf(kind, name string) *starlark.Function {
 	if r := p.find(kind, name); r != nil {
-		return r.impl
+		return r.Impl
 	}
 	return nil
 }
@@ -292,9 +296,9 @@ func classify(err error, ctx context.Context, stepsHit bool, steps uint64) *Call
 	var limit *limitError
 	switch {
 	case errors.As(err, &denied):
-		return &CallError{Kind: Denied, Msg: escapeLines(denied.msg)}
+		return &CallError{Kind: Denied, Msg: EscapeLines(denied.msg)}
 	case errors.As(err, &limit):
-		return &CallError{Kind: LimitExceeded, Msg: escapeLines(limit.msg)}
+		return &CallError{Kind: LimitExceeded, Msg: EscapeLines(limit.msg)}
 	}
 	var ev *starlark.EvalError
 	if !errors.As(err, &ev) {
@@ -304,7 +308,7 @@ func classify(err error, ctx context.Context, stepsHit bool, steps uint64) *Call
 		return &CallError{Kind: Failed, Msg: client.Escape(strings.TrimPrefix(ev.Msg, "fail: "))}
 	}
 	le := loadError(ev)
-	return &CallError{Kind: Failed, Msg: client.Escape(le.Msg), Trace: escapeLines(le.Trace)}
+	return &CallError{Kind: Failed, Msg: client.Escape(le.Msg), Trace: EscapeLines(le.Trace)}
 }
 
 // capped writes at most MaxPrintBytes, then drops the rest and, once, says so.

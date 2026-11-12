@@ -1,4 +1,4 @@
-package star
+package starcore
 
 import (
 	"errors"
@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/BeppeTemp/cartographer/internal/plugin/core"
+	"github.com/BeppeTemp/cartographer/internal/plugin/starcore/internal/seam"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 )
@@ -52,10 +53,10 @@ func loadError(err error) *LoadError {
 	return &LoadError{Msg: err.Error()}
 }
 
-// loadScript runs plugin.star once, with lib/*.star loadable from it, and
+// LoadScript runs plugin.star once, with lib/*.star loadable from it, and
 // reports what it registered. It reads the files it is given and nothing else.
 // A tree without plugin.star and without lib/ is not a script plugin: (nil, nil).
-func loadScript(files []core.TreeFile, opts Options) (*script, error) {
+func LoadScript(files []core.TreeFile, opts Options) (*Script, error) {
 	srcs := map[string][]byte{}
 	libs := 0
 	for _, f := range files {
@@ -87,20 +88,30 @@ func loadScript(files []core.TreeFile, opts Options) (*script, error) {
 	return run(srcs, &settingsValue{}, opts, nil)
 }
 
+// LoadSources runs plugin.star over srcs as LoadScript does, without the checks
+// of a tree (sizes, names, caps): the seam of tests that need a script shaped
+// by hand, gated by the token only startest holds.
+func LoadSources(_ seam.Gate, srcs map[string][]byte, opts Options) (*Script, error) {
+	return run(srcs, &settingsValue{}, opts, nil)
+}
+
 // run executes plugin.star over srcs. settings is the `settings` every function
 // of this run binds; opts.Extra is added to the predeclared names (the host
 // adapters, and a test seam) and opts.Registrars are the builtins plugin.star
 // alone has. A CALL runs it again for its own thread, with its own settings:
 // see settingsValue.
-func run(srcs map[string][]byte, settings *settingsValue, opts Options, lim *runLimits) (*script, error) {
+func run(srcs map[string][]byte, settings *settingsValue, opts Options, lim *runLimits) (*Script, error) {
+	if err := opts.check(); err != nil {
+		return nil, &LoadError{Msg: err.Error()}
+	}
 	entry := srcs[core.ScriptEntry]
-	reg := &registry{}
-	ctx := &callCtx{phase: phaseLoad, reg: reg}
-	pure, caps := pureModules(), merge(capabilityModules(settings), opts.Extra)
+	reg := &Registry{}
+	ctx := &CallCtx{phase: phaseLoad, reg: reg}
+	pure, caps := pureModules(), Merge(capabilityModules(settings), opts.Extra)
 	if lim != nil {
 		defer lim.watch()()
 	}
-	l := &loader{srcs: srcs, ctx: ctx, lim: lim, cache: map[string]*loaded{}, predeclared: merge(pure, caps)}
+	l := &loader{srcs: srcs, ctx: ctx, lim: lim, cache: map[string]*loaded{}, predeclared: Merge(pure, caps)}
 	base := uint64(0)
 	if lim != nil {
 		base = lim.base // a call has one baseline, taken before its re-run
@@ -110,7 +121,7 @@ func run(srcs map[string][]byte, settings *settingsValue, opts Options, lim *run
 	mem := watchHeap(base, l.cancelAll)
 	defer mem.stop()
 	thread := l.newThread(core.ScriptEntry)
-	entryEnv := merge(pure, caps, opts.Registrars)
+	entryEnv := Merge(pure, caps, opts.Registrars)
 	globals, err := l.exec(thread, core.ScriptEntry, entry, entryEnv)
 	if mem.hit.Load() {
 		if lim != nil {
@@ -123,14 +134,14 @@ func run(srcs map[string][]byte, settings *settingsValue, opts Options, lim *run
 	}
 	globals.Freeze()
 
-	p := &script{Registrations: reg.regs, globals: globals, srcs: srcs, opts: Options{Registrars: opts.Registrars, Extra: opts.Extra}}
+	p := &Script{Registrations: reg.regs, globals: globals, srcs: srcs, opts: Options{Registrars: opts.Registrars, Extra: opts.Extra}}
 	for _, path := range slices.Sorted(maps.Keys(srcs)) {
 		p.Files = append(p.Files, fileInfo(path, srcs[path]))
 	}
 	return p, nil
 }
 
-func merge(ds ...starlark.StringDict) starlark.StringDict {
+func Merge(ds ...starlark.StringDict) starlark.StringDict {
 	out := starlark.StringDict{}
 	for _, d := range ds {
 		for k, v := range d {
@@ -145,7 +156,7 @@ func merge(ds ...starlark.StringDict) starlark.StringDict {
 type loader struct {
 	srcs        map[string][]byte
 	lim         *runLimits // nil for a first Load
-	ctx         *callCtx
+	ctx         *CallCtx
 	cache       map[string]*loaded
 	stack       []string
 	predeclared starlark.StringDict // pure and capability modules, no registrars

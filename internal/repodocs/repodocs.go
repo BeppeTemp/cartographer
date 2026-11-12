@@ -473,8 +473,12 @@ func Packages(root string) ([]Package, error) {
 // an agent does not open to change behaviour. The rule is on the last element of
 // the import path, not a list: a test helper (`gitxtest`, `kbtest`, or the
 // synthetic test fleet `testkbs`, `testtree`: ends or starts with "test") and a
-// generator command (`gen`).
+// generator command (`gen`), and a package under another package's `internal/`
+// folder, which only that package's tree can import.
 func IsHelperPackage(path string) bool {
+	if strings.Contains(path, "/internal/") {
+		return true
+	}
 	base := path[strings.LastIndexByte(path, '/')+1:]
 	return base == "gen" || strings.HasPrefix(base, "test") || strings.HasSuffix(base, "test")
 }

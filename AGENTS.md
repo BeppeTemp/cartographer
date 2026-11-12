@@ -8,17 +8,10 @@ Go MCP server for the *Agentic Wiki* (Karpathy pattern + OKF). The agent never t
 make gate            # gofmt + vet + test + race: everything green before a PR
 make check           # fast tier (affected packages only)
 make signoff         # maintainer: gate, push, attest the sha (CI's gate)
-make build           # → bin/cartographer
-make test            # go test ./...
-make vet             # go vet ./..., also GOOS=windows
-make fmt             # gofmt -w cmd internal
+make build           # → bin/cartographer (make help lists the other targets)
 make run             # stdio with demo KB
 make run-http        # HTTP on :39273 with demo KB
-make smoke           # build + stdio test
-make smoke-http      # HTTP smoke test (temp KBs)
 make e2e             # HTTP/CLI end-to-end scenarios
-make test-install    # install.sh/Cask packaging suite + goreleaser guard
-make docker          # Docker image
 
 make ready MSG=<file>              # maintainer: queue the change, the lander lands it
 make decisions-new SLUG=my-choice TOPIC=control-plane   # D-new-<slug>, numbered on landing
@@ -93,7 +86,8 @@ internal/okf                    parser/serializer for the YAML subset used in OK
 internal/openapi                builds an OpenAPI document from Go types
 internal/plugin                 is the client side of a Cartographer plugin
 internal/plugin/core            is the half of the plugin system the server and the Surveyor link
-internal/plugin/star            runs the Starlark script of a plugin
+internal/plugin/star            runs the Starlark script of a plugin for a client
+internal/plugin/starcore        is the Starlark runtime a plugin script runs on, without the half that only a client needs
 internal/pluginserver           loads the data families of a plugin's server side
 internal/procattr               sets the process attributes every child of Cartographer shares
 internal/provisioning           manages the synchronization of artifacts (skill, agent, hook — D48

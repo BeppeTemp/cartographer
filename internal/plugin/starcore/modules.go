@@ -1,4 +1,4 @@
-package star
+package starcore
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"maps"
 
 	"github.com/BeppeTemp/cartographer/internal/plugin/core"
+	"github.com/BeppeTemp/cartographer/internal/plugin/starcore/internal/seam"
 	"go.starlark.net/lib/json"
 	"go.starlark.net/lib/math"
 	"go.starlark.net/lib/time"
@@ -22,40 +23,40 @@ const (
 	phaseCall
 )
 
-// ctxKey is the thread-local that holds the *callCtx of a run.
+// ctxKey is the thread-local that holds the *CallCtx of a run.
 const ctxKey = "cartographer.plugin.ctx"
 
-// callCtx is what a run knows besides its Starlark values; one per thread, and
+// CallCtx is what a run knows besides its Starlark values; one per thread, and
 // threads are never shared. The modules read it when they are called, not when
 // they are created, because a Starlark function keeps the predeclared names of
 // the load that made it (the trap the package comment names).
-type callCtx struct {
+type CallCtx struct {
 	phase phase
-	reg   *registry // only while loading plugin.star
+	reg   *Registry // only while loading plugin.star
 
 	// The rest is set for a CALL only.
-	plugin string
-	log    io.Writer // the call's log sink: log.* and, for a tool or event, print
-	ctx    context.Context
+	Plugin string
+	Log    io.Writer // the call's log sink: log.* and, for a tool or event, print
+	Ctx    context.Context
 	// perms are the manifest's granted permissions; the capability modules of
 	// the following changes read them here, never from the script.
-	perms *core.Permissions
+	Perms *core.Permissions
 
-	lookupEnv func(string) (string, bool)
+	LookupEnv func(string) (string, bool)
 	net       *netState
 	// ext is the state the host's own modules keep for the call (Ext of the
-	// callSpec): the runtime never reads it.
-	ext any
+	// CallSpec): the runtime never reads it.
+	Ext any
 }
 
-func ctxOf(thread *starlark.Thread) *callCtx {
-	c, _ := thread.Local(ctxKey).(*callCtx)
+func CtxOf(thread *starlark.Thread) *CallCtx {
+	c, _ := thread.Local(ctxKey).(*CallCtx)
 	return c
 }
 
 // loading reports whether thread is running plugin.star's LOAD.
-func loading(thread *starlark.Thread) *callCtx {
-	if c := ctxOf(thread); c != nil && c.phase == phaseLoad {
+func loading(thread *starlark.Thread) *CallCtx {
+	if c := CtxOf(thread); c != nil && c.phase == phaseLoad {
 		return c
 	}
 	return nil
@@ -94,17 +95,21 @@ func logModule() *starlarkstruct.Module {
 			if err := starlark.UnpackPositionalArgs(full, args, kwargs, 1, &msg); err != nil {
 				return nil, err
 			}
-			c := ctxOf(thread)
+			c := CtxOf(thread)
 			if c == nil || c.phase != phaseCall {
 				return nil, fmt.Errorf("%s is not available while plugin.star loads: it only registers commands, tools and events", full)
 			}
-			prefix := "plugin " + c.plugin + ": "
+			prefix := "plugin " + c.Plugin + ": "
 			if level != "info" {
 				prefix += level + ": "
 			}
-			emit(c.log, prefix, msg)
+			emit(c.Log, prefix, msg)
 			return starlark.None, nil
 		})
 	}
 	return m
 }
+
+// InCallPhase puts a bare thread in the CALL phase: the seam of tests that call
+// a registered function outside Invoke, gated by the token only startest holds.
+func InCallPhase(_ seam.Gate, t *starlark.Thread) { t.SetLocal(ctxKey, &CallCtx{phase: phaseCall}) }

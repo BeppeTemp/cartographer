@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/BeppeTemp/cartographer/internal/plugin/starcore"
 	"strings"
 	"sync"
 	"time"
@@ -29,7 +30,7 @@ type KBCaller interface {
 
 // kbState is the KB access of one call.
 type kbState struct {
-	cc       *callCtx
+	cc       *starcore.CallCtx
 	caller   KBCaller
 	readOnly bool
 	// why names what made the call read-only when it is not the session.
@@ -46,7 +47,7 @@ func kbModule() *starlarkstruct.Module {
 // plugin's declared limit, not the security boundary: the server still holds
 // the token's scopes and the session's access.
 func kbCall(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
-	c, err := callPhase(thread, b.Name())
+	c, err := starcore.CallPhase(thread, b.Name())
 	if err != nil {
 		return nil, err
 	}
@@ -70,11 +71,11 @@ func kbCall(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, k
 		return nil, errors.New("kb.call: takes the tool name and at most one dict of arguments")
 	}
 	mode := ""
-	if c.perms != nil {
-		mode = c.perms.KB
+	if c.Perms != nil {
+		mode = c.Perms.KB
 	}
 	if mode != "read" && mode != "write" {
-		return nil, denied("kb.call needs permissions.kb in the manifest")
+		return nil, starcore.DeniedErr("kb.call needs permissions.kb in the manifest")
 	}
 	k := kbOf(c)
 	if k.readOnly {
@@ -86,7 +87,7 @@ func kbCall(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, k
 	// The gate decides on the exact name the server will receive: no
 	// normalisation, so a different case or a padded name is an unknown tool.
 	if mode == "read" {
-		ro, err := k.caller.ReadOnly(c.ctx, tool)
+		ro, err := k.caller.ReadOnly(c.Ctx, tool)
 		if err != nil {
 			return nil, fmt.Errorf("kb.call: %s", client.Escape(err.Error()))
 		}
@@ -98,13 +99,13 @@ func kbCall(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, k
 			if !k.readOnly {
 				why = "permissions.kb is read"
 			}
-			return nil, denied("kb.call: %q is not a read-only tool and %s", tool, why)
+			return nil, starcore.DeniedErr("kb.call: %q is not a read-only tool and %s", tool, why)
 		}
 	}
 
 	argv := map[string]any{}
 	if named != nil {
-		m, err := jsonArgs(c.ctx, named)
+		m, err := jsonArgs(c.Ctx, named)
 		if err != nil {
 			return nil, err
 		}
@@ -115,7 +116,7 @@ func kbCall(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, k
 		for _, kv := range kwargs {
 			_ = kd.SetKey(kv[0], kv[1])
 		}
-		m, err := jsonArgs(c.ctx, kd)
+		m, err := jsonArgs(c.Ctx, kd)
 		if err != nil {
 			return nil, err
 		}
@@ -127,18 +128,18 @@ func kbCall(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, k
 		}
 	}
 
-	text, err := k.caller.Call(c.ctx, tool, argv)
+	text, err := k.caller.Call(c.Ctx, tool, argv)
 	if err != nil {
 		return nil, fmt.Errorf("kb.call: %s", client.Escape(err.Error()))
 	}
 	if len(text) > MaxResultBytes {
-		return nil, limited("kb.call: the result of %q is over the %d byte cap", tool, MaxResultBytes)
+		return nil, starcore.LimitErr("kb.call: the result of %q is over the %d byte cap", tool, MaxResultBytes)
 	}
 	dec := json.NewDecoder(strings.NewReader(text))
 	dec.UseNumber()
 	var v any
 	if dec.Decode(&v) == nil && !dec.More() {
-		if sv, err := toStarlark(v); err == nil {
+		if sv, err := starcore.ToStarlark(v); err == nil {
 			return sv, nil
 		}
 	}
@@ -153,7 +154,7 @@ func jsonArgs(ctx context.Context, d *starlark.Dict) (map[string]any, error) {
 		}
 	}
 	var buf bytes.Buffer
-	if err := encodeJSON(ctx, &buf, d, 0); err != nil {
+	if err := starcore.EncodeJSON(ctx, &buf, d, 0); err != nil {
 		var ce *CallError
 		if errors.As(err, &ce) {
 			return nil, fmt.Errorf("kb.call: arguments: %s", ce.Msg)
