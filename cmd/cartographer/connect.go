@@ -636,6 +636,9 @@ func printConnectResult(dir string, providers []string, opts connectOptions, res
 	}
 	if !opts.DryRun {
 		printRestartHints(os.Stdout, providers)
+		if isLoopbackURL(opts.ServerURL) && !opts.Auth {
+			ensureLocalGitIdentity(os.Stdout, "", true)
+		}
 	}
 	if res.Deferred {
 		fmt.Printf("warning: skill sync deferred (%s); run `cartographer sync` once the server is up\n", deferralReason(res.DeferredErr))

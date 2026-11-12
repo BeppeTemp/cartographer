@@ -8,11 +8,15 @@
 # identity (run.sh isolates the git config):
 #   a. a write that names its author in the Cartographer-Author header lands,
 #      and the remote head has that author and committer;
-#   b. a write with no header is committed by the server identity: the rule
-#      refuses it, the tool result says so, and the remote does not move;
-#   c. git.identity of the allowed user is set; `kb reauthor` previews, then
-#      re-authors the refused commit, and after a restart a header-less write
-#      publishes with it;
+#   b. a write with no header, on a local server with no git identity, is refused
+#      before it is committed (D1974): the tool result names the
+#      key to set, nothing is committed and the remote does not move;
+#   b2. an explicit empty git.identities entry keeps the server identity (D1725): the
+#      write is committed as local-admin and the forge refuses the push, the tool
+#      result says so (neutral wording, D1101) and the remote does not move;
+#   c. that local-admin commit is listed by the `kb reauthor` preview, which needs no identity; git.identities.default
+#      of the allowed user is set; `kb reauthor` re-authors it, and after a restart a
+#      header-less write publishes with it;
 #   d. a commit made with no writer (server identity) is re-committed by that
 #      identity and publishes with the next write.
 #
@@ -91,7 +95,25 @@ if printf '%s' "$OUT" | grep -q 'sync_state'; then _assert_fail "the push of a m
 HEAD_A="$(remote_head %H)"
 
 echo ""
-echo "--- b. A write with no header is refused by the rule ---"
+echo "--- b. A write with no header and no git identity is refused before it is committed ---"
+OUT="$(page two "No author.")"
+if printf '%s' "$OUT" | grep -q 'git.identities.default' && printf '%s' "$OUT" | grep -q 'user.email'; then
+    _assert_pass "the tool result names the keys to set"
+else
+    _assert_fail "the tool result does not report the refusal: ${OUT}"
+fi
+[[ "$(remote_head %H)" == "$HEAD_A" ]] && _assert_pass "the remote did not move" || _assert_fail "the remote moved"
+[[ ! -f "${KB_DIR}/data/rules/two/note.md" ]] && _assert_pass "nothing was written to the local clone" || _assert_fail "the refused write reached the clone"
+[[ "$(git -C "$KB_DIR" rev-list --count "origin/main..HEAD")" -eq 0 ]] && _assert_pass "no local-only commit" || _assert_fail "a local-only commit exists"
+
+echo ""
+echo "--- b2. An explicit empty git.identities entry keeps the server identity: the forge refuses the push ---"
+# "none" on purpose (D1725) exempts the KB from the requirement: the write is committed
+# as local-admin and the forge's author rule rejects the push.
+server_stop
+printf 'http: "127.0.0.1:%s"\ngit:\n  identities:\n    default: ""\n' "$E2E_HTTP_PORT" > "$CONFIG"
+E2E_CONFIG="$CONFIG" server_start "$KB_DIR"
+server_wait_health 20
 OUT="$(page two "No author.")"
 if printf '%s' "$OUT" | grep -q 'is not a member of team' && printf '%s' "$OUT" | grep -q 'failed'; then
     _assert_pass "the tool result reports the refused push with the forge's message"
@@ -106,20 +128,24 @@ else
     _assert_fail "the refusal is not worded as an identity refusal: ${OUT}"
 fi
 [[ "$(remote_head %H)" == "$HEAD_A" ]] && _assert_pass "the remote did not move" || _assert_fail "the remote moved"
-[[ -f "${KB_DIR}/data/rules/two/note.md" ]] && _assert_pass "the write is kept in the local clone" || _assert_fail "the write is missing locally"
 [[ "$(git -C "$KB_DIR" rev-list --count "origin/main..HEAD")" -ge 1 ]] && _assert_pass "the commit is local only" || _assert_fail "no local-only commit"
 
 echo ""
-echo "--- c. git.identity of the allowed user lets a header-less write publish ---"
-# The refused commit is by the token that made it (here local-admin), which the
-# server keeps as its author: only `kb reauthor` repairs it.
+echo "--- c. git.identities.default of the allowed user lets a header-less write publish ---"
+server_stop
 REFUSED="$(git -C "$KB_DIR" log -1 --format='%an|%cn|%ae|%ce')"
 [[ "$REFUSED" == "local-admin|local-admin|"* && "$REFUSED" != *ada@example.test* ]] \
-    && _assert_pass "the refused commit is by the token identity, author and committer" \
-    || _assert_fail "refused commit identity = ${REFUSED}"
+    && _assert_pass "the local commit is by the technical identity, author and committer" \
+    || _assert_fail "local commit identity = ${REFUSED}"
 [[ "$(remote_head %H)" == "$HEAD_A" ]] && _assert_pass "the remote head is still the last member's commit" || _assert_fail "the remote head moved"
-server_stop
-printf 'http: "127.0.0.1:%s"\ngit:\n  identity: "%s"\n' "$E2E_HTTP_PORT" "$ADA" > "$CONFIG"
+printf 'http: "127.0.0.1:%s"\n' "$E2E_HTTP_PORT" > "$CONFIG"
+NOID="$("${BIN}" kb reauthor kb-rules --data "$DIR" --config "$CONFIG" 2>&1)"
+if printf '%s' "$NOID" | grep -q 'local-admin' && printf '%s' "$NOID" | grep -q 'git.identities.default'; then
+    _assert_pass "the preview lists the commit without any identity and names the key to set"
+else
+    _assert_fail "preview without identity = ${NOID}"
+fi
+printf 'http: "127.0.0.1:%s"\ngit:\n  identities:\n    default: "%s"\n' "$E2E_HTTP_PORT" "$ADA" > "$CONFIG"
 REAUTHOR=("${BIN}" kb reauthor kb-rules --data "$DIR" --config "$CONFIG")
 PREVIEW="$("${REAUTHOR[@]}" 2>&1)"
 if printf '%s' "$PREVIEW" | grep -q 'local-admin' && printf '%s' "$PREVIEW" | grep -q 'would be re-authored'; then
@@ -135,7 +161,7 @@ if "${REAUTHOR[@]}" --apply >"${DIR}/reauthor.log" 2>&1; then _assert_pass "kb r
 E2E_CONFIG="$CONFIG" server_start "$KB_DIR"
 server_wait_health 20
 OUT="$(page three "Identity from the server file.")"
-if printf '%s' "$OUT" | grep -q 'sync_state'; then _assert_fail "the push failed with git.identity set: ${OUT}"; else _assert_pass "no sync warning once git.identity is set"; fi
+if printf '%s' "$OUT" | grep -q 'sync_state'; then _assert_fail "the push failed with git.identities.default set: ${OUT}"; else _assert_pass "no sync warning once git.identities.default is set"; fi
 [[ "$(remote_head '%an <%ae> | %cn <%ce>')" == "Ada Example <ada@example.test> | Ada Example <ada@example.test>" ]] \
     && _assert_pass "the remote head is by the configured identity" \
     || _assert_fail "remote head = $(remote_head '%an <%ae> | %cn <%ce>')"

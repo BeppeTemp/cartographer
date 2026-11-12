@@ -346,6 +346,17 @@ not influence any of it. A KB's own SSH key, `<kb>.ssh`, and its token helper (`
 `default.token`) **override** Meridian's process environment (the reverse of the "environment wins" rule that
 applies to `default.ssh` and `GIT_SSH_COMMAND` above) — see `internal/gitx.runGitEnv`.
 
+**A personal install (D1974)** — a local server, stdio or HTTP with authentication off — never commits as the
+technical `local-admin`: a KB without a `git.identities` entry takes the git identity of the user running the server
+(`git config user.name`/`user.email`, read as `gitx.GlobalIdent` does and, when the global config picks the identity by
+folder with `includeIf`, as git would record it for a commit in the KB), and `cartographer connect` writes the one it
+found into `git.identities.default`, so it stays the same across restarts and is visible in the file. When neither the
+file nor the user's git config gives a name and an email, a write to a KB **with a remote** is refused, naming
+`git.identities.default` and `git config --global user.email`; reads, and a KB without a remote, are unaffected, and a
+request that sends a valid `Cartographer-Author` is not refused. A present empty `git.identities` entry is an explicit
+"none" and keeps the server identity. `connect` and `status` print the missing identity, and `kb_status` reports it as
+`identity_missing`. The commits made with no writer (conflict resolution, the external-changes commit, merges, the realignment) carry the same identity; only a KB with none at all keeps the server identity for them, so a recovery never stalls, and the unattended auto-repair is exempt from the refusal for that reason (a client's `kb_repair` is refused like any write). A shared server (tokens) is unchanged.
+
 If your forge enforces author or committer push rules (GitLab `member_check`), the server identity and the
 token-id author are not forge accounts and the push is refused: set `git.identities.default` (or an entry per KB) to
 a real account. Commits already pushed under another identity stay as they are. Commits that are still

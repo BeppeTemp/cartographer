@@ -249,6 +249,10 @@ match ([#305](https://github.com/BeppeTemp/cartographer/issues/305)).
 
 ### `cartographer connect [provider|all]`
 
+To a local server without authentication, `connect` also writes the user's git identity (`git config user.name`/`user.email`)
+into `git.identities.default` of the server file when it has none, and prints the missing identity when there is no real
+one (`status` prints it too): see `deployment.md` (D1974).
+
 Generates the MCP config (HTTP transport only), materializes artifacts via `sync_pull` (the full
 kind×provider matrix is in `sync.md` §Kind × provider matrix; combinations with no known
 destination go to `unsupported` and are filtered upstream), and writes/updates `.cartographer.yaml`. If the
@@ -833,7 +837,8 @@ Exit codes: `0` nothing left to do, `3` only judgement work or checks that are n
 Recovery for a push a remote refused because of who authored or committed its commits (a membership
 push rule, a private-email rule; D1063). It re-authors, under the identity the server file configures
 for the KB (`git.identities`, the rule `serve` applies at mount), the commits that exist
-only in the local clone, then pushes. Without an identity configured it refuses: rewriting with the
+only in the local clone, then pushes. The preview runs without an identity configured, lists the commits it would rewrite and names the
+key to set (`identity_missing` in `--json`); `--apply` refuses until one is set: rewriting with the
 fallback identity would reproduce the problem. The sync alone already re-authors a commit made by
 exactly the server identity (D950); this command is for what it leaves alone, a commit authored by a
 token (`<token id> <cartographer@host>`).

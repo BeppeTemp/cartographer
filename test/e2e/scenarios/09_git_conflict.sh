@@ -41,6 +41,11 @@ if [[ ! -x "$BIN" ]]; then
 fi
 
 DIR="${E2E_TMP_DIR}/${SCENARIO_NAME}"
+# The host has no git identity (run.sh), and a local server refuses a write to a KB with a
+# remote without one (D1974): the server file names it.
+IDENT_CFG="${DIR}/identity.yaml"
+mkdir -p "$DIR"
+printf 'git:\n  identities:\n    default: "Ada Example <ada@example.test>"\n' > "$IDENT_CFG"
 mkdir -p "$DIR"
 BARE="${DIR}/remote.git"
 KBA="${DIR}/kbA"
@@ -92,7 +97,7 @@ git -C "$BARE" symbolic-ref HEAD refs/heads/main
 kb_bootstrap "$KBA"
 
 CARTOGRAPHER_AUTH=false K_SERVICE=e2e \
-    "$BIN" serve --kb "$KBA" --http "127.0.0.1:${PORT_A}" >"${DIR}/srvA.log" 2>&1 &
+    "$BIN" serve --config "$IDENT_CFG" --kb "$KBA" --http "127.0.0.1:${PORT_A}" >"${DIR}/srvA.log" 2>&1 &
 PID_A=$!
 wait_health "$PORT_A" || { echo "[ERROR] server A not responding"; cat "${DIR}/srvA.log" >&2; exit 1; }
 
@@ -107,7 +112,7 @@ git clone "$BARE" "$KBB" >/dev/null 2>&1
 git -C "$KBB" config user.email "test@wiki.local" && git -C "$KBB" config user.name "Wiki Test"
 
 CARTOGRAPHER_AUTH=false K_SERVICE=e2e \
-    "$BIN" serve --kb "$KBB" --http "127.0.0.1:${PORT_B}" >"${DIR}/srvB.log" 2>&1 &
+    "$BIN" serve --config "$IDENT_CFG" --kb "$KBB" --http "127.0.0.1:${PORT_B}" >"${DIR}/srvB.log" 2>&1 &
 PID_B=$!
 wait_health "$PORT_B" || { echo "[ERROR] server B not responding"; cat "${DIR}/srvB.log" >&2; exit 1; }
 

@@ -768,7 +768,7 @@ func (s *Server) runAutoRepairQuota(ctx context.Context) autoRepairRun {
 		Name:    "kb_repair",
 		Handler: stagedRepairHandler(k, checks, s.autoRepairQuotaOr(), &nextCursor, autoRepairReason, &stats),
 	})
-	rctx := auth.ContextWithPrincipal(ctx, auth.LocalAdminPrincipal())
+	rctx := withUnattended(auth.ContextWithPrincipal(ctx, auth.LocalAdminPrincipal()))
 	args, _ := json.Marshal(map[string]any{"reason": autoRepairReason})
 	res, err := tool.Handler(rctx, args)
 	failure := ""

@@ -836,6 +836,11 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverV
 				// an answer, hence the setting alongside it.
 				"capabilities": kbCapabilities(k),
 			}
+			// A local server with no real git identity for a KB that has a remote
+			// refuses its writes (kb.IdentityRefusal): the agent can relay what to set.
+			if msg := k.IdentityRefusal(); msg != "" {
+				result["identity_missing"] = msg
+			}
 			// The branch the KB commits to and why, from the same snapshot as
 			// sync_status (#1092). A KB that is not a repository has neither;
 			// branch is "" on a detached HEAD, and branch_source is an opaque

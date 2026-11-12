@@ -31,12 +31,15 @@ type reauthorCommit struct {
 }
 
 type reauthorReport struct {
-	KB       string           `json:"kb"`
-	Branch   string           `json:"branch"`
-	Upstream string           `json:"upstream"`
-	Identity string           `json:"identity"`
-	Commits  []reauthorCommit `json:"commits"`
-	Applied  bool             `json:"apply"`
+	KB       string `json:"kb"`
+	Branch   string `json:"branch"`
+	Upstream string `json:"upstream"`
+	Identity string `json:"identity"`
+	// IdentityMissing is set on a preview run with no identity to re-author as:
+	// the key to set before --apply can rewrite anything.
+	IdentityMissing string           `json:"identity_missing,omitempty"`
+	Commits         []reauthorCommit `json:"commits"`
+	Applied         bool             `json:"apply"`
 	// Rewritten is how many commits --apply replaced; Pushed says whether the
 	// push that followed succeeded, and Error is why not (both explicit, so
 	// stdout alone tells a rewrite that worked from a push that did not).
@@ -90,7 +93,7 @@ func runKBReauthor(name, dataDir, configPath string, apply, asJSON bool, out, er
 		return fail("%v", err)
 	}
 	idName, idEmail, ok := cfg.IdentityFor(name)
-	if !ok {
+	if !ok && apply {
 		return fail("no git identity is configured for %q: set `git.identities.default` (or a `git.identities` entry per KB) in the server file, "+
 			"then run this again. Re-authoring with the fallback identity would reproduce the problem", name)
 	}
@@ -100,7 +103,9 @@ func runKBReauthor(name, dataDir, configPath string, apply, asJSON bool, out, er
 		return fail("%s is not an OKF KB: %v", root, err)
 	}
 	k.GitEnv = gitEnvForKB(name, cfg.CredentialsPath())
-	k.SetDefaultIdentity(idName, idEmail)
+	if ok {
+		k.SetDefaultIdentity(idName, idEmail)
+	}
 
 	release, err := k.AcquireProcessLock(reauthorLockTimeout, "cartographer kb reauthor")
 	if err != nil {
@@ -113,6 +118,9 @@ func runKBReauthor(name, dataDir, configPath string, apply, asJSON bool, out, er
 		return code
 	}
 	rep.Applied = apply
+	if !ok {
+		rep.IdentityMissing = reauthorIdentityHint
+	}
 	rewrites := 0
 	for _, c := range rep.Commits {
 		if c.Rewrite {
@@ -149,6 +157,8 @@ func runKBReauthor(name, dataDir, configPath string, apply, asJSON bool, out, er
 	switch {
 	case len(rep.Commits) == 0:
 		fmt.Fprintln(out, "nothing to re-author: no commit is ahead of the upstream")
+	case !ok:
+		fmt.Fprintf(out, "%s would be re-authored once an identity is set: %s\n", plural(len(rep.Commits), "commit"), reauthorIdentityHint)
 	case !apply && rewrites == 0:
 		fmt.Fprintf(out, "%s ahead already carry the configured identity: --apply will push them without rewriting anything\n", plural(len(rep.Commits), "commit"))
 	case !apply:
@@ -238,7 +248,10 @@ func planKBReauthor(k *kb.KB, name, idName, idEmail string, errOut io.Writer) (*
 	if err != nil {
 		return refuse("%v", err)
 	}
-	rep := &reauthorReport{KB: name, Branch: branch, Upstream: upstream, Identity: idName + " <" + idEmail + ">", Commits: []reauthorCommit{}}
+	rep := &reauthorReport{KB: name, Branch: branch, Upstream: upstream, Commits: []reauthorCommit{}}
+	if idName != "" {
+		rep.Identity = idName + " <" + idEmail + ">"
+	}
 	for _, c := range commits {
 		rep.Commits = append(rep.Commits, reauthorCommit{
 			SHA:       shortSHA(c.SHA),
@@ -250,6 +263,10 @@ func planKBReauthor(k *kb.KB, name, idName, idEmail string, errOut io.Writer) (*
 	}
 	return rep, 0
 }
+
+// reauthorIdentityHint is what a preview without an identity says: only the
+// rewrite needs one.
+const reauthorIdentityHint = "no git identity is configured: set `git.identities.default` (or a `git.identities` entry per KB) in the server file, then run this again with --apply"
 
 func shortSHA(s string) string {
 	if len(s) > 10 {
@@ -265,7 +282,11 @@ func printReauthorReport(w io.Writer, rep *reauthorReport, asJSON bool) {
 		_ = enc.Encode(rep)
 		return
 	}
-	fmt.Fprintf(w, "%s: %s ahead of %s, identity %s\n", rep.KB, plural(len(rep.Commits), "commit"), rep.Upstream, rep.Identity)
+	ident := rep.Identity
+	if ident == "" {
+		ident = "(none)"
+	}
+	fmt.Fprintf(w, "%s: %s ahead of %s, identity %s\n", rep.KB, plural(len(rep.Commits), "commit"), rep.Upstream, ident)
 	for _, c := range rep.Commits {
 		mark := " "
 		if c.Rewrite {
