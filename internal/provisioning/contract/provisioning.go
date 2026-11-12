@@ -107,6 +107,20 @@ const ArtifactMaxFileSize = 256 * 1024
 // the hash must not need the file, and a changed size still changes it.
 func oversizedMarker(size int64) []byte { return []byte(fmt.Sprintf("oversized:%d", size)) }
 
+// AgentFrontmatterIssuePrefix starts the manifest issue BuildManifest adds for
+// an agent whose frontmatter is not valid YAML. The agent stays in the
+// catalogue, held for approval, so a client that shows the issue list (status)
+// recognises the line by this prefix and names the agent as held instead of as
+// left out.
+//
+// The text is a contract between a server and clients of other versions: a
+// client matches it against the issues of a server it was not built with, so
+// change it only with a fallback (the old text still recognised) and a decision.
+// TestAgentFrontmatterIssuePrefix_IsStable pins it.
+func AgentFrontmatterIssuePrefix(kb, agent string) string {
+	return fmt.Sprintf("KB %q: agent %q: its frontmatter is not valid YAML", kb, agent)
+}
+
 // KBIssue is one manifest issue and the KB whose sync_pull reported it.
 type KBIssue struct{ KB, Text string }
 
@@ -517,8 +531,8 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 					// but the reason is named. The manifest is built without
 					// knowing approvals: the line must hold whatever they are.
 					if yerr := ValidateFrontmatterYAML(raw); yerr != nil {
-						issue := fmt.Sprintf("KB %q: agent %q: its frontmatter is not valid YAML (%v), so the approval gate cannot read what it declares: "+
-							"a client installs it only once this content is approved; quoting the value fixes it (the usual cause is an unquoted value containing \": \")", kbName, name, yerr)
+						issue := AgentFrontmatterIssuePrefix(kbName, name) + fmt.Sprintf(" (%v), so the approval gate cannot read what it declares: "+
+							"a client installs it only once this content is approved; quoting the value fixes it (the usual cause is an unquoted value containing \": \")", yerr)
 						issues = append(issues, issue)
 						if opts.SkillDiagnostic != nil {
 							opts.SkillDiagnostic(issue)

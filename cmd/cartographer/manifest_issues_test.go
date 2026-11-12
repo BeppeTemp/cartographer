@@ -1,11 +1,13 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
@@ -290,5 +292,120 @@ func TestManifestIssues_SameIssueAcrossProjectionsIsOneLine(t *testing.T) {
 	})
 	if len(single) != 1 || single[0] != "skill \"x\" excluded" {
 		t.Errorf("single-KB run: got %q, want the bare issue", single)
+	}
+}
+
+// heldAgentPayload is a sync_pull response with one agent whose frontmatter is
+// not valid YAML and the manifest issue the server adds for it (#1984).
+func heldAgentPayload(t *testing.T, kb, agent string) string {
+	t.Helper()
+	content := []byte("---\nname: " + agent + "\ndescription: Use when a: b\n---\nBody.\n")
+	files := []contract.ArtifactFile{{Path: agent + ".md", Content: content}}
+	body, err := json.Marshal(map[string]any{
+		"revision": "rev-" + kb,
+		"artifacts": []map[string]any{{
+			"kind": "agent", "name": agent, "source": "kb:" + kb,
+			"content_hash": provisioning.ContentHashFiles(files),
+			"files":        []map[string]any{{"path": files[0].Path, "content_b64": base64.StdEncoding.EncodeToString(content)}},
+		}},
+		"issues": []string{contract.AgentFrontmatterIssuePrefix(kb, agent) + " (yaml: line 2: mapping values are not allowed in this context), so the approval gate cannot read what it declares"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(body)
+}
+
+// #1984: an agent held because the approval gate cannot parse its frontmatter
+// is in the catalogue. status names it as held with the parse error and does not
+// list the manifest issue as "not in the catalogue"; sync still warns.
+func TestStatus_NamesAnAgentWithUnparsableFrontmatterAsHeld(t *testing.T) {
+	srv := syncPullServer(t, func(kb string) (string, bool) { return heldAgentPayload(t, kb, "bad"), false })
+	defer srv.Close()
+	home := t.TempDir()
+	setHome(t, home)
+	cfg := issuesConfig(srv.URL)
+	cfg.KnownKBs = []string{"one"}
+	cfg.Agents = []string{"claude"}
+	if err := clientconfig.Save(home, cfg); err != nil {
+		t.Fatal(err)
+	}
+	out := withStdout(t, func() { cmdStatus(nil) })
+	if strings.Contains(out, "not in the catalogue") {
+		t.Errorf("status lists the held agent as left out of the catalogue:\n%s", out)
+	}
+	for _, want := range []string{"agent/bad", "trust=needs_approval", "held for approval: its frontmatter is not valid YAML (", "mapping values are not allowed"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("status lacks %q:\n%s", want, out)
+		}
+	}
+	var s statusSnapshot
+	js := withStdout(t, func() { cmdStatus([]string{"--output", "json"}) })
+	if err := json.Unmarshal([]byte(js), &s); err != nil {
+		t.Fatalf("status json: %v\n%s", err, js)
+	}
+	if len(s.Issues) != 0 {
+		t.Errorf("json issues = %q, want none", s.Issues)
+	}
+	found := false
+	for _, p := range s.Providers {
+		for _, a := range append(append([]statusArtifact(nil), p.Added...), p.Updated...) {
+			if a.Name == "bad" && a.Trust == "needs_approval" && strings.Contains(a.HeldReason, "not valid YAML") {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Errorf("json lacks the held agent with its reason:\n%s", js)
+	}
+
+	// A real exclusion keeps its line next to a held agent.
+	shown := []providerStatus{{Added: []statusArtifact{{Kind: "agent", Name: "bad", Source: "kb:one", HeldReason: "x"}}}}
+	if got, warn := statusIssues(map[string]contract.Manifest{"claude": {
+		Artifacts: []contract.Artifact{{Kind: "agent", Name: "bad", Source: "kb:one"}},
+		KBIssues:  []contract.KBIssue{{KB: "one", Text: contract.AgentFrontmatterIssuePrefix("one", "bad") + " (x)"}, {KB: "one", Text: oversizedIssue}},
+		ReadKBs:   []string{"one"},
+	}}, shown); len(got) != 1 || got[0] != oversizedIssue || len(warn) != 0 {
+		t.Errorf("statusIssues = %q, %q, want only the oversized line", got, warn)
+	}
+}
+
+// An agent with invalid YAML that status does not show as held (its content is
+// approved) is in the catalogue: its broken frontmatter stays on status, under
+// a wording that never says it is left out.
+func TestStatus_KeepsTheWarningOfAnApprovedAgentWithUnparsableFrontmatter(t *testing.T) {
+	srv := syncPullServer(t, func(kb string) (string, bool) { return heldAgentPayload(t, kb, "bad"), false })
+	defer srv.Close()
+	home := t.TempDir()
+	setHome(t, home)
+	cfg := issuesConfig(srv.URL)
+	cfg.KnownKBs = []string{"one"}
+	cfg.Agents = []string{"claude"}
+	content := []byte("---\nname: bad\ndescription: Use when a: b\n---\nBody.\n")
+	cfg.MCPApprovals = map[string]map[string]clientconfig.MCPApproval{"one": {
+		"agent/bad": {ContentHash: provisioning.ContentHashFiles([]contract.ArtifactFile{{Path: "bad.md", Content: content}})},
+	}}
+	if err := clientconfig.Save(home, cfg); err != nil {
+		t.Fatal(err)
+	}
+	out := withStdout(t, func() { cmdStatus(nil) })
+	if strings.Contains(out, "not in the catalogue") {
+		t.Errorf("status says an artifact in the catalogue is not in it:\n%s", out)
+	}
+	for _, want := range []string{"trust=approved", "in the catalogue, with a problem: ", "its frontmatter is not valid YAML (", "mapping values are not allowed"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("status lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "held for approval:") {
+		t.Errorf("an approved agent is not shown as held:\n%s", out)
+	}
+	var s statusSnapshot
+	js := withStdout(t, func() { cmdStatus([]string{"--output", "json"}) })
+	if err := json.Unmarshal([]byte(js), &s); err != nil {
+		t.Fatalf("status json: %v\n%s", err, js)
+	}
+	if len(s.Issues) != 0 || len(s.CatalogueWarnings) != 1 || !strings.Contains(s.CatalogueWarnings[0], "not valid YAML") {
+		t.Errorf("json issues = %q, catalogue_warnings = %q, want one catalogue warning", s.Issues, s.CatalogueWarnings)
 	}
 }
