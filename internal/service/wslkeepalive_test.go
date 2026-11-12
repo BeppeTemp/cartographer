@@ -407,3 +407,26 @@ func TestInstall_NotWSL2TouchesNoWindows(t *testing.T) {
 		}
 	}
 }
+
+func TestReadWslConfig(t *testing.T) {
+	withKeepAliveHost(t)
+	var exit error
+	m := &Manager{run: func(name string, args ...string) (string, error) {
+		if name != testPS || !strings.Contains(args[len(args)-1], ".wslconfig") {
+			t.Fatalf("ran %s %v", name, args)
+		}
+		return "[general]\r\ninstanceIdleTimeout=-1\r\n", exit
+	}}
+	if c, found, err := m.ReadWslConfig(wslInfo()); !found || err != nil || !strings.Contains(c, "instanceIdleTimeout") {
+		t.Errorf("present = %q, %v, %v", c, found, err)
+	}
+	exit = exitCodeErr(taskNotFoundExit)
+	if _, found, err := m.ReadWslConfig(wslInfo()); found || err != nil {
+		t.Errorf("absent = %v, %v", found, err)
+	}
+	info := wslInfo()
+	info.Interop = false
+	if _, _, err := m.ReadWslConfig(info); err == nil {
+		t.Error("no interop must say it cannot tell")
+	}
+}
