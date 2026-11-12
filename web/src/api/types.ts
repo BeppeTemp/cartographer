@@ -722,6 +722,33 @@ export interface SettingsView {
   surveyor_template?: { entries: SettingEntry[] };
 }
 
+/** GET /extensions (D1938): a plugin's approved views and apps, and the installed plugins (the operator's). */
+export interface ExtensionColumn { key: string; label: string; format: string }
+export interface ExtensionView {
+  plugin: string;
+  name: string;
+  title: string;
+  description: string;
+  icon: string;
+  scope: "kb" | "global";
+  source: { route: string; query?: Record<string, string>; items?: string };
+  renderer: "table" | "list" | "stats" | "keyvalue";
+  columns: ExtensionColumn[];
+  limit: number;
+}
+export interface ExtensionApp { plugin: string; name: string; title: string; description: string; icon: string; url: string }
+export interface ExtensionPlugin {
+  name: string;
+  version: string;
+  display_name: string;
+  components: { component: string; state: string; digest: string }[];
+}
+export interface Extensions {
+  views: ExtensionView[];
+  apps: ExtensionApp[];
+  plugins: ExtensionPlugin[];
+}
+
 /** One surveyor perimeter's settings: a report shared by its replicas, no secret in it. */
 export interface SettingsSurveyor {
   perimeter: string;

@@ -57,6 +57,8 @@ const q = encodeURIComponent;
 save("health", await getJSON(`${server}/health`));
 await api("/kbs");
 await api("/settings");
+// Plugin views and apps (D1938): the demo has no plugin, and no app link is exported.
+await api("/extensions");
 const overview = await api(`${k}/overview`);
 
 // The whole graph, and the graph scoped to each Map the rail offers.

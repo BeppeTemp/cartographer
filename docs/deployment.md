@@ -1294,7 +1294,16 @@ With `web.enabled` on — the default in HTTP mode — the same binary also serv
   read again when the KB changes, when the revision moves, when the tab becomes visible, and every 10 s while
   the state is unsettled or every minute otherwise (never in a hidden tab). A principal that does not see the
   whole KB, an older server and the static demo get no indicator.
-  The rail holds the panels Atlas, Activity, Work, Health, Components, Artifacts and Settings (D818, D1901).
+  The rail holds the panels Atlas, Activity, Work, Health, Components, Artifacts and Settings (D818, D1901), and, only when
+  an approved plugin declares a view or an app, an "Extensions" group between Artifacts and Settings (D1938): a view opens a page
+  (`?panel=ext&ext=<plugin>/<name>`) that reads one public read-only route of the API as the Atlas's own principal and draws it with
+  one of four fixed renderers (table, list, stats, key-value); an app is a plain link that opens in a new tab on its own origin.
+  **Extending the Atlas** goes through views, external apps and the public API. Views: data a plugin ships (`docs/plugins.md` §The Atlas side), approved by digest, drawn
+  by the Atlas's own code. External apps: the Atlas hands the app nothing (no token, no query parameter, no `postMessage`, no cookie;
+  the shell sets `Referrer-Policy: no-referrer`); the app authenticates the person with its own login and reaches the KB with its own credential,
+  a token an operator issues to it (read-only, KB-scoped, expiring), calling the public API from its own origin, which must be in the CORS
+  allow-list. To build a different Atlas or a governance dashboard, use that public API. No plugin JavaScript ever runs in the Atlas: the
+  CSP is `script-src 'self'` (`internal/webui/webui.go`, pinned by `TestContentSecurityPolicyIsExactlyTheShippedConstant`).
   Health shows the lint's findings and nothing else; what a person has to answer or decide is in Work
   (contradictions and gaps, the searches that found nothing under "to answer", the `kb_review` proposals
   under "to decide", D948). Artifacts has the tabs Agent kit, Instructions, Templates and Secrets (D1057), lists every kind of a tab, an empty one as an outline tile where its first

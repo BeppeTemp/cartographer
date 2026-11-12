@@ -221,6 +221,8 @@ export function stubApi(overrides: Record<string, () => Response> = {}) {
     if (url.includes("/kbs/") && url.includes("/history")) return json({ id: "", revisions: [], truncated: false });
     if (url.includes("/kbs/") && url.includes("/assets")) return json({ id: "", assets: [] });
     if (url.endsWith("/kbs")) return json({ kbs: [{ name: "kb-a", status: "normal", ready: true, artifacts: true }] });
+    // Plugin views and apps (D1938): none unless a test stubs them.
+    if (url.endsWith("/extensions")) return json({ views: [], apps: [], plugins: [] });
     throw new Error(`unstubbed request: ${url}`);
   });
   vi.stubGlobal("fetch", fetchMock);

@@ -117,6 +117,10 @@ const DOTS: Partial<Record<IconName, [number, number, number][]>> = {
   ],
 };
 
+export function isIconName(name: string): name is IconName {
+  return Object.prototype.hasOwnProperty.call(PATHS, name);
+}
+
 export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
   return (
     <svg

@@ -9,7 +9,7 @@
  */
 
 export type Panel =
-  "atlas" | "activity" | "work" | "health" | "components" | "artifacts" | "instructions" | "templates" | "secrets" | "settings";
+  "atlas" | "activity" | "work" | "health" | "components" | "artifacts" | "instructions" | "templates" | "secrets" | "settings" | "ext";
 
 /** The panels of the Artifacts section, one tab each. */
 export const ARTIFACT_PANELS: Panel[] = ["artifacts", "instructions", "templates", "secrets"];
@@ -32,6 +32,8 @@ export interface ViewState {
   artifact: string | null;
   /** Health's own Map filter: only on the Health panel; the rail's scope never reaches it. */
   hmap: string | null;
+  /** The plugin view open, `<plugin>/<name>`: only on the ext panel. */
+  ext: string | null;
 }
 
 export function readViewState(search: string = window.location.search): ViewState {
@@ -60,7 +62,8 @@ export function readViewState(search: string = window.location.search): ViewStat
                   param === "instructions" ||
                   param === "templates" ||
                   param === "secrets" ||
-                  param === "settings"
+                  param === "settings" ||
+                  param === "ext"
                 ? param
                 : "atlas";
   // An artifact link from before the section had tabs (D1057) opens the tab of its kind.
@@ -77,6 +80,7 @@ export function readViewState(search: string = window.location.search): ViewStat
     // An artifact without its panel is ignored, not carried to another one.
     artifact: panel === "artifacts" || panel === "templates" ? params.get("artifact") : null,
     hmap: panel === "health" ? params.get("hmap") : null,
+    ext: panel === "ext" ? params.get("ext") : null,
   };
 }
 
@@ -89,6 +93,7 @@ export function viewStateToSearch(view: ViewState): string {
   if ((view.panel === "artifacts" || view.panel === "templates") && view.artifact)
     params.set("artifact", view.artifact);
   if (view.panel === "health" && view.hmap) params.set("hmap", view.hmap);
+  if (view.panel === "ext" && view.ext) params.set("ext", view.ext);
   const query = params.toString();
   return query ? `?${query}` : "";
 }
