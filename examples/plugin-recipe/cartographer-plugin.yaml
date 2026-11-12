@@ -1,0 +1,12 @@
+schema: 2
+name: example-wiki
+version: 0.1.0
+display_name: Example wiki
+description: A Starlark recipe that lists the pages of a wiki over HTTP.
+cartographer: ">=0.29.0"
+components:
+  surveyor:
+    sdk: {recipes: 1}
+    permissions:
+      net: [wiki.example.com]
+      env: [WIKI_TOKEN]

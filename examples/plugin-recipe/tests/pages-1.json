@@ -1,0 +1,4 @@
+{"pages": [
+  {"id": "intro", "title": "Intro", "version": 1, "updated": "2026-01-01", "text": "Welcome."},
+  {"id": "setup", "title": "Setup", "version": 1, "updated": "2026-01-02", "text": "Install it."}
+]}

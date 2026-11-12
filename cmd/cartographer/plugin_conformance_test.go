@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,10 +13,14 @@ import (
 )
 
 const testRecipeStar = `
+def spec(req):
+    return {"title": "Pages", "description": "Pages of a wiki.", "shapes": ["feed"], "verbs": ["spec", "check", "list"], "settings": {}, "env": ["WIKI_TOKEN"]}
+def check(req):
+    return {"ok": True}
 def lst(req):
     resp = http.request("GET", "https://wiki.example.com/pages", headers = {"Authorization": "Bearer " + env.get("WIKI_TOKEN")})
     return {"entries": [{"key": k, "title": k, "revision": "1", "change": "added", "content": "text of " + k} for k in json.decode(resp["body"])], "next_cursor": "c1"}
-recipe("pages", lst)
+recipe("pages", lst, spec = spec, check = check)
 `
 
 const testRecipeScenario = `env:
@@ -63,7 +68,7 @@ func TestPluginTestRunsARecipeAgainstItsScenario(t *testing.T) {
 		Passed  bool                `json:"passed"`
 		Results []recipetest.Result `json:"results"`
 	}
-	if err := json.Unmarshal([]byte(out), &doc); err != nil || !doc.Passed || len(doc.Results) != 1 || doc.Results[0].Check != "step 1 list" {
+	if err := json.Unmarshal([]byte(out), &doc); err != nil || !doc.Passed || len(doc.Results) != len(recipetest.Checks)+1 || doc.Results[0].Check != "step 1 list" {
 		t.Fatalf("%v\n%s", err, out)
 	}
 	if code, out = runPlugin(t, "test", dir); code != 0 || !strings.Contains(out, "pages") || !strings.Contains(out, "pass") {
@@ -112,6 +117,69 @@ func TestPluginTestExitCodes(t *testing.T) {
 	}
 	if code, _ := runPlugin(t, "test", filepath.Join(dir, "nope")); code != 2 {
 		t.Errorf("not a folder: exit %d", code)
+	}
+}
+
+var exampleRecipePlugin = filepath.Join("..", "..", "examples", "plugin-recipe")
+
+// The example Starlark recipe passes with no network: its http.request is
+// answered from tests/, and every check that applies passes.
+func TestPluginTestPassesTheExampleRecipe(t *testing.T) {
+	code, out := runPlugin(t, "test", exampleRecipePlugin, "--output", "json")
+	if code != 0 {
+		t.Fatalf("exit %d\n%s", code, out)
+	}
+	var doc struct {
+		Passed  bool                `json:"passed"`
+		Results []recipetest.Result `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); err != nil || !doc.Passed {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	pass := map[string]bool{}
+	for _, r := range doc.Results {
+		if r.Status == recipetest.Pass {
+			pass[r.Check] = true
+		}
+	}
+	for _, c := range []string{"spec", "parser", "entries", "repeatable", "incremental", "secrets", "step 3 list"} {
+		if !pass[c] {
+			t.Errorf("check %s did not pass:\n%s", c, out)
+		}
+	}
+	if code, out = runPlugin(t, "test", exampleRecipePlugin); code != 0 || !strings.Contains(out, "example-pages") || !strings.Contains(out, "incremental") {
+		t.Errorf("table: exit %d\n%s", code, out)
+	}
+}
+
+// A recipe the checks refuse is exit 1 with the check named, whatever the
+// scenario asserts: here the declared variable leaks into an entry.
+func TestPluginTestFailsAConformanceCheck(t *testing.T) {
+	dir := t.TempDir()
+	err := filepath.WalkDir(exampleRecipePlugin, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel, _ := filepath.Rel(exampleRecipePlugin, p)
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		if rel == "surveyor.star" {
+			b = []byte(strings.Replace(string(b), `"title": p["title"],`, `"title": p["title"] + env.get("WIKI_TOKEN"),`, 1))
+		}
+		out := filepath.Join(dir, rel)
+		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(out, b, 0o644)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, out := runPlugin(t, "test", dir)
+	if code != 1 || !strings.Contains(out, "secrets") || !strings.Contains(out, "the value of WIKI_TOKEN appears in entry") {
+		t.Errorf("exit %d\n%s", code, out)
 	}
 }
 

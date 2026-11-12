@@ -1,0 +1,33 @@
+# The scenario of the recipe example-pages: `cartographer plugin test .` runs it.
+env:
+  WIKI_TOKEN: test-token-value
+source:
+  id: wiki-1
+  title: Example wiki
+  locator: wiki://example
+http:
+  - method: GET            # no stage: every step sees it
+    url: https://wiki.example.com/api/pages
+    query: {limit: "1"}
+    response: {status: 200, body: '{"pages": []}'}
+  - stage: first
+    method: GET
+    url: https://wiki.example.com/api/pages
+    query: {since: ""}
+    response: {status: 200, body_file: pages-1.json}
+  - stage: second          # the world after a page changed
+    method: GET
+    url: https://wiki.example.com/api/pages
+    query: {since: "2026-01-02"}
+    response: {status: 200, body_file: pages-2.json}
+steps:
+  - verb: spec
+  - verb: check
+    expect: {ok: true}
+  - verb: list
+    stage: first
+    expect: {entries: [intro, setup], next_cursor: "2026-01-02", content_contains: Welcome}
+  - verb: list
+    stage: second
+    request: {cursor: "@next"}
+    expect: {entries: [setup], next_cursor: "2026-01-03"}

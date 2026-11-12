@@ -20,11 +20,12 @@ import (
 const pluginTestEnvPrefix = "CARTOGRAPHER_PLUGIN_TEST_"
 
 // pluginTest runs the recipes of a plugin folder against their scenarios
-// (tests/<name>.yaml). It needs no server, token or model. A Starlark recipe
-// runs in process and its http.request is answered from the recordings, so it
-// touches no network; an exec recipe is a child process that RUNS AS THE USER,
-// unapproved and with the user's network, so each command is printed on stderr
-// before it runs. Exit 0 all passed, 1 a step failed, 2 it could not run.
+// (tests/<name>.yaml) and the conformance checks. It needs no server, token or
+// model. A Starlark recipe runs in process and its http.request is answered from
+// the recordings, so it touches no network; an exec recipe is a child process
+// that RUNS AS THE USER, unapproved and with the user's network, so each command
+// is printed on stderr before it runs. Exit 0 all passed, 1 a check failed, 2 it
+// could not run.
 func pluginTest(args []string) int {
 	output, args, err := outputFlag(args)
 	var only string
