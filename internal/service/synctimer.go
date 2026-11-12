@@ -95,7 +95,10 @@ func SyncWindowsLogPath() (string, error) {
 // The log file is what makes a failing scheduled sync diagnosable here. On
 // linux the same output goes to the journal; on Windows a task's own history
 // records exit codes only, and is disabled by default on many machines.
-func RenderWindowsSyncTaskXML(binPath, logPath string, interval time.Duration) string {
+//
+// Like the server task it names userID in the principal and carries the
+// descriptor of sid (see RenderWindowsTaskXML).
+func RenderWindowsSyncTaskXML(binPath, logPath string, interval time.Duration, userID, sid string) string {
 	if interval <= 0 {
 		interval = DefaultSyncInterval
 	}
@@ -104,7 +107,7 @@ func RenderWindowsSyncTaskXML(binPath, logPath string, interval time.Duration) s
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
     <Description>Cartographer client sync</Description>
-    <URI>\%s\%s</URI>
+    <URI>\%s\%s</URI>%s
   </RegistrationInfo>
   <Triggers>
     <TimeTrigger>
@@ -117,7 +120,7 @@ func RenderWindowsSyncTaskXML(binPath, logPath string, interval time.Duration) s
     </TimeTrigger>
   </Triggers>
   <Principals>
-    <Principal id="Author">
+    <Principal id="Author">%s
       <LogonType>InteractiveToken</LogonType>
       <RunLevel>LeastPrivilege</RunLevel>
     </Principal>
@@ -148,7 +151,7 @@ func RenderWindowsSyncTaskXML(binPath, logPath string, interval time.Duration) s
     </Exec>
   </Actions>
 </Task>
-`, xmlEscape(windowsTaskFolder), xmlEscape(windowsSyncTaskName), formatISO8601Duration(interval), xmlEscape(binPath), xmlEscape(args))
+`, xmlEscape(windowsTaskFolder), xmlEscape(windowsSyncTaskName), taskSDDLElem(sid), formatISO8601Duration(interval), taskUserElem(userID), xmlEscape(binPath), xmlEscape(args))
 }
 
 // formatISO8601Duration renders a duration the way Task Scheduler expresses
@@ -396,10 +399,9 @@ func (m *Manager) InstallSyncTimer(interval time.Duration) error {
 		if err := os.MkdirAll(filepath.Dir(taskPath), 0o755); err != nil {
 			return fmt.Errorf("service: create tasks dir: %w", err)
 		}
-		if err := os.WriteFile(taskPath, []byte(RenderWindowsSyncTaskXML(binPath, logPath, interval)), 0o644); err != nil {
-			return fmt.Errorf("service: write sync task definition: %w", err)
-		}
-		return m.registerWindowsTask(windowsSyncTaskName, taskPath)
+		// Registered from a side file: a refused registration keeps the
+		// installed definition as it was (#1961).
+		return m.registerAndReplace(windowsSyncTaskName, taskPath, []byte(RenderWindowsSyncTaskXML(binPath, logPath, interval, windowsTaskUser(), windowsTaskSID())), writeDefinition)
 	default:
 		return fmt.Errorf("service: unsupported platform %q", goos)
 	}

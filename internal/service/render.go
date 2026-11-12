@@ -15,6 +15,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/config"
@@ -232,17 +233,26 @@ const windowsTaskXMLDeclaration = `<?xml version="1.0"?>`
 // for themselves — which is also the only meaning a per-user service has.
 // An empty userID (the account name could not be resolved) falls back to the
 // unscoped trigger rather than to no trigger.
-func RenderWindowsTaskXML(binPath, configPath, logPath, userID string) string {
+//
+// The task belongs to its user (#1961, amends D217). Both elements below are
+// omitted when their input is empty (userID, sid unresolved) or malformed (sid):
+//
+//   - <Principal><UserId> names the account the task runs as, as the logon
+//     trigger does.
+//   - <RegistrationInfo><SecurityDescriptor> grants the installing user's SID
+//     full control, next to SYSTEM and Administrators. Without it a task
+//     registered from an elevated shell belongs to Administrators, and a
+//     non-elevated session of the same user (an agent terminal) can read it but
+//     not Enable, Disable or Stop it.
+func RenderWindowsTaskXML(binPath, configPath, logPath, userID, sid string) string {
 	args := fmt.Sprintf("serve --config %s --log-file %s --supervised", quotePath(configPath), quotePath(logPath))
-	userElem := ""
-	if userID != "" {
-		userElem = "\n      <UserId>" + xmlEscape(userID) + "</UserId>"
-	}
+	userElem := taskUserElem(userID)
+	principalUser, sddlElem := userElem, taskSDDLElem(sid)
 	return fmt.Sprintf(windowsTaskXMLDeclaration+`
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
     <Description>Cartographer MCP server</Description>
-    <URI>\%s\%s</URI>
+    <URI>\%s\%s</URI>%s
   </RegistrationInfo>
   <Triggers>
     <LogonTrigger>
@@ -250,7 +260,7 @@ func RenderWindowsTaskXML(binPath, configPath, logPath, userID string) string {
     </LogonTrigger>
   </Triggers>
   <Principals>
-    <Principal id="Author">
+    <Principal id="Author">%s
       <LogonType>InteractiveToken</LogonType>
       <RunLevel>LeastPrivilege</RunLevel>
     </Principal>
@@ -285,7 +295,38 @@ func RenderWindowsTaskXML(binPath, configPath, logPath, userID string) string {
     </Exec>
   </Actions>
 </Task>
-`, xmlEscape(windowsTaskFolder), xmlEscape(windowsServeTaskName), userElem, xmlEscape(binPath), xmlEscape(args))
+`, xmlEscape(windowsTaskFolder), xmlEscape(windowsServeTaskName), sddlElem, userElem, principalUser, xmlEscape(binPath), xmlEscape(args))
+}
+
+// sidPattern is the shape of a Windows SID; anything else never reaches the
+// descriptor, which is a string the scheduler parses with the task's rights.
+var sidPattern = regexp.MustCompile(`^S-1-[0-9]+(-[0-9]+)+$`)
+
+// taskUserElem is the <UserId> line of a trigger or a principal, "" for an
+// unresolved account. All three tasks (Serve, Sync, Tray) name their user and
+// carry the same descriptor, so no path registers a task that belongs to
+// Administrators (#1961).
+func taskUserElem(userID string) string {
+	if userID == "" {
+		return ""
+	}
+	return "\n      <UserId>" + xmlEscape(userID) + "</UserId>"
+}
+
+// taskSDDLElem is the <SecurityDescriptor> line of RegistrationInfo, "" unless
+// sid has the shape of a SID.
+func taskSDDLElem(sid string) string {
+	if !sidPattern.MatchString(sid) {
+		return ""
+	}
+	return "\n    <SecurityDescriptor>" + xmlEscape(taskSDDL(sid)) + "</SecurityDescriptor>"
+}
+
+// taskSDDL is the DACL of the serve task: full control for the installing user,
+// SYSTEM and Administrators. Dropping the last two would lock the machine's own
+// administrators out of a task they must be able to remove.
+func taskSDDL(sid string) string {
+	return "D:(A;;FA;;;" + sid + ")(A;;FA;;;SY)(A;;FA;;;BA)"
 }
 
 // DefaultServerYAML renders the minimal `cartographer serve --config` YAML

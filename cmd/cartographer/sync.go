@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -71,7 +72,7 @@ func cmdSync(args []string) int {
 		release, err := lockClient(dir)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
-			return 2
+			return syncFailureExit(err)
 		}
 		unlock = sync.OnceFunc(release)
 		defer unlock()
@@ -95,7 +96,7 @@ func cmdSync(args []string) int {
 
 	if _, err := runSync(dir, cfg, syncOptions{DryRun: *dryRun, NoHeal: *noHeal, Clients: clients, RepairService: true, Locked: locked, Unlock: unlock}); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
-		return 2
+		return syncFailureExit(err)
 	}
 	if !*dryRun {
 		// A brew upgrade runs neither connect nor upgrade-repair: the scheduled
@@ -103,6 +104,21 @@ func cmdSync(args []string) int {
 		removeLegacyDoctorTimer()
 	}
 	return 0
+}
+
+// exitClientDirDenied is the exit code of a sync that cannot open its client
+// lock for lack of access rights (#1961): a sandboxed agent session. It
+// is told apart from 2, "configuration or operational error", so a caller can
+// tell permissions from the rest; the session-start hook scripts do not read the
+// exit code.
+const exitClientDirDenied = 3
+
+// syncFailureExit maps a failed sync to its exit code.
+func syncFailureExit(err error) int {
+	if errors.Is(err, provisioning.ErrClientDirDenied) {
+		return exitClientDirDenied
+	}
+	return 2
 }
 
 // syncOptions carries runSync's policy knobs. Both cmdSync and

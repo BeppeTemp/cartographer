@@ -1,6 +1,8 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -135,5 +137,15 @@ func TestConnectDisconnectReconnectWaitForTheLock(t *testing.T) {
 	dry.DryRun = true
 	if _, err := doConnect(dry); err != nil {
 		t.Errorf("dry-run connect under a held lock: %v", err)
+	}
+}
+
+func TestSyncFailureExit_DeniedClientDirIsDistinct(t *testing.T) {
+	denied := fmt.Errorf("sync: %w", provisioning.ErrClientDirDenied)
+	if got := syncFailureExit(denied); got != exitClientDirDenied || got == 2 {
+		t.Errorf("denied lock exit = %d, want %d (not 2)", got, exitClientDirDenied)
+	}
+	if got := syncFailureExit(errors.New("another cartographer operation is holding")); got != 2 {
+		t.Errorf("contention exit = %d, want 2", got)
 	}
 }

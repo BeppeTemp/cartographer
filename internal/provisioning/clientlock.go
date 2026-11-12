@@ -1,6 +1,7 @@
 package provisioning
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -22,6 +23,28 @@ const DefaultClientLockTimeout = 30 * time.Second
 // clientLockPollInterval is how often a blocked acquisition retries. The
 // lock is held for the length of a sync, so polling costs nothing.
 const clientLockPollInterval = 100 * time.Millisecond
+
+// ErrClientDirDenied marks a client lock that could not be opened because the
+// process may not write the directory (Windows ERROR_ACCESS_DENIED, typically an
+// agent sandbox with a restricted token or another account). It is permissions,
+// not contention: no retry, and the caller maps it to a distinct exit code (`sync`
+// exits 3).
+var ErrClientDirDenied = errors.New("client state directory is not writable by this process")
+
+// openDenied says whether the open of the lock file failed for lack of access
+// rights. Per platform (clientlock_windows.go); a variable so a test on any
+// host reaches the branch.
+var openDenied = isOpenDenied
+
+// lockOpenDeniedError is the message of a denied open: whose process it is,
+// whether its token is restricted, and what to do instead.
+func lockOpenDeniedError(path, who string, restricted bool, err error) error {
+	token := "an unrestricted token"
+	if restricted {
+		token = "a restricted token (typical of an agent sandbox)"
+	}
+	return fmt.Errorf("%w: cannot open the client lock %s: access denied for %s, running with %s. This is a permissions problem, not another cartographer operation, so waiting does not help: run `cartographer sync` from a normal terminal of that user, or let the agent run it outside its sandbox: %w", ErrClientDirDenied, path, who, token, err)
+}
 
 // LockClientState takes an exclusive advisory lock on dir's client lock file
 // and returns the release function.
@@ -56,6 +79,10 @@ func LockStateFile(dir, name string, timeout time.Duration) (func() error, error
 	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
+		if openDenied(err) {
+			who, restricted := processIdentity()
+			return nil, lockOpenDeniedError(path, who, restricted, err)
+		}
 		return nil, fmt.Errorf("open client lock %s: %w", path, err)
 	}
 

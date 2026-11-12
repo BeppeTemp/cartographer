@@ -141,6 +141,13 @@ func (m *Manager) Install(opts InstallOptions) ([]string, error) {
 		return nil, ErrNoServiceManager
 	}
 
+	// An elevated shell is not refused (#1961): the task is registered for the
+	// logged-in user all the same (UserId and descriptor), which is also how a
+	// task an older install left owned by Administrators is handed back.
+	if goos == "windows" && windowsElevated() {
+		noticef("note: running elevated; the scheduled tasks are registered for %s, not for Administrators", windowsTaskUserLabel())
+	}
+
 	binPath, err := osExecutable()
 	if err != nil {
 		return nil, fmt.Errorf("service: resolve binary path: %w", err)

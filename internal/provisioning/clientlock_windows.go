@@ -5,6 +5,7 @@ package provisioning
 import (
 	"errors"
 	"os"
+	"os/user"
 
 	"golang.org/x/sys/windows"
 )
@@ -36,4 +37,22 @@ func unlockFile(f *os.File) error {
 // isLockBusy distinguishes "someone else holds it" from a real failure.
 func isLockBusy(err error) bool {
 	return errors.Is(err, windows.ERROR_LOCK_VIOLATION) || errors.Is(err, windows.ERROR_IO_PENDING)
+}
+
+// isOpenDenied is true for the open itself refused by an ACL or a restricted
+// token. A held lock is ERROR_LOCK_VIOLATION on the later LockFileEx, never
+// this.
+func isOpenDenied(err error) bool {
+	return errors.Is(err, windows.ERROR_ACCESS_DENIED)
+}
+
+// processIdentity names the account of this process and says whether its token
+// is restricted.
+func processIdentity() (who string, restricted bool) {
+	who = "an unknown account"
+	if u, err := user.Current(); err == nil {
+		who = u.Username
+	}
+	restricted, _ = windows.GetCurrentProcessToken().IsRestricted()
+	return who, restricted
 }

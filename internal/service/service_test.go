@@ -1778,7 +1778,7 @@ func TestDefinitionBinary(t *testing.T) {
 				content = RenderSystemdUnit("/opt/homebrew/bin/cartographer", "/cfg.yaml")
 			case "windows":
 				path, _ = WindowsTaskPath()
-				content = RenderWindowsTaskXML("/opt/homebrew/bin/cartographer", "/cfg.yaml", "/log", "")
+				content = RenderWindowsTaskXML("/opt/homebrew/bin/cartographer", "/cfg.yaml", "/log", "", "")
 			}
 			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 				t.Fatal(err)

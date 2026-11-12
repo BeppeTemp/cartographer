@@ -12,7 +12,7 @@ import (
 )
 
 func TestRenderWindowsTrayTaskXML(t *testing.T) {
-	out := RenderWindowsTrayTaskXML(`C:\bin\cartographer.exe`, `C:\logs\tray.log`, `HOST\user`)
+	out := RenderWindowsTrayTaskXML(`C:\bin\cartographer.exe`, `C:\logs\tray.log`, `HOST\user`, "")
 	assertTaskXMLDeclaresNoEncoding(t, out)
 	for _, want := range []string{
 		`<URI>\Cartographer\Tray</URI>`,
@@ -35,11 +35,11 @@ func TestRenderWindowsTrayTaskXML(t *testing.T) {
 	if err := xml.Unmarshal([]byte(out), new(struct{})); err != nil {
 		t.Errorf("not well-formed XML: %v", err)
 	}
-	noUser := RenderWindowsTrayTaskXML(`C:\bin\cartographer.exe`, `C:\logs\tray.log`, "")
+	noUser := RenderWindowsTrayTaskXML(`C:\bin\cartographer.exe`, `C:\logs\tray.log`, "", "")
 	if strings.Contains(noUser, "<UserId>") || !strings.Contains(noUser, "<LogonTrigger>") {
 		t.Error("an unresolved user falls back to the unscoped trigger")
 	}
-	amp := RenderWindowsTrayTaskXML(`C:\R&D\cartographer.exe`, `C:\logs\tray.log`, "")
+	amp := RenderWindowsTrayTaskXML(`C:\R&D\cartographer.exe`, `C:\logs\tray.log`, "", "")
 	if !strings.Contains(amp, `C:\R&amp;D\cartographer.exe`) {
 		t.Error("ampersand in the binary path was not escaped")
 	}
