@@ -88,7 +88,12 @@ func buildPATH(binPath string, extra []string) string {
 
 // RenderLaunchdPlist renders the launchd agent plist that runs
 // `<binPath> serve --config <configPath>`, logging stdout/stderr to logPath.
-func RenderLaunchdPlist(binPath, configPath, logPath string) string {
+// env are the proxy variables to record next to PATH (ProxyEnv).
+func RenderLaunchdPlist(binPath, configPath, logPath string, env ...EnvVar) string {
+	var extra strings.Builder
+	for _, e := range env {
+		fmt.Fprintf(&extra, "\n\t\t<key>%s</key>\n\t\t<string>%s</string>", xmlEscape(e.Name), xmlEscape(e.Value))
+	}
 	return fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -107,7 +112,7 @@ func RenderLaunchdPlist(binPath, configPath, logPath string) string {
 		<key>PATH</key>
 		<string>%s</string>
 		<key>CARTOGRAPHER_SUPERVISED</key>
-		<string>1</string>
+		<string>1</string>%s
 	</dict>
 	<key>RunAtLoad</key>
 	<true/>
@@ -119,26 +124,30 @@ func RenderLaunchdPlist(binPath, configPath, logPath string) string {
 	<string>%s</string>
 </dict>
 </plist>
-`, xmlEscape(binPath), xmlEscape(configPath), xmlEscape(servicePATH(binPath)), xmlEscape(logPath), xmlEscape(logPath))
+`, xmlEscape(binPath), xmlEscape(configPath), xmlEscape(servicePATH(binPath)), extra.String(), xmlEscape(logPath), xmlEscape(logPath))
 }
 
 // RenderSystemdUnit renders the systemd user unit that runs
 // `<binPath> serve --config <configPath>`, restarting on failure. Logs go to
 // journald (the systemd default), no explicit log path. PATH is set from the
 // same servicePATH the launchd plist uses, so the two definitions cannot drift.
-func RenderSystemdUnit(binPath, configPath string) string {
+func RenderSystemdUnit(binPath, configPath string, env ...EnvVar) string {
+	var extra strings.Builder
+	for _, e := range env {
+		extra.WriteString("\nEnvironment=" + systemdEnvQuote(e.Name+"="+e.Value))
+	}
 	return fmt.Sprintf(`[Unit]
 Description=Cartographer MCP server
 
 [Service]
 Environment=PATH=%s
-Environment=CARTOGRAPHER_SUPERVISED=1
+Environment=CARTOGRAPHER_SUPERVISED=1%s
 ExecStart=%s serve --config %s
 Restart=on-failure
 
 [Install]
 WantedBy=default.target
-`, servicePATH(binPath), systemdQuote(binPath), systemdQuote(configPath))
+`, servicePATH(binPath), extra.String(), systemdQuote(binPath), systemdQuote(configPath))
 }
 
 // xmlEscape escapes the three characters that are not legal in XML element
@@ -180,6 +189,13 @@ func systemdQuote(p string) string {
 	return `"` + r.Replace(p) + `"`
 }
 
+// systemdEnvQuote quotes one Environment= assignment: backslash and quote
+// escaped, % doubled (a specifier). Unlike an ExecStart word, `$` is literal
+// there, so it is not doubled.
+func systemdEnvQuote(kv string) string {
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`, "%", "%%").Replace(kv) + `"`
+}
+
 // quotePath wraps a path in double quotes so a path containing a space survives
 // as one argument. It is unconditional rather than conditional on whitespace:
 // the value goes into <Arguments>, which Task Scheduler hands to the process as
@@ -206,6 +222,8 @@ func quotePath(p string) string { return `"` + p + `"` }
 //   - MultipleInstancesPolicy defaults to IgnoreNew only in recent exports; it
 //     is declared so a second Start-ScheduledTask can never produce two servers
 //     competing for the same port and the same KB lock.
+//
+// The proxy variables (ProxyEnv) reach the server through `--env-file`.
 //
 // There is deliberately **no PATH**: the format cannot express one (an Exec
 // action has Command, Arguments and WorkingDirectory, and nothing else), and it
@@ -244,8 +262,16 @@ const windowsTaskXMLDeclaration = `<?xml version="1.0"?>`
 //     registered from an elevated shell belongs to Administrators, and a
 //     non-elevated session of the same user (an agent terminal) can read it but
 //     not Enable, Disable or Stop it.
-func RenderWindowsTaskXML(binPath, configPath, logPath, userID, sid string) string {
+func RenderWindowsTaskXML(binPath, configPath, logPath, userID, sid string, envFile ...string) string {
 	args := fmt.Sprintf("serve --config %s --log-file %s --supervised", quotePath(configPath), quotePath(logPath))
+	// The task format has no environment, and a command line is readable by
+	// every process and sits in the task XML, so only the path of the env file
+	// (EnvFilePath) travels as an argument, never a value.
+	for _, f := range envFile {
+		if f != "" {
+			args += " " + envFileFlag + " " + quotePath(f)
+		}
+	}
 	userElem := taskUserElem(userID)
 	principalUser, sddlElem := userElem, taskSDDLElem(sid)
 	return fmt.Sprintf(windowsTaskXMLDeclaration+`

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -285,5 +286,45 @@ func TestServiceInstallConfigOnly_WritesConfigAndStartsNothing(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, ".local")); err == nil {
 		t.Error("--config-only wrote state: it must install nothing")
+	}
+}
+
+func TestPrintServiceStatus_ListsTheRecordedEnvironmentNamesOnly(t *testing.T) {
+	var sb strings.Builder
+	printServiceStatus(&sb, service.Status{Installed: true, ServiceEnv: []string{"HTTPS_PROXY", "SSL_CERT_FILE"}}, "")
+	if !strings.Contains(sb.String(), "env:       HTTPS_PROXY, SSL_CERT_FILE") {
+		t.Errorf("missing the env line:\n%s", sb.String())
+	}
+	sb.Reset()
+	printServiceStatus(&sb, service.Status{Installed: true}, "")
+	if strings.Contains(sb.String(), "env:") {
+		t.Errorf("env line with nothing recorded:\n%s", sb.String())
+	}
+}
+
+func TestApplyEnvFileSetsOnlyTheListedNamesAndLogsNoValue(t *testing.T) {
+	t.Setenv("HTTPS_PROXY", "")
+	t.Setenv("CARTOGRAPHER_TEST_OTHER", "")
+	path := filepath.Join(t.TempDir(), "service.env")
+	if err := os.WriteFile(path, []byte("HTTPS_PROXY=http://user:pw@proxy.example.com\nCARTOGRAPHER_TEST_OTHER=topsecret\nbroken-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var logs strings.Builder
+	log.SetOutput(&logs)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	applyEnvFile(path)
+	if got := os.Getenv("HTTPS_PROXY"); got != "http://user:pw@proxy.example.com" {
+		t.Errorf("HTTPS_PROXY = %q", got)
+	}
+	if got := os.Getenv("CARTOGRAPHER_TEST_OTHER"); got != "" {
+		t.Errorf("an unlisted name was set: %q", got)
+	}
+	if !strings.Contains(logs.String(), "ignored CARTOGRAPHER_TEST_OTHER") {
+		t.Errorf("the ignored key is not logged: %q", logs.String())
+	}
+	for _, leak := range []string{"topsecret", "broken-secret", "pw@"} {
+		if strings.Contains(logs.String(), leak) {
+			t.Errorf("log leaks %q: %s", leak, logs.String())
+		}
 	}
 }

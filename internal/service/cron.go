@@ -556,7 +556,13 @@ func (m *Manager) ensure(bin, configPath string) error {
 	if addr := configHTTPAddr(configPath); addr != "" && healthAnswers(addr) {
 		return nil
 	}
-	pid, err := m.procs().start(bin, []string{"serve", "--config", configPath, "--log-file", filepath.Join(dir, "server.log")}, cleanServeEnv(environ(), bin))
+	args := []string{"serve", "--config", configPath, "--log-file", filepath.Join(dir, "server.log")}
+	// The shell's proxy never reaches cron's environment: the variables
+	// `service install` recorded come from the env file, as for the Windows task.
+	if ef := EnvFilePath(configPath); fileExists(ef) {
+		args = append(args, envFileFlag, ef)
+	}
+	pid, err := m.procs().start(bin, args, cleanServeEnv(environ(), bin))
 	if err != nil {
 		return fmt.Errorf("service: start server: %w", err)
 	}

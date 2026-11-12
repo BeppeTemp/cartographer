@@ -192,6 +192,8 @@ client-side counterpart, used by the scheduled sync task. It is not in the YAML 
 to *this invocation*, not to the served configuration: two services sharing one config file must
 still be able to log to two files.
 
+`serve --env-file <path>` is the other flag-only option: it reads `NAME=value` lines and sets the proxy and CA variables `service install` records in `service.env` (`HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY`, `SSL_CERT_FILE` and lowercase forms) before anything else runs; any other line is ignored and logged by its key. It exists for the Windows task and the cron backend, whose start has no environment of its own; see [configurator](configurator.md) §`cartographer service <action>`.
+
 Every key (listen address `http`, `auth`, `data`, `credentials_dir`, `audit`, `git.identities`,
 `web.enabled`, `update_check`, `feedback.destination`, `kbs[]`, `components[]`) is in `config.example.yaml`, with its default and its environment variable
 and flag. Notes the example cannot carry: `data` is a directory whose subfolders are auto-discovered as KBs, and
