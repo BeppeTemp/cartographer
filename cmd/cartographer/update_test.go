@@ -24,6 +24,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/service"
 	"github.com/BeppeTemp/cartographer/internal/updatecheck"
+	"github.com/BeppeTemp/cartographer/internal/wsl"
 )
 
 // TestMain keeps every test in this package away from GitHub, the real user
@@ -88,6 +89,10 @@ func TestMain(m *testing.M) {
 	os.Setenv("USERPROFILE", home)
 	os.Unsetenv("XDG_CONFIG_HOME")
 	testHome = home
+	// The suite runs on a WSL build host too: every test starts outside WSL, and a
+	// test about WSL sets the detection it needs (the doctor's healthy tree saw
+	// the host's WSL and failed the train gate).
+	wslDetectFn = func() wsl.Info { return wsl.Info{} }
 	os.Setenv(updatecheck.EnvDisable, "1")
 	cache, err := os.MkdirTemp("", "cartographer-update-cache-")
 	if err != nil {

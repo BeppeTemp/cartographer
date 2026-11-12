@@ -226,6 +226,7 @@ func runDoctor(dir, only string) doctorReport {
 		// probeTimeout, not three); the facts and the error go down.
 		facts, healthErr := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.Token, cfg.InsecureHTTPAllowed())
 		findings = append(findings, checkServer(dir, cfg, providers, facts, healthErr)...)
+		findings = append(findings, checkWSL()...)
 		findings = append(findings, checkTriggerCoverage(dir, providers)...)
 		findings = append(findings, checkSymlinkedDestinations(dir, providers)...)
 		findings = append(findings, checkCapabilities(dir, cfg, facts, healthErr)...)
@@ -860,6 +861,12 @@ func checkServer(dir string, cfg *clientconfig.Config, providers []string, facts
 			f.Message = fmt.Sprintf("server %s is unreachable and no local cartographer service is installed to serve it", cfg.ServerURL)
 			f.Fix = "cartographer service install, or point server.url at a running server"
 		}
+		// On Windows the server may be the one in a WSL distro (the marker):
+		// `service status` is delegated there, and wsl.exe reaches it directly.
+		if d := wslServerDistro(); d != "" && isLoopbackURL(cfg.ServerURL) {
+			f.Message = fmt.Sprintf("server %s is unreachable; it runs in WSL distro %s: %s", cfg.ServerURL, d, err)
+			f.Fix = fmt.Sprintf("cartographer service status (run in WSL), or wsl -d %s -- cartographer service status", d)
+		}
 		return []doctorFinding{f}
 	}
 
@@ -894,6 +901,9 @@ func checkServer(dir string, cfg *clientconfig.Config, providers []string, facts
 func noLocalServiceFor(rawURL string) bool {
 	if !isLoopbackURL(rawURL) {
 		return false
+	}
+	if wslServerDistro() != "" {
+		return false // the WSL server is this machine's local service
 	}
 	st, err := statusServiceFn()
 	if err != nil {

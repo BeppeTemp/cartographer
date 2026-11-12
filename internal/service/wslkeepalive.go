@@ -186,6 +186,25 @@ func (m *Manager) UninstallWslKeepAlive(info wsl.Info) error {
 	return nil
 }
 
+// ReadWslConfig returns %USERPROFILE%\.wslconfig through interop, found false
+// when the file does not exist. The global WSL settings live there, outside
+// the distro (instanceIdleTimeout, networkingMode).
+func (m *Manager) ReadWslConfig(info wsl.Info) (content string, found bool, err error) {
+	if !info.Interop {
+		return "", false, errors.New("cannot reach Windows (interop disabled)")
+	}
+	script := fmt.Sprintf("$p = Join-Path $env:USERPROFILE '.wslconfig'; if (-not (Test-Path -LiteralPath $p)) { exit %d }; Get-Content -Raw -LiteralPath $p", taskNotFoundExit)
+	out, err := m.powershellAt(info.PowerShell, script)
+	if err == nil {
+		return out, true, nil
+	}
+	var ex interface{ ExitCode() int }
+	if errors.As(err, &ex) && ex.ExitCode() == taskNotFoundExit {
+		return "", false, nil
+	}
+	return "", false, err
+}
+
 // WslKeepAliveRegistered says whether the scheduler knows the keep-alive task,
 // telling "not registered" (the script's own exit code) from a probe that
 // failed. Without interop it cannot tell, and says so.
