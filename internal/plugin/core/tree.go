@@ -197,6 +197,11 @@ func ReadTree(files []TreeFile, opts Options) (Plugin, []string) {
 		}
 		cs, probs := pt.Load(byPoint[pt.Dir])
 		problems = append(problems, probs...)
+		if pt.Check != nil && p.Manifest.Name != "" {
+			for _, c := range cs {
+				problems = append(problems, pt.Check(p.Manifest.Name, c)...)
+			}
+		}
 		if len(cs) > 0 {
 			p.Contributions[pt.Dir] = cs
 		}

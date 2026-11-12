@@ -100,6 +100,7 @@ func builtinFamilies() []Family {
 	l = addFamily(l, Family{Side: SideClient, Name: "scripts", Level: 1, Dirs: []string{LibDir}, Files: []string{ScriptEntry}})
 	l = addFamily(l, Family{Side: SideServer, Name: "presets", Level: 1, Dirs: []string{"presets"}})
 	l = addFamily(l, Family{Side: SideServer, Name: "roles", Level: 1, Dirs: []string{"roles"}})
+	l = addFamily(l, Family{Side: SideSurveyor, Name: "recipes", Level: 1, Dirs: []string{"recipes"}})
 	l = addFamily(l, Family{Side: SideAtlas, Name: "views", Level: 1, Dirs: []string{"views"}})
 	l = addFamily(l, Family{Side: SideAtlas, Name: "apps", Level: 1, Dirs: []string{"apps"}})
 	l = addFamily(l, Family{Side: SideAtlas, Name: "branding", Level: 1, Dirs: []string{"branding"}})
