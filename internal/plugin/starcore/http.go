@@ -1,8 +1,7 @@
-package star
+package starcore
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -19,41 +18,35 @@ import (
 	"unicode/utf8"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
+	"github.com/BeppeTemp/cartographer/internal/plugin/starcore/internal/seam"
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 )
 
-// netSeams are what tests replace; production leaves them nil.
-type netSeams struct {
-	lookup func(ctx context.Context, host string) ([]netip.Addr, error)
-	proxy  func(*http.Request) (*url.URL, error)
-	tls    *tls.Config
-}
-
 // netState is the network state of one call: its request count and the
 // transport settings. A call is one goroutine, but the counters are atomic anyway.
 type netState struct {
-	cc       *callCtx
+	cc       *CallCtx
 	version  string
-	seams    netSeams
+	seams    seam.NetSeams
 	requests atomic.Int32
 
 	mu         sync.Mutex
 	proxyAddrs map[string]bool // proxies the environment chose, which the dial check lets through
 }
 
-func newNetState(cc *callCtx, version string, s *netSeams) *netState {
+func newNetState(cc *CallCtx, version string, s *seam.NetSeams) *netState {
 	n := &netState{cc: cc, version: version, proxyAddrs: map[string]bool{}}
 	if s != nil {
 		n.seams = *s
 	}
-	if n.seams.lookup == nil {
-		n.seams.lookup = func(ctx context.Context, host string) ([]netip.Addr, error) {
+	if n.seams.Lookup == nil {
+		n.seams.Lookup = func(ctx context.Context, host string) ([]netip.Addr, error) {
 			return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
 		}
 	}
-	if n.seams.proxy == nil {
-		n.seams.proxy = http.ProxyFromEnvironment // the allowlist is on the request host, not on the proxy
+	if n.seams.Proxy == nil {
+		n.seams.Proxy = http.ProxyFromEnvironment // the allowlist is on the request host, not on the proxy
 	}
 	return n
 }
@@ -86,12 +79,12 @@ func httpRequest(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tup
 	if err := starlark.UnpackArgs(b.Name(), args, kwargs, "method", &method, "url", &rawURL, "headers?", &headers, "body?", &body, "timeout?", &timeoutV); err != nil {
 		return nil, err
 	}
-	c, err := callPhase(thread, b.Name())
+	c, err := CallPhase(thread, b.Name())
 	if err != nil {
 		return nil, err
 	}
-	if c.perms == nil || len(c.perms.Net) == 0 {
-		return nil, denied("http.request needs permissions.net in the manifest")
+	if c.Perms == nil || len(c.Perms.Net) == 0 {
+		return nil, DeniedErr("http.request needs permissions.net in the manifest")
 	}
 	n := c.net
 	method = strings.ToUpper(method)
@@ -106,7 +99,7 @@ func httpRequest(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tup
 		return nil, err
 	}
 	if len(body) > MaxHTTPRequestBytes {
-		return nil, limited("http.request: the body is %d bytes, over the %d cap", len(body), MaxHTTPRequestBytes)
+		return nil, LimitErr("http.request: the body is %d bytes, over the %d cap", len(body), MaxHTTPRequestBytes)
 	}
 	timeout := HTTPTimeout
 	switch t := timeoutV.(type) {
@@ -121,10 +114,10 @@ func httpRequest(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tup
 		return nil, fmt.Errorf("http.request: timeout must be a number of seconds, not %s", t.Type())
 	}
 	if n.requests.Add(1) > MaxHTTPRequests {
-		return nil, limited("http.request: more than %d requests in one call", MaxHTTPRequests)
+		return nil, LimitErr("http.request: more than %d requests in one call", MaxHTTPRequests)
 	}
 
-	ctx, cancel := context.WithTimeout(c.ctx, timeout)
+	ctx, cancel := context.WithTimeout(c.Ctx, timeout)
 	defer cancel()
 	var rd io.Reader
 	if body != "" {
@@ -134,7 +127,7 @@ func httpRequest(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tup
 	if err != nil {
 		return nil, fmt.Errorf("http.request: %s", client.Escape(err.Error()))
 	}
-	req.Header.Set("User-Agent", "cartographer-plugin/"+c.plugin+"/"+n.version)
+	req.Header.Set("User-Agent", "cartographer-plugin/"+c.Plugin+"/"+n.version)
 	if d, ok := headers.(*starlark.Dict); ok {
 		for _, kv := range d.Items() {
 			k, ok1 := starlark.AsString(kv[0])
@@ -143,7 +136,7 @@ func httpRequest(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tup
 				return nil, errors.New("http.request: headers must map strings to strings")
 			}
 			if forbiddenHeaders[http.CanonicalHeaderKey(k)] {
-				return nil, denied("http.request: the %q header is set by the host", k)
+				return nil, DeniedErr("http.request: the %q header is set by the host", k)
 			}
 			req.Header.Set(k, v)
 		}
@@ -172,7 +165,7 @@ func httpRequest(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tup
 		return nil, fmt.Errorf("http.request: reading the response: %s", client.Escape(err.Error()))
 	}
 	if len(data) > MaxHTTPResponseBytes {
-		return nil, limited("http.request: the response is over the %d byte cap", MaxHTTPResponseBytes)
+		return nil, LimitErr("http.request: the response is over the %d byte cap", MaxHTTPResponseBytes)
 	}
 	if !utf8.Valid(data) {
 		return nil, errors.New("http.request: the response body is not valid UTF-8")
@@ -201,32 +194,32 @@ func (n *netState) checkURL(u *url.URL) error {
 		return errors.New("http.request: the url has no host")
 	}
 	if u.User != nil {
-		return denied("http.request: a url with credentials is not allowed")
+		return DeniedErr("http.request: a url with credentials is not allowed")
 	}
 	switch strings.ToLower(u.Scheme) {
 	case "https":
 	case "http":
 		if !client.IsLoopbackHost(host) {
-			return denied("http.request: plain http is allowed only to a loopback host, not %q", host)
+			return DeniedErr("http.request: plain http is allowed only to a loopback host, not %q", host)
 		}
 	default:
-		return denied("http.request: the scheme %q is not allowed (use https)", u.Scheme)
+		return DeniedErr("http.request: the scheme %q is not allowed (use https)", u.Scheme)
 	}
-	if _, ok := netMatch(host, n.cc.perms.Net); !ok {
-		return denied("http.request: the host %q is not in permissions.net", host)
+	if _, ok := netMatch(host, n.cc.Perms.Net); !ok {
+		return DeniedErr("http.request: the host %q is not in permissions.net", host)
 	}
 	return nil
 }
 
 func (n *netState) checkRedirect(req *http.Request, via []*http.Request) error {
 	if len(via) >= MaxHTTPRedirects {
-		return limited("http.request: stopped after %d redirects", MaxHTTPRedirects)
+		return LimitErr("http.request: stopped after %d redirects", MaxHTTPRedirects)
 	}
 	if prev := via[len(via)-1]; strings.EqualFold(prev.URL.Scheme, "https") && !strings.EqualFold(req.URL.Scheme, "https") {
-		return denied("http.request: refusing a redirect from https to http (%q)", req.URL.Host)
+		return DeniedErr("http.request: refusing a redirect from https to http (%q)", req.URL.Host)
 	}
 	if n.requests.Add(1) > MaxHTTPRequests {
-		return limited("http.request: more than %d requests in one call (redirects count)", MaxHTTPRequests)
+		return LimitErr("http.request: more than %d requests in one call (redirects count)", MaxHTTPRequests)
 	}
 	// Go copies the first request's headers to every hop and strips only
 	// Authorization and Cookie when the host changes. Compare with the first
@@ -243,7 +236,7 @@ func (n *netState) checkRedirect(req *http.Request, via []*http.Request) error {
 	if err := n.checkURL(req.URL); err != nil {
 		var de *deniedError
 		if errors.As(err, &de) {
-			return denied("http.request: not following a redirect to %q: %s", req.URL.Host, strings.TrimPrefix(de.msg, "http.request: "))
+			return DeniedErr("http.request: not following a redirect to %q: %s", req.URL.Host, strings.TrimPrefix(de.msg, "http.request: "))
 		}
 		return err
 	}
@@ -279,7 +272,7 @@ func (n *netState) literalGranted(host string) bool {
 	if _, err := netip.ParseAddr(host); err != nil && host != "localhost" {
 		return false
 	}
-	for _, p := range n.cc.perms.Net {
+	for _, p := range n.cc.Perms.Net {
 		if strings.EqualFold(p, host) {
 			return true
 		}
@@ -323,7 +316,7 @@ func forbiddenAddr(a netip.Addr) bool {
 func (n *netState) transport() *http.Transport {
 	return &http.Transport{
 		Proxy: func(r *http.Request) (*url.URL, error) {
-			p, err := n.seams.proxy(r)
+			p, err := n.seams.Proxy(r)
 			if p != nil && err == nil {
 				// The proxy resolves the target, so the dial never sees its
 				// address: resolve it here and refuse what a direct dial would.
@@ -338,7 +331,7 @@ func (n *netState) transport() *http.Transport {
 			return p, err
 		},
 		DialContext:           n.dial,
-		TLSClientConfig:       n.seams.tls,
+		TLSClientConfig:       n.seams.TLS,
 		ForceAttemptHTTP2:     true,
 		DisableKeepAlives:     true,
 		TLSHandshakeTimeout:   10 * time.Second,
@@ -357,7 +350,7 @@ func (n *netState) checkTarget(ctx context.Context, host string) error {
 	}
 	for _, a := range addrs {
 		if forbiddenAddr(a) {
-			return denied("http.request: %q resolves to a loopback, private or link-local address, which a plugin may not reach", host)
+			return DeniedErr("http.request: %q resolves to a loopback, private or link-local address, which a plugin may not reach", host)
 		}
 	}
 	return nil
@@ -367,7 +360,7 @@ func (n *netState) resolve(ctx context.Context, host string) ([]netip.Addr, erro
 	if a, err := netip.ParseAddr(host); err == nil {
 		return []netip.Addr{a}, nil
 	}
-	return n.seams.lookup(ctx, host)
+	return n.seams.Lookup(ctx, host)
 }
 
 func proxyAddr(p *url.URL) string {
@@ -408,7 +401,7 @@ func (n *netState) dial(ctx context.Context, network, addr string) (net.Conn, er
 	var last error
 	for _, a := range addrs {
 		if !exempt && forbiddenAddr(a) {
-			last = denied("http.request: %q resolves to a loopback, private or link-local address, which a plugin may not reach", host)
+			last = DeniedErr("http.request: %q resolves to a loopback, private or link-local address, which a plugin may not reach", host)
 			continue
 		}
 		conn, err := d.DialContext(ctx, network, net.JoinHostPort(a.String(), port))

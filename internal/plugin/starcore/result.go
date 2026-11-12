@@ -1,4 +1,4 @@
-package star
+package starcore
 
 import (
 	"bytes"
@@ -13,10 +13,10 @@ import (
 
 const maxJSONDepth = 100
 
-// encodeJSON writes v as compact JSON and stops with LimitExceeded as soon as
+// EncodeJSON writes v as compact JSON and stops with LimitExceeded as soon as
 // the output passes MaxResultBytes, so shared substructure (x = [x, x] again
 // and again) costs a bounded amount of work; it also honours the call's context.
-func encodeJSON(ctx context.Context, w *bytes.Buffer, v starlark.Value, depth int) error {
+func EncodeJSON(ctx context.Context, w *bytes.Buffer, v starlark.Value, depth int) error {
 	if w.Len() > MaxResultBytes {
 		return &CallError{Kind: LimitExceeded, Msg: fmt.Sprintf("the result is over the %d byte cap", MaxResultBytes)}
 	}
@@ -51,7 +51,7 @@ func encodeJSON(ctx context.Context, w *bytes.Buffer, v starlark.Value, depth in
 			if i > 0 {
 				w.WriteByte(',')
 			}
-			if err := encodeJSON(ctx, w, x.Index(i), depth+1); err != nil {
+			if err := EncodeJSON(ctx, w, x.Index(i), depth+1); err != nil {
 				return err
 			}
 		}
@@ -62,7 +62,7 @@ func encodeJSON(ctx context.Context, w *bytes.Buffer, v starlark.Value, depth in
 			if i > 0 {
 				w.WriteByte(',')
 			}
-			if err := encodeJSON(ctx, w, e, depth+1); err != nil {
+			if err := EncodeJSON(ctx, w, e, depth+1); err != nil {
 				return err
 			}
 		}
@@ -86,7 +86,7 @@ func encodeJSON(ctx context.Context, w *bytes.Buffer, v starlark.Value, depth in
 			}
 			writeJSONString(w, k)
 			w.WriteByte(':')
-			if err := encodeJSON(ctx, w, vals[k], depth+1); err != nil {
+			if err := EncodeJSON(ctx, w, vals[k], depth+1); err != nil {
 				return err
 			}
 		}
@@ -104,7 +104,7 @@ func writeJSONString(w *bytes.Buffer, s string) {
 	w.Truncate(w.Len() - 1) // Encode ends with a newline
 }
 
-func capText(s string) (string, error) {
+func CapText(s string) (string, error) {
 	if len(s) > MaxResultBytes {
 		return "", &CallError{Kind: LimitExceeded, Msg: fmt.Sprintf("the result is %d bytes, over the %d cap", len(s), MaxResultBytes)}
 	}

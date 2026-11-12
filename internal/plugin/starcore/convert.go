@@ -1,4 +1,4 @@
-package star
+package starcore
 
 import (
 	"encoding/json"
@@ -9,9 +9,9 @@ import (
 	"go.starlark.net/starlarkstruct"
 )
 
-// toStarlark converts decoded JSON (numbers as json.Number or float64) and the
+// ToStarlark converts decoded JSON (numbers as json.Number or float64) and the
 // plain Go values a host passes (int, int64, string, bool, slices and maps).
-func toStarlark(v any) (starlark.Value, error) {
+func ToStarlark(v any) (starlark.Value, error) {
 	switch x := v.(type) {
 	case nil:
 		return starlark.None, nil
@@ -43,7 +43,7 @@ func toStarlark(v any) (starlark.Value, error) {
 	case []any:
 		l := make([]starlark.Value, len(x))
 		for i, e := range x {
-			c, err := toStarlark(e)
+			c, err := ToStarlark(e)
 			if err != nil {
 				return nil, err
 			}
@@ -58,7 +58,7 @@ func toStarlark(v any) (starlark.Value, error) {
 		sort.Strings(keys)
 		d := starlark.NewDict(len(x))
 		for _, k := range keys {
-			c, err := toStarlark(x[k])
+			c, err := ToStarlark(x[k])
 			if err != nil {
 				return nil, err
 			}
@@ -71,11 +71,11 @@ func toStarlark(v any) (starlark.Value, error) {
 	return nil, fmt.Errorf("cannot pass a %T to a script", v)
 }
 
-// ctxStruct is the argument of an event handler: a struct of the event's fields.
-func ctxStruct(fields map[string]any) (starlark.Value, error) {
+// CtxStruct is the argument of an event handler: a struct of the event's fields.
+func CtxStruct(fields map[string]any) (starlark.Value, error) {
 	d := starlark.StringDict{}
 	for k, v := range fields {
-		c, err := toStarlark(v)
+		c, err := ToStarlark(v)
 		if err != nil {
 			return nil, fmt.Errorf("event field %q: %w", k, err)
 		}

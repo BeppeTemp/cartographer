@@ -3,6 +3,7 @@ package boundaries
 import (
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -16,7 +17,7 @@ const modPath = "github.com/BeppeTemp/cartographer/"
 // the data plane, however far down the import chain.
 var client = []string{
 	"agents", "artifactsig", "blocktext", "client", "clientconfig", "componentproto", "configurator",
-	"defaults", "execbit", "feedback", "gitx", "jsonorder", "mcpbridge", "okf", "plugin", "plugin/core",
+	"defaults", "execbit", "feedback", "gitx", "jsonorder", "mcpbridge", "okf", "plugin", "plugin/core", "plugin/starcore",
 	"procattr", "provisioning", "provisioning/contract", "repoindex", "safewrite", "secretscan", "settingschema", "skill",
 	"skillbundle", "updatecheck",
 }
@@ -155,7 +156,81 @@ func TestServerNeverLinksTheApply(t *testing.T) {
 	if c := chainTo(t, "plugin/core", apply); c != nil {
 		t.Errorf("internal/plugin/core reaches the apply half: %s", strings.Join(c, " -> "))
 	}
+	// The Starlark runtime is server-safe (D-new-surveyor-star-core): the
+	// Surveyor links it for its recipes. Package star, which adds the
+	// client-only modules, stays exempt above.
+	if c := chainTo(t, "plugin/starcore", append([]string{"config", "service"}, apply...)); c != nil {
+		t.Errorf("internal/plugin/starcore reaches the apply half or the server's config: %s",
+			strings.Join(c, " -> "))
+	}
 	if c := chainTo(t, "provisioning/contract", []string{"kb", "provisioning", "plugin", "mcpbridge"}); c != nil {
 		t.Errorf("internal/provisioning/contract reaches the data plane or the apply half: %s", strings.Join(c, " -> "))
+	}
+}
+
+// The Starlark runtime is a package the server side may link: it is not exempt,
+// and every internal package it reaches is classified on purpose as client or
+// server side (so a new import in it is a conscious decision, checked against
+// the apply half by TestServerNeverLinksTheApply).
+func TestStarcoreIsServerSafe(t *testing.T) {
+	if _, bad := exempt["plugin/starcore"]; bad {
+		t.Error("plugin/starcore is server-safe and must not be on the exempt list")
+	}
+	known := map[string]bool{"plugin/starcore": true, "plugin/starcore/internal/seam": true}
+	for _, p := range client {
+		known[p] = true
+	}
+	for _, p := range serverSide {
+		known[p] = true
+	}
+	cmd := exec.Command("go", "list", "-deps", "-f", "{{.ImportPath}}", "./internal/plugin/starcore")
+	cmd.Dir = filepath.Join("..", "..")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("go list: %v", err)
+	}
+	for _, p := range strings.Fields(string(out)) {
+		if rel, ok := strings.CutPrefix(p, modPath+"internal/"); ok && !known[rel] {
+			t.Errorf("internal/plugin/starcore reaches internal/%s, classified in no list", rel)
+		}
+	}
+}
+
+// startest hands out the test seams of the Starlark runtime (a replaced
+// resolver or TLS config, a builtin override): only test files may import it.
+func TestStarcoreSeamsAreTestOnly(t *testing.T) {
+	root := filepath.Join("..", "..")
+	checked := 0
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", ".worktrees", "node_modules", "startest":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		af, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ImportsOnly)
+		if err != nil {
+			return nil
+		}
+		checked++
+		for _, im := range af.Imports {
+			if strings.Trim(im.Path.Value, `"`) == modPath+"internal/plugin/starcore/startest" {
+				t.Errorf("%s imports startest, which only test files may", path)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checked == 0 {
+		t.Fatal("no file checked")
 	}
 }

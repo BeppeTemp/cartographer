@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/plugin/core"
+	"github.com/BeppeTemp/cartographer/internal/plugin/starcore"
+	"github.com/BeppeTemp/cartographer/internal/plugin/starcore/startest"
 	"go.starlark.net/starlark"
 )
 
@@ -219,7 +221,7 @@ func TestLoadPhaseReadsNothing(t *testing.T) {
 // callThread is a fresh thread of the CALL phase, as the runner a later change adds makes.
 func callThread() *starlark.Thread {
 	t := &starlark.Thread{Name: "call"}
-	t.SetLocal(ctxKey, &callCtx{phase: phaseCall})
+	startest.InCallPhase(t)
 	return t
 }
 
@@ -248,7 +250,7 @@ on("connect.after", mutate)
 	}
 	impls := map[string]*starlark.Function{}
 	for _, r := range p.Registrations {
-		impls[r.Name] = r.impl
+		impls[r.Name] = r.Impl
 	}
 	// time.now fails while loading and works in CALL: the same function, two contexts.
 	if v, err := starlark.Call(callThread(), impls["a"], nil, nil); err != nil || v != starlark.True {
@@ -290,9 +292,9 @@ def grow():
 `
 
 func lowHeapCap(t *testing.T) {
-	old := MaxHeapGrowth
-	MaxHeapGrowth = 32 << 20
-	t.Cleanup(func() { MaxHeapGrowth = old })
+	old := starcore.MaxHeapGrowth
+	starcore.MaxHeapGrowth = 32 << 20
+	t.Cleanup(func() { starcore.MaxHeapGrowth = old })
 }
 
 func TestLoadMemoryCap(t *testing.T) {
@@ -322,7 +324,7 @@ func TestCallMemoryCap(t *testing.T) {
 func TestCallRerunMemoryCap(t *testing.T) {
 	p := mustLoad(t, "def f(p):\n    return \"ok\"\ntool(\"f\", f, \"f\")\n")
 	lowHeapCap(t)
-	p.srcs[core.ScriptEntry] = []byte(allocSrc + "grow()\ndef f(p):\n    return \"ok\"\ntool(\"f\", f, \"f\")\n")
+	startest.ReplaceSource(p.Script, core.ScriptEntry, []byte(allocSrc+"grow()\ndef f(p):\n    return \"ok\"\ntool(\"f\", f, \"f\")\n"))
 	_, err := p.Call(context.Background(), toolReq("f", `{}`))
 	ce := callErr(t, err, LimitExceeded)
 	if !strings.Contains(ce.Msg, "memory use grew past") {
@@ -343,10 +345,10 @@ tool("f", f, "f")
 `
 	p := mustLoad(t, tail) // registers the same line numbers as the re-run below
 	lowHeapCap(t)
-	old := HeapSampleEvery
-	HeapSampleEvery = time.Millisecond
-	t.Cleanup(func() { HeapSampleEvery = old })
-	p.srcs[core.ScriptEntry] = []byte(tail + `held = ["y" * 1000000 for i in range(24)]` + "\n")
+	old := starcore.HeapSampleEvery
+	starcore.HeapSampleEvery = time.Millisecond
+	t.Cleanup(func() { starcore.HeapSampleEvery = old })
+	startest.ReplaceSource(p.Script, core.ScriptEntry, []byte(tail+`held = ["y" * 1000000 for i in range(24)]`+"\n"))
 	runtime.GC() // the baseline must not carry the garbage of earlier tests
 	_, err := p.call(context.Background(), toolReq("f", `{}`), callOpts{steps: 1 << 40})
 	ce := callErr(t, err, LimitExceeded)

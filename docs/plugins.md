@@ -722,7 +722,7 @@ A tool returns a string (sent as text) or any JSON-able value (sent as its JSON 
 the model reads it. A command returns `None` (exit 0), an int (the exit code) or a string (printed). An event's
 return value is ignored.
 
-Limits per call are named constants in `internal/plugin/star/limits.go`: 20 million steps for a tool or an event and
+Limits per call are named constants in `internal/plugin/starcore/limits.go`: 20 million steps for a tool or an event and
 500 million for a command (and for a load: 20 million), 30 s wall clock for a tool and 10 s for an event (a command
 runs until done or Ctrl-C), 64 KiB of captured `print`, 1 MiB of tool result text, and the HTTP and file caps below.
 Memory is bounded by a watchdog, not by the language: while a load or a call runs, the live heap is sampled every

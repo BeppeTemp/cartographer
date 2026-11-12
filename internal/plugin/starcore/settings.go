@@ -1,4 +1,4 @@
-package star
+package starcore
 
 import (
 	"encoding/json"

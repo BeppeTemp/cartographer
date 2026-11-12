@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"runtime"
 	"strings"
 	"sync"
@@ -14,6 +13,8 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/plugin/core"
+	"github.com/BeppeTemp/cartographer/internal/plugin/starcore"
+	"github.com/BeppeTemp/cartographer/internal/plugin/starcore/startest"
 	"go.starlark.net/starlark"
 )
 
@@ -157,9 +158,9 @@ func builtins() starlark.StringDict {
 	return starlark.StringDict{
 		"boom": fn("boom", func() (starlark.Value, error) { panic("bug in a builtin") }),
 		"deny": fn("deny", func() (starlark.Value, error) {
-			return nil, &deniedError{"files.read needs permissions.files.read in the manifest"}
+			return nil, starcore.DeniedErr("files.read needs permissions.files.read in the manifest")
 		}),
-		"big": fn("big", func() (starlark.Value, error) { return nil, &limitError{"too many requests"} }),
+		"big": fn("big", func() (starlark.Value, error) { return nil, starcore.LimitErr("too many requests") }),
 	}
 }
 
@@ -167,7 +168,7 @@ func TestCallTypedErrorsFromBuiltins(t *testing.T) {
 	src := "def a(x):\n    boom()\ndef b(x):\n    deny()\ndef c(x):\n    big()\n" +
 		"tool(\"a\", a, \"a\")\ntool(\"b\", b, \"b\")\ntool(\"c\", c, \"c\")\n"
 	extra := builtins()
-	prog, err := runProgram(map[string][]byte{"plugin.star": []byte(src)}, &settingsValue{}, testOptions(extra), nil)
+	prog, err := runProgram(map[string][]byte{"plugin.star": []byte(src)}, testOptions(extra))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -439,7 +440,7 @@ spin(100 if nth() == 1 else 100000000)
 tool("go", go, "go")
 `
 	extra := counting()
-	prog, err := runProgram(map[string][]byte{"plugin.star": []byte(src)}, &settingsValue{}, testOptions(extra), nil)
+	prog, err := runProgram(map[string][]byte{"plugin.star": []byte(src)}, testOptions(extra))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -454,7 +455,7 @@ tool("go", go, "go")
 
 	// The same loop is cut by the call's step budget, not only by the clock.
 	extra = counting()
-	prog, _ = runProgram(map[string][]byte{"plugin.star": []byte(src)}, &settingsValue{}, testOptions(extra), nil)
+	prog, _ = runProgram(map[string][]byte{"plugin.star": []byte(src)}, testOptions(extra))
 	_, err = prog.call(context.Background(), toolReq("go", `{}`), callOpts{extra: extra, steps: 100000})
 	ce := callErr(t, err, LimitExceeded)
 	// The load inside a call says the cap that applied to it, not MaxLoadSteps.
@@ -470,7 +471,7 @@ def go(a):
 tool("go" if nth() == 1 else "other", go, "go")
 `
 	extra := counting()
-	prog, err := runProgram(map[string][]byte{"plugin.star": []byte(src)}, &settingsValue{}, testOptions(extra), nil)
+	prog, err := runProgram(map[string][]byte{"plugin.star": []byte(src)}, testOptions(extra))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -507,7 +508,7 @@ tool("cyc", cyc, "cyc")
 func TestCallPanicLeaksNoWatcher(t *testing.T) {
 	src := "def a(x):\n    boom()\ntool(\"a\", a, \"a\")\n"
 	extra := builtins()
-	prog, err := runProgram(map[string][]byte{"plugin.star": []byte(src)}, &settingsValue{}, testOptions(extra), nil)
+	prog, err := runProgram(map[string][]byte{"plugin.star": []byte(src)}, testOptions(extra))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -580,30 +581,15 @@ tool("kind", kind, "kind", params={"type": "object", "properties": {"n": {"type"
 	}
 }
 
-func TestSettingsIntAcceptsDecodedNumbers(t *testing.T) {
-	decl := map[string]core.Setting{"n": {Type: "int"}}
-	for _, v := range []any{float64(7), json.Number("7"), 7, int64(7), uint64(7)} {
-		s, err := newSettings(decl, map[string]any{"n": v})
-		if err != nil || s.vals["n"].String() != "7" {
-			t.Errorf("%T: %v, %v", v, s, err)
-		}
-	}
-	for _, v := range []any{1.5, json.Number("1.5"), "7", math.Inf(1)} {
-		if _, err := newSettings(decl, map[string]any{"n": v}); err == nil {
-			t.Errorf("%T %v accepted", v, v)
-		}
-	}
-}
-
 // testOptions are the client's options plus extra predeclared names.
-func testOptions(extra starlark.StringDict) Options {
+func testOptions(extra starlark.StringDict) starcore.Options {
 	o := clientOptions()
-	o.Extra = merge(o.Extra, extra)
+	o.Extra = starcore.Merge(o.Extra, extra)
 	return o
 }
 
-func runProgram(srcs map[string][]byte, st *settingsValue, o Options, lim *runLimits) (*Program, error) {
-	sc, err := run(srcs, st, o, lim)
+func runProgram(srcs map[string][]byte, o starcore.Options) (*Program, error) {
+	sc, err := startest.LoadSources(srcs, o)
 	if err != nil {
 		return nil, err
 	}
