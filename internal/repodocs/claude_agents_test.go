@@ -13,12 +13,14 @@ import (
 // The repository's subagents live only in `.claude/agents/` (D992): development
 // targets Claude Code alone. What still matters there is that each one pins a
 // Claude model, so a coordinator never hands a mandate to whatever the session
-// default is, and that the reviewers and the source reader cannot edit.
+// default is, and that the reviewers, the readers and the auditors cannot edit.
 var claudeModelID = regexp.MustCompile(`^claude-[a-z]+-\d+-\d+$`)
 
 // readOnlyAgents are the agents that must not change the working copy.
 var readOnlyAgents = map[string]bool{
 	"cartographer-contract-reviewer": true,
+	"cartographer-docs-auditor":      true,
+	"cartographer-investigator":      true,
 	"cartographer-plan-writer":       true,
 	"cartographer-security-reviewer": true,
 	"cartographer-source-reader":     true,

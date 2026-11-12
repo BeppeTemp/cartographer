@@ -1120,6 +1120,7 @@ GOOS=windows GOARCH=amd64 go vet ./...
 - `make smoke` succeeds for the packaged/local stdio path.
 - Installation and upgrade are verified on the target platform.
 - Every command the installers' closing "Next:" line (`install.sh`, `install.ps1`) names exists in the release being cut: `main` can reference one that no release has yet.
+- The documentation states what the release ships: a `cartographer-docs-auditor` pass over the range from the previous stable tag to the candidate's commit has no open finding, and every upgrade note it lists is told in the docs.
 - Private deployment rollout checks are performed through maintainer tooling.
 
 `TestClaudeCodeGoldenIsUnchanged` (`internal/provisioning`) pins what a sync of a pre-feature KB (2 skills, 2 agents, 1 hook, no `requires`) writes on Claude Code against `testdata/golden/claude-code.txt`: files, lock entries, warnings, and a no-op re-sync. The golden was captured on `main` before the agent degradation landed; `-update-golden` rewrites it, only for an intended change of Claude Code's output (D1656).
