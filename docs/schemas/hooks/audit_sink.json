@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/BeppeTemp/cartographer/docs/schemas/hooks/audit_sink.json",
+  "title": "Hook point audit_sink, protocol version 1",
+  "description": "A batch of the audit chain in chain order, delivered at least once. Unknown fields are ignored in both directions (additive evolution).",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "required": [
+        "version",
+        "hook",
+        "request_id",
+        "time",
+        "events",
+        "first_hash",
+        "last_hash",
+        "gap"
+      ],
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Hook protocol version; a response with another version is a failure."
+        },
+        "hook": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*/[a-z0-9][a-z0-9-]*$",
+          "description": "The hook's <plugin>/<name>."
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$",
+          "description": "Also in the Cartographer-Request-Id header."
+        },
+        "time": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server clock, UTC, RFC 3339."
+        },
+        "events": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "hash",
+              "prev_hash",
+              "timestamp"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "Unique, for deduplication; absent on an entry written before the versioned events."
+              },
+              "hash": {
+                "type": "string"
+              },
+              "prev_hash": {
+                "type": "string"
+              },
+              "timestamp": {
+                "type": "string"
+              }
+            },
+            "description": "An audit entry as the log stores it."
+          }
+        },
+        "first_hash": {
+          "type": "string"
+        },
+        "last_hash": {
+          "type": "string"
+        },
+        "gap": {
+          "type": "boolean",
+          "description": "Entries after the previous cursor were removed by retention, or the cursor is not in this log."
+        }
+      }
+    },
+    "response": {
+      "type": "object",
+      "required": [
+        "version",
+        "ack"
+      ],
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Hook protocol version; a response with another version is a failure."
+        },
+        "ack": {
+          "type": "string",
+          "description": "Must equal the request's last_hash: only then does the cursor move."
+        }
+      }
+    }
+  }
+}

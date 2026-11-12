@@ -85,6 +85,7 @@ nav:
       - Data plane (KB model): data-plane.md
       - Skills, services, secrets: skills-services-secrets.md
       - Provisioning sync: sync.md
+      - Hooks (protocol contract): hooks.md
       - Plugins: plugins.md
       - Use cases: use-cases.md
   - Internals & contributing:

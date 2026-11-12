@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/BeppeTemp/cartographer/docs/schemas/hooks/write_veto.json",
+  "title": "Hook point write_veto, protocol version 1",
+  "description": "Asked before a write runs, after the core authorized it, outside the KB lock. Unknown fields are ignored in both directions (additive evolution).",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "required": [
+        "version",
+        "hook",
+        "request_id",
+        "time",
+        "kb",
+        "principal",
+        "tool",
+        "class",
+        "reason"
+      ],
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Hook protocol version; a response with another version is a failure."
+        },
+        "hook": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*/[a-z0-9][a-z0-9-]*$",
+          "description": "The hook's <plugin>/<name>."
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$",
+          "description": "Also in the Cartographer-Request-Id header."
+        },
+        "time": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server clock, UTC, RFC 3339."
+        },
+        "kb": {
+          "type": "string"
+        },
+        "principal": {
+          "type": "object",
+          "required": [
+            "id",
+            "kind"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "",
+                "human",
+                "client",
+                "surveyor"
+              ]
+            },
+            "via": {
+              "type": "string"
+            },
+            "groups": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "tool": {
+          "type": "string"
+        },
+        "class": {
+          "const": "write"
+        },
+        "target": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "The audit's allow-listed resource identifiers of the call."
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "response": {
+      "type": "object",
+      "required": [
+        "version"
+      ],
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Hook protocol version; a response with another version is a failure."
+        },
+        "decision": {
+          "type": "string",
+          "description": "Only \"deny\" denies; any other value, \"allow\" included, is no opinion."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Shown to the caller in the coded denial, cut to 200 printable characters."
+        }
+      }
+    }
+  }
+}

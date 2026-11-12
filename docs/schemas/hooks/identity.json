@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/BeppeTemp/cartographer/docs/schemas/hooks/identity.json",
+  "title": "Hook point identity, protocol version 1",
+  "description": "Asked for a request on a proxy token from a trusted peer: names the user and groups; the core maps them to roles and clamps them. Unknown fields are ignored in both directions (additive evolution).",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "required": [
+        "version",
+        "hook",
+        "request_id",
+        "time",
+        "peer",
+        "token_id",
+        "headers",
+        "proxy_identity"
+      ],
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Hook protocol version; a response with another version is a failure."
+        },
+        "hook": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*/[a-z0-9][a-z0-9-]*$",
+          "description": "The hook's <plugin>/<name>."
+        },
+        "request_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{32}$",
+          "description": "Also in the Cartographer-Request-Id header."
+        },
+        "time": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server clock, UTC, RFC 3339."
+        },
+        "peer": {
+          "type": "string"
+        },
+        "token_id": {
+          "type": "string"
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": "The request headers the hook entry names."
+        },
+        "proxy_identity": {
+          "type": "object",
+          "properties": {
+            "user": {
+              "type": "string"
+            },
+            "groups": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "response": {
+      "type": "object",
+      "required": [
+        "version"
+      ],
+      "properties": {
+        "version": {
+          "const": 1,
+          "description": "Hook protocol version; a response with another version is a failure."
+        },
+        "user": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Absent or empty: no opinion, the header identity stays."
+        },
+        "groups": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "decision": {
+          "type": "string",
+          "description": "Only \"deny\" denies; any other value, \"allow\" included, is no opinion."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Not shown: a deny is a 403 identity denied."
+        }
+      }
+    }
+  }
+}
