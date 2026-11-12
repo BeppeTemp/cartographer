@@ -84,7 +84,7 @@ for a in "$@"; do [ "$prev" = --jq ] && jq_expr=$a; prev=$a; done
 out() { if [ -n "$jq_expr" ]; then jq -r "$jq_expr"; else cat; fi; }
 # The required checks of the train PR: red until the failed jobs are rerun (FAKE_CHECKS_RED=once),
 # or whatever is rerun (=always).
-red() { case "${FAKE_CHECKS_RED:-}" in always) return 0 ;; once) [ ! -e "$FAKE_STATE.reran" ] ;; *) return 1 ;; esac; }
+red() { [ -z "${FAKE_STARTUP_FAILURE:-}" ] || return 0; case "${FAKE_CHECKS_RED:-}" in always) return 0 ;; once) [ ! -e "$FAKE_STATE.reran" ] ;; *) return 1 ;; esac; }
 case "$1 $2" in
   "repo view")
     # FAKE_PERM_FAILS=n: the first n reads fail as a GitHub 5xx does.
@@ -126,7 +126,7 @@ case "$1 $2" in
     git --git-dir="$FAKE_UP" update-ref refs/heads/main "refs/heads/$(cat "$FAKE_STATE.head")"
     echo MERGED > "$FAKE_STATE.pr" ;;
   "pr close") [ -n "${FAKE_CLOSE_FAILS:-}" ] && exit 1; echo CLOSED > "$FAKE_STATE.pr" ;;
-  "pr checks") if red; then echo '[{"bucket":"fail"}]'; else echo '[{"bucket":"pass"}]'; fi | out ;;
+  "pr checks") if [ -n "${FAKE_STARTUP_FAILURE:-}" ]; then echo '[{"bucket":"fail","state":"STARTUP_FAILURE"}]'; elif red; then echo '[{"bucket":"fail","state":"FAILURE"}]'; else echo '[{"bucket":"pass"}]'; fi | out ;;
   "pr view") ms=${FAKE_MERGE_STATE:-CLEAN}; red && ms=BLOCKED
     printf '{"state":"%s","mergeStateStatus":"%s"}\n' "$(cat "$FAKE_STATE.pr" 2>/dev/null || echo OPEN)" "$ms" | out ;;
   "issue create") ;;
@@ -1137,5 +1137,187 @@ func TestLanderDoesNotDequeueANewVersionOfALandedSlug(t *testing.T) {
 	}
 	if strings.Contains(out, "already on main") {
 		t.Errorf("a new version is not on main:\n%s", out)
+	}
+}
+
+// A change that cites a pending decision whose change already landed (the lander numbered it
+// in an earlier train) is not rejected: the citation reads as the number it was given (#1914).
+func TestLanderResolvesACitationOfADecisionThatLanded(t *testing.T) {
+	e := newLandEnv(t)
+	dec := "docs/" + "decisions/"
+	e.queue("a", "feat(client): a\n", "2026-01-01T10:00:00Z", map[string]string{dec + "D-new-x.md": "---\ntopic: x\n---\n\n# D-new-x — X\n"})
+	if out, ok := e.land(); !ok {
+		t.Fatalf("land a failed\n%s", out)
+	}
+	e.queue("b", "fix(kb): b\n", "2026-01-01T11:00:00Z", map[string]string{
+		dec + "D-new-b.md": "---\ntopic: x\n---\n\n# D-new-b — B\n\nBuilds on D-new-x, see [x](D-new-x.md).\n",
+		"notes.md":         "cites D-new-x\n",
+	})
+	out, ok := e.land()
+	if !ok || e.refs("failed/") != "" {
+		t.Fatalf("b must land, failed=%q\n%s", e.refs("failed/"), out)
+	}
+	ls := e.upGit("ls-tree", "--name-only", "main", dec)
+	var xn string
+	for _, l := range strings.Split(ls, "\n") {
+		if strings.HasSuffix(l, "-x.md") {
+			xn = strings.TrimSuffix(strings.TrimPrefix(l, dec), "-x.md")
+		}
+	}
+	if xn == "" {
+		t.Fatalf("a's decision is not numbered on main\n%s", ls)
+	}
+	var b string
+	for _, l := range strings.Split(ls, "\n") {
+		if strings.HasSuffix(l, "-b.md") {
+			b = e.upGit("show", "main:"+l)
+		}
+	}
+	if !strings.Contains(b, "Builds on "+xn+", see ["+"x]("+xn+"-x.md).") {
+		t.Errorf("the citation must read %s:\n%s", xn, b)
+	}
+	if n := e.upGit("show", "main:notes.md"); n != "cites "+xn {
+		t.Errorf("the citation is rewritten: %q", n)
+	}
+}
+
+// An edit of docs/decisions/D-new-<slug>.md whose first change landed numbered is applied to
+// the numbered file, its heading read as the number (#1914).
+func TestLanderMapsAnEditOfALandedPendingDecisionOntoItsNumberedFile(t *testing.T) {
+	e := newLandEnv(t)
+	dec := "docs/" + "decisions/"
+	body := "---\ntopic: x\n---\n\n# D-new-x — X\n\nOne.\n"
+	e.queue("a", "feat(client): a\n", "2026-01-01T10:00:00Z", map[string]string{dec + "D-new-x.md": body})
+	// b is built on a's pending state, as a chained change is.
+	e.git("fetch", "-q", "origin")
+	e.git("checkout", "-q", "-B", "work-b", "origin/ready/a")
+	e.write(filepath.Join(e.work, dec, "D-new-x.md"), strings.Replace(body, "# D-new-x — X", "# D-new-x — X again", 1)+"Two.\n")
+	e.git("add", ".")
+	e.git("commit", "-q", "-m", "fix(client): b\n")
+	e.git("push", "-q", "--force", "origin", "HEAD:refs/heads/ready/b")
+	e.git("checkout", "-q", "main")
+	// Only a is landed first: b is queued after it.
+	e.git("fetch", "-q", "origin")
+	e.git("update-ref", "refs/lander-hold", "origin/ready/b")
+	e.upGit("update-ref", "-d", "refs/heads/ready/b")
+	if out, ok := e.land(); !ok {
+		t.Fatalf("land a failed\n%s", out)
+	}
+	e.git("push", "-q", "--force", "origin", "refs/lander-hold:refs/heads/ready/b")
+	out, ok := e.land()
+	if !ok || e.refs("failed/") != "" {
+		t.Fatalf("b must land, failed=%q\n%s", e.refs("failed/"), out)
+	}
+	ls := e.upGit("ls-tree", "--name-only", "main", dec)
+	if strings.Contains(ls, "D-new") || strings.Count(ls, "-x.md") != 1 {
+		t.Fatalf("one numbered decision, no pending one:\n%s", ls)
+	}
+	for _, l := range strings.Split(ls, "\n") {
+		if strings.HasSuffix(l, "-x.md") {
+			got := e.upGit("show", "main:"+l)
+			n := strings.TrimSuffix(strings.TrimPrefix(l, dec), "-x.md")
+			if !strings.Contains(got, "# "+n+" — X again") || !strings.Contains(got, "Two.") {
+				t.Errorf("the edit must land on the numbered file with its heading as %s:\n%s", n, got)
+			}
+		}
+	}
+}
+
+// A change adding a pending decision whose slug main already holds is rejected with the file
+// it collides with.
+func TestLanderRejectsAPendingDecisionWhoseSlugLanded(t *testing.T) {
+	e := newLandEnv(t)
+	dec := "docs/" + "decisions/"
+	e.queue("a", "feat(client): a\n", "2026-01-01T10:00:00Z", map[string]string{dec + "D-new-x.md": "---\ntopic: x\n---\n\n# D-new-x\n"})
+	if out, ok := e.land(); !ok {
+		t.Fatalf("land a failed\n%s", out)
+	}
+	e.queue("dupe", "feat(client): dupe\n", "2026-01-01T11:00:00Z", map[string]string{dec + "D-new-x.md": "---\ntopic: x\n---\n\n# D-new-x — other\n"})
+	out, ok := e.land()
+	if !ok {
+		t.Fatalf("land failed\n%s", out)
+	}
+	if e.refs("failed/") != "dupe" {
+		t.Fatalf("dupe must be rejected, failed=%q\n%s", e.refs("failed/"), out)
+	}
+	if r := e.upGit("log", "-1", "--format=%s", "failed/dupe"); !strings.Contains(r, "-x.md (two decisions with one slug)") || !strings.Contains(r, "already holds docs/decisions/D") {
+		t.Errorf("the reason names the landed file, got %q", r)
+	}
+}
+
+// A required check that ends in startup_failure never turns green: the lander says so, stops
+// at once (no rerun, no wait) and records it in its state (#1872).
+func TestLanderStopsOnARequiredCheckInStartupFailure(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"a2.txt": "a\n"})
+	out, ok := e.land("FAKE_STARTUP_FAILURE=1", "LAND_MERGE_TRIES=6")
+	if ok || !strings.Contains(out, "ended in startup_failure") {
+		t.Fatalf("the lander must stop on a startup_failure: ok=%v\n%s", ok, out)
+	}
+	if n := strings.Count(e.log(), "run rerun"); n != 0 {
+		t.Errorf("a startup_failure is not rerun, got %d\n%s", n, e.log())
+	}
+	if q := e.refs("ready/"); q != "a" {
+		t.Errorf("the queue is untouched, got %q", q)
+	}
+	if b := readTmp(t, filepath.Join(e.tmp, "lander"), "blocked"); !strings.Contains(b, "startup_failure") {
+		t.Errorf("the state records it, got %q", b)
+	}
+}
+
+// A rejected change leaves no number behind: a change adding two decisions, the second of a
+// landed slug, is rejected whole, and a later change citing the first is rejected too (its
+// decision never landed) instead of getting a number nothing holds.
+func TestLanderForgetsTheNumbersOfARejectedChange(t *testing.T) {
+	e := newLandEnv(t)
+	dec := "docs/" + "decisions/"
+	e.queue("a", "feat(client): a\n", "2026-01-01T09:00:00Z", map[string]string{dec + "D-new-z.md": "---\ntopic: x\n---\n\n# D-new-z\n"})
+	if out, ok := e.land(); !ok {
+		t.Fatalf("land a failed\n%s", out)
+	}
+	e.queue("two", "feat(client): two\n", "2026-01-01T10:00:00Z", map[string]string{
+		dec + "D-new-a.md": "---\ntopic: x\n---\n\n# D-new-a\n",
+		dec + "D-new-z.md": "---\ntopic: x\n---\n\n# D-new-z again\n",
+	})
+	e.queue("cites", "fix(kb): cites\n\nLander-After: two\n", "2026-01-01T11:00:00Z", map[string]string{"c.txt": "see D-new-a\n"})
+	out, ok := e.land()
+	if !ok {
+		t.Fatalf("land failed\n%s", out)
+	}
+	if got := strings.Fields(e.refs("failed/")); strings.Join(got, " ") != "cites two" {
+		t.Fatalf("both are rejected, cites for a citation nothing holds, got %v\n%s", got, out)
+	}
+	if strings.Contains(e.upGit("ls-tree", "-r", "--name-only", "main"), "c.txt") {
+		t.Errorf("cites must not land with a number nothing holds")
+	}
+}
+
+// remap_pick leaves test files alone, as number_decisions does.
+func TestLanderMapsAnEditButNotInTestFiles(t *testing.T) {
+	e := newLandEnv(t)
+	dec := "docs/" + "decisions/"
+	body := "---\ntopic: x\n---\n\n# D-new-x — X\n"
+	e.queue("a", "feat(client): a\n", "2026-01-01T10:00:00Z", map[string]string{dec + "D-new-x.md": body, "x_test.go": "// D-new-x\n"})
+	e.git("fetch", "-q", "origin")
+	e.git("checkout", "-q", "-B", "work-b", "origin/ready/a")
+	e.write(filepath.Join(e.work, dec, "D-new-x.md"), body+"Two.\n")
+	e.write(filepath.Join(e.work, "x_test.go"), "// D-new-x\n// more D-new-x\n")
+	e.git("add", ".")
+	e.git("commit", "-q", "-m", "fix(client): b\n")
+	e.git("push", "-q", "--force", "origin", "HEAD:refs/heads/ready/b")
+	e.git("checkout", "-q", "main")
+	e.git("fetch", "-q", "origin")
+	e.git("update-ref", "refs/lander-hold", "origin/ready/b")
+	e.upGit("update-ref", "-d", "refs/heads/ready/b")
+	if out, ok := e.land(); !ok {
+		t.Fatalf("land a failed\n%s", out)
+	}
+	e.git("push", "-q", "--force", "origin", "refs/lander-hold:refs/heads/ready/b")
+	out, ok := e.land()
+	if !ok || e.refs("failed/") != "" {
+		t.Fatalf("b must land, failed=%q\n%s", e.refs("failed/"), out)
+	}
+	if got := e.upGit("show", "main:x_test.go"); got != "// D-new-x\n// more D-new-x" {
+		t.Errorf("the test file is not rewritten, got %q", got)
 	}
 }

@@ -14,7 +14,10 @@
 # (`docs/decisions/D-new-<slug>.md`) gets the next number above both the highest on the
 # tree and the newest issue or PR number (a contributor's decision takes its PR's number,
 # D672: numbers above the counter keep the two apart and in time order), and every
-# `D-new-<slug>` citation is rewritten, in the change's own commit.
+# `D-new-<slug>` citation is rewritten, in the change's own commit. A citation of one whose
+# change already landed (main holds `D<n>-<slug>.md`) reads as `D<n>`; an edit of its
+# `D-new-<slug>.md` is applied to `D<n>-<slug>.md`; a change adding a `D-new-<slug>.md` whose
+# slug main holds is rejected, naming the file.
 #
 # The train branch `train/<UTC time>` is gated by scripts/signoff.sh (the gate, the web
 # legs and the Windows leg when needed, the CI fallback on exit 75, the push and the
@@ -106,6 +109,7 @@ if [ "${1:-}" = --status ]; then
   done
   echo "open train PR:"; open_trains | cut -d' ' -f1,2 | sed 's/^/  #/' || true
   echo "rejected:"; g for-each-ref --format='%(refname:lstrip=4) %(contents:subject)' refs/remotes/origin/failed/ | sed 's/^/  /'
+  [ ! -s "$state/blocked" ] || echo "stopped: $(cat "$state/blocked")"
   if running; then echo "lander: running (pid $(cat "$state/pid")), log $state/log"; else echo "lander: not running"; fi
   exit 0
 fi
@@ -116,6 +120,7 @@ dry=false
 if ! $dry; then
   if running && [ "$(cat "$state/pid")" != $$ ]; then echo "land: a lander already runs here"; exit 0; fi
   echo $$ >"$state/pid"
+  rm -f "$state/blocked"
   # The root this lander runs from: removing that worktree deletes the scripts under it
   # (scripts/lander-guard.sh, used by worktree-rm and worktree-clean, reads this file).
   (cd "$here/.." && pwd -P) >"$state/root"
@@ -255,18 +260,66 @@ pick() {
   done
 }
 
+# landed_decision <slug>: prints D<n> when main ($base) holds docs/decisions/D<n>-<slug>.md,
+# the decision the lander numbered when the change that added it landed; nothing otherwise.
+landed_decision() {
+  g ls-tree --name-only "$base" docs/decisions/ 2>/dev/null |
+    sed -nE "s#^docs/decisions/(D[0-9]+)-$1\\.md\$#\\1#p" | head -n 1
+}
+
+# remap_pick <sha>: cherry-picks a change that edits docs/decisions/D-new-<slug>.md although
+# main holds that decision as D<n>-<slug>.md (its first change landed and was numbered): the
+# patch is applied to the numbered file, D-new-<slug> read as D<n> everywhere in it, as
+# number_decisions rewrites a citation. 1 when no edit is of that kind or the patch does not apply.
+remap_pick() {
+  local f s num pairs= patch ph pair
+  for f in $(git diff-tree --no-commit-id --name-only -r "$1" | grep -E '^docs/decisions/D-new-[a-z0-9-]+\.md$' || true); do
+    [ ! -e "$f" ] && git cat-file -e "$1^:$f" 2>/dev/null || continue
+    s=${f#docs/decisions/D-new-}; s=${s%.md}
+    num=$(landed_decision "$s")
+    [ -z "$num" ] || pairs="$pairs D-new-$s=$num"
+  done
+  [ -n "$pairs" ] || return 1
+  patch=$(mktemp)
+  git diff "$1^" "$1" >"$patch"
+  for pair in $pairs; do
+    ph=${pair%%=*}
+    PH=$ph NUM=${pair#*=} perl -pi -e 'BEGIN { ($s = $ENV{PH}) =~ s/^D-new-//; } $t = /^diff --git .*_test\.go$/ if /^diff --git /; next if $t; s/\Q$ENV{PH}\E(?=\.md(?![a-z0-9-]))/$ENV{NUM}-$s/g; s/\Q$ENV{PH}\E(?![a-z0-9-])/$ENV{NUM}/g' "$patch"
+  done
+  if git apply --index "$patch" >/dev/null 2>&1; then
+    rm -f "$patch"
+    git commit -q --allow-empty -C "$1"
+    return 0
+  fi
+  rm -f "$patch"
+  git reset -q --hard
+  return 1
+}
+
 # number_decisions: in the train worktree, after a cherry-pick, numbers the pending decisions
 # the commit adds and rewrites the known placeholders (MAP: "<placeholder>=D<n>" words) in
 # the files the commit touches. Text already on main is never rewritten, and test files
 # are left alone (fixtures may spell a placeholder). LEFT is set to a placeholder the
-# commit still cites that is neither on main nor earlier in the train. Not run in a
+# commit still cites that is neither on main nor earlier in the train. A citation of a
+# pending decision that main holds as D<n>-<slug>.md (its change landed in an earlier train) reads
+# as D<n>; a pending decision whose slug main already holds sets DUP to the reason. Not run in a
 # subshell: MAP carries the numbers to the later changes of the train.
 number_decisions() {
-  local f ph n pair num touched
+  local f ph n pair num touched landed
+  DUP=
   touched=$(git diff-tree --no-commit-id --name-only -r HEAD | grep -v '_test\.go$' || true)
   for f in $(grep -E '^docs/decisions/D-new-[a-z0-9-]+\.md$' <<<"$touched" || true); do
     [ -f "$f" ] || continue
     ph=$(basename "$f" .md)
+    landed=$(landed_decision "${ph#D-new-}")
+    if [ -n "$landed" ]; then
+      DUP="it adds $f, but main already holds docs/decisions/$landed-${ph#D-new-}.md (two decisions with one slug)"
+      return 0
+    fi
+    case " $MAP " in *" $ph="*)
+      DUP="it adds $f, but an earlier change of the train added a decision with that slug"
+      return 0 ;;
+    esac
     n=$(ls docs/decisions | sed -nE 's/^D([0-9]+)-.*/\1/p' | sort -n | tail -n 1)
     n=${n:-0}
     [ "${FLOOR:-0}" -le "$n" ] || n=$FLOOR
@@ -275,6 +328,16 @@ number_decisions() {
     touched=$(printf '%s\n' "$touched" | sed "s#^$f\$#docs/decisions/D$n-${ph#D-new-}.md#")
     MAP="$MAP $ph=D$n"
   done
+  # A citation of a pending decision that main holds numbered: the same rewrite.
+  while IFS= read -r ph; do
+    [ -n "$ph" ] || continue
+    case " $MAP " in *" $ph="*) continue ;; esac
+    landed=$(landed_decision "${ph#D-new-}")
+    [ -z "$landed" ] || MAP="$MAP $ph=$landed"
+  done < <(while IFS= read -r f; do
+    [ -n "$f" ] && [ -f "$f" ] || continue
+    grep -ohE 'D-new-[a-z0-9][a-z0-9-]*' "$f" || true
+  done <<<"$touched" | sort -u)
   for pair in $MAP; do
     ph=${pair%%=*} num=${pair#*=}
     while IFS= read -r f; do
@@ -366,6 +429,11 @@ merge_train() {
           gh pr merge "$1" -R "$repo" --rebase --match-head-commit "$2" >/dev/null 2>&1 && return 0
           log "warning: GitHub refused the merge of train PR #$1 for now: asking again" ;;
         BLOCKED)
+          # A workflow that never started will not turn green by waiting (#1872).
+          if gh pr checks "$1" -R "$repo" --required --json state --jq '.[].state' 2>/dev/null | grep -qx STARTUP_FAILURE; then
+            echo "a required check of train PR #$1 ended in startup_failure" >"$state/blocked"
+            die "a required check of train PR #$1 ended in startup_failure: it will not turn green on its own, rerun or fix its workflow; the queue is untouched"
+          fi
           if gh pr checks "$1" -R "$repo" --required --json bucket --jq '.[].bucket' 2>/dev/null | grep -qx fail; then
             if ! $reran; then
               # `gh run list --status failure` lists completed runs only, while the checks already
@@ -463,18 +531,24 @@ while :; do
     fi
     if ! git cherry-pick --allow-empty "$sha" >/dev/null 2>&1; then
       git cherry-pick --abort >/dev/null 2>&1 || true
-      # Its train landed and the queue entry outlived it: the same diff is on main.
-      if [ "$(g cherry origin/main "$sha" "$sha^" 2>/dev/null | cut -c1)" = - ]; then
-        log "$s is already on main: dequeued"
-        $dry || dequeue "$s" "$sha" || log "warning: could not delete ready/$s"
+      git reset -q --hard
+      # An edit of a pending decision whose first change landed numbered: applied to D<n>-<slug>.md.
+      if remap_pick "$sha"; then
+        log "$s edits a pending decision that main holds numbered: applied to the numbered file"
+      else
+        # Its train landed and the queue entry outlived it: the same diff is on main.
+        if [ "$(g cherry origin/main "$sha" "$sha^" 2>/dev/null | cut -c1)" = - ]; then
+          log "$s is already on main: dequeued"
+          $dry || dequeue "$s" "$sha" || log "warning: could not delete ready/$s"
+          continue
+        fi
+        hint= # grep without -q reads all of git log: an early exit would fail it under pipefail
+        if g log --format=%s "$sha^..origin/main" | grep -xF "$(title "$sha")" >/dev/null; then
+          hint=" (main already holds a commit with its title: landed, its decision numbered?)"
+        fi
+        reject "$s" "$sha" "conflict: it does not apply on main plus the changes before it in the train$hint"
         continue
       fi
-      hint= # grep without -q reads all of git log: an early exit would fail it under pipefail
-      if g log --format=%s "$sha^..origin/main" | grep -xF "$(title "$sha")" >/dev/null; then
-        hint=" (main already holds a commit with its title: landed, its decision numbered?)"
-      fi
-      reject "$s" "$sha" "conflict: it does not apply on main plus the changes before it in the train$hint"
-      continue
     fi
     tip=$(trailer Lander-Tip "$sha")
     msg=$(git log -1 --format=%B | grep -vE '^(Lander-[A-Za-z]+|Review): ' || true)
@@ -484,8 +558,16 @@ while :; do
     targs=(--trailer "Lander-Slug: $s")
     [ -z "$tip" ] || targs+=(--trailer "Lander-Tip: $tip")
     printf '%s\n' "$msg" | git interpret-trailers "${targs[@]}" | git commit -q --amend --allow-empty -F -
+    premap=$MAP # a rejected change leaves no number behind for the later ones
     number_decisions
+    if [ -n "$DUP" ]; then
+      MAP=$premap
+      git reset -q --hard HEAD~1
+      reject "$s" "$sha" "$DUP"
+      continue
+    fi
     if [ -n "$LEFT" ]; then
+      MAP=$premap
       git reset -q --hard HEAD~1
       reject "$s" "$sha" "it cites a pending decision that is neither on main nor earlier in the train: $LEFT"
       continue
