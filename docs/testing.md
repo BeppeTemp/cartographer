@@ -588,6 +588,8 @@ Each Node target runs `npm ci` first; `make <target> NPM_CI=` skips it, which th
 
 The Atlas serves a fixed Content-Security-Policy: `TestContentSecurityPolicyIsExactlyTheShippedConstant` (`internal/webui`) compares the header, on the shell, an asset, the client-route fallback and the missing-asset 404, with the exact directive set and admits no host or scheme besides `'self'`, `data:` for images and `'unsafe-inline'` for styles; `TestSecurityHeadersTakeNoInput` keeps `writeSecurityHeaders` free of parameters; `web/e2e/security.spec.ts` asserts the same against the real binary.
 
+`web/src/test/extensionguard.test.ts` scans the sources that draw a plugin's data (`web/src/components/extension/`, `ExtensionView.tsx`, `web/src/lib/extension.ts`) and rejects `dangerouslySetInnerHTML`, `innerHTML`, `eval(`, `new Function`, a dynamic `import(` of a non-relative specifier, `document.write`, `window.open`, `<iframe` and `<script` (D1938); `extension.test.tsx` renders a hostile cell and a hostile app URL and checks they stay inert text.
+
 `web/src/test/locale.test.ts` scans the sources and rejects any `toLocale*String` call without `"en"` as first argument, and any `Intl.` or `navigator.language`: the UI is English in every browser locale, and a value test of a formatter would pass on an English runner even with the bug back.
 
 To work on the UI live, `make dev` from a worktree runs both halves and rebuilds

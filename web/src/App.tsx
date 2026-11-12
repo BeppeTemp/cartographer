@@ -42,6 +42,7 @@ import { GraphView } from "./components/GraphView";
 import { Inspector } from "./components/Inspector";
 import { LeftRail } from "./components/LeftRail";
 import { useComponents } from "./components/Surveyors";
+import { ExtensionView, useExtensions } from "./components/ExtensionView";
 import { Components } from "./components/Components";
 import { expectedSilent } from "./lib/health";
 import { Sheet, useMediaQuery } from "./components/Sheet";
@@ -335,6 +336,8 @@ export function App() {
   // maintains from them, Work lists the live ones, the rail marks a silent one.
   // A caller that cannot see the whole KB gets a 404, which is an empty list.
   const components = useComponents(activeKB, live, phase === "ready");
+  // The plugins' approved views and apps (D1938): the rail group and the ext panel.
+  const { extensions, loaded: extensionsLoaded } = useExtensions(live, phase === "ready");
 
   // The graph and the artifacts drawn on it land together: the canvas and the
   // diamonds change in one commit instead of one after another, and on a KB
@@ -687,6 +690,16 @@ export function App() {
     noticeTimer.current = window.setTimeout(() => setNotice(""), 6000);
   }, []);
 
+  // A link to a view that is not (or no longer) approved lands on the Atlas with a notice, never an error page.
+  const extView = view.panel === "ext" ? extensions.views.find((v) => `${v.plugin}/${v.name}` === view.ext) : undefined;
+  useEffect(() => {
+    if (view.panel !== "ext" || !extensionsLoaded || extView) return;
+    const next = { ...view, panel: "atlas" as const, ext: null };
+    setView(next);
+    replaceView(next);
+    announce("That view is not available: showing the Atlas.");
+  }, [view, extensionsLoaded, extView, announce]);
+
   const selectConcept = useCallback(
     (id: string | null) => {
       navigate({ concept: id });
@@ -757,6 +770,12 @@ export function App() {
     <LeftRail
       overview={overview}
       componentAlarm={expectedSilent(components).length > 0}
+      extensions={extensions}
+      activeExt={view.ext ?? null}
+      onExtension={(id) => {
+        navigate({ panel: "ext", ext: id, artifact: null, hmap: null });
+        if (inSheet) setSheet(null);
+      }}
       onOpenReleases={() => setReleasesOpen(true)}
       overviewKB={snapshotKey.split("\u0000")[0]}
       scope={view.panel === "atlas" ? view.scope : null}
@@ -776,8 +795,8 @@ export function App() {
         // The Atlas entry is the way home: the whole graph, wherever you were.
         navigate(
           panel === "atlas"
-            ? { panel, scope: null, concept: null, artifact: null, hmap: null }
-            : { panel, artifact: null, hmap: null },
+            ? { panel, scope: null, concept: null, artifact: null, hmap: null, ext: null }
+            : { panel, artifact: null, hmap: null, ext: null },
         );
         if (inSheet) setSheet(null);
       }}
@@ -912,6 +931,16 @@ export function App() {
             />
           ) : view.panel === "components" && activeKB ? (
             <Components kb={activeKB} live={live} />
+          ) : view.panel === "ext" ? (
+            extView ? (
+              <ExtensionView
+                key={`${view.ext}\u0000${activeKB}`}
+                view={extView}
+                kb={activeKB}
+                live={live}
+                onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId, ext: null })}
+              />
+            ) : null
           ) : view.panel === "settings" ? (
             <Settings
               reloadKey={`${reloadKey}:${live}`}

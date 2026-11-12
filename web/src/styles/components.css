@@ -4367,3 +4367,75 @@ code.mapcontract__label {
 .rail__collection--bone .bone {
   flex: none;
 }
+
+/* --- Plugin extensions (D1938): a rail group and four fixed renderers --- */
+
+.rail__ext,
+.rail__ext-list,
+.ext-kv,
+.ext-list,
+.ext-stats {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-sm);
+}
+
+.rail__ext .rail__title {
+  margin: var(--space-2) 0 0;
+  padding-inline: var(--space-3);
+}
+
+.rail--collapsed .rail__ext .rail__title { display: none; }
+a.rail__panel { text-decoration: none; }
+
+.ext-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.ext-table th,
+.ext-table td,
+.ext-list li {
+  padding: var(--space-2) var(--space-3);
+  text-align: start;
+  vertical-align: top;
+  border-block-end: 1px solid var(--border-subtle);
+  overflow-wrap: anywhere;
+}
+
+.ext-table thead th {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.ext-stats {
+  grid-auto-flow: column;
+  justify-content: start;
+  gap: var(--space-6);
+  color: var(--text-muted);
+}
+
+.ext-stats strong { display: block; font-size: var(--text-lg); color: var(--text-primary); }
+
+.ext-kv__row {
+  display: grid;
+  grid-template-columns: minmax(8ch, 24ch) 1fr;
+  gap: var(--space-3);
+}
+
+.ext-kv dd { margin: 0; overflow-wrap: anywhere; }
+
+.linklike {
+  padding: 0;
+  font: inherit;
+  color: var(--text-primary);
+  text-decoration: underline;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}

@@ -1,10 +1,10 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import { fetchServerVersion } from "../api/client";
-import type { Overview } from "../api/types";
+import type { Extensions, Overview } from "../api/types";
 import { ARTIFACT_PANELS, type Panel } from "../lib/viewstate";
 import { collectionVar } from "../lib/palette";
 import { Count } from "./Count";
-import { Icon } from "./Icon";
+import { Icon, isIconName, type IconName } from "./Icon";
 import { Bone, LoadingRegion } from "./Page";
 
 interface Props {
@@ -20,6 +20,10 @@ interface Props {
   secretsAllowed?: boolean;
   /** An expected Surveyor is silent: Health's mark lights as for a problem (D1901). */
   componentAlarm?: boolean;
+  /** Approved plugin views and apps (D1938): the "Extensions" group exists only when there are any; `activeExt` is `<plugin>/<name>`. */
+  extensions?: Extensions;
+  activeExt?: string | null;
+  onExtension?(id: string): void;
   collapsed: boolean;
   /** False inside the narrow-layout sheet, which closes instead. */
   collapsible?: boolean;
@@ -43,6 +47,9 @@ export function LeftRail({
   artifactsTotal,
   secretsAllowed = false,
   componentAlarm = false,
+  extensions,
+  activeExt = null,
+  onExtension,
   collapsed,
   collapsible = true,
   typeFilter,
@@ -170,6 +177,49 @@ export function LeftRail({
               </span>
               <span className="rail__label">Artifacts</span>
             </button>
+          </li>
+        )}
+        {extensions && extensions.views.length + extensions.apps.length > 0 && (
+          <li className="rail__ext">
+            <h2 className="rail__title">Extensions</h2>
+            <ul className="rail__ext-list">
+              {extensions.views.map((v) => {
+                const id = `${v.plugin}/${v.name}`;
+                return (
+                  <li key={id}>
+                    <button
+                      type="button"
+                      className="rail__panel"
+                      aria-label={v.title}
+                      title={collapsed ? v.title : undefined}
+                      aria-current={panel === "ext" && activeExt === id ? "page" : undefined}
+                      onClick={() => onExtension?.(id)}
+                    >
+                      <RailGlyph name={v.icon} fallback="list" label={v.title} />
+                    </button>
+                  </li>
+                );
+              })}
+              {extensions.apps.map((a) => {
+                const host = appHost(a.url);
+                return (
+                  host && (
+                    <li key={`${a.plugin}/${a.name}`}>
+                      <a
+                        className="rail__panel"
+                        href={a.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label={`${a.title}, opens ${host} in a new tab`}
+                        title={collapsed ? a.title : undefined}
+                      >
+                        <RailGlyph name={a.icon} fallback="paths" label={a.title} />
+                      </a>
+                    </li>
+                  )
+                );
+              })}
+            </ul>
           </li>
         )}
         <li>
@@ -311,6 +361,28 @@ export function LeftRail({
         </div>
       )}
     </nav>
+  );
+}
+
+/** The host an app entry opens, or null for a URL that is not plain http(s): such an entry is not drawn. */
+function appHost(url: string): string | null {
+  try {
+    const u = new URL(url);
+    return u.protocol === "https:" || u.protocol === "http:" ? u.host : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The glyph and label of an extension entry; an icon this Atlas does not draw falls back to the default. */
+function RailGlyph({ name, fallback, label }: { name: string; fallback: IconName; label: string }) {
+  return (
+    <>
+      <span className="rail__glyph">
+        <Icon name={isIconName(name) ? name : fallback} />
+      </span>
+      <span className="rail__label">{label}</span>
+    </>
   );
 }
 

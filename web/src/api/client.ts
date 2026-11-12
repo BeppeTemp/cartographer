@@ -29,6 +29,7 @@ import type {
   FeedList,
   MaintenanceSummary,
   ComponentsResponse,
+  Extensions,
 } from "./types";
 import {
   LIVE_ORIGIN,
@@ -43,6 +44,9 @@ import {
 } from "./static";
 
 const BASE = "/api/ui/v1";
+
+/** The public read-only API: the only prefix a plugin view may read (D1938). */
+export const PUBLIC_PREFIX = "/api/v1";
 
 /**
  * ApiError carries the server's machine-readable code so a panel can tell a
@@ -150,7 +154,9 @@ export async function fetchServerVersion(signal?: AbortSignal): Promise<string |
   }
 }
 
-async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
+async function get<T>(path: string, signal?: AbortSignal, base: string = BASE): Promise<T> {
+  // The static demo has no public API: a view's source is a 404 there.
+  if (STATIC_MODE && base !== BASE) throw new ApiError(404, "not_found", "not found");
   // Decided once per page load, before the first read (D800).
   const live = STATIC_MODE && LIVE_ORIGIN !== "" && (await resolveSource()) === "live";
   if (STATIC_MODE && !live) {
@@ -164,7 +170,7 @@ async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   try {
     // same-origin: a proxy session cookie (SSO in front of the UI) must reach the API;
     // never cross-origin, so no third party sees it.
-    const url = live ? liveURL(path) : STATIC_MODE ? staticURL(staticKey(path)) : BASE + path;
+    const url = live ? liveURL(path) : STATIC_MODE ? staticURL(staticKey(path)) : base + path;
     response = await fetch(url, { headers, signal, credentials: "same-origin" });
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") throw err;
@@ -332,6 +338,31 @@ export function fetchPendingSources(kb: string, signal?: AbortSignal): Promise<S
 
 export function fetchAssets(kb: string, id: string, signal?: AbortSignal): Promise<AssetList> {
   return get<AssetList>(`/kbs/${encodeURIComponent(kb)}/assets?id=${encodeURIComponent(id)}`, signal);
+}
+
+/** The approved views, apps and plugins; a 404 is "no extensions", any other failure rejects. */
+export async function fetchExtensions(signal?: AbortSignal): Promise<Extensions> {
+  try {
+    const body = await get<Partial<Extensions>>("/extensions", signal);
+    const list = <T,>(v: T[] | undefined) => (Array.isArray(v) ? v : []);
+    return { views: list(body?.views), apps: list(body?.apps), plugins: list(body?.plugins) };
+  } catch (err) {
+    // Only a 404 (an older server, the static demo) means "no extensions"; any other failure is the caller's to ride out.
+    if (err instanceof ApiError && err.isNotFound) return { views: [], apps: [], plugins: [] };
+    throw err;
+  }
+}
+
+/**
+ * A view's data: one GET of the declared route as the Atlas's own principal. The server validated the
+ * route at start; it is checked again so a hostile /extensions answer cannot make the Atlas read another URL.
+ */
+export function fetchViewSource(path: string, signal?: AbortSignal): Promise<unknown> {
+  const [route = "", query = ""] = path.split("?", 2);
+  const ok =
+    route.startsWith(PUBLIC_PREFIX + "/") && !/[:\\\s{}#]|\/\/|\.\.|%2e|%2f|%5c/i.test(route) && !/[#\s]/.test(query);
+  if (!ok) return Promise.reject(new ApiError(400, "bad_request", "this view names a route the Atlas does not read"));
+  return get<unknown>(path, signal, "");
 }
 
 export function fetchSettings(signal?: AbortSignal): Promise<SettingsView> {

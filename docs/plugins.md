@@ -585,7 +585,7 @@ Formats are a closed set, each total over any JSON value: `text` (default), `num
 (default `paths`) and `url`, an absolute `https://` URL with a host, no user information and no fragment (`http://` only for
 `localhost`, `127.0.0.1` or `[::1]`). The Atlas hands the app nothing.
 
-The Meridian serves the approved declarations at `GET /api/ui/v1/extensions` (`docs/control-plane.md` §Read-only UI API). A pin (`plugins:` in the server config) needs a server side, an atlas side or both.
+The Meridian serves the approved declarations at `GET /api/ui/v1/extensions` (`docs/control-plane.md` §Read-only UI API). The Atlas draws them (`web/src/components/ExtensionView.tsx`, the renderers in `web/src/components/extension/`): a rail group "Extensions" that exists only when there is a view or an app, one `GET` of the substituted public route per view (re-checked against the `/api/v1` prefix in `fetchViewSource`, never an absolute URL). A pin (`plugins:` in the server config) needs a server side, an atlas side or both.
 
 The approval preview prints `view "<name>" (<renderer>) reads GET <route>` or `app "<name>" opens <url>`, then `data only: nothing runs`.
 
