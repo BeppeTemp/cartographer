@@ -1,0 +1,388 @@
+package kb
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"reflect"
+	"sort"
+	"strings"
+	"testing"
+
+	"github.com/BeppeTemp/cartographer/internal/graphalgo"
+	"github.com/BeppeTemp/cartographer/internal/okf"
+)
+
+// blockSpec describes a synthetic collection: groups of `size` concepts, each
+// linked to the next few in its group (a dense community), plus the extra
+// links the test plants between groups.
+type blockSpec struct {
+	collection string
+	groups     int
+	size       int
+}
+
+func clusterConcept(coll string, g, n int) string { return fmt.Sprintf("%s/g%04d-n%02d", coll, g, n) }
+
+// buildClusterKB writes the blocks and the cross links ("a->b" concept ids).
+func buildClusterKB(t testing.TB, blocks []blockSpec, cross [][2]string) *KB {
+	t.Helper()
+	k := newTestKB(t)
+	out := map[string][]string{}
+	for _, b := range blocks {
+		for g := 0; g < b.groups; g++ {
+			for n := 0; n < b.size; n++ {
+				id := clusterConcept(b.collection, g, n)
+				for d := 1; d <= 5 && d < b.size; d++ {
+					out[id] = append(out[id], clusterConcept(b.collection, g, (n+d)%b.size))
+				}
+				if b.size == 1 {
+					continue
+				}
+			}
+		}
+	}
+	for _, c := range cross {
+		out[c[0]] = append(out[c[0]], c[1], c[1]) // twice: a duplicate link is one edge
+	}
+	for _, b := range blocks {
+		for g := 0; g < b.groups; g++ {
+			for n := 0; n < b.size; n++ {
+				id := clusterConcept(b.collection, g, n)
+				var body strings.Builder
+				for _, to := range out[id] {
+					fmt.Fprintf(&body, "[[%s]] ", to)
+				}
+				if g == 0 && n == 5 {
+					fmt.Fprintf(&body, "[[%s]] ", id) // a self link is no edge
+				}
+				path := filepath.Join(k.DataRoot(), id+".md")
+				if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte("---\ntype: Note\n---\n"+body.String()+"\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+	}
+	return k
+}
+
+var twoBlocks = []blockSpec{{"alpha", 60, 20}, {"beta", 50, 20}} // 2,200 concepts
+
+func clusterByID(t *testing.T, g ClusterGraph, id string) GraphCluster {
+	t.Helper()
+	for _, c := range g.Clusters {
+		if c.ID == id {
+			return c
+		}
+	}
+	t.Fatalf("cluster %q missing", id)
+	return GraphCluster{}
+}
+
+func edgeWeight(g ClusterGraph, a, b string) int {
+	for _, e := range g.Edges {
+		if e.Source == a && e.Target == b || e.Source == b && e.Target == a {
+			return e.Weight
+		}
+	}
+	return 0
+}
+
+// clusterIDOf finds the cluster holding a concept by unfolding it with Focus.
+func clusterIDOf(t *testing.T, k *KB, concept string) string {
+	t.Helper()
+	g, err := k.GraphClusters(GraphClusterOptions{Focus: concept})
+	if err != nil || len(g.Unfolded) == 0 {
+		t.Fatalf("focus %s: %v %+v", concept, err, g.Unfolded)
+	}
+	return g.Unfolded[0].ID
+}
+
+func TestGraphClusters_BelowThresholdIsTheFlatGraph(t *testing.T) {
+	t.Parallel()
+	k := snapshotKB(t)
+	g, err := k.GraphClusters(GraphClusterOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, _ := k.GraphSnapshot(GraphSnapshotOptions{})
+	if g.Mode != ClusterModeNodes || len(g.Clusters) != 0 || len(g.Nodes) != len(snap.Nodes) || len(g.Edges) != len(snap.Edges) {
+		t.Fatalf("mode %q: %d clusters, %d nodes, %d edges; snapshot %d/%d", g.Mode, len(g.Clusters), len(g.Nodes), len(g.Edges), len(snap.Nodes), len(snap.Edges))
+	}
+}
+
+func TestGraphClusters_EmptyKB(t *testing.T) {
+	t.Parallel()
+	g, err := newTestKB(t).GraphClusters(GraphClusterOptions{})
+	if err != nil || g.Mode != ClusterModeNodes || len(g.Nodes) != 0 || len(g.Clusters) != 0 {
+		t.Fatalf("%+v %v", g, err)
+	}
+}
+
+func TestGraphClusters_ClusterIDIsNeverAConceptID(t *testing.T) {
+	t.Parallel()
+	if _, err := okf.PathToID(TailClusterID + ".md"); err == nil {
+		t.Fatal("the tail id parses as a concept id")
+	}
+	if _, err := okf.PathToID("c:x.md"); err == nil {
+		t.Fatal("a c: id parses as a concept id")
+	}
+}
+
+func TestGraphClusters_WeightsAndUnfold(t *testing.T) {
+	t.Parallel()
+	a, b := clusterConcept("alpha", 0, 0), clusterConcept("alpha", 1, 0)
+	cross := [][2]string{{a, b}, {b, a}}
+	k := buildClusterKB(t, twoBlocks, cross)
+	snap, _ := k.GraphSnapshot(GraphSnapshotOptions{})
+
+	g, err := k.GraphClusters(GraphClusterOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.Mode != ClusterModeClusters || len(g.Nodes) != 0 || g.TotalNodes != 2200 {
+		t.Fatalf("mode %q, %d nodes, total %d", g.Mode, len(g.Nodes), g.TotalNodes)
+	}
+	// Every underlying edge is inside a cluster or in exactly one weight.
+	sum := 0
+	for _, e := range g.Edges {
+		sum += e.Weight
+	}
+	for _, c := range g.Clusters {
+		sum += c.InternalEdges
+	}
+	if g.Truncated || sum != snap.TotalEdges || g.TotalEdges != snap.TotalEdges {
+		t.Fatalf("weights+internal = %d, total_edges %d, snapshot %d", sum, g.TotalEdges, snap.TotalEdges)
+	}
+
+	ca, cb := clusterIDOf(t, k, a), clusterIDOf(t, k, b)
+	if w := edgeWeight(g, ca, cb); w != 2 {
+		t.Fatalf("cluster edge weight = %d, want 2 (a duplicate link counts once, both directions count)", w)
+	}
+	if clusterByID(t, g, ca).Size != 20 {
+		t.Fatalf("size %d", clusterByID(t, g, ca).Size)
+	}
+
+	u, err := k.GraphClusters(GraphClusterOptions{Unfold: []string{ca}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(u.Nodes) != 20 || len(u.Unfolded) != 1 || u.Unfolded[0].Shown != 20 || u.Unfolded[0].Total != 20 || u.Truncated {
+		t.Fatalf("unfold: %d nodes, %+v", len(u.Nodes), u.Unfolded)
+	}
+	for _, c := range u.Clusters {
+		if c.ID == ca {
+			t.Fatal("an unfolded cluster is still folded")
+		}
+	}
+	if len(u.Clusters) != len(g.Clusters)-1 {
+		t.Fatalf("%d clusters after unfold, %d before", len(u.Clusters), len(g.Clusters))
+	}
+	towards := 0
+	for _, e := range u.Edges {
+		if e.Source == cb || e.Target == cb {
+			towards += e.Weight
+		}
+	}
+	if towards != 2 {
+		t.Fatalf("node-cluster weights toward the neighbour = %d, want 2", towards)
+	}
+	// A link and its reverse between two drawn nodes are one edge of weight 1.
+	for _, e := range u.Edges {
+		if !strings.HasPrefix(e.Source, "c:") && !strings.HasPrefix(e.Target, "c:") && e.Weight != 1 {
+			t.Fatalf("node-node edge weight %d", e.Weight)
+		}
+	}
+	if u.DroppedUnfolds == nil || len(u.DroppedUnfolds) != 0 {
+		t.Fatalf("dropped %v", u.DroppedUnfolds)
+	}
+}
+
+func TestGraphClusters_FocusUnfoldsItsClusterAndUnknownIsIgnored(t *testing.T) {
+	t.Parallel()
+	k := buildClusterKB(t, twoBlocks, nil)
+	f, _ := k.GraphClusters(GraphClusterOptions{Focus: clusterConcept("beta", 3, 2)})
+	found := false
+	for _, n := range f.Nodes {
+		found = found || string(n.ID) == clusterConcept("beta", 3, 2)
+	}
+	if !found || len(f.Unfolded) != 1 {
+		t.Fatalf("focus not drawn: %+v", f.Unfolded)
+	}
+	none, _ := k.GraphClusters(GraphClusterOptions{})
+	bogus, _ := k.GraphClusters(GraphClusterOptions{Focus: "nope/missing"})
+	if !reflect.DeepEqual(none, bogus) {
+		t.Fatal("an unknown focus changes the answer")
+	}
+}
+
+func TestGraphClusters_CapTailAndBudgets(t *testing.T) {
+	t.Parallel()
+	k := buildClusterKB(t, []blockSpec{{"alpha", 1100, 2}}, nil) // 1,100 pair communities
+	g, err := k.GraphClusters(GraphClusterOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Clusters) != MaxClusters+1 {
+		t.Fatalf("%d clusters, want %d", len(g.Clusters), MaxClusters+1)
+	}
+	tail := clusterByID(t, g, TailClusterID)
+	if tail.Slot != graphalgo.OtherSlot || g.Clusters[0].Slot == tail.Slot {
+		t.Fatalf("tail slot %d, want the neutral slot", tail.Slot)
+	}
+	if len(g.Communities) > MaxClusters {
+		t.Fatalf("%d communities listed for %d clusters", len(g.Communities), len(g.Clusters))
+	}
+	if tail.Label != "Other" || tail.Communities != 1100-MaxClusters || tail.Size != 2*(1100-MaxClusters) {
+		t.Fatalf("tail %+v", tail)
+	}
+	u, _ := k.GraphClusters(GraphClusterOptions{Unfold: []string{TailClusterID}})
+	if len(u.Clusters)+len(u.Nodes) > MaxClusterElements || len(u.Unfolded) != 1 || u.Unfolded[0].Shown >= u.Unfolded[0].Total || !u.Truncated {
+		t.Fatalf("tail unfold: %d clusters, %d nodes, %+v", len(u.Clusters), len(u.Nodes), u.Unfolded)
+	}
+	// Later unfolds that do not fit are reported, never drawn over budget.
+	ids := []string{TailClusterID}
+	for _, c := range g.Clusters[:100] {
+		ids = append(ids, c.ID)
+	}
+	m, _ := k.GraphClusters(GraphClusterOptions{Unfold: ids})
+	if len(m.Clusters)+len(m.Nodes) > MaxClusterElements {
+		t.Fatalf("budget exceeded: %d", len(m.Clusters)+len(m.Nodes))
+	}
+}
+
+func TestGraphClusters_BudgetsAtScale(t *testing.T) {
+	if testing.Short() {
+		t.Skip("writes 20,000 concepts")
+	}
+	t.Parallel()
+	k := buildClusterKB(t, []blockSpec{{"alpha", 500, 20}, {"beta", 500, 20}}, nil)
+	g, err := k.GraphClusters(GraphClusterOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := json.Marshal(g)
+	if len(body) > 150<<10 {
+		t.Fatalf("response is %d bytes uncompressed, want under 150 KiB", len(body))
+	}
+	if g.TotalNodes != 20000 || len(g.Clusters)+len(g.Nodes) > MaxClusterElements || len(g.Edges) > MaxClusterEdges {
+		t.Fatalf("%d total, %d clusters, %d edges", g.TotalNodes, len(g.Clusters), len(g.Edges))
+	}
+}
+
+func TestGraphClusters_IDStability(t *testing.T) {
+	t.Parallel()
+	k := buildClusterKB(t, twoBlocks, nil)
+	before, _ := k.GraphClusters(GraphClusterOptions{})
+	// A concept that nothing links to ranks low; it links to the group's top member.
+	add := filepath.Join(k.DataRoot(), "alpha", "newcomer.md")
+	if err := os.WriteFile(add, []byte("---\ntype: Note\n---\n[[alpha/g0003-n00]]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := k.GraphClusters(GraphClusterOptions{})
+	ids := func(g ClusterGraph) []string {
+		var out []string
+		for _, c := range g.Clusters {
+			out = append(out, c.ID)
+		}
+		sort.Strings(out) // the newcomer joins a community: sizes, hence the order, move
+		return out
+	}
+	if !reflect.DeepEqual(ids(before), ids(after)) {
+		t.Fatal("adding a low-rank concept changed cluster ids")
+	}
+	// Removing the top member of a cluster renames it; the old id is dropped.
+	old := clusterIDOf(t, k, clusterConcept("beta", 2, 0))
+	if err := os.Remove(filepath.Join(k.DataRoot(), strings.TrimPrefix(old, "c:")+".md")); err != nil {
+		t.Fatal(err)
+	}
+	g, _ := k.GraphClusters(GraphClusterOptions{Unfold: []string{old}})
+	if !reflect.DeepEqual(g.DroppedUnfolds, []string{old}) || len(g.Unfolded) != 0 {
+		t.Fatalf("dropped %v unfolded %v", g.DroppedUnfolds, g.Unfolded)
+	}
+}
+
+// Visibility: a hidden block leaves no trace in a size, label, weight or
+// count (D226, D244); the output equals the one of a KB that never had it.
+func TestGraphClusters_HiddenConceptsLeaveNoTrace(t *testing.T) {
+	t.Parallel()
+	cross := [][2]string{{clusterConcept("alpha", 0, 0), clusterConcept("beta", 0, 0)}, {clusterConcept("beta", 1, 1), clusterConcept("alpha", 2, 2)}}
+	full := buildClusterKB(t, []blockSpec{{"alpha", 110, 20}, {"beta", 6, 20}}, cross)
+	plain := buildClusterKB(t, []blockSpec{{"alpha", 110, 20}}, cross[:0])
+	hide := func(id string) bool { return !strings.HasPrefix(id, "beta/") }
+	// The plain KB keeps the dangling links to beta: they are broken, not edges.
+	for _, opts := range []GraphClusterOptions{
+		{Include: hide},
+		{Include: hide, Focus: clusterConcept("beta", 0, 0)},
+		{Include: hide, Unfold: []string{"c:" + clusterConcept("beta", 0, 0)}},
+	} {
+		got, err := full.GraphClusters(opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantOpts := opts
+		wantOpts.Include, wantOpts.Focus = nil, ""
+		if opts.Focus == "" && len(opts.Unfold) == 0 {
+			wantOpts = GraphClusterOptions{}
+		}
+		want, _ := plain.GraphClusters(wantOpts)
+		if got.TotalNodes != 2200 || !reflect.DeepEqual(got, want) {
+			t.Fatalf("%+v: output differs from the KB without the hidden block\n got %d/%d\nwant %d/%d", opts, got.TotalNodes, got.TotalEdges, want.TotalNodes, want.TotalEdges)
+		}
+	}
+	// Two principals never share a ranking: each visible set computes once.
+	runs := full.GraphRankComputations()
+	_, _ = full.GraphClusters(GraphClusterOptions{})
+	_, _ = full.GraphClusters(GraphClusterOptions{Include: hide})
+	_, _ = full.GraphClusters(GraphClusterOptions{})
+	_, _ = full.GraphClusters(GraphClusterOptions{Include: hide})
+	if n := full.GraphRankComputations() - runs; n > 2 {
+		t.Fatalf("%d computations for two visible sets", n)
+	}
+}
+
+func TestGraphClusters_Scope(t *testing.T) {
+	t.Parallel()
+	k := buildClusterKB(t, []blockSpec{{"alpha", 110, 20}, {"beta", 6, 20}}, [][2]string{{clusterConcept("alpha", 0, 0), clusterConcept("beta", 0, 0)}})
+	g, _ := k.GraphClusters(GraphClusterOptions{Scope: "alpha"})
+	size := 0
+	for _, c := range g.Clusters {
+		size += c.Size
+		if c.Collection != "alpha" {
+			t.Fatalf("cluster %+v outside the scope", c)
+		}
+	}
+	if g.Mode != ClusterModeClusters || g.TotalNodes != 2200 || size != 2200 {
+		t.Fatalf("%q total %d, sizes %d", g.Mode, g.TotalNodes, size)
+	}
+	// A small Map of a big KB falls back to the flat graph.
+	s, _ := k.GraphClusters(GraphClusterOptions{Scope: "beta"})
+	flat, _ := k.GraphSnapshot(GraphSnapshotOptions{Scope: "beta"})
+	if s.Mode != ClusterModeNodes || len(s.Nodes) != 120 || len(s.Communities) != len(flat.Communities) {
+		t.Fatalf("%q, %d nodes", s.Mode, len(s.Nodes))
+	}
+	// The cluster id does not depend on the scope.
+	if clusterIDOf(t, k, clusterConcept("alpha", 0, 0)) == "" {
+		t.Fatal("no cluster")
+	}
+}
+
+func TestGraphClusters_DroppedUnfoldsAreDeduplicated(t *testing.T) {
+	t.Parallel()
+	k := buildClusterKB(t, twoBlocks, nil)
+	g, _ := k.GraphClusters(GraphClusterOptions{Unfold: []string{"c:nope", "c:nope", "c:other"}})
+	if !reflect.DeepEqual(g.DroppedUnfolds, []string{"c:nope", "c:other"}) {
+		t.Fatalf("dropped %v", g.DroppedUnfolds)
+	}
+	// Focus plus the same cluster in Unfold unfolds it once and drops nothing.
+	focus := clusterConcept("alpha", 1, 1)
+	id := clusterIDOf(t, k, focus)
+	f, _ := k.GraphClusters(GraphClusterOptions{Focus: focus, Unfold: []string{id, id}})
+	if len(f.Unfolded) != 1 || len(f.DroppedUnfolds) != 0 {
+		t.Fatalf("unfolded %v dropped %v", f.Unfolded, f.DroppedUnfolds)
+	}
+}

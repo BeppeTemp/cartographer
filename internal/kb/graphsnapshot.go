@@ -34,12 +34,14 @@ type GraphNode struct {
 	// Type and Status come from the frontmatter and are what a client filters
 	// and encodes on: without them a graph can only be filtered by collection,
 	// which is the one facet its colours already show.
-	Type      string `json:"type,omitempty"`
-	Status    string `json:"status,omitempty"`
-	Expanded  bool   `json:"expanded,omitempty"`
-	SelfLink  bool   `json:"self_link,omitempty"`
-	InDegree  int    `json:"in_degree"`
-	OutDegree int    `json:"out_degree"`
+	Type   string `json:"type,omitempty"`
+	Status string `json:"status,omitempty"`
+	// Expanded marks a folder concept (m/c/index.md). It is unrelated to the
+	// cluster view, whose verbs are unfold and fold (graphclusters.go).
+	Expanded  bool `json:"expanded,omitempty"`
+	SelfLink  bool `json:"self_link,omitempty"`
+	InDegree  int  `json:"in_degree"`
+	OutDegree int  `json:"out_degree"`
 	// PageRank is the node's global importance on the caller's visible graph
 	// (D244), rounded to 6 decimals; Community is its community's rank in
 	// GraphSnapshot.Communities. Both are whole-graph values, like the degrees.
@@ -123,40 +125,43 @@ func conceptCollection(id okf.ConceptID) string {
 	return ""
 }
 
-// GraphSnapshot reads the link graph from the stat-validated cache (D241) and
-// returns a sorted, bounded projection of it.
-//
-// Selection is by importance and deterministic, and the output is sorted, so
-// the same KB state always produces the same response: a graph whose nodes
-// reshuffle between two identical requests is unusable as a navigation
-// surface. Past the limit the nodes with the highest PageRank are kept, and
-// past MaxGraphEdges the edges whose weaker endpoint ranks highest (D244). The traversal computes both degrees as
-// it goes — the alternative, one GraphNeighbors call per concept, re-walks the
-// whole KB once per node.
-//
-// Invariant: no returned edge has an endpoint absent from Nodes.
-func (kb *KB) GraphSnapshot(opts GraphSnapshotOptions) (GraphSnapshot, error) {
-	limit := opts.Limit
-	if limit <= 0 {
-		limit = DefaultGraphNodeLimit
-	}
-	if limit > MaxGraphNodeLimit {
-		limit = MaxGraphNodeLimit
-	}
-	visible := opts.Include
+// conceptMeta is what the cached walk knows of one visible concept.
+type conceptMeta struct {
+	collection string
+	title      string
+	typ        string
+	status     string
+	expanded   bool
+	targets    []okf.ConceptID
+	linkLines  map[okf.ConceptID][]string
+}
+
+type edgeKey struct{ source, target okf.ConceptID }
+
+// visibleGraph is the link graph the caller may see, with its ranking: the one
+// input both the flat snapshot and the cluster projection (graphclusters.go)
+// derive their answer from, so neither can see further than the other (D226).
+type visibleGraph struct {
+	ids       []okf.ConceptID // sorted
+	metas     map[okf.ConceptID]*conceptMeta
+	edgeSet   map[edgeKey]struct{}
+	selfLink  map[okf.ConceptID]bool
+	inDegree  map[okf.ConceptID]int
+	outDegree map[okf.ConceptID]int
+	broken    []BrokenTarget
+	index     map[okf.ConceptID]int
+	snapshotRank
+}
+
+func (vg *visibleGraph) prOf(id okf.ConceptID) float64 { return vg.pagerank[vg.index[id]] }
+
+// buildVisibleGraph reads the cached walk and resolves every link against the
+// concepts visible() lets through.
+func (kb *KB) buildVisibleGraph(visible func(id string) bool) (*visibleGraph, error) {
 	if visible == nil {
 		visible = func(string) bool { return true }
 	}
 
-	type conceptMeta struct {
-		collection string
-		title      string
-		typ        string
-		status     string
-		expanded   bool
-		targets    []okf.ConceptID
-		linkLines  map[okf.ConceptID][]string
-	}
 	// exists holds every concept id in the KB, visible or not: it is what
 	// tells a genuinely broken link from a link to a concept this caller may
 	// not see. Only the first is reportable.
@@ -166,7 +171,7 @@ func (kb *KB) GraphSnapshot(opts GraphSnapshotOptions) (GraphSnapshot, error) {
 
 	view, err := kb.graphView()
 	if err != nil {
-		return GraphSnapshot{}, err
+		return nil, err
 	}
 	// Replays the cached walk (D241) in its order: the later of two files
 	// emitting one id wins, as it did when this was a walk.
@@ -197,7 +202,6 @@ func (kb *KB) GraphSnapshot(opts GraphSnapshotOptions) (GraphSnapshot, error) {
 	// Pass two resolves every link against the visible concept set. Degrees
 	// are whole-KB totals: scope and limit shrink what is drawn, never what a
 	// node reports about itself.
-	type edgeKey struct{ source, target okf.ConceptID }
 	edgeSet := map[edgeKey]struct{}{}
 	selfLink := map[okf.ConceptID]bool{}
 	inDegree := map[okf.ConceptID]int{}
@@ -271,17 +275,63 @@ func (kb *KB) GraphSnapshot(opts GraphSnapshotOptions) (GraphSnapshot, error) {
 			}
 		}
 		communityOf, communities := graphalgo.Communities(g, 1, degree, weights)
-		return snapshotRank{pagerank: pagerank, communityOf: communityOf, communities: communities}
+		members := make([][]int, len(communities))
+		for u, r := range communityOf {
+			members[r] = append(members[r], u)
+		}
+		for _, m := range members {
+			sort.Slice(m, func(a, b int) bool {
+				if pagerank[m[a]] != pagerank[m[b]] {
+					return pagerank[m[a]] > pagerank[m[b]]
+				}
+				return m[a] < m[b]
+			})
+		}
+		return snapshotRank{pagerank: pagerank, communityOf: communityOf, communities: communities, members: members}
 	})
-	pagerank, communityOf, communities := rank.pagerank, rank.communityOf, rank.communities
-	prOf := func(id okf.ConceptID) float64 { return pagerank[index[id]] }
+	return &visibleGraph{ids: ids, metas: metas, edgeSet: edgeSet, selfLink: selfLink, inDegree: inDegree,
+		outDegree: outDegree, broken: broken, index: index, snapshotRank: rank}, nil
+}
+
+// GraphSnapshot reads the link graph from the stat-validated cache (D241) and
+// returns a sorted, bounded projection of it.
+//
+// Selection is by importance and deterministic, and the output is sorted, so
+// the same KB state always produces the same response: a graph whose nodes
+// reshuffle between two identical requests is unusable as a navigation
+// surface. Past the limit the nodes with the highest PageRank are kept, and
+// past MaxGraphEdges the edges whose weaker endpoint ranks highest (D244). The traversal computes both degrees as
+// it goes — the alternative, one GraphNeighbors call per concept, re-walks the
+// whole KB once per node.
+//
+// Invariant: no returned edge has an endpoint absent from Nodes.
+func (kb *KB) GraphSnapshot(opts GraphSnapshotOptions) (GraphSnapshot, error) {
+	limit := opts.Limit
+	if limit <= 0 {
+		limit = DefaultGraphNodeLimit
+	}
+	if limit > MaxGraphNodeLimit {
+		limit = MaxGraphNodeLimit
+	}
+	vg, err := kb.buildVisibleGraph(opts.Include)
+	if err != nil {
+		return GraphSnapshot{}, err
+	}
+	return vg.snapshot(opts.Scope, limit), nil
+}
+
+// snapshot projects the visible graph to one scope and node limit.
+func (vg *visibleGraph) snapshot(scope string, limit int) GraphSnapshot {
+	ids, metas, edgeSet, selfLink := vg.ids, vg.metas, vg.edgeSet, vg.selfLink
+	inDegree, outDegree, broken, index := vg.inDegree, vg.outDegree, vg.broken, vg.index
+	communityOf, communities, prOf := vg.communityOf, vg.communities, vg.prOf
 
 	// Scope selects the full candidate node set; the limit then cuts it.
 	scoped := ids
-	if opts.Scope != "" {
+	if scope != "" {
 		scoped = scoped[:0:0]
 		for _, id := range ids {
-			if metas[id].collection == opts.Scope {
+			if metas[id].collection == scope {
 				scoped = append(scoped, id)
 			}
 		}
@@ -386,5 +436,5 @@ func (kb *KB) GraphSnapshot(opts GraphSnapshotOptions) (GraphSnapshot, error) {
 		snap.Truncated = true
 	}
 	snap.Broken = kept2
-	return snap, nil
+	return snap
 }
