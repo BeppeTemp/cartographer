@@ -15,6 +15,7 @@ import type {
   SourceList,
   SettingsView,
   Concept,
+  ClusterGraph,
   GraphSnapshot,
   KBSummary,
   LintReport,
@@ -219,6 +220,22 @@ export function fetchOverview(kb: string, signal?: AbortSignal): Promise<Overvie
 export function fetchGraph(kb: string, scope: string | null, signal?: AbortSignal): Promise<GraphSnapshot> {
   const query = scope ? `?scope=${encodeURIComponent(scope)}` : "";
   return get<GraphSnapshot>(`/kbs/${encodeURIComponent(kb)}/graph${query}`, signal);
+}
+
+/** What a clustered graph request asks for besides the KB. */
+export interface ClusterRequest {
+  scope: string | null;
+  unfold: string[];
+  focus: string | null;
+}
+
+export function fetchGraphClusters(kb: string, req: ClusterRequest, signal?: AbortSignal): Promise<ClusterGraph> {
+  const params = new URLSearchParams();
+  if (req.scope) params.set("scope", req.scope);
+  if (req.unfold.length > 0) params.set("unfold", req.unfold.join(","));
+  if (req.focus) params.set("focus", req.focus);
+  const query = params.toString();
+  return get<ClusterGraph>(`/kbs/${encodeURIComponent(kb)}/graph/clusters${query ? `?${query}` : ""}`, signal);
 }
 
 export function fetchConcept(kb: string, id: string, signal?: AbortSignal): Promise<Concept> {

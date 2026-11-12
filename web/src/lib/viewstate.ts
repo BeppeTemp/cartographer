@@ -34,6 +34,10 @@ export interface ViewState {
   hmap: string | null;
   /** The plugin view open, `<plugin>/<name>`: only on the ext panel. */
   ext: string | null;
+  /** `nodes` forces the flat graph on a KB above the cluster threshold; absent is clusters. */
+  graph: "nodes" | null;
+  /** The unfolded cluster ids, in the order they were unfolded. */
+  unfold: string[];
 }
 
 export function readViewState(search: string = window.location.search): ViewState {
@@ -81,6 +85,8 @@ export function readViewState(search: string = window.location.search): ViewStat
     artifact: panel === "artifacts" || panel === "templates" ? params.get("artifact") : null,
     hmap: panel === "health" ? params.get("hmap") : null,
     ext: panel === "ext" ? params.get("ext") : null,
+    graph: params.get("graph") === "nodes" ? "nodes" : null,
+    unfold: [...new Set((params.get("unfold") ?? "").split(",").filter((id) => id.startsWith("c:")))],
   };
 }
 
@@ -94,6 +100,8 @@ export function viewStateToSearch(view: ViewState): string {
     params.set("artifact", view.artifact);
   if (view.panel === "health" && view.hmap) params.set("hmap", view.hmap);
   if (view.panel === "ext" && view.ext) params.set("ext", view.ext);
+  if (view.graph === "nodes") params.set("graph", "nodes");
+  if (view.unfold.length > 0) params.set("unfold", view.unfold.join(","));
   const query = params.toString();
   return query ? `?${query}` : "";
 }
