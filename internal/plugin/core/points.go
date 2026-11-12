@@ -57,9 +57,10 @@ type Contribution struct {
 	// every other kind.
 	View *View
 	App  *App
-	// Recipe is what the surveyor side contributes (surveyor.go); nil for every
-	// other kind.
-	Recipe *SurveyorRecipe
+	// Recipe and Connector are what the surveyor side contributes
+	// (surveyor.go); nil for every other kind.
+	Recipe    *SurveyorRecipe
+	Connector *SurveyorConnector
 	// Branding is the data of an atlas-side branding/ folder (one contribution
 	// per plugin); nil for every other kind.
 	Branding *branding.Spec

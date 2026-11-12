@@ -121,12 +121,8 @@ func (v *validator) connectors() error {
 		if len(r.Tools) == 0 {
 			return v.errf(at+".tools", ln(), "required: the tools the model may use, named as the server names them (the server's own list is untrusted)")
 		}
-		seen := map[string]bool{}
-		for _, t := range r.Tools {
-			if strings.TrimSpace(t) == "" || strings.ContainsAny(t, " \t\n") || seen[t] {
-				return v.errf(at+".tools", ln("tools"), "a tool name is non-empty, has no space and is listed once")
-			}
-			seen[t] = true
+		if msg := toolsProblem(r.Tools); msg != "" {
+			return v.errf(at+".tools", ln("tools"), "%s", msg)
 		}
 		c.CallTimeout = defaultConnectorTimeout
 		if r.CallTimeout != "" {
@@ -168,4 +164,17 @@ func envNames(m map[string]string) error {
 		}
 	}
 	return nil
+}
+
+// toolsProblem judges a connector's tool allowlist, "" when it is well formed.
+// Shared by the config and by the plugin connectors/ loader.
+func toolsProblem(tools []string) string {
+	seen := map[string]bool{}
+	for _, t := range tools {
+		if strings.TrimSpace(t) == "" || strings.ContainsAny(t, " \t\n") || seen[t] {
+			return "a tool name is non-empty, has no space and is listed once"
+		}
+		seen[t] = true
+	}
+	return ""
 }
