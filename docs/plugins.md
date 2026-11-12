@@ -309,21 +309,25 @@ It runs code on the Surveyor, so the preview lists every file with the execute b
 
 ### Testing a surveyor side: `plugin test`
 
-`cartographer plugin test <dir> [--recipe <name>] [--output table|json]` runs each recipe of the folder against a scenario
-you wrote and against the conformance checks below. It reads the folder as `plugin validate` does (a tree with problems is
+`cartographer plugin test <dir> [--recipe <name> | --connector <name>] [--output table|json]` runs each recipe and each
+connector of the folder against a scenario you wrote and against the conformance checks below. It reads the folder as `plugin validate` does (a tree with problems is
 exit 2), builds each recipe with the Surveyor's own plugin loader (the command, the mapped variables, the limits) and runs
 it through the production recipe code, so a recipe passes only when a Surveyor would accept what it prints. It needs no
 server, token or model. Exit 0 all passed, 1 a check failed, 2 it could not run (a problem in the tree, a missing
-or malformed scenario). Only recipes are tested in this version; a connector has no scenario yet. The report has one line per step, `step N <verb>`, with `pass` or `fail` and the reason;
-`--output json` prints `{schema, passed, results: [{target, check, status, detail}]}`.
+or malformed scenario). The report has one line per step of a recipe (`step N <verb>`) or call of a connector (`call N <tool>`), with `pass` or `fail` and the reason;
+`--output json` prints `{schema, passed, results: [{target, check, status, detail}]}`. `--recipe <name>` and `--connector <name>` each narrow
+the run to that one target; they cannot be given together (exit 2), because naming one of each would run nothing.
 
-**Trust: an exec recipe runs.** Only a Starlark recipe is offline: it runs in process and its `http.request` is answered
-from recordings. An exec recipe is the folder's own program, and `plugin test` starts it **as you, with your network and
-your files, with none of the approval `plugin install` asks for**. Before it runs, the command prints one line on stderr
-(`running <recipe> as you, unapproved: <command and arguments>`, escaped like the install preview), with no prompt. Before you test a folder you did not
-write, read what it runs: the `command` and `args` of each `recipes/<name>/recipe.yaml`, and the files they name.
+**Trust: an exec recipe and a stdio connector run.** Only a Starlark recipe is offline: it runs in process and its
+`http.request` is answered from recordings. An exec recipe, and a connector with `transport: stdio`, are the folder's own
+programs, and `plugin test` starts them **as you, with your network and your files, with none of the approval
+`plugin install` asks for**. Before each one starts, the command prints one line on stderr (`running recipe|connector <name> as you,
+unapproved: <command and arguments>`, escaped like the install preview), with no prompt. Before you test a folder you did
+not write, read what it runs: the `command` and `args` of each `recipes/<name>/recipe.yaml` and `connectors/<name>.yaml`,
+and the files they name. An http connector is never reached.
 
-The scenario of the recipe `<name>` is `tests/<name>.yaml`, required. The `tests/` folder is ignored by the tree reader:
+The scenario of the recipe or connector `<name>` is `tests/<name>.yaml`, required (a recipe and a connector of one name
+share the file: `steps` are the recipe's, `calls` the connector's). The `tests/` folder is ignored by the tree reader:
 it is neither stored nor part of the digest. Unknown keys are an error.
 
 - `settings`: the recipe's settings (typed scalars), checked against its `spec.settings`.
@@ -335,6 +339,11 @@ it is neither stored nor part of the digest. Unknown keys are an error.
   `next_cursor` the previous list returned. `expect` may hold `ok`, `entries` and `deletes` (a count or the exact keys),
   `next_cursor` (`empty`, `nonempty` or the literal), `error` (a failure code such as `list_failed`) and
   `content_contains`. A step with no `expect` asserts only that the verb succeeds.
+- `calls` (a connector): `{tool, args, expect_error, expect_text_contains}`, made through the connector set a Surveyor
+  opens (the descriptor's allowlist, the call timeout and the result cap). A tool outside the allowlist is refused: use
+  `expect_error: true` to assert it. A stdio connector is the author's process and is started for real; an http one is a
+  live server and is skipped, because a test reaches no network, but its calls are still held to the descriptor's allowlist
+  (a call to an unlisted tool needs `expect_error: true`).
 - `http` (Starlark recipes): recorded exchanges `{stage, method, url, query, response: {status, headers, body | body_file}}`.
   `http.request` is answered from them and from nothing else: it runs the checks a live call makes before the network (method, https, no
   credentials in the url, the manifest's `net`, header and size caps, the redirect rules for a recorded 3xx) and then
@@ -361,6 +370,7 @@ with the reason); the steps of the scenario print as `step N <verb>`.
 | `fetch` | `fetch` answers every key it is asked (skipped when it is not declared or every entry came with content) |
 | `protocol` | an exec script exits 64 with no output on an unknown verb and on another protocol number (skipped for a Starlark recipe) |
 | `secrets` | no `env` test value of 4 bytes or more appears in an entry, a content or an error detail |
+| `connector` | a stdio connector starts, offers every tool of its allowlist within the schema and name caps with a name model providers accept (`[a-zA-Z0-9_-]`, at most 64 characters once aliased), answers its calls capped, and leaks no `env` test value into a result or an error (that the child sees only the variables its descriptor lists is enforced by the Surveyor's own process start, not judged here); the calls print as `call N <tool>` |
 
 `examples/plugin-recipe` is a Starlark recipe with a recorded scenario that passes every check that applies to it (it is run by a Go test): copy it as a starting point.
 
@@ -395,7 +405,7 @@ branding whose accent cannot be shown stops the start naming the plugin and the 
 |---|---|
 | `plugin new <name> [<dir>]` | Scaffolds a plugin: manifest (schema 2, version 0.1.0, `cartographer: ">=<running>"`, never below 0.29.0, `components.client.sdk.artifacts: 1`), a README and one example skill. It checks the name with the manifest rules (and the names of the commands) and the scaffold with `ReadTree` before writing, and refuses a non-empty `<dir>` (default `./<name>`). A point other than `skills/` gets no folder: git does not keep an empty one, and a `.gitkeep` in a point is a file the reader refuses. |
 | `plugin validate <dir>` | Runs `ReadTree` on the folder as it is, offline, storing nothing, and lists **every** problem as `path: reason`. Exit 0 clean, 1 with problems, 2 on usage. Run it before pushing. |
-| `plugin test <dir> [--recipe <name>] [--output table\|json]` | Runs the recipes of a plugin's surveyor side against `tests/<name>.yaml` and the conformance checks ([above](#testing-a-surveyor-side-plugin-test)). A Starlark recipe replays recordings; **an exec recipe's command runs as you, unapproved, with your network**, and is printed first. Exit 0 all passed, 1 a check failed, 2 it could not run. |
+| `plugin test <dir> [--recipe <name> \| --connector <name>] [--output table\|json]` | Runs the recipes and connectors of a plugin's surveyor side against `tests/<name>.yaml` and the conformance checks ([above](#testing-a-surveyor-side-plugin-test)). A Starlark recipe replays recordings; **an exec recipe's or a stdio connector's command runs as you, unapproved, with your network**, and is printed first. Exit 0 all passed, 1 a check failed, 2 it could not run. |
 | `plugin install <git-url>[@<ref>] \| <folder> [--yes]` | Acquires, validates, stores and records the plugin as `installed`, then prints the preview and asks `Enable <name> <version>? [y/N]` on a terminal. `y` or `--yes` sets `approved` to `installed` and `enabled`. Before asking it prints the content of what runs (hook scripts, `hook.json`, frontmatter that declares commands). Otherwise it stays pending (exit 0, last line `pending approval: run cartographer plugin install <arg> again on a terminal, or with --yes`); a declined update keeps the approved version active. A name installed from another source is refused with exit 2 and nothing written; the same source is an update and keeps the approval. |
 | `plugin vendor <git-url>[@<ref>] \| <folder> --to <dir> [--side <side>]` | Fills a pinned store: fetches like `install`, validates every side (a tree with problems is refused, nothing is stored), stores it under `<dir>/<name>/<digest>/`, prints the preview of each side the tree has (`--side` limits it to one), the digest and, for each headless side, the `plugins_dir` and `plugins.<name>.digest` lines to put in that component's config. A client side gets a note instead: it is approved with `install`. It writes neither `.cartographer.yaml` nor any approval and takes no client lock. |
 | `plugin list` | One row per configured plugin: version, `State`, short digest, redacted source, contributions per point, `update available` when `installed` differs from a non-empty `approved`. |

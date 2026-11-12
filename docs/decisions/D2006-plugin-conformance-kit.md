@@ -4,14 +4,15 @@ topic: architecture
 
 # D2006 — `plugin test` judges a recipe with the production parser, and a recorded replay stands in for the network
 
-**Decision.** `cartographer plugin test <dir>` is a client-CLI command that needs no server, token or model. A Starlark recipe needs no network either; an exec recipe is the folder's own program, run as the user without the approval an install asks for, so the command prints each command before it runs. It
+**Decision.** `cartographer plugin test <dir>` is a client-CLI command that needs no server, token or model. A Starlark recipe needs no network either; an exec recipe and a stdio connector are the folder's own programs, run as the user without the approval an install asks for, so the command prints each command before it runs. It
 builds each recipe of the folder with the Surveyor's own plugin loader (`surveyor.PluginPoints`) and runs it through the
 production recipe types against `tests/<name>.yaml`, then through a fixed list of conformance checks
 (`recipetest.Checks`, documented by name in `docs/plugins.md`; a test compares the two). A Starlark recipe's
 `http.request` is answered by `starcore.Replay`: recorded exchanges carried on `CallSpec`, that run the checks a live call
 makes before the network (method, scheme, credentials in the url, the manifest's `net`, headers, caps, the redirect rules
 for a recorded 3xx) and then answer from the recording instead of resolving or dialing. A request with no recording fails naming method
-and url. Only `plugin test` sets it.
+and url. Only `plugin test` sets it. A stdio connector is tested by starting it for real and making the scenario's calls
+through `connector.Open`, with the descriptor's allowlist and caps; an http connector is a live server and is skipped.
 
 **Why.** An author must learn that a recipe is wrong before a user does, and the only definition of a valid listing is
 the production parser, so the kit calls it rather than re-implementing it: a recipe passes when a Surveyor would accept
@@ -29,6 +30,8 @@ that a replayed call exercises the host's checks but not the dial, so the refusa
   Surveyor config; it cannot be a repeatable fixture.
 - Re-implementing the parser in the kit: two definitions of a valid listing drift. The entries check and the list half of
   the system check therefore read the parser's `protocol_error` and do not judge the entries again.
+- Recording an http connector's MCP traffic: a recording of a session says nothing about the server it came from, and a
+  live call would make `plugin test` depend on a network and a credential.
 
 **Consequences.** Nothing the Surveyor runs may set `CallSpec.Replay` or `StarConfig.Tune`, or import `recipetest`:
 `TestOnlyThePluginTestKitSetsReplay`, `TestOnlyThePluginTestKitSetsStarConfigTune` and

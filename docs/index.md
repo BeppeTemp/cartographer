@@ -12,6 +12,7 @@ only the pages relevant to your task.
 | [agent-install.md](agent-install.md) | Command-by-command runbook for an agent to install Cartographer, mount a first KB, connect, and verify |
 | [mcp-clients.md](mcp-clients.md) | Using Meridian from a host with no Cartographer client side (Open WebUI, a gateway, an SDK agent loop): connect, tokens with an `id`, what the model receives, limits |
 | [deployment.md](deployment.md) | Deployment components, deployment scenarios and recipes (native, stdio, single VM, Kubernetes, several servers, the Helm chart), server configuration, health, backup/DR, upgrades, CI/CD and the Surveyor (a third role) |
+| [surveyor-connectors.md](surveyor-connectors.md) | Writing a Surveyor connector as a plugin: exec, Starlark or MCP, `list` and its cursor, deletes, `fetch`, credentials, testing with `plugin test`, and what a connector cannot do (the KB has no per-concept ACL) |
 | [surveyor-recipes.md](surveyor-recipes.md) | Surveyor exec recipes: the `recipes.<name>` keys, protocol v2 (stdin request with a verb, JSON-lines listing, spec and check), failures, trust model, example script |
 | [configurator.md](configurator.md) | Compass (the multi-provider client) and service subcommands (`cartographer setup/agents/connect/disconnect/reconnect/status/sync/call/doctor/update/kb/service/…`): flags, generated files per provider, `.cartographer.yaml`, lockfile v2, installation |
 | [control-plane.md](control-plane.md) | Go server, complete MCP tool API (source of truth for the list), search index and validation |
