@@ -339,6 +339,8 @@ type MultiKBServer struct {
 	surveyors surveyorStore
 	// components is the registry of expected components (components.go).
 	components componentRegistry
+	// atlasURL is where a browser opens the Atlas (SetAtlasAddr).
+	atlasURL string
 	// extensions are the views, apps and plugins of GET /api/ui/v1/extensions
 	// (uiapi_extensions.go), set once before serving.
 	extensions extensionSet
@@ -355,6 +357,25 @@ type webMount struct {
 // it. Called by the HTTP server when web.enabled is on; never in stdio mode.
 func (m *MultiKBServer) EnableWeb(static http.Handler) {
 	m.web = &webMount{Static: static}
+}
+
+// SetAtlasAddr gives the listen address kb_status derives ui_url from (#1945).
+// It keeps the address only if webui.LoopbackURL accepts it (a loopback or
+// wildcard bind) and reports whether it did: serve cannot hand over a URL of
+// its own choosing, so the bind rule lives in one place. Call it before
+// serving; ui_url is reported only while the bundle is mounted, and only to a
+// local caller (atlasKBURL).
+func (m *MultiKBServer) SetAtlasAddr(addr string) bool {
+	m.atlasURL = webui.LoopbackURL(addr)
+	return m.atlasURL != ""
+}
+
+// servedAtlasURL is the Atlas address, "" unless EnableWeb mounted a bundle.
+func (m *MultiKBServer) servedAtlasURL() string {
+	if m == nil || m.web == nil || m.web.Static == nil {
+		return ""
+	}
+	return m.atlasURL
 }
 
 // APIPrefix is the public, versioned, read-only API.
@@ -425,6 +446,7 @@ func (m *MultiKBServer) MountKB(name string, setupFn func(s *Server)) {
 	srv.liveSurveyor = m.surveyors.hasLive
 	srv.SetPolicyKB(name)
 	srv.SetFeedback(m.feedback)
+	srv.atlasURL = m.servedAtlasURL
 	setupFn(srv)
 	m.servers[name] = srv
 	m.kbs = append(m.kbs, KBInfo{Name: name, Status: "normal"})
@@ -497,6 +519,7 @@ func resourceBaseURL(r *http.Request) string {
 // preferring one over the other.
 func (m *MultiKBServer) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r = withLocalCaller(r)
 		switch {
 		case r.URL.Path == "/health":
 			// Liveness: always 200 with status "ok", even when not ready.

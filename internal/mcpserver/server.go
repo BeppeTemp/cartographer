@@ -207,6 +207,9 @@ type Server struct {
 	// declaration (uiapi_surveyors.go). Nil when no store is wired (stdio,
 	// tests): every principal then counts as activity.
 	liveSurveyor func(principal string) bool
+	// atlasURL is the Atlas address of the HTTP server that mounted this KB,
+	// read at request time ("" when no Atlas is served); nil under stdio.
+	atlasURL func() string
 
 	// autoRepairTrigger asks the background repair for a run after a git pull
 	// moved HEAD (D355). Buffered, so a signal never blocks the pull; created

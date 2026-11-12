@@ -101,6 +101,12 @@ type Principal struct {
 	// Via is the id of the token behind an identity that is not the token's
 	// own (a person named by a trusted proxy); empty when the ID is the token's.
 	Via string
+	// ProxyToken is set when the bearer token is a trusted-proxy token
+	// (ScopedToken.Proxy), whether or not the request named a person: a proxy
+	// that forwards anonymous traffic on its own token leaves Via empty. It
+	// changes no authorization decision; it tells a caller that the TCP peer
+	// may be the proxy and not the caller.
+	ProxyToken bool
 	// Groups are the groups a trusted proxy named for the person.
 	Groups []string
 	// Local marks the principal the server itself creates for a trusted local
@@ -402,7 +408,7 @@ func buildSnapshot(tokens []ScopedToken) *tokenSnapshot {
 				}
 			}
 			snap.hashes[h] = tokenEntry{
-				principal: Principal{ID: id, Policy: clonePolicy(policy), Kind: kind, Via: st.Via},
+				principal: Principal{ID: id, Policy: clonePolicy(policy), Kind: kind, Via: st.Via, ProxyToken: st.Proxy},
 				expiresAt: st.ExpiresAt,
 				proxy:     st.Proxy,
 			}

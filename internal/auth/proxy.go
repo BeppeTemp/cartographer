@@ -243,5 +243,5 @@ func (c *ProxyConfig) resolve(r *http.Request, token Principal) (p Principal, st
 		log.Printf("auth: user %q behind proxy %q has no group that maps to a role", id.User, token.ID)
 		return Principal{}, http.StatusForbidden, "no role for this user"
 	}
-	return Principal{ID: "user:" + id.User, Policy: mapped, Kind: KindHuman, Via: id.Via, Groups: id.Groups}, 0, ""
+	return Principal{ID: "user:" + id.User, Policy: mapped, Kind: KindHuman, Via: id.Via, ProxyToken: true, Groups: id.Groups}, 0, ""
 }

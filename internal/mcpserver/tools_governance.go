@@ -711,7 +711,7 @@ func missingKeyHint(k *kb.KB) string {
 	return msg + "no key in credentials_dir holds it: add " + name + ".age with that identity, then restart the service to load it"
 }
 
-func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverVersion string, latestVersion func() string, fb func() feedback.Destination, cc *conformanceCache) Tool {
+func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverVersion string, latestVersion func() string, fb func() feedback.Destination, atlasURL func(requestContext) string, cc *conformanceCache) Tool {
 	return Tool{
 		Name:        "kb_status",
 		Description: "KB health in one call: concept counts, stale concepts, contradictions and gaps, git replication, capabilities (gate, state, key), source and search-miss counts, versions, conformance {findings, fixable, last_doctor, doctor_suggested} (doctor_suggested true: maintenance is due, see kb_review; skill cartographer-kb-doctor if the client has it), usage of skills and agents. How to work in this KB: kb_guide. Read-only.",
@@ -935,6 +935,14 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverV
 			}
 			if top := misses.top(); len(top) > 0 {
 				result["search_misses"] = top
+			}
+			// #1945: where the user can browse this KB, only when this server
+			// serves the Atlas (HTTP with web.enabled) and the caller is on the
+			// server's own machine; omitted otherwise.
+			if atlasURL != nil {
+				if u := atlasURL(ctx); u != "" {
+					result["ui_url"] = u
+				}
 			}
 			// D254: what the server knows about its own staleness, from the
 			// serve-owned check — reading it is not a network call.

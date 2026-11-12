@@ -1309,7 +1309,7 @@ func (m *Manager) Status(configPath string) (Status, error) {
 		st.HealthChecked = true
 		st.Healthy = checkHealth(cfg.HTTP)
 		if st.Installed && cfg.Web.Enabled {
-			st.UIURL = uiURL(cfg.HTTP)
+			st.UIURL = webui.URL(cfg.HTTP)
 		}
 	}
 
@@ -1342,23 +1342,9 @@ func (m *Manager) TrayView(explicitConfig string) (Status, error) {
 	}
 	st.HTTPAddr = cfg.HTTP
 	if st.Installed && cfg.Web.Enabled {
-		st.UIURL = uiURL(cfg.HTTP)
+		st.UIURL = webui.URL(cfg.HTTP)
 	}
 	return st, nil
-}
-
-// uiURL builds the browser address of the embedded UI from a server http
-// address. Unlike healthURL it also rewrites a wildcard bind (0.0.0.0, ::) to
-// loopback: the probe can dial a wildcard, but a browser cannot open one.
-func uiURL(addr string) string {
-	host, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		return ""
-	}
-	if host == "" || host == "0.0.0.0" || host == "::" {
-		host = "127.0.0.1"
-	}
-	return fmt.Sprintf("http://%s%s", net.JoinHostPort(host, port), webui.MountPath)
 }
 
 // checkHealth reports whether GET http://<addr>/health returns 200 within
