@@ -535,7 +535,7 @@ from `film/` by imports (followed transitively: multi-line, side-effect, dynamic
 shape (no `continue-on-error`, write only in `publish`, actions pinned). The render itself needs a browser,
 ffmpeg and minutes of software WebGL, so it is exercised only by `film.yml`: no test or pull-request check
 renders it, except `film-check.yml`: on a pull request touching `film/` or the film workflows it renders 30 frames
-(`film/render.sh --no-mp4 --frames 30`, same pinned actions and packages, no cache, read-only) so the encode runs on the
+(`film/render.sh --no-mp4 --frames 30`, same pinned actions and packages, no cache (`package-manager-cache: false`), read-only) so the encode runs on the
 runner's tool versions before the release candidate does. It is not a required check.
 
 ### Packaging (`install.sh` and the generated Cask)
@@ -993,7 +993,7 @@ scripts against a scratch bare repository.
 
 `security.yml` is the one workflow that tests nothing of ours: `make vulncheck`
 (govulncheck) and `npm audit` over the `web/` production dependencies,
-`make lint-workflows` (actionlint and zizmor, the latter installed from the hash lock `.github/pip/zizmor.txt`); `internal/repodocs/workflows_test.go` pins the token rules: `TestWriteTokenJobsRestoreNoSharedCache` (a job with a write token restores no cache, setup actions say `cache: false`, an image cache is scoped to the run), `TestReleasePATStepsRunNoRepositoryCode` (no step with the release PAT runs `make`, `go` or a repository script) and `TestPipInstallsRequireHashes` (Python installs are `--require-hashes --only-binary=:all:` from a lock); CodeQL is `codeql.yml`, which runs on push to `main`, weekly and on demand, never on a PR, and skips the generated bundle `internal/webui/dist` (`.github/codeql/codeql-config.yml`). `security.yml` runs on push to
+`make lint-workflows` (actionlint and zizmor, the latter installed from the hash lock `.github/pip/zizmor.txt`); `internal/repodocs/workflows_test.go` pins the token rules: `TestWriteTokenJobsRestoreNoSharedCache` (a job with a write token restores no cache: setup-node says `package-manager-cache: false`, since v7 refuses `cache: false`, the other setup actions say `cache: false`; an image cache is scoped to the run), `TestFilmJobsSetPackageManagerCache` (film-check and film.yml's render job set setup-node's `package-manager-cache` explicitly, off for an untrusted ref, and pin its `cache` input), `TestReleasePATStepsRunNoRepositoryCode` (no step with the release PAT runs `make`, `go` or a repository script) and `TestPipInstallsRequireHashes` (Python installs are `--require-hashes --only-binary=:all:` from a lock); CodeQL is `codeql.yml`, which runs on push to `main`, weekly and on demand, never on a PR, and skips the generated bundle `internal/webui/dist` (`.github/codeql/codeql-config.yml`). `security.yml` runs on push to
 `main`, on a PR touching dependencies or workflows, and weekly, and **none
 of it is a required check**: an advisory published against an old dependency must
 not block an unrelated PR. A red scan on `main` opens a `vuln-scan` issue with
