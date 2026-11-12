@@ -170,3 +170,47 @@ func TestSecretsNoneCompiles(t *testing.T) {
 		t.Error("a plain rw token keeps secrets")
 	}
 }
+
+// TestPluginTokenIsLabelledAndLimited: the principal of a token bound to a
+// plugin is forced to plugin:<plugin>/<id> whatever id says, it never has
+// secrets, and artifacts stay withheld unless a rule says artifacts: rw.
+func TestPluginTokenIsLabelledAndLimited(t *testing.T) {
+	roles := []config.RoleSpec{
+		{Name: "w", Rules: []config.RuleSpec{{KB: "docs", Access: "rw"}}},
+		{Name: "wa", Rules: []config.RuleSpec{{KB: "docs", Access: "rw", Artifacts: "rw"}}},
+	}
+	exp := "2999-01-01T00:00:00Z"
+	specs := []config.TokenSpec{
+		{Token: "p1", ID: "someone-else", Kind: "client", Plugin: "acme", ExpiresAt: exp, Roles: []string{"w"}},
+		{Token: "p2", ID: "art", Kind: "client", Plugin: "acme", ExpiresAt: exp, Roles: []string{"wa"}},
+		{Token: "p3", ID: "legacy", Kind: "client", Plugin: "acme", ExpiresAt: exp, Scopes: []string{"kb:docs:rw"}},
+		{Token: "h", ID: "plain", Roles: []string{"w"}},
+	}
+	store := auth.NewScopedTokenStore(scopedTokensWithRoles(specs, roles))
+	for _, c := range []struct {
+		tok, id        string
+		artifacts, sec bool
+	}{
+		{"p1", "plugin:acme/someone-else", false, false},
+		{"p2", "plugin:acme/art", true, false},
+		{"p3", "plugin:acme/legacy", false, false},
+		{"h", "plain", true, true},
+	} {
+		p, ok := store.PrincipalOf(c.tok)
+		if !ok {
+			t.Fatalf("%s: not found", c.tok)
+		}
+		if p.ID != c.id || (c.tok != "h" && p.Kind != auth.KindClient) || p.Via != "" {
+			t.Errorf("%s: principal %q kind %q via %q, want %q", c.tok, p.ID, p.Kind, p.Via, c.id)
+		}
+		if got := p.Policy.AllowsArtifactWrite("docs"); got != c.artifacts {
+			t.Errorf("%s: artifact write = %v, want %v", c.tok, got, c.artifacts)
+		}
+		if got := p.Policy.AllowsSecrets("docs"); got != c.sec {
+			t.Errorf("%s: secrets = %v, want %v", c.tok, got, c.sec)
+		}
+		if !p.Policy.HasKBAccess("docs", true) {
+			t.Errorf("%s: lost its content write", c.tok)
+		}
+	}
+}

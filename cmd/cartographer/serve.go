@@ -220,6 +220,19 @@ func loadServeConfigAt(fs *flag.FlagSet, overrides config.FlagOverrides, configF
 	// Validate the configuration that will actually be served, not just the
 	// YAML: environment- and flag-supplied tokens reach the listener too, and
 	// an invalid one used to widen access rather than stop startup (D179).
+	// A token bound to a plugin must name a pinned one. Judged on the effective
+	// set, after the overrides. A reload (zero time) drops the token instead of
+	// refusing the file: unpinning a plugin must revoke its token at once, not
+	// leave it valid until restart behind a refused reload.
+	if now.IsZero() {
+		var dropped []string
+		cfg.Auth.Tokens, dropped = config.DropUnpinnedPluginTokens(cfg.Auth.Tokens, cfg.Plugins)
+		for _, d := range dropped {
+			log.Printf("auth reload: token %s dropped: its plugin is no longer pinned and enabled in plugins", d)
+		}
+	} else if err := config.PluginTokensPinned(cfg.Auth.Tokens, cfg.Plugins); err != nil {
+		return nil, fmt.Errorf("config: auth: %w", err)
+	}
 	if err := config.ValidateAuthAt(cfg.Auth, now); err != nil {
 		return nil, fmt.Errorf("config: auth: %w", err)
 	}
@@ -968,6 +981,14 @@ func scopedTokensWithRoles(specs []config.TokenSpec, roles []config.RoleSpec) []
 			expires, _ = time.Parse(time.RFC3339, spec.ExpiresAt) // validated likewise
 		}
 		policy.Permissions = rolePermissions(byName, spec.Roles)
+		principal := principalID(spec)
+		if spec.Plugin != "" {
+			// A plugin's artifact write is explicit (artifacts: rw), never the
+			// default of a write rule; secrets are withheld by the token store.
+			policy.Permissions = pluginPermissions(byName, spec.Roles)
+			// Forced whatever id says: a token cannot claim another identity.
+			principal = auth.PluginPrefix + spec.Plugin + "/" + principalID(spec)
+		}
 		// The pre-scopes admin token is DECLARED here, not inferred downstream
 		// (D179): only this layer can tell "the operator wrote no restriction"
 		// apart from "the restrictions the operator wrote produced nothing".
@@ -977,14 +998,29 @@ func scopedTokensWithRoles(specs []config.TokenSpec, roles []config.RoleSpec) []
 		out[i] = auth.ScopedToken{
 			Token:     spec.Token,
 			Scopes:    scopes,
-			Principal: principalID(spec),
+			Principal: principal,
 			Policy:    policy,
 			Kind:      kind,
 			ExpiresAt: expires,
 			Proxy:     spec.Proxy,
+			Plugin:    spec.Plugin,
 		}
 	}
 	return out
+}
+
+// pluginPermissions is rolePermissions for a token bound to a plugin: a rule
+// that does not say artifacts: rw withholds the artifact write tools.
+func pluginPermissions(byName map[string]config.RoleSpec, names []string) []auth.Permission {
+	perms := rolePermissions(byName, names)
+	i := 0
+	for _, name := range names {
+		for _, rule := range byName[name].Rules {
+			perms[i].ReadOnlyArtifacts = rule.Artifacts != "rw"
+			i++
+		}
+	}
+	return perms
 }
 
 // rolePermissions compiles the named roles into the union of their rules.

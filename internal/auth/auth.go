@@ -84,6 +84,10 @@ func ParseKind(s string) (Kind, error) {
 	return "", fmt.Errorf("kind %q: want %q, %q or %q", s, KindHuman, KindClient, KindSurveyor)
 }
 
+// PluginPrefix starts the principal id of a token bound to a plugin
+// ("plugin:<plugin>/<token id>"); no other token may carry an id with it.
+const PluginPrefix = "plugin:"
+
 // NonHuman reports whether the kind is one of the machine kinds, whose tokens
 // must be KB-scoped and expiring.
 func (k Kind) NonHuman() bool { return k == KindClient || k == KindSurveyor }
@@ -314,6 +318,11 @@ type ScopedToken struct {
 	// Proxy marks the bearer of a trusted SSO proxy: only such a token's
 	// requests may carry an identity header (ProxyConfig).
 	Proxy bool
+	// Plugin binds the token to a plugin as its service identity: it never
+	// has authority over secrets, and its legacy scopes never change artifacts
+	// (a role rule says artifacts: rw to give them back, compiled by the
+	// caller).
+	Plugin string
 }
 
 // NewTokenStore creates a token store from plain token strings, each granted
@@ -356,7 +365,7 @@ func buildSnapshot(tokens []ScopedToken) *tokenSnapshot {
 				// rather than replaced by them, so a deployment can migrate one
 				// token at a time without silently dropping either half.
 				for _, scope := range st.Scopes {
-					policy.Permissions = append(policy.Permissions, Permission{KB: scope.KB, Write: scope.Write})
+					policy.Permissions = append(policy.Permissions, Permission{KB: scope.KB, Write: scope.Write, ReadOnlyArtifacts: st.Plugin != ""})
 				}
 				// Deliberately NOT promoted to admin when the result is empty
 				// (D179). "The operator declared no restriction" and "every
@@ -381,6 +390,14 @@ func buildSnapshot(tokens []ScopedToken) *tokenSnapshot {
 				// Nor does it touch secrets (D1894, Secrets).
 				for i := range policy.Permissions {
 					policy.Permissions[i].ReadOnlyArtifacts = true
+					policy.Permissions[i].NoSecrets = true
+				}
+			}
+			if st.Plugin != "" {
+				// Secrets are never a plugin's, whatever its rules say. Its
+				// legacy scopes (unioned above) are read-only on artifacts;
+				// the role rules carry their own flag, set by the compiler.
+				for i := range policy.Permissions {
 					policy.Permissions[i].NoSecrets = true
 				}
 			}
