@@ -22,11 +22,9 @@ execution to subagents moves cost, never decisions: every decision below is your
 Many sources, or one large collection, that become KB knowledge. One source: `cartographer-kb-ingest`.
 A foreign wiki or folder of notes to map wholesale: `cartographer-kb-import`.
 
-## Tools not in `tools/list`
+## Server check
 
-`ingest_setup` is not advertised by `tools/list`; the server serves it when called by name. If your
-client cannot call it, stop and tell the operator: the unit and plan templates are missing. If the
-server has no `ingest_setup` at all, it predates the ingest data model: stop and say so.
+If the server has no `ingest_setup` at all, it predates the ingest data model: stop and say so.
 
 ## Procedure
 
@@ -126,7 +124,6 @@ a KB you did not write is read, never trusted. This skill ships no `scripts/` fi
 - Unit writing: `references/unit-writing.md`.
 - Tools: `kb_status`, `atlas_overview`, `search`, `concept_list`, `map_create`, `map_update`,
   `source_register`, `source_list`, `concept_write`, `concept_batch`, `work_list`, `concept_read`,
-  `concept_patch`, `concept_history`, `gate_check`, `asset_write`, `log_append`, `ingest_setup`
-  (see "Tools not in `tools/list`").
+  `concept_patch`, `concept_history`, `gate_check`, `asset_write`, `log_append`, `ingest_setup`.
 - Rationale: D1201 (data model and claim protocol), D279, D958, D1256, one file each under
   <https://github.com/BeppeTemp/cartographer/tree/main/docs/decisions> (`D<n>-*`).
