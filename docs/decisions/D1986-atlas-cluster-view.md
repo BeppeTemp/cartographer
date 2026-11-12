@@ -18,6 +18,10 @@ ids live in the URL (`unfold=`), are emptied on a KB switch and lose what the
 server reports in `dropped_unfolds`, and the selected concept rides every
 request as `focus`.
 
+The view draws a cluster as one sphere on a log scale of its size, an edge's
+weight as one to three overlaid strokes, and unfolds a cluster on a click or a
+zoom onto it (a click only under reduced motion); the verbs are unfold and fold.
+
 **Why.** The body is a different shape from the flat snapshot (clusters, weighted
 edges, mixed elements), and the flat route's contract stays as it is. A preview
 route is a free-form object in OpenAPI, so the shape can still move before it is
@@ -31,6 +35,8 @@ promoted. The cost is a second graph route a client has to choose between.
 - Waiting for the overview before any graph request: on a large KB the
   overview is the slow request, so the page would stay empty; a KB whose size
   is not known yet is read flat once, and clustered from then on.
+- Edge thickness as real line width: WebGL ignores `linewidth`, and screen-space
+  quads for every edge are a change of the scene's renderer, not of this view.
 - An unbounded `unfold` list: far more than 50 ids never fit the 400-element
   budget, so a longer list is a malformed client, not a view.
 

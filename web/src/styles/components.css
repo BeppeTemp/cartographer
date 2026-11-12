@@ -1245,6 +1245,70 @@ body.is-resizing {
   background: var(--surface-1);
 }
 
+/* The cluster view (D1986): the Clusters / Nodes switch
+   beside the camera, and the unfolded clusters, each with its Fold. */
+.graph__level {
+  position: absolute;
+  z-index: 2;
+  inset-block-end: var(--space-4);
+  inset-inline-end: calc(var(--space-4) + 56px);
+  display: flex;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+}
+
+.graph__unfolded {
+  position: absolute;
+  z-index: 2;
+  inset-block-start: calc(var(--space-4) + 56px);
+  inset-inline-end: var(--space-4);
+  display: grid;
+  gap: var(--space-1);
+  max-width: 320px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.graph__unfold {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-2);
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+}
+
+.graph__unfold-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph__unfold-count {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.legend__unfold {
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: start;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+}
+
+.legend__unfold:hover {
+  text-decoration: underline;
+}
+
 /* --- Node list (the keyboard path to the canvas) --- */
 
 .nodelist {
@@ -4457,4 +4521,15 @@ a.rail__panel { text-decoration: none; }
   background: none;
   border: 0;
   cursor: pointer;
+}
+
+/* The replay has the canvas to itself: the level switch leaves with the camera. */
+.graph[data-growing] .graph__level {
+  visibility: hidden;
+}
+
+/* Every cluster listed: the card scrolls rather than covering the canvas. */
+.legend__rows:has(.legend__unfold) {
+  max-height: 40vh;
+  overflow-y: auto;
 }

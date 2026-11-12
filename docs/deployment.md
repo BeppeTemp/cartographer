@@ -1498,7 +1498,19 @@ landed, the KB is read flat. The unfolded cluster ids live in the URL
 (`unfold=`, emptied on a KB switch); an id the server reports in
 `dropped_unfolds` leaves it, and the selected concept rides every request as
 `focus`, so a live refresh keeps it drawn and opening one that sits in a folded
-cluster asks for it once. A static snapshot always reads the flat graph. A browser without WebGL
+cluster asks for it once. A static snapshot always reads the flat graph. In the cluster view each folded community is one sphere,
+sized on a log scale by its concept count and coloured as its members are in the
+flat view, and the links between two clusters are one edge drawn with up to three
+overlaid strokes as it stands for more links (WebGL lines are one pixel wide).
+Clicking a cluster, or zooming in on it near the middle of the canvas (never
+under reduced motion), unfolds it: its members grow out of where it stood, and a
+chip names it with "Showing x of y" when not all of them fit and a **Fold**
+button (Escape on it folds too). On the whole KB's view the legend lists the
+largest clusters and, on request, all of them, each a button that unfolds it
+(the keyboard's way to a cluster; with a concept open or on a Map, the palette's
+pick of a folded concept unfolds its cluster); a notice says how many clusters, concepts and unfolded clusters
+there are; a **Clusters / Nodes** switch beside the camera keeps the flat top
+2,000 at hand; and the growth replay is off until Nodes is chosen. A browser without WebGL
 gets the concept list, search and inspector, with a note where the graph would
 be. The UI follows the system's light or dark scheme until the viewer picks one
 (D233). The reading panel is resizable: drag its left edge, or focus the edge
