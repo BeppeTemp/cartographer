@@ -163,9 +163,10 @@ func TestGitWrap_CommitFailureIsRecordedAndDoesNotSchedulePush(t *testing.T) {
 	if err := k.SyncOut(); err != nil {
 		t.Fatalf("seed SyncOut: %v", err)
 	}
-	hook := filepath.Join(k.Root, ".git", "hooks", "pre-commit")
-	if err := os.WriteFile(hook, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
-		t.Fatal(err)
+	// An invalid commit.cleanup fails git commit portably; a hook would not, the
+	// server's commits ignore core.hooksPath.
+	if out, err := exec.Command("git", "-C", k.Root, "config", "commit.cleanup", "cartographer-invalid").CombinedOutput(); err != nil {
+		t.Fatalf("git config: %v: %s", err, out)
 	}
 	res := writeWrappedTool(t, k, "test_write", nil)
 	warning := syncWarning(t, res)

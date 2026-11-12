@@ -127,7 +127,10 @@ decides every step **before** running any:
   `--name`, else the repository name. The same probe proves the remote is reachable with this
   machine's credentials, under the non-interactive git environment of `kb clone` (no prompts,
   SSH batch mode, host keys never auto-accepted — D173); a failure exits 2 **before anything is
-  written**, with the remedy for the recognised git errors.
+  written**, with the remedy for the recognised git errors. A second probe, `git push --dry-run` of a
+  throw-away commit to a branch that does not exist (`gitx.ProbePushAccess`), asks whether those credentials may
+  *push*: a read-only token or deploy key exits 2 at once with the same remedy, instead of failing at the first write.
+  It sees access only; a repository rule or required signature shows at the first real push.
 - **The KB's initial commit is authored by the operator (D904, D156).** `kb create` (so `setup`'s KB
   step) creates the repository first and then asks git who the operator is there, so a global identity
   and an `includeIf gitdir:` for the data dir both apply; the author is also the committer. Only a

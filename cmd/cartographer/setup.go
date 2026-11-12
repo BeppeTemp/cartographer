@@ -470,6 +470,7 @@ func urlPort(raw string) string {
 // real command.
 var (
 	setupProbeRemote   = gitx.ProbeRemoteContent
+	setupProbePush     = func(ctx context.Context, remote string) error { return gitx.ProbePushAccess(ctx, remote) }
 	setupLookGit       = func() bool { _, err := exec.LookPath("git"); return err == nil }
 	setupServiceStatus = func() (service.Status, error) { return service.NewManager().Status("") }
 	setupBackend       = func() service.Backend { return service.NewManager().Backend() }
@@ -561,6 +562,11 @@ func gatherSetupFacts(o setupOptions) (setupFacts, error) {
 		probe, err := setupProbeRemote(ctx, o.Remote)
 		if err != nil {
 			return f, fmt.Errorf("cannot reach %s with this machine's git credentials — nothing was changed:\n  %v", gitx.RedactRemoteURL(o.Remote), err)
+		}
+		// Reading is not writing: the server pushes every write, so a credential
+		// that cannot push is reported now, not at the first write.
+		if err := setupProbePush(ctx, o.Remote); err != nil {
+			return f, fmt.Errorf("this machine's git credentials can read %s but cannot push to it — nothing was changed:\n  %v", gitx.RedactRemoteURL(o.Remote), err)
 		}
 		f.RemoteProbed, f.RemoteHasRefs, f.RemoteForgeInit = true, probe.HasRefs, probe.ForgeInit
 	}

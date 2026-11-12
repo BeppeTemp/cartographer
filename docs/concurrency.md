@@ -161,6 +161,11 @@ Meridian's git never looks inside one, and its commits never record one. Three r
   `diff.ignoreSubmodules=all`, `submodule.recurse` and `fetch.recurseSubmodules` off, and `core.fsmonitor=false`
   (command-line configuration reaches a child git process too, so a nested repository's fsmonitor is not run
   even by a command that does look inside);
+- the server's commits do not depend on the user's commit-time configuration: `commit.gpgsign=false`, `push.gpgSign=false` and an empty
+  `core.hooksPath` ride in the same configuration, so a global signing setting or hook cannot block or fail a write
+  from a service with no terminal. The override is command-line configuration, so it also wins over a KB's own
+  `.git/config`: the server owns its clones, and per-KB hooks and signing are not supported on server commits. `git commit` is stopped after `gitx.CommitTimeout`, and the `index.lock` its SIGKILL leaves (newer than the commit's start; an older one is someone else's and is only named in the error) is removed so the next write does not fail on it. Signing the server's commits
+  is not supported (D1975);
 - a commit never records a gitlink (index mode 160000). The staging of a write leaves a change to one out, and a
   working tree that holds a nested repository new to the history makes the commit fail whole with
   `refusing to record a nested git repository (gitlink): <path>` (`gitx.ErrGitlink`): nothing is committed, the
@@ -232,6 +237,11 @@ below are constants, not settings: a 30s freshness window and a 3s push debounce
    reported as such and not retried: `sync_status` is `failed` and `last_error`
    says to unprotect the branch or set `branch`; the write itself stays committed
    and safe in the clone, and the response carries the same warning.
+   The other refusals no retry changes fail the same way, after one attempt, with a one-line remedy quoting the
+   remote's line (`ErrPushRefused`, `gitx.PermanentPushRejection`): a credential without write access (HTTP 403,
+   `Permission to … denied`, a read-only deploy key), a repository rule or required signature (GitHub `GH013`,
+   `repository rule violations`; Cartographer does not sign commits), a file over the size limit (`GH001`) and a server-side hook that declined. A bare HTTP 403 (it can be a rate limit), a `[remote rejected]` for a
+   lock, a ref update or an internal error, a network error, a timeout or a non-fast-forward is still retried.
 
 `sync_status` is the authoritative read-only view of replication: it reports
 whether the KB is not a git repository (`disabled`), has no remote, a push is pending, the latest

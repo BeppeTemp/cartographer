@@ -21,6 +21,19 @@ import (
 // push left). The test is skipped when git has no http-backend.
 func HTTPRemote(t testing.TB, user, password string) (url, bare string) {
 	t.Helper()
+	return httpRemote(t, user, password, false)
+}
+
+// ReadOnlyHTTPRemote is HTTPRemote for a credential without write access: the
+// receiving side (git-receive-pack, a push) answers 403 to a good login, as a
+// forge does to a read-only token, while a clone and a fetch work.
+func ReadOnlyHTTPRemote(t testing.TB, user, password string) (url, bare string) {
+	t.Helper()
+	return httpRemote(t, user, password, true)
+}
+
+func httpRemote(t testing.TB, user, password string, readOnly bool) (url, bare string) {
+	t.Helper()
 	out, err := exec.Command("git", "--exec-path").Output()
 	if err != nil {
 		t.Skipf("git not available: %v", err)
@@ -56,6 +69,10 @@ func HTTPRemote(t testing.TB, user, password string) (url, bare string) {
 		if !ok || u != user || p != password {
 			w.Header().Set("WWW-Authenticate", `Basic realm="forge"`)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if readOnly && (r.URL.Query().Get("service") == "git-receive-pack" || strings.HasSuffix(r.URL.Path, "/git-receive-pack")) {
+			http.Error(w, "Permission to remote.git denied to "+u+".", http.StatusForbidden)
 			return
 		}
 		h.ServeHTTP(w, r)

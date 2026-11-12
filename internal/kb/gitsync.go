@@ -613,6 +613,17 @@ func (k *KB) SyncOut() error {
 			return err
 		}
 
+		// A refusal no retry changes (a credential without write access, a
+		// repository rule, a required signature, a file over the size limit) is
+		// the remote's decision too: failed at once, with the remote's own line.
+		// After the two above on purpose: their hook wording is also a
+		// "[remote rejected]".
+		if remedy, permanent := gitx.PermanentPushRejection(pushErr.Error()); permanent {
+			err := &ErrPushRefused{Branch: branch, Remedy: remedy, Git: pushErr.Error()}
+			k.setGitStatus("failed", err, attempt)
+			return err
+		}
+
 		// A push that hit PushTimeout is not retried: five attempts would hold
 		// the KB's git lock for minutes against a remote that is not answering.
 		// The commit stays safe locally; the next write pushes it.
@@ -769,6 +780,23 @@ func (e *ErrProtectedBranch) Error() string {
 		"Cartographer pushes to the branch directly and never opens a pull request: unprotect the branch, or set `branch` in settings.yaml "+
 		"(committed on the remote's default branch) to write to another one. The change is committed and safe in the local clone. Git said: %s",
 		e.Branch, firstLines(e.Git, 3))
+}
+
+// ErrPushRefused is the error of a push the remote refused for a reason a retry
+// does not change and that is neither a protected branch nor an author rule: a
+// credential without write access, a repository rule, a required signature, a
+// file over the size limit. Remedy is the one line gitx.PermanentPushRejection
+// words, quoting the remote.
+type ErrPushRefused struct {
+	Branch string
+	Remedy string
+	// Git is what git printed, kept for the operator.
+	Git string
+}
+
+func (e *ErrPushRefused) Error() string {
+	return fmt.Sprintf("the remote refused the push to branch %q and it is not retried: %s. The change is committed and safe in the local clone. Git said: %s",
+		e.Branch, e.Remedy, firstLines(e.Git, 3))
 }
 
 // ErrIdentityRejected is the error of a push the remote refused because of who

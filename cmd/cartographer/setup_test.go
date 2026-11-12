@@ -160,7 +160,7 @@ func stubSetup(t *testing.T, facts setupFacts) *[]string {
 	savedNotWired := connectNotWired
 	connectNotWired = nil // a test starts from a clean list, whatever an earlier connect left (#1757)
 	saved := []any{setupProbeRemote, setupLookGit, setupServiceStatus, setupInstallSvc, setupStartSvc,
-		setupKBCreate, setupKBClone, setupConnect, setupDetected, setupWaitReady, setupProbeAuth, setupWaitBootstrapped, setupBackend, setupProbeListener, setupFailureHint, setupMountedKBs}
+		setupKBCreate, setupKBClone, setupConnect, setupDetected, setupWaitReady, setupProbeAuth, setupWaitBootstrapped, setupBackend, setupProbeListener, setupFailureHint, setupMountedKBs, setupProbePush}
 	t.Cleanup(func() {
 		connectNotWired = savedNotWired
 		setupProbeRemote = saved[0].(func(context.Context, string) (gitx.RemoteProbe, error))
@@ -179,6 +179,7 @@ func stubSetup(t *testing.T, facts setupFacts) *[]string {
 		setupProbeListener = saved[13].(func(string) service.ListenerState)
 		setupFailureHint = saved[14].(func() string)
 		setupMountedKBs = saved[15].(func() ([]string, bool))
+		setupProbePush = saved[16].(func(context.Context, string) error)
 	})
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("USERPROFILE", t.TempDir())
@@ -189,6 +190,7 @@ func stubSetup(t *testing.T, facts setupFacts) *[]string {
 		record("probe " + remote)
 		return gitx.RemoteProbe{HasRefs: facts.RemoteHasRefs, ForgeInit: facts.RemoteForgeInit}, nil
 	}
+	setupProbePush = func(context.Context, string) error { return nil }
 	setupLookGit = func() bool { return true }
 	setupServiceStatus = func() (service.Status, error) { return facts.Service, nil }
 	setupInstallSvc = func() error { record("service install"); return nil }
@@ -248,6 +250,19 @@ func TestRunSetup_UnreachableRemoteChangesNothing(t *testing.T) {
 	}
 	if len(*calls) != 0 {
 		t.Errorf("a failed probe still ran %q: setup must stop before changing anything", *calls)
+	}
+}
+
+func TestRunSetup_ReadOnlyCredentialStopsBeforeChangingAnything(t *testing.T) {
+	calls := stubSetup(t, setupFacts{})
+	setupProbePush = func(context.Context, string) error {
+		return errors.New("this credential cannot push to the remote")
+	}
+	if code := runSetup(setupOptions{Remote: "https://git.example.com/me/wiki.git"}, false, true, false, noPrompt()); code != 2 {
+		t.Fatalf("runSetup = %d, want 2", code)
+	}
+	if len(*calls) != 1 || !strings.HasPrefix((*calls)[0], "probe ") {
+		t.Errorf("calls = %q: a remote that cannot be pushed to must stop setup before it changes anything", *calls)
 	}
 }
 

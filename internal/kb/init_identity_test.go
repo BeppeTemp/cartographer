@@ -81,19 +81,20 @@ func TestInit_ServerIdentity(t *testing.T) {
 }
 
 // TestInit_InitialCommitErrorPropagates verifies a failed initial commit is
-// reported instead of swallowed. Signing through a missing gpg program makes
-// git commit fail portably, without hooks or the execute bit.
+// reported instead of swallowed. An invalid commit.cleanup makes git commit fail
+// portably, without hooks or the execute bit. (Not signing nor a hook: the
+// server's commits ignore the user's gpgsign and core.hooksPath.)
 func TestInit_InitialCommitErrorPropagates(t *testing.T) {
 	if !haveGit() {
 		t.Skip("git not in PATH")
 	}
 	home := isolateGitIdentity(t)
 	writeGlobalGitConfig(t, home, "[user]\n\tuseConfigOnly = true\n"+
-		"[commit]\n\tgpgSign = true\n[gpg]\n\tprogram = cartographer-no-such-gpg\n")
+		"[commit]\n\tcleanup = cartographer-invalid\n")
 	root := filepath.Join(t.TempDir(), "kb-a")
 	_, err := InitWithIdentity(root, "Author Person", "author@example.com")
 	if err == nil {
-		t.Fatal("InitWithIdentity succeeded although the initial commit cannot be signed")
+		t.Fatal("InitWithIdentity succeeded although the initial commit cannot be made")
 	}
 	if !strings.Contains(err.Error(), "initial commit") {
 		t.Fatalf("error = %v, want it to name the initial commit", err)

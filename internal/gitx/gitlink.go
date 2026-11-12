@@ -50,12 +50,20 @@ func (e *GitlinkError) Unwrap() error { return ErrGitlink }
 //   - submodule.recurse and fetch.recurseSubmodules off: pull, fetch, checkout
 //     and reset do not recurse into one, whatever the host's git config says;
 //   - core.fsmonitor=false: no fsmonitor hook runs, not even in a git process
-//     that does look inside a nested repository.
+//     that does look inside a nested repository;
+//   - commit.gpgsign=false, push.gpgSign=false and an empty core.hooksPath: the server's commits
+//     do not depend on the user's commit-time configuration. A background
+//     service has no terminal for a pinentry prompt and must not fail every
+//     write on a hook written for the user's own commits. Signing is not
+//     supported.
 var serverConfig = []string{
 	"diff.ignoreSubmodules=all",
 	"submodule.recurse=false",
 	"fetch.recurseSubmodules=false",
 	"core.fsmonitor=false",
+	"commit.gpgsign=false",
+	"push.gpgSign=false",
+	"core.hooksPath=",
 }
 
 // withServerConfig appends serverConfig to the GIT_CONFIG_PARAMETERS of env
