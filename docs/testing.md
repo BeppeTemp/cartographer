@@ -266,6 +266,29 @@ the `crontab` flavour and the tail of `server.log` and `supervisor.log`. The job
 `make test-linux` before the PR. The `install.sh` fallbacks are covered by the network-free
 `test/install` scenarios, not here.
 
+### Real Windows with WSL
+
+CI cannot run WSL (hosted runners have no nested virtualisation), so the layers are the unit tests
+of `internal/wsl`, the keep-alive task, the delegation, `connect` and `doctor`, all with fake
+seams, plus this manual probe checklist, run by the maintainer before a release that touches
+`internal/wsl`, the keep-alive or the delegation. Record the Windows build, the WSL version and
+the networking mode tested in the PR.
+
+1. Fresh distro, `install.sh`, `cartographer service install`: the server answers from PowerShell
+   on `127.0.0.1:39273` (`Invoke-RestMethod http://127.0.0.1:39273/health`) and not on `[::1]`.
+2. `Get-ScheduledTask -TaskPath \Cartographer\ -TaskName WslKeepAlive` is S4U and opened no window.
+   Repeat as a non-admin user and record whether S4U registration was refused (unverified so far)
+   and that the interactive `wslg.exe` fallback ran without a window.
+3. Close every terminal, wait 60 s: the server still answers.
+4. `wsl --shutdown`: the task restarts and the server comes back (systemd: with linger; cron:
+   through the keep-alive's `ensure`). Repeat on a distro without systemd.
+5. `cartographer.exe service status|restart|uninstall` delegate, their exit codes propagate, and
+   the marker `%LOCALAPPDATA%\cartographer\wsl-server.json` is written and removed.
+6. `connect` on both sides provisions each home, and neither touches the other.
+7. `doctor` in the distro reports each `wsl` finding when provoked: data dir under `/mnt/c`, task
+   removed, `networkingMode=mirrored` in `.wslconfig`.
+8. `service uninstall` leaves no `WslKeepAlive` task.
+
 ### Real macOS (D997)
 
 The `test-macos` CI job (`macos-latest`) runs the scripts under `test/macos/`

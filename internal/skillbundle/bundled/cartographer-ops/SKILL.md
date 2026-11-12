@@ -142,6 +142,8 @@ Cartographers end up on `PATH`.
   `& ([scriptblock]::Create((irm https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install.ps1))) update`.
   It verifies the checksum, swaps the binary even while the native service is running from it,
   and runs `upgrade-repair` like the POSIX installer. Do not download or extract the zip by hand.
+- Windows + WSL: run the upgrade in both, `install.ps1 update` on Windows and `install.sh update`
+  in the distro; they must match, and `cartographer.exe service` warns on a skew.
 - POSIX installer (Linux, macOS without Homebrew): `install.sh update`, which runs
   `upgrade-repair` the same way.
 - Kubernetes: update the Cartographer image tag in the deployment manifest and push it, then
