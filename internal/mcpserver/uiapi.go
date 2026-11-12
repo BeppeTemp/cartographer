@@ -293,10 +293,8 @@ func uiGraph(w http.ResponseWriter, r *http.Request, k *kb.KB) {
 		}
 		limit, _ = strconv.Atoi(raw)
 	}
-	scope := query.Get("scope")
-	if strings.ContainsAny(scope, "/\\") {
-		writeUIError(w, http.StatusBadRequest, uiCodeInvalidRequest,
-			"scope is a single top-level collection name, not a path", "scope")
+	scope, ok := uiGraphScope(w, r)
+	if !ok {
 		return
 	}
 
@@ -310,6 +308,60 @@ func uiGraph(w http.ResponseWriter, r *http.Request, k *kb.KB) {
 		return
 	}
 	writeUIJSON(w, http.StatusOK, snap)
+}
+
+// uiGraphScope reads the scope of a graph route: one top-level collection.
+func uiGraphScope(w http.ResponseWriter, r *http.Request) (string, bool) {
+	scope := r.URL.Query().Get("scope")
+	if strings.ContainsAny(scope, "/\\") {
+		writeUIError(w, http.StatusBadRequest, uiCodeInvalidRequest,
+			"scope is a single top-level collection name, not a path", "scope")
+		return "", false
+	}
+	return scope, true
+}
+
+// uiMaxUnfolds bounds the cluster ids one request may unfold: far more than
+// fit the element budget, so only a malformed client reaches it.
+const uiMaxUnfolds = 50
+
+// uiGraphClusters serves the link graph projected onto its communities. The
+// ranking and the community member lists come from the memo kept per graph
+// generation and visible set (snapshotrank.go); unfold, focus and scope are
+// derived per request.
+//
+// Trap: the predicate is the caller's, so the memo key is the set of ids that
+// caller sees; two principals with different rules never share an entry, and
+// no cluster, count or weight includes a concept the caller cannot see (D226,
+// D244).
+func uiGraphClusters(w http.ResponseWriter, r *http.Request, k *kb.KB) {
+	ctx := r.Context()
+	scope, ok := uiGraphScope(w, r)
+	if !ok {
+		return
+	}
+	var unfold []string
+	for _, id := range strings.Split(r.URL.Query().Get("unfold"), ",") {
+		if id = strings.TrimSpace(id); id != "" {
+			unfold = append(unfold, id)
+		}
+	}
+	if len(unfold) > uiMaxUnfolds {
+		writeUIError(w, http.StatusBadRequest, uiCodeInvalidRequest,
+			"unfold lists at most "+strconv.Itoa(uiMaxUnfolds)+" cluster ids", "unfold")
+		return
+	}
+	g, err := k.GraphClusters(kb.GraphClusterOptions{
+		Scope:   scope,
+		Unfold:  unfold,
+		Focus:   r.URL.Query().Get("focus"),
+		Include: func(id string) bool { return Visible(ctx, k, id) },
+	})
+	if err != nil {
+		writeUIInternal(w, "graph: clusters", err)
+		return
+	}
+	writeUIJSON(w, http.StatusOK, g)
 }
 
 func uiConcept(w http.ResponseWriter, r *http.Request, k *kb.KB, srv *Server) {
