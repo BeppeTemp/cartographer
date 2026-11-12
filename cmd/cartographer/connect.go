@@ -483,7 +483,9 @@ func cmdConnect(args []string) int {
 				if state == probeUnreachable && isTransportErr(perr) && isLoopbackURL(formOpts.ServerURL) {
 					mgr := service.NewManager()
 					st, statusErr := mgr.Status("")
-					if statusErr == nil && shouldOfferServiceInstall(true, st.Installed) {
+					if statusErr == nil && !st.Installed && printWslServerHint(os.Stderr) {
+						// The server is WSL's: a native one would compete for the port.
+					} else if statusErr == nil && shouldOfferServiceInstall(true, st.Installed) {
 						if promptYesNo("The local server is not responding. Install and start the cartographer service on this machine? [y/N] ") {
 							if instErr := installServiceAndWaitHealthy(mgr, 10*time.Second); instErr != nil {
 								fmt.Fprintln(os.Stderr, "Error:", instErr)
@@ -556,7 +558,7 @@ func cmdConnect(args []string) int {
 		case probeUnreachable:
 			// Only a server that did not answer: a health endpoint that
 			// replied (a 404 on a /mcp/<segment> URL, a 5xx) is running (#1299).
-			if isTransportErr(probeErr) {
+			if isTransportErr(probeErr) && !printWslServerHint(os.Stderr) {
 				fmt.Fprintln(os.Stderr, "hint: the local server isn't responding — run `cartographer setup` (server, first KB and agents), or `cartographer service install` for the server alone")
 			}
 		}
@@ -639,6 +641,10 @@ func printConnectResult(dir string, providers []string, opts connectOptions, res
 		if isLoopbackURL(opts.ServerURL) && !opts.Auth {
 			ensureLocalGitIdentity(os.Stdout, "", true)
 		}
+		if isLoopbackURL(opts.ServerURL) && !res.Deferred {
+			recordWslServerOwner(os.Stdout)
+		}
+		printWslWindowsHint(os.Stdout)
 	}
 	if res.Deferred {
 		fmt.Printf("warning: skill sync deferred (%s); run `cartographer sync` once the server is up\n", deferralReason(res.DeferredErr))
@@ -973,6 +979,10 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 	// Refused before anything is read or written: a bearer token never leaves
 	// for a cleartext non-loopback URL without the opt-in (D1023).
 	if err := client.CheckServerURL(opts.ServerURL, opts.insecureHTTPAllowed()); err != nil {
+		return connectResult{}, err
+	}
+	// Literal 127.0.0.1 for a WSL server: [::1] is not forwarded to the distro.
+	if err := refuseIPv6LoopbackForWsl(opts.ServerURL); err != nil {
 		return connectResult{}, err
 	}
 

@@ -141,6 +141,16 @@ func (m *Manager) WslCartographerVersion(distro string) (string, error) {
 	return strings.TrimSpace(out), err
 }
 
+// WslServerRuns reports whether `cartographer service status` inside distro
+// exits 0, i.e. that distro's service is the server that answers.
+func (m *Manager) WslServerRuns(distro string) bool {
+	if m.wslExe() != nil || !ValidWslDistro(distro) {
+		return false
+	}
+	_, err := m.stdout("wsl.exe", "-d", distro, "--", "cartographer", "service", "status")
+	return err == nil
+}
+
 // ServeTaskRegistered reports whether the native `\Cartographer\Serve` task
 // is registered: with a WSL server too, two servers would want one port.
 func (m *Manager) ServeTaskRegistered() bool {
