@@ -46,7 +46,7 @@ func pluginToolNames(p core.Plugin) []string {
 func registrationLines(name string, prog *star.Program) []string {
 	var out []string
 	for _, r := range prog.Sorted() {
-		out = append(out, fmt.Sprintf("%s  (%s)", r.Line(name), r.Pos))
+		out = append(out, fmt.Sprintf("%s  (%s)", star.Line(r, name), r.Pos))
 	}
 	return out
 }
@@ -119,7 +119,7 @@ func printScriptChanges(w io.Writer, old, next core.Plugin) {
 		for _, r := range prog.Sorted() {
 			k := r.Kind + " " + r.Name
 			keys = append(keys, k)
-			line[k] = r.Line(next.Manifest.Name)
+			line[k] = star.Line(r, next.Manifest.Name)
 			detail[k] = fmt.Sprintf("%s\x00%q\x00%q\x00%s", line[k], r.Help, r.Usage, r.Params)
 		}
 		return

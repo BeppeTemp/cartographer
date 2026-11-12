@@ -76,7 +76,7 @@ func kbCall(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple, k
 	if mode != "read" && mode != "write" {
 		return nil, denied("kb.call needs permissions.kb in the manifest")
 	}
-	k := c.kb
+	k := kbOf(c)
 	if k.readOnly {
 		mode = "read" // a read-only session is read whatever the manifest says
 	}

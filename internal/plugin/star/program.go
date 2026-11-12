@@ -4,12 +4,9 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"sort"
 
 	"go.starlark.net/starlark"
-
-	pluginpkg "github.com/BeppeTemp/cartographer/internal/plugin"
 )
 
 // File is a script file of the tree.
@@ -20,16 +17,9 @@ type File struct {
 	SHA256 string `json:"sha256"`
 }
 
-// Kind of a registration.
-const (
-	KindCommand = "command"
-	KindTool    = "tool"
-	KindEvent   = "event"
-)
-
 // Registration is one contribution the script made while loading.
 type Registration struct {
-	Kind string // KindCommand, KindTool or KindEvent
+	Kind string // the registrar that made it: its host names them
 	Name string // command or tool name, or the event
 	// Help is a command's help, a tool's description; Usage a command's usage.
 	Help, Usage string
@@ -42,44 +32,27 @@ type Registration struct {
 	impl *starlark.Function
 }
 
-// Line is the registration as the preview and `plugin validate` print it,
-// without its position: it is what two versions are compared on.
-func (r Registration) Line(plugin string) string {
-	switch r.Kind {
-	case KindCommand:
-		return fmt.Sprintf("command %s %s", plugin, r.Name)
-	case KindTool:
-		s := "tool " + pluginpkg.ToolName(plugin, r.Name)
-		if r.Writes {
-			s += " (writes)"
-		}
-		return s
-	}
-	return "event " + r.Name
+// Options say what the host adds to the language: the registrars only
+// plugin.star has (the kinds of a registration) and the capability modules
+// beyond the runtime's own (settings, log, http, env).
+type Options struct {
+	Registrars starlark.StringDict
+	Extra      starlark.StringDict
 }
 
-// Program is a loaded plugin script: its files and what it registered, in the
+// script is a loaded plugin script: its files and what it registered, in the
 // order the script registered them. Its functions are frozen.
-type Program struct {
+type script struct {
 	Files         []File
 	Registrations []Registration
 
 	globals starlark.StringDict
 	srcs    map[string][]byte // the sources, to run again for a call
-}
-
-// Lines are the registrations in the order Sorted lists them.
-func (p *Program) Lines(plugin string) []string {
-	regs := p.Sorted()
-	out := make([]string, len(regs))
-	for i, r := range regs {
-		out[i] = r.Line(plugin)
-	}
-	return out
+	opts    Options
 }
 
 // Sorted returns the registrations by kind, then name: a stable listing.
-func (p *Program) Sorted() []Registration {
+func (p *script) Sorted() []Registration {
 	regs := append([]Registration(nil), p.Registrations...)
 	sort.SliceStable(regs, func(i, j int) bool {
 		a, b := regs[i], regs[j]

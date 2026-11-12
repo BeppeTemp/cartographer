@@ -43,8 +43,9 @@ type callCtx struct {
 
 	lookupEnv func(string) (string, bool)
 	net       *netState
-	files     *filesState
-	kb        *kbState
+	// ext is the state the host's own modules keep for the call (Ext of the
+	// callSpec): the runtime never reads it.
+	ext any
 }
 
 func ctxOf(thread *starlark.Thread) *callCtx {
@@ -78,7 +79,7 @@ func pureModules() starlark.StringDict {
 }
 
 func capabilityModules(settings *settingsValue) starlark.StringDict {
-	return starlark.StringDict{"settings": settings, "log": logModule(), "http": httpModule(), "env": envModule(), "files": filesModule(), "kb": kbModule()}
+	return starlark.StringDict{"settings": settings, "log": logModule(), "http": httpModule(), "env": envModule()}
 }
 
 // logModule writes to the call's log sink, never to stdout (a bridge's stdout

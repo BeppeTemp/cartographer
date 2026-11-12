@@ -167,7 +167,7 @@ func TestCallTypedErrorsFromBuiltins(t *testing.T) {
 	src := "def a(x):\n    boom()\ndef b(x):\n    deny()\ndef c(x):\n    big()\n" +
 		"tool(\"a\", a, \"a\")\ntool(\"b\", b, \"b\")\ntool(\"c\", c, \"c\")\n"
 	extra := builtins()
-	prog, err := run(map[string][]byte{"plugin.star": []byte(src)}, &settingsValue{}, extra, nil)
+	prog, err := runProgram(map[string][]byte{"plugin.star": []byte(src)}, &settingsValue{}, testOptions(extra), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -439,7 +439,7 @@ spin(100 if nth() == 1 else 100000000)
 tool("go", go, "go")
 `
 	extra := counting()
-	prog, err := run(map[string][]byte{"plugin.star": []byte(src)}, &settingsValue{}, extra, nil)
+	prog, err := runProgram(map[string][]byte{"plugin.star": []byte(src)}, &settingsValue{}, testOptions(extra), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -454,7 +454,7 @@ tool("go", go, "go")
 
 	// The same loop is cut by the call's step budget, not only by the clock.
 	extra = counting()
-	prog, _ = run(map[string][]byte{"plugin.star": []byte(src)}, &settingsValue{}, extra, nil)
+	prog, _ = runProgram(map[string][]byte{"plugin.star": []byte(src)}, &settingsValue{}, testOptions(extra), nil)
 	_, err = prog.call(context.Background(), toolReq("go", `{}`), callOpts{extra: extra, steps: 100000})
 	ce := callErr(t, err, LimitExceeded)
 	// The load inside a call says the cap that applied to it, not MaxLoadSteps.
@@ -470,7 +470,7 @@ def go(a):
 tool("go" if nth() == 1 else "other", go, "go")
 `
 	extra := counting()
-	prog, err := run(map[string][]byte{"plugin.star": []byte(src)}, &settingsValue{}, extra, nil)
+	prog, err := runProgram(map[string][]byte{"plugin.star": []byte(src)}, &settingsValue{}, testOptions(extra), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -507,7 +507,7 @@ tool("cyc", cyc, "cyc")
 func TestCallPanicLeaksNoWatcher(t *testing.T) {
 	src := "def a(x):\n    boom()\ntool(\"a\", a, \"a\")\n"
 	extra := builtins()
-	prog, err := run(map[string][]byte{"plugin.star": []byte(src)}, &settingsValue{}, extra, nil)
+	prog, err := runProgram(map[string][]byte{"plugin.star": []byte(src)}, &settingsValue{}, testOptions(extra), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -593,4 +593,19 @@ func TestSettingsIntAcceptsDecodedNumbers(t *testing.T) {
 			t.Errorf("%T %v accepted", v, v)
 		}
 	}
+}
+
+// testOptions are the client's options plus extra predeclared names.
+func testOptions(extra starlark.StringDict) Options {
+	o := clientOptions()
+	o.Extra = merge(o.Extra, extra)
+	return o
+}
+
+func runProgram(srcs map[string][]byte, st *settingsValue, o Options, lim *runLimits) (*Program, error) {
+	sc, err := run(srcs, st, o, lim)
+	if err != nil {
+		return nil, err
+	}
+	return &Program{sc}, nil
 }

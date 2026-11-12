@@ -52,21 +52,10 @@ func loadError(err error) *LoadError {
 	return &LoadError{Msg: err.Error()}
 }
 
-// Check is core.Options.CheckScripts: the problems of a tree's scripts.
-func Check(side core.Side, files []core.TreeFile) []string {
-	if side != core.SideClient {
-		return nil // no other side has a script entry in this build
-	}
-	if _, err := Load(files); err != nil {
-		return []string{err.Error()}
-	}
-	return nil
-}
-
-// Load runs plugin.star once, with lib/*.star loadable from it, and reports
-// what it registered. It reads the files it is given and nothing else. A tree
-// without plugin.star and without lib/ is not a script plugin: (nil, nil).
-func Load(files []core.TreeFile) (*Program, error) {
+// loadScript runs plugin.star once, with lib/*.star loadable from it, and
+// reports what it registered. It reads the files it is given and nothing else.
+// A tree without plugin.star and without lib/ is not a script plugin: (nil, nil).
+func loadScript(files []core.TreeFile, opts Options) (*script, error) {
 	srcs := map[string][]byte{}
 	libs := 0
 	for _, f := range files {
@@ -95,18 +84,19 @@ func Load(files []core.TreeFile) (*Program, error) {
 		return nil, &LoadError{Msg: fmt.Sprintf("lib/: %d files, over the %d cap", libs, core.MaxLibFiles)}
 	}
 
-	return run(srcs, &settingsValue{}, nil, nil)
+	return run(srcs, &settingsValue{}, opts, nil)
 }
 
 // run executes plugin.star over srcs. settings is the `settings` every function
-// of this run binds; extra is added to the predeclared names (a test seam, and
-// where later changes hand the host adapters over). A CALL runs it again for
-// its own thread, with its own settings: see settingsValue.
-func run(srcs map[string][]byte, settings *settingsValue, extra starlark.StringDict, lim *runLimits) (*Program, error) {
+// of this run binds; opts.Extra is added to the predeclared names (the host
+// adapters, and a test seam) and opts.Registrars are the builtins plugin.star
+// alone has. A CALL runs it again for its own thread, with its own settings:
+// see settingsValue.
+func run(srcs map[string][]byte, settings *settingsValue, opts Options, lim *runLimits) (*script, error) {
 	entry := srcs[core.ScriptEntry]
 	reg := &registry{}
 	ctx := &callCtx{phase: phaseLoad, reg: reg}
-	pure, caps := pureModules(), merge(capabilityModules(settings), extra)
+	pure, caps := pureModules(), merge(capabilityModules(settings), opts.Extra)
 	if lim != nil {
 		defer lim.watch()()
 	}
@@ -120,7 +110,7 @@ func run(srcs map[string][]byte, settings *settingsValue, extra starlark.StringD
 	mem := watchHeap(base, l.cancelAll)
 	defer mem.stop()
 	thread := l.newThread(core.ScriptEntry)
-	entryEnv := merge(pure, caps, registrars())
+	entryEnv := merge(pure, caps, opts.Registrars)
 	globals, err := l.exec(thread, core.ScriptEntry, entry, entryEnv)
 	if mem.hit.Load() {
 		if lim != nil {
@@ -133,7 +123,7 @@ func run(srcs map[string][]byte, settings *settingsValue, extra starlark.StringD
 	}
 	globals.Freeze()
 
-	p := &Program{Registrations: reg.regs, globals: globals, srcs: srcs}
+	p := &script{Registrations: reg.regs, globals: globals, srcs: srcs, opts: Options{Registrars: opts.Registrars, Extra: opts.Extra}}
 	for _, path := range slices.Sorted(maps.Keys(srcs)) {
 		p.Files = append(p.Files, fileInfo(path, srcs[path]))
 	}
