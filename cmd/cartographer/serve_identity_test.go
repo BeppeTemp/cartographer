@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/hooks"
+	"github.com/BeppeTemp/cartographer/internal/hooks/hooktest"
 )
 
 func identityFixture(t *testing.T, policy string, handler http.HandlerFunc) (*identityCache, *atomic.Int32, *time.Time) {
@@ -137,5 +139,26 @@ func TestIdentityHookNoOpinionAndDeny(t *testing.T) {
 	})
 	if _, _, err := ic.resolve(identityReq("s"), via, hdr); err != auth.ErrIdentityDenied {
 		t.Fatalf("deny: %v", err)
+	}
+}
+
+// The request the identity point really sends, and its answer, are valid
+// against the published schema (docs/schemas/hooks, the contract kit).
+func TestIdentityHookRequestMatchesTheSchema(t *testing.T) {
+	const reply = `{"version":1,"user":"bob","groups":["staff"]}`
+	var body []byte
+	ic, _, _ := identityFixture(t, hooks.FailClosed, func(w http.ResponseWriter, r *http.Request) {
+		body, _ = io.ReadAll(r.Body)
+		_, _ = w.Write([]byte(reply))
+	})
+	if _, _, err := ic.resolve(identityReq("s1"), auth.Principal{ID: "sso"}, auth.Identity{User: "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join("..", "..", "docs", "schemas", "hooks")
+	if err := hooktest.Validate(dir, "identity", "request", body); err != nil {
+		t.Fatal(err)
+	}
+	if err := hooktest.Validate(dir, "identity", "response", []byte(reply)); err != nil {
+		t.Fatal(err)
 	}
 }

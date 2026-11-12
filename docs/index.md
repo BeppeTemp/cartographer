@@ -18,6 +18,7 @@ only the pages relevant to your task.
 | [data-plane.md](data-plane.md) | KB model: Atlas/Map/Journal hierarchy, filesystem layout, expanded concepts, OKF concepts, naming, extended type schema |
 | [skills-services-secrets.md](skills-services-secrets.md) | Skill packaging (`SKILL.md`), `type: Service` descriptors, SOPS secrets |
 | [sync.md](sync.md) | Client ↔ server provisioning sync: manifest+revision, lockfile, drift detection, layered triggers, prune, path-portability placeholders |
+| [hooks.md](hooks.md) | The hook protocol: HTTP webhooks at four points of the core (write veto, audit sink, secret resolver, identity), versioning, failure policy and breaker, request and response of each point with examples, and the JSON Schemas in `docs/schemas/hooks/` |
 | [plugins.md](plugins.md) | Plugins: a git repository or folder that adds clients, skills, subagents, hooks, commands and MCP tools; manifest, approval per version, the Starlark script model and its permissions, a worked example |
 | [use-cases.md](use-cases.md) | Executable patterns for runbooks, imports, source ingest, KB conformance, provider sharing and multi-KB separation |
 
@@ -86,6 +87,7 @@ page that was not touched; the table and the file change together, and a test
 | New skill, service or secret handling | `skills-services-secrets.md` |
 | Client provisioning/sync logic | `sync.md` |
 | Plugin manifest, contribution points or store (`internal/plugin`, `internal/plugin/core`) | `plugins.md` |
+| A hook point, its payload or the hook transport (`internal/hooks`, `internal/hooks/hooktest`) | `hooks.md` + its schema in `docs/schemas/hooks/` (`TestDocsHookExamplesValidate`, `TestRecordedRequestsValidate`) + `deployment.md` (the `hooks:` keys) |
 | Atlas branding plugin point: the branding folder, the accent derivation (`internal/branding`) | `plugins.md` §Atlas branding |
 | Client or service subcommands (`setup`/`agents`/`connect`/`disconnect`/`reconnect`/`status`/`sync`/`call`/`doctor`/`service`…) or server YAML config | `configurator.md` (Compass) / `deployment.md` (Meridian config) |
 | Token/scope format or enforcement (`kb:<name>:r\|rw`), git identity (author, committer, `Cartographer-Token`) or SOPS | `transport-auth.md` (auth/scopes) + `deployment.md` (server config, `KBSpec`) |

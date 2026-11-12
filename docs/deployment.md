@@ -121,7 +121,8 @@ otherwise. Comments are ignored by the parser, so a file without them behaves
 identically. `kb create`/`kb clone` and `kb rename` give a `kbs[]` entry they add the comment of the keys they set,
 and leave every comment already in the file alone.
 
-**Hooks (`hooks:`).** The server calls external hooks over HTTP webhooks, protocol version 1; with no `hooks:` entry it
+**Hooks (`hooks:`).** The server calls external hooks over HTTP webhooks, protocol version 1 (the contract a hook
+author builds against, each point's request and response: [hooks](hooks.md)); with no `hooks:` entry it
 behaves as without hooks. Each entry has `name` (`<plugin>/<name>`), `point` (`write_veto`, `audit_sink`,
 `secret_resolver`, `identity`), `plugin` (the namespace of `name`, which must be pinned and enabled in `plugins`), `url`
 (`https`, or `http` only to a loopback host; no credentials in it), `credential` (the name of a file in `credentials_dir`
