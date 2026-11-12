@@ -32,8 +32,7 @@ repository, whether a Surveyor is deployed. Check, and stop with the reason if o
 
 - `cartographer help` lists `surveyor`, and `cartographer surveyor source test` prints usage.
 - `source_register` in `tools/list` accepts `source_shape` and `recipe`.
-- the KB has the ingest templates (`template_list`); if not, `ingest_setup` comes first (advanced: not in
-  `tools/list`, the server serves it when called by name).
+- the KB has the ingest templates (`template_list`); if not, `ingest_setup` comes first.
 
 ## 2. Find the way in
 

@@ -105,6 +105,10 @@ func removedToolMessage(ctx context.Context, name string) string {
 // procedure of cartographer-kb-create cannot be followed by an agent that finds
 // none of them in tools/list.
 //
+// NOT advanced since D1994: ingest_setup. The bundled
+// cartographer-kb-ingest-plan skill prescribes it as step 1 of a campaign, and a
+// descriptor-bound client cannot call by name what tools/list omits.
+//
 // NOT advanced since D318: concept_batch (the bundled cartographer-kb-doctor skill
 // prescribes it, and an agent cannot call by name what tools/list omits),
 // asset_delete and artifact_delete.
@@ -160,9 +164,6 @@ var advancedToolNames = map[string]bool{
 	// graph_path (D242): "how is X connected to Y" is an investigation, not
 	// a step of the normal loop; graph_context and link_suggest are.
 	"graph_path": true,
-	// ingest_setup (D1201): a one-off, idempotent provisioning of the two
-	// ingest templates, reached by name from kb_guide and the planner skill.
-	"ingest_setup": true,
 	// preset_list: the presets of the plugins pinned in the server config,
 	// reached by name from the plugin's own instructions; server data, not a KB's.
 	"preset_list": true,
