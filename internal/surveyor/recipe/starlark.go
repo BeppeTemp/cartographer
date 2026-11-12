@@ -27,6 +27,9 @@ type StarConfig struct {
 	Version     string
 	Permissions *core.Permissions       // the manifest's, surveyor side
 	Declared    map[string]core.Setting // the manifest's settings
+	// PrivateHosts are plugins.<name>.allow_private_hosts, each declared by the
+	// manifest's net_private (the loader checks): the two keys of the grant.
+	PrivateHosts []string
 	// Tune lets a test set the runtime's test seams on a call; nil in production.
 	Tune func(*recipes.Request)
 }
@@ -43,7 +46,7 @@ func NewStarlark(c StarConfig) Recipe {
 		_ = json.Unmarshal(body, &head)
 		req := recipes.Request{
 			Recipe: c.Local, Verb: head.Verb, Body: body, Plugin: c.Plugin, Version: c.Version,
-			Permissions: c.Permissions, Declared: c.Declared, Values: c.Settings,
+			Permissions: c.Permissions, Declared: c.Declared, Values: c.Settings, PrivateHosts: c.PrivateHosts,
 			// env.get reads only the names the manifest declares (the runtime
 			// checks) and, through this mapping, only the Surveyor variables
 			// the operator mapped to them.

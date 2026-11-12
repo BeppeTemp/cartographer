@@ -78,6 +78,11 @@ type CallSpec struct {
 	// LookupEnv reads the environment for env.get; nil is os.LookupEnv.
 	LookupEnv func(string) (string, bool)
 
+	// PrivateHosts are the hosts the host grants a private address: the
+	// Surveyor config's allow_private_hosts. http.request honours one only when
+	// Perms.NetPrivate declares it too; the client never sets it.
+	PrivateHosts []string
+
 	// Log receives log.* and print; with PrintToStdout print goes to Stdout
 	// instead, without prefix. Nil discards.
 	Log, Stdout   io.Writer
@@ -172,6 +177,7 @@ func (p *Script) Invoke(ctx context.Context, spec CallSpec) (res any, err error)
 		cc.LookupEnv = os.LookupEnv
 	}
 	cc.net = newNetState(cc, spec.Version, net)
+	cc.net.private = spec.PrivateHosts
 	if spec.Ext != nil {
 		cc.Ext = spec.Ext(cc)
 	}

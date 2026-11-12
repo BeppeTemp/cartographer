@@ -346,3 +346,54 @@ func TestStarlarkRecipeGuards(t *testing.T) {
 		t.Errorf("preview %q", b.String())
 	}
 }
+
+const privateManifest = "schema: 2\nname: acme-wiki\nversion: 1.0.0\ndisplay_name: Wiki\ndescription: A wiki reader.\ncartographer: \">=0.29.0\"\ncomponents:\n  surveyor:\n    sdk: {recipes: 1}\n    permissions:\n      net: [\"*.example.com\"]\n      net_private: [wiki.example.com]\n"
+
+// allow_private_hosts is the Surveyor's half of the grant: its shape is judged
+// at load, each host against the manifest's net_private at start, and the
+// intersection reaches the Starlark recipe.
+func TestAllowPrivateHosts(t *testing.T) {
+	for name, tc := range map[string]struct{ list, want string }{
+		"wildcard":     {`["*.example.com"]`, "is a wildcard"},
+		"address":      {`[10.0.0.5]`, "is an IP address"},
+		"single label": {`[wiki]`, "is not a lowercase host name"},
+		"twice":        {`[wiki.example.com, wiki.example.com]`, "listed twice"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := cfgLoad(t, cfgGolden+"plugins_dir: "+t.TempDir()+"\nplugins:\n  feeds:\n    digest: "+pluginDigest+"\n    allow_private_hosts: "+tc.list+"\n")
+			if err == nil || !strings.Contains(err.Error(), "plugins.feeds.allow_private_hosts") || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want %q", err, tc.want)
+			}
+		})
+	}
+
+	script := "def l(r):\n    return {}\nrecipe(\"feed\", l)\n"
+	tree := []core.TreeFile{tf("recipes/feed/instructions.md", "x", false), tf(core.SurveyorScript, script, false)}
+	p := pointsPlugin(t, privateManifest, tree...)
+	c := pointsConfig(t, p, nil)
+	pin := c.PluginPins["acme-wiki"]
+	pin.AllowPrivateHosts = []string{"wiki.example.com"}
+	c.PluginPins["acme-wiki"] = pin
+	if err := c.addPluginPoints(); err != nil {
+		t.Fatal(err)
+	}
+	if got := c.StarRecipes[0].PrivateHosts; len(got) != 1 || got[0] != "wiki.example.com" {
+		t.Errorf("the grant does not reach the recipe: %v", got)
+	}
+
+	// A host the manifest does not declare stops the start, naming both keys.
+	c = pointsConfig(t, p, nil)
+	pin = c.PluginPins["acme-wiki"]
+	pin.AllowPrivateHosts = []string{"other.example.com"}
+	c.PluginPins["acme-wiki"] = pin
+	err := c.addPluginPoints()
+	if err == nil || !strings.Contains(err.Error(), "allow_private_hosts grants other.example.com") || !strings.Contains(err.Error(), "net_private") || !strings.Contains(err.Error(), "(line 7)") {
+		t.Fatalf("undeclared grant: %v", err)
+	}
+
+	// No grant: the recipe gets none, whatever the manifest declares.
+	c = pointsConfig(t, p, nil)
+	if err := c.addPluginPoints(); err != nil || len(c.StarRecipes[0].PrivateHosts) != 0 {
+		t.Fatalf("%v %v", err, c.StarRecipes[0].PrivateHosts)
+	}
+}

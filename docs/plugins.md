@@ -94,6 +94,7 @@ Declared by the plugin and validated here; nothing in this package grants or enf
 | `permissions.kb` | `read` or `write`. |
 | `permissions.net` | At most 16 host patterns: an exact lowercase host or `*.suffix`, each of at least two labels, no scheme, port or path. An IP address in any spelling and a single-label host such as `localhost` are refused: a name whose last label starts with a digit is an address (dotted decimal, a decimal such as `2130706433`, hex or octal parts such as `0x7f.0x1` or `127.0x1`). A public suffix such as `*.github.io` is accepted: the user approves each permission. |
 | `permissions.files.read`, `permissions.files.write` | At most 16 globs each. A glob starts with one of `{home}`, `{xdg_config}`, `{app_data}`, `{local_app_data}`, `{documents}`, continues with `/` separators, holds no other placeholder and no `..`. A base directory other than `{documents}` must be followed by a path; an empty or `.` segment (`{home}/`, `{home}//x`, `{home}/./x`) is refused, and so is a segment with `~` or `:` (Windows short names and streams). Trailing dots and spaces of a segment are ignored when matching Cartographer's own state, as Windows ignores them. A glob that reaches Cartographer's own state is refused: the client config file, the `cartographer` config, state and cache directories (the plugin store is inside the cache one). A literal `cartographer` or `.cartographer*` segment is refused at any depth; a wildcard segment (`*`, `**`, `c*`) only while the segments before it still lead into a known location of that state (`{home}/*`, `{home}/.config/c*`, `{xdg_config}/*`, `{home}/Library/Application Support/*`), so `{xdg_config}/vendor-cli/**` and `{home}/.vendor-cli/*/y` pass. The rule is lexical and best effort (a custom `XDG_CONFIG_HOME` is invisible to it); the enforcer refuses the real state directories whatever the glob. Other sensitive paths, such as `.ssh` or a shell rc file, can be declared: the approval preview shows them and the enforcer limits them. |
+| `permissions.net_private` | Surveyor side only (refused on every other side and in schema 1). At most 16 exact host names in the `net` grammar without `*.`, each matched by a pattern of `net`. It names the hosts a Starlark recipe may reach on a private or loopback address (never link-local, where cloud metadata lives), and grants nothing alone: the Surveyor config must list the same host under `plugins.<name>.allow_private_hosts` ([Network and environment for scripts](#network-and-environment-for-scripts)). |
 | `permissions.env` | At most 16 names matching `^[A-Z][A-Z0-9_]*$`. `CARTOGRAPHER_*`, `LD_*`, `DYLD_*` and `XDG_*`, and `PATH`, `PATHEXT`, `HOME`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `SYSTEMROOT`, `COMSPEC`, `TMPDIR`, `TEMP` and `TMP`, are refused as pass-through names: the variables a loader or a shell resolves programs and files by. |
 
 ### Settings
@@ -298,6 +299,10 @@ It runs code on the Surveyor, so the preview lists every file with the execute b
   unmapped, a mapped name the manifest does not declare, a host outside `net` or a recipe naming a connector the
   plugin lacks stops the Surveyor at start, naming `plugins.<name>` and its line. The code sees only the mapped names
   plus `PATH` and `HOME`; the preview ends with "your Surveyor config must map under plugins.<name>.env: ...".
+  A manifest's `net_private` hosts are shown as "may reach private-network hosts (once the Surveyor grants each)",
+  with the `plugins.<name>.allow_private_hosts` line that grants them and a note that the grant holds Starlark recipes
+  only. A host listed under `allow_private_hosts` that the manifest does not declare stops the start; at start the
+  Surveyor logs which declared hosts it grants and which stay refused.
 - At start the pinned plugin's recipes join `ExecRecipes` and its connectors `Connectors`, the lists the operator's
   `recipes:` and `connectors:` fill, so the registry, the poll and the unit executor have one code path. The command
   is the absolute path in the read-only store. A load never runs a script.
@@ -754,7 +759,14 @@ PUT, PATCH, DELETE and OPTIONS and returns `status`, `headers` (lowercase names,
 host must match a `net` pattern, and so must every redirect target (at most 10; a redirect outside the list is not
 followed, and Go drops `Authorization` on a change of host). A name can resolve anywhere, so the dial refuses
 loopback, private, carrier-grade NAT, link-local, multicast and unspecified addresses unless the manifest lists that very
-literal, and connects to the address it checked. The system proxy variables are honoured, and the allowlist is on the
+literal, and connects to the address it checked. On the Surveyor a host holds a **private grant** when it is both
+under the surveyor side's `net_private` and under the config's `plugins.<name>.allow_private_hosts`: its name may then
+resolve to a private or loopback address. Link-local (where cloud metadata such as `169.254.169.254` lives), a
+metadata address inside a private range (`fd00:ec2::254`), multicast, unspecified, carrier-grade NAT and the other
+reserved ranges stay refused. Either key alone grants nothing, and a refusal of a host the manifest declares names the
+missing config key. The grant is per exact name and per hop: a redirect from a granted host to another private host
+is judged by that host's own grant, so it is refused. The client never grants it. Exec recipes and MCP connector
+processes run outside this module, so the grant neither applies to them nor limits them. The system proxy variables are honoured, and the allowlist is on the
 request host, not on the proxy; behind a proxy Cartographer resolves the target and refuses a forbidden answer, but the
 proxy may resolve differently, so the final address check is the proxy's. Addresses that embed IPv4 (NAT64, 6to4) are
 judged by it. On a redirect to another host only `Accept`, `Accept-Language`, `Content-Type` and `User-Agent` follow; every other

@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -176,6 +177,28 @@ func cmdSurveyor(args []string) int {
 	return surveyorRunFn(ctx, env, *onceFlag)
 }
 
+// printPrivateGrant says at start which private-network hosts a plugin declares
+// under net_private this Surveyor grants (allow_private_hosts) and which stay
+// refused: the vendor preview cannot know this config, so the start log does.
+func printPrivateGrant(out io.Writer, p *core.Plugin, granted []string) {
+	perm := p.Manifest.Components[core.SideSurveyor].Permissions
+	if perm == nil || len(perm.NetPrivate) == 0 {
+		return
+	}
+	var refused []string
+	for _, h := range perm.NetPrivate {
+		if !slices.Contains(granted, h) {
+			refused = append(refused, h)
+		}
+	}
+	if len(granted) > 0 {
+		fmt.Fprintf(out, "surveyor: plugin %s may reach private-network hosts: %s\n", p.Manifest.Name, strings.Join(granted, ", "))
+	}
+	if len(refused) > 0 {
+		fmt.Fprintf(out, "surveyor: plugin %s private-network hosts not granted by this Surveyor: %s\n", p.Manifest.Name, strings.Join(refused, ", "))
+	}
+}
+
 // surveyorStartup runs the start-up checks in order; each failure starts nothing.
 // The token and the API keys never reach an error or a log line: they are only
 // handed to the clients.
@@ -194,6 +217,7 @@ func surveyorStartup(ctx context.Context, path string, kinds *surveyor.Kinds, re
 	}
 	for _, p := range cfg.Plugins {
 		fmt.Fprintf(out, "surveyor: plugin %s %s %s\n", p.Manifest.Name, p.Manifest.Version, p.Digest[:12])
+		printPrivateGrant(out, p, cfg.PluginPins[p.Manifest.Name].AllowPrivateHosts)
 	}
 
 	models := map[string]surveyor.Model{}

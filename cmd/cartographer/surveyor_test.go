@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"github.com/BeppeTemp/cartographer/internal/surveyor"
 )
 
@@ -197,5 +198,30 @@ func TestSurveyorStartupRetriesA5xx(t *testing.T) {
 	}
 	if n.Load() < 3 {
 		t.Fatalf("health called %d times", n.Load())
+	}
+}
+
+// The start log says which declared private-network hosts this Surveyor grants
+// and which stay refused; a plugin that declares none adds no line.
+func TestPrintPrivateGrant(t *testing.T) {
+	p := &core.Plugin{Manifest: core.Manifest{Name: "acme-wiki", Components: map[core.Side]core.Component{
+		core.SideSurveyor: {Permissions: &core.Permissions{Net: []string{"*.example.com"}, NetPrivate: []string{"wiki.example.com", "docs.example.com"}}},
+	}}}
+	var b strings.Builder
+	printPrivateGrant(&b, p, []string{"wiki.example.com"})
+	want := "surveyor: plugin acme-wiki may reach private-network hosts: wiki.example.com\n" +
+		"surveyor: plugin acme-wiki private-network hosts not granted by this Surveyor: docs.example.com\n"
+	if b.String() != want {
+		t.Errorf("got %q", b.String())
+	}
+	b.Reset()
+	printPrivateGrant(&b, p, nil)
+	if b.String() != "surveyor: plugin acme-wiki private-network hosts not granted by this Surveyor: wiki.example.com, docs.example.com\n" {
+		t.Errorf("no grant: %q", b.String())
+	}
+	b.Reset()
+	printPrivateGrant(&b, &core.Plugin{Manifest: core.Manifest{Name: "plain"}}, nil)
+	if b.String() != "" {
+		t.Errorf("no net_private: %q", b.String())
 	}
 }

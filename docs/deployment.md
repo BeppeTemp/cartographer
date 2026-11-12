@@ -809,6 +809,11 @@ before any model or network call; a malformed digest or `plugins` without `plugi
 maps each variable name the plugin's manifest declares under `permissions.env` to one of the Surveyor's own variables
 (`{WIKI_TOKEN: WIKI_API_TOKEN}`): every declared name and no other, or the start is refused. The plugin's recipes and
 connectors (`<plugin>/<name>`, `docs/plugins.md` §Surveyor side) then run with only those variables plus `PATH` and `HOME`.
+`plugins.<name>.allow_private_hosts` (exact host names, at most 16) is the Surveyor's half of the private-network
+grant: a host listed there and under the manifest's `components.surveyor.permissions.net_private` may resolve to a
+private or loopback address (never link-local or a cloud metadata address) for the plugin's Starlark recipes. A host the manifest does not declare stops
+the start, naming both keys; a declared host left out stays refused. Exec recipes and MCP connector processes are not
+held by it (`docs/plugins.md` §Network and environment for scripts).
 
 **Recipes and the git reader (D1262).** A recipe lists what changed in a feed Source since its cursor, with no
 model; `git-docs` is the first built-in (Source `locator` = https repository URL, `feed_include` default
