@@ -210,7 +210,7 @@ func (m *Manager) InstallTray() error {
 			return err
 		}
 		if _, err := m.run("launchctl", "bootstrap", fmt.Sprintf("gui/%d", os.Getuid()), defPath); err != nil {
-			return fmt.Errorf("service: launchctl bootstrap tray (needs a logged-in GUI session): %w", err)
+			return sandboxRefusal(fmt.Errorf("service: launchctl bootstrap tray (needs a logged-in GUI session): %w", err), unitsWrittenNote)
 		}
 		return nil
 	}
@@ -219,7 +219,7 @@ func (m *Manager) InstallTray() error {
 	// definition as it was (#1961).
 	guarded := func(path string, data []byte) error { return safewrite.WriteFile(base, path, data, 0o644) }
 	if err := m.registerAndReplace(windowsTrayTaskName, defPath, []byte(RenderWindowsTrayTaskXML(binPath, logPath, windowsTaskUser(), windowsTaskSID())), guarded); err != nil {
-		return err
+		return sandboxRefusal(err, taskKeptNote)
 	}
 	// IgnoreNew turns a start on a running task into a no-op, so a tray that
 	// survives the stop would keep the old binary and definition: an error.
