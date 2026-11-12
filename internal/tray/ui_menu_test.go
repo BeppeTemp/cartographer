@@ -110,3 +110,33 @@ func TestCommandIDsAreDistinct(t *testing.T) {
 		seen[id] = true
 	}
 }
+
+// An open menu is redrawn live only for the Agents rows (the read the opening
+// asked for ends after it opened); any other change would close the KB submenu
+// under the user's pointer, and waits for the next opening.
+func TestRefillOpenMenuOnlyForAgents(t *testing.T) {
+	prev := Snapshot{State: StateRunning, KBCount: 1, KBNames: "kb-a"}
+	agents := prev
+	agents.Agents = Agents{Known: true, N: 1}
+	other := prev
+	other.State, other.KBCount, other.KBNames = StateStopped, 2, "kb-a\nkb-b"
+	both := agents
+	both.KBNames = "kb-a\nkb-b"
+
+	for _, tc := range []struct {
+		name       string
+		open       bool
+		prev, next Snapshot
+		want       bool
+	}{
+		{"agents changed, menu open", true, prev, agents, true},
+		{"agents changed, menu closed", false, prev, agents, false},
+		{"KBs and state changed, menu open", true, prev, other, false},
+		{"agents and KBs changed, menu open", true, prev, both, true},
+		{"nothing changed, menu open", true, agents, agents, false},
+	} {
+		if got := refillOpenMenu(tc.open, tc.prev, tc.next); got != tc.want {
+			t.Errorf("%s: refill = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}

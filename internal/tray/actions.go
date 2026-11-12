@@ -113,6 +113,9 @@ func (a *Actions) Wait() { a.wg.Wait() }
 // promptly: the restart runs in its own goroutine, because on Windows it waits
 // up to ~30 s for the old process, far too long for a UI thread.
 func (a *Actions) Handle(act Action) {
+	if act == ActionMenuOpened {
+		return // the caller's business (cmdTray asks for fresh agent rows)
+	}
 	a.mu.Lock()
 	snap := a.last
 	a.mu.Unlock()

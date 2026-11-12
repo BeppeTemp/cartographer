@@ -405,6 +405,223 @@ func TestRunRefreshesAgentsSparingly(t *testing.T) {
 	<-done
 }
 
+// The menu asking for fresh rows reads the agents, shows the result at once (no
+// tick involved), and a request that cannot start a read now (the debounce
+// window, a read in flight) is remembered: one more read starts when the window
+// has ended, at the next tick, however many requests came. It is never lost.
+func TestRunRefreshesAgentsOnRequest(t *testing.T) {
+	f := &fakeEnv{
+		status: service.Status{Installed: true, HTTPAddr: "127.0.0.1:1"},
+		health: &client.Health{Version: "1", Ready: boolp(true)},
+		ticks:  make(chan time.Time), // ticks only when the test sends
+	}
+	d := f.deps()
+	var mu sync.Mutex
+	reads := 0
+	gate := make(chan struct{}) // a read ends when the test sends
+	d.Agents = func() Agents {
+		mu.Lock()
+		reads++
+		n := reads
+		mu.Unlock()
+		<-gate
+		return Agents{Known: true, N: n}
+	}
+	now := time.Unix(1000, 0)
+	d.Now = func() time.Time { mu.Lock(); defer mu.Unlock(); return now }
+	advance := func(by time.Duration) { mu.Lock(); now = now.Add(by); mu.Unlock() }
+	requests := make(chan struct{}) // unbuffered: a second send returns only after Run took the first
+	d.AgentRequests = requests
+	readCount := func() int { mu.Lock(); defer mu.Unlock(); return reads }
+	waitReads := func(want int) {
+		t.Helper()
+		for deadline := time.Now().Add(5 * time.Second); readCount() != want; time.Sleep(time.Millisecond) {
+			if time.Now().After(deadline) {
+				t.Fatalf("agents read %d times, want %d", readCount(), want)
+			}
+		}
+	}
+	// request and tick send twice: the second send proves Run has handled the first.
+	request := func() { requests <- struct{}{}; requests <- struct{}{} }
+	tick := func() { f.ticks <- time.Now(); f.ticks <- time.Now() }
+	settled := func(want int) { // a read that should not start would be counted within this
+		t.Helper()
+		time.Sleep(50 * time.Millisecond)
+		if got := readCount(); got != want {
+			t.Fatalf("agents read %d times, want %d", got, want)
+		}
+	}
+	nextSnapshot := func(out <-chan Snapshot) Snapshot {
+		t.Helper()
+		select {
+		case s := <-out:
+			return s
+		case <-time.After(5 * time.Second):
+			t.Fatal("no snapshot emitted")
+			return Snapshot{}
+		}
+	}
+	finishRead := func(out <-chan Snapshot, wantN int) {
+		t.Helper()
+		gate <- struct{}{}
+		if s := nextSnapshot(out); !s.Agents.Known || s.Agents.N != wantN {
+			t.Fatalf("a finished read was not emitted at once: %+v, want read %d", s.Agents, wantN)
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	out := make(chan Snapshot, 16)
+	done := make(chan struct{})
+	go func() { Run(ctx, d, 0, func(s Snapshot) { out <- s }); close(done) }()
+	defer func() { cancel(); close(gate); <-done }()
+
+	if first := nextSnapshot(out); first.Agents.Known {
+		t.Fatalf("first snapshot already has agents: %+v", first.Agents)
+	}
+	waitReads(1) // the read at start, still running
+
+	// A request during a read does not ride on it: the rows it will return may
+	// predate what the user just did. It is remembered, and served after the
+	// window that began with that read.
+	request()
+	settled(1)
+	finishRead(out, 1)
+	settled(1) // the window has not ended: nothing starts at the end of the read
+
+	// A burst within the window adds nothing, and a tick inside it neither.
+	request()
+	advance(AgentsDebounce - time.Second)
+	request()
+	tick()
+	settled(1)
+
+	// Once the window has passed, the next tick starts the one read the burst asked for.
+	advance(2 * time.Second)
+	tick()
+	waitReads(2)
+	tick()
+	settled(2)
+
+	// Requests during that read are one more read, after it and after the window.
+	request()
+	request()
+	settled(2)
+	finishRead(out, 2)
+	settled(2)
+	advance(AgentsDebounce)
+	tick()
+	waitReads(3)
+	finishRead(out, 3)
+
+	// Nothing pending: ticks read nothing, and a request outside the window reads at once.
+	advance(AgentsDebounce)
+	tick()
+	settled(3)
+	request()
+	waitReads(4)
+	finishRead(out, 4)
+	settled(4)
+	if len(out) != 0 {
+		t.Errorf("%d unexpected extra snapshots", len(out))
+	}
+}
+
+// A request that arrives while a read waits behind a running one (a tick queued
+// it) is answered by that read, which begins after the request: it must not
+// also be remembered, or one more read follows for nothing.
+func TestRunRequestBehindQueuedReadIsNotRemembered(t *testing.T) {
+	f := &fakeEnv{
+		status: service.Status{Installed: true, HTTPAddr: "127.0.0.1:1"},
+		health: &client.Health{Version: "1", Ready: boolp(true)},
+		ticks:  make(chan time.Time),
+	}
+	d := f.deps()
+	var mu sync.Mutex
+	reads := 0
+	gate := make(chan struct{})
+	d.Agents = func() Agents {
+		mu.Lock()
+		reads++
+		n := reads
+		mu.Unlock()
+		<-gate
+		return Agents{Known: true, N: n}
+	}
+	now := time.Unix(1000, 0)
+	d.Now = func() time.Time { mu.Lock(); defer mu.Unlock(); return now }
+	advance := func(by time.Duration) { mu.Lock(); now = now.Add(by); mu.Unlock() }
+	requests := make(chan struct{})
+	d.AgentRequests = requests
+	readCount := func() int { mu.Lock(); defer mu.Unlock(); return reads }
+	waitReads := func(want int) {
+		t.Helper()
+		for deadline := time.Now().Add(5 * time.Second); readCount() != want; time.Sleep(time.Millisecond) {
+			if time.Now().After(deadline) {
+				t.Fatalf("agents read %d times, want %d", readCount(), want)
+			}
+		}
+	}
+	settled := func(want int) {
+		t.Helper()
+		time.Sleep(50 * time.Millisecond)
+		if got := readCount(); got != want {
+			t.Fatalf("agents read %d times, want %d", got, want)
+		}
+	}
+	nextSnapshot := func(out <-chan Snapshot) Snapshot {
+		t.Helper()
+		select {
+		case s := <-out:
+			return s
+		case <-time.After(5 * time.Second):
+			t.Fatal("no snapshot emitted")
+			return Snapshot{}
+		}
+	}
+	finishRead := func(out <-chan Snapshot, wantN int) {
+		t.Helper()
+		gate <- struct{}{}
+		if s := nextSnapshot(out); s.Agents.N != wantN {
+			t.Fatalf("read %d was not emitted: %+v", wantN, s.Agents)
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	out := make(chan Snapshot, 16)
+	done := make(chan struct{})
+	go func() { Run(ctx, d, 0, func(s Snapshot) { out <- s }); close(done) }()
+	defer func() { cancel(); close(gate); <-done }()
+
+	nextSnapshot(out)
+	waitReads(1) // the read at start, still running
+	// The periodic read falls due while it runs: it is queued behind it. The
+	// last tick sent twice proves Run handled the one before.
+	for i := 1; i < int(AgentsInterval/MinInterval); i++ {
+		f.ticks <- time.Now()
+	}
+	f.ticks <- time.Now()
+	f.ticks <- time.Now()
+	settled(1)
+
+	// A send on the unbuffered channel proves only that Run received the
+	// request, not that it counted the reads in flight. Run is one loop: the
+	// first tick is received only once the request is handled, the second only
+	// once that tick's poll is. Read 1 must not end before that, or the request
+	// would find one read in flight, not two.
+	requests <- struct{}{}
+	f.ticks <- time.Now()
+	f.ticks <- time.Now()
+	finishRead(out, 1)
+	waitReads(2) // the queued read begins, after the request
+	finishRead(out, 2)
+
+	// The window has long ended: nothing was remembered, no third read.
+	advance(2 * AgentsDebounce)
+	f.ticks <- time.Now()
+	f.ticks <- time.Now()
+	settled(2)
+}
+
 // A permanent Status() error is logged once, not on every tick: again only
 // when the message changes or after a success.
 func TestSnapshotLogsARepeatedStatusErrorOnce(t *testing.T) {
