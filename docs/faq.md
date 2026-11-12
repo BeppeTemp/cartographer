@@ -61,6 +61,20 @@ same knowledge, skills and instructions in the client's native format.
 If your knowledge fits in one repository and one person, a plain instruction file is
 simpler and you should use it.
 
+## Why does the sync say the remote refused the push, and why is it not retried?
+
+Some refusals are the remote's decision and retrying only repeats them: a token without write access (HTTP 403,
+`Permission to … denied`, a read-only deploy key), a repository rule such as GitHub's `GH013` (required signatures,
+pull-request-only branches), a file over the size limit (`GH001`). The KB is `failed` after one attempt and
+`sync_status` quotes the remote's own line with the way out; the change stays committed in the local clone and is
+pushed by the next write once the cause is fixed. `cartographer setup` checks push access with a dry run before it
+creates anything.
+
+Cartographer does not sign commits, and it ignores your global `commit.gpgsign` and `core.hooksPath` when it commits
+(a background service cannot answer a pinentry prompt or run a hook written for your own commits). A remote that
+requires signed commits cannot be pushed to: lift that rule for the KB's branch, or set `branch` to one it does not
+cover. A TLS error (`x509`, `SSL certificate problem`) names `SSL_CERT_FILE` and git's `http.sslCAInfo`.
+
 ## Can I turn off the offer to report a bug from an agent?
 
 Yes. Set `feedback.destination: off` on the server (`CARTOGRAPHER_FEEDBACK_DESTINATION=off`): the served instructions stop naming when to offer a report and internal-error results lose their report hint. Set it to an `https://` URL template with `{title}` (and optionally `{kind}`, `{body}`) to send agents to your own tracker instead of GitHub. Nothing is ever sent by Cartographer: the user opens the link and submits it. See [deployment.md](deployment.md).

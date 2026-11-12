@@ -370,6 +370,8 @@ func remoteRemedy(output string) string {
 		{"the project you were looking for could not be found", "the remote repository does not exist or this account cannot see it"},
 		{"not found in the known hosts", "the forge's host key is not in known_hosts: connect once with ssh to review and accept it, then retry"},
 		{"authentication failed", "the credentials were rejected: check the token or credential helper for this forge"},
+		{"x509:", "the remote's TLS certificate is not trusted by this machine: point SSL_CERT_FILE (or git's http.sslCAInfo) at the CA bundle that signs it"},
+		{"ssl certificate problem", "the remote's TLS certificate is not trusted by this machine: point SSL_CERT_FILE (or git's http.sslCAInfo) at the CA bundle that signs it"},
 		{"terminal prompts disabled", "git needed credentials and could not ask: configure a credential helper or use an ssh remote"},
 	}
 	lower := strings.ToLower(output)
@@ -585,8 +587,13 @@ func commit(dir, message, authorName, authorEmail string, env ...string) error {
 	}
 	args = append(args, "-m", message)
 	env = withCommitterFallback(dir, env, authorName, authorEmail)
-	out, err := runGitEnv(dir, env, args...)
+	started := time.Now()
+	out, err := runGitEnvTimeout(dir, env, CommitTimeout, args...)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return fmt.Errorf("git commit: no answer after %s, stopped: a hook or a prompt of the host's git is waiting for input%s",
+				CommitTimeout, clearKilledCommitLock(dir, env, started))
+		}
 		// git commit exits with code 1 when there is nothing to commit.
 		if strings.Contains(out, "nothing to commit") ||
 			strings.Contains(out, "nothing added to commit") {
@@ -849,6 +856,74 @@ func runGitEnv(dir string, env []string, args ...string) (string, error) {
 	cmd := procattr.Hide(exec.Command("git", fullArgs...))
 	cmd.Env = gitEnv(env)
 	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+// CommitTimeout bounds one git commit. Server commits are isolated from the
+// user's commit-time configuration (serverConfig), so one that takes this long
+// is stuck on something the isolation does not cover; it is stopped, process
+// group included, rather than holding the KB's lock. A variable so tests can
+// shorten it.
+var CommitTimeout = 60 * time.Second
+
+// clearKilledCommitLock runs after a commit was killed by CommitTimeout. The
+// kill is a SIGKILL: git cannot remove the index.lock it holds, and every later
+// write would fail on it. The caller holds the KB's git lock, so no other
+// server git runs; a lock whose mtime is at or after the commit's start (to the
+// second, for coarse filesystems) is the killed commit's and is removed. An older
+// lock belongs to someone else (a git run by hand, an editor): it is kept and
+// named in the returned sentence. "" when there was nothing to clear.
+func clearKilledCommitLock(dir string, env []string, started time.Time) string {
+	lock := indexLockPath(dir, env)
+	if lock == "" {
+		return ""
+	}
+	fi, err := os.Stat(lock)
+	if err != nil {
+		return ""
+	}
+	if fi.ModTime().Before(started.Truncate(time.Second)) {
+		return fmt.Sprintf("; %s predates this commit and was left in place: remove it once no git is using it", lock)
+	}
+	if err := os.Remove(lock); err != nil {
+		return fmt.Sprintf("; the killed commit left %s and it could not be removed: %v", lock, err)
+	}
+	return ""
+}
+
+// indexLockPath is the lock file of the index the commit used: the temporary
+// index of GIT_INDEX_FILE when env names one (CommitPaths), else the repository's.
+func indexLockPath(dir string, env []string) string {
+	for _, kv := range env {
+		if v, ok := strings.CutPrefix(kv, "GIT_INDEX_FILE="); ok && v != "" {
+			return v + ".lock"
+		}
+	}
+	out, err := runGit(dir, "rev-parse", "--git-path", "index.lock")
+	if err != nil {
+		return ""
+	}
+	p := strings.TrimSpace(out)
+	if p == "" {
+		return ""
+	}
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(dir, p)
+	}
+	return p
+}
+
+// runGitEnvTimeout is runGitEnv bounded by timeout; the error wraps
+// context.DeadlineExceeded when the bound was hit.
+func runGitEnvTimeout(dir string, env []string, timeout time.Duration, args ...string) (string, error) {
+	runCount.Add(1)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := netCommand(ctx, gitEnv(env), append([]string{"-C", dir}, args...)...)
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		return string(out), ctx.Err()
+	}
 	return string(out), err
 }
 

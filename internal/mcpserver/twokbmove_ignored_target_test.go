@@ -4,7 +4,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -158,9 +157,6 @@ func TestTwoKBMove_ArtifactMoveRefusesAnIgnoreFileInTheUnit(t *testing.T) {
 // and the retry failed on "already exists".
 func TestTwoKBMove_TargetCommitFailureRemovesIgnoredCopies(t *testing.T) {
 	t.Parallel()
-	if runtime.GOOS == "windows" {
-		t.Skip("the failing commit is a shell pre-commit hook")
-	}
 	f := newTransferFixture(t)
 	xferWrite(t, f.a, "notes/dossier/index.md", "---\ntype: Note\ntitle: Dossier\n---\nd\n")
 	if err := os.WriteFile(filepath.Join(f.a.DataRoot(), "notes", "dossier", "diagram.png"), []byte{0, 1}, 0o644); err != nil {
@@ -175,12 +171,10 @@ func TestTwoKBMove_TargetCommitFailureRemovesIgnoredCopies(t *testing.T) {
 		t.Fatal(err)
 	}
 	xferCommit(t, f.a)
-	hook := filepath.Join(f.b.Root, ".git", "hooks", "pre-commit")
-	if err := os.MkdirAll(filepath.Dir(hook), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(hook, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
-		t.Fatal(err)
+	// An invalid commit.cleanup fails the target's git commit portably (a hook
+	// would not: the server's commits ignore core.hooksPath).
+	if out, err := exec.Command("git", "-C", f.b.Root, "config", "commit.cleanup", "cartographer-invalid").CombinedOutput(); err != nil {
+		t.Fatalf("git config: %v: %s", err, out)
 	}
 	headA, headB := xferHead(t, f.a), xferHead(t, f.b)
 	const call = `{"target_kb":"kb-b","moves":[{"source_id":"notes/dossier","target_id":"wiki/dossier"}]}`
@@ -194,8 +188,8 @@ func TestTwoKBMove_TargetCommitFailureRemovesIgnoredCopies(t *testing.T) {
 	}
 	assertNothingLeftIn(t, f.b, "data/wiki/dossier")
 
-	if err := os.Remove(hook); err != nil {
-		t.Fatal(err)
+	if out, err := exec.Command("git", "-C", f.b.Root, "config", "--unset", "commit.cleanup").CombinedOutput(); err != nil {
+		t.Fatalf("git config --unset: %v: %s", err, out)
 	}
 	if err := os.Remove(ignore); err != nil {
 		t.Fatal(err)
