@@ -4,7 +4,6 @@ package tray
 
 import (
 	"errors"
-	"image/color"
 	"runtime"
 	"strings"
 	"sync"
@@ -59,11 +58,6 @@ const (
 
 	autoresizeMinX  = 1 // NSViewMinXMargin
 	autoresizeWidth = 2 // NSViewWidthSizable
-)
-
-var (
-	pine = color.NRGBA{R: 0x36, G: 0x5D, B: 0x50, A: 0xFF}
-	sage = color.NRGBA{R: 0x91, G: 0xB9, B: 0xA0, A: 0xFF}
 )
 
 const (
@@ -348,28 +342,18 @@ func (u *macUI) dark() bool {
 }
 
 // accent is the brand accent (docs/brand/index.md): sage on dark, pine on light.
-func (u *macUI) accent() objc.ID {
-	c := pine
-	if u.dark() {
-		c = sage
+func (u *macUI) accent() objc.ID { return u.toneText(ToneOK) }
+
+// toneText is the colour of a row's trailing status: the fixed colour of
+// toneTable for the current appearance (tone.go, checked for contrast against
+// the menu), else the system label colour.
+func (u *macUI) toneText(t Tone) objc.ID {
+	c, ok := toneColor(t, u.dark())
+	if !ok {
+		return nsColor("labelColor")
 	}
 	return class("NSColor").Send(s("colorWithSRGBRed:green:blue:alpha:"),
 		float64(c.R)/255, float64(c.G)/255, float64(c.B)/255, 1.0)
-}
-
-// toneText is the colour of a row's trailing status.
-func (u *macUI) toneText(t Tone) objc.ID {
-	switch t {
-	case ToneOK:
-		return u.accent()
-	case ToneBusy:
-		return nsColor("systemOrangeColor")
-	case ToneDown:
-		return nsColor("systemRedColor")
-	case ToneUpdate:
-		return nsColor("systemBlueColor")
-	}
-	return nsColor("labelColor")
 }
 
 func nsColor(name string) objc.ID { return class("NSColor").Send(s(name)) }
