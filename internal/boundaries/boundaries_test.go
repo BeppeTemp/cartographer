@@ -325,3 +325,44 @@ func TestOnlyThePluginTestCommandImportsRecipetest(t *testing.T) {
 		t.Fatal("no file checked")
 	}
 }
+
+// StarConfig.Tune hands a call the runtime's test seams (it is how the kit sets
+// the replay). A Surveyor that set it would own those seams; the identifier is
+// declared in the recipe package, set by the conformance kit and named by no
+// other non-test file (comments excluded).
+func TestOnlyThePluginTestKitSetsStarConfigTune(t *testing.T) {
+	allowed := map[string]bool{
+		"internal/surveyor/recipe/starlark.go":       true,
+		"internal/surveyor/recipe/recipetest/run.go": true,
+	}
+	root := filepath.Join("..", "..")
+	checked := 0
+	for _, dir := range []string{"internal", "cmd"} {
+		err := filepath.WalkDir(filepath.Join(root, dir), func(path string, d fs.DirEntry, err error) error {
+			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+				return err
+			}
+			af, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+			if err != nil {
+				return nil
+			}
+			checked++
+			rel, _ := filepath.Rel(root, path)
+			rel = filepath.ToSlash(rel)
+			ast.Inspect(af, func(n ast.Node) bool {
+				if id, ok := n.(*ast.Ident); ok && id.Name == "Tune" && !allowed[rel] {
+					t.Errorf("%s names Tune, which only the plugin test kit may set", rel)
+					return false
+				}
+				return true
+			})
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no file checked")
+	}
+}

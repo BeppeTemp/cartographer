@@ -184,6 +184,10 @@ lines of protocol v2 and reads with the parser exec recipes use, so the caps, th
 (`protocol_error`, `list_failed`, `identity_not_read_only`) are the same. A failure of the script is `list_failed`,
 `check_failed` or `fetch_failed` with the mapped variables redacted; a verb it does not register answers like exit 64.
 
+A plugin's recipes are tested before any Surveyor runs them, with `cartographer plugin test <dir>`: each recipe
+runs against a scenario of `tests/<name>.yaml` (a Starlark recipe's `http.request` answered from recorded exchanges; an
+exec recipe's command is run as the user, unapproved), through this same parser (`docs/plugins.md` §Testing a surveyor side).
+
 ## Failures
 
 A failure sets the Source's `feed_error` to `<code>: <detail>` and leaves its cursor untouched.

@@ -1,9 +1,9 @@
 // Package recipetest runs a plugin's recipes against recorded fixtures.
 //
 // It is the library of `cartographer plugin test` (docs/plugins.md): the scenario
-// an author wrote in tests/<name>.yaml, then the checks every recipe must pass
-// whatever the scenario asserts. It judges with the production recipe types, so
-// a recipe passes here only when a Surveyor would accept what it prints.
+// an author wrote in tests/<name>.yaml, run step by step against the production
+// recipe types, so a recipe passes here only when a Surveyor would accept what
+// it prints.
 package recipetest
 
 import (
