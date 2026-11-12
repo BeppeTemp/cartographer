@@ -6,6 +6,8 @@ import (
 	"errors"
 	"image/color"
 	"log"
+	"os"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"syscall"
@@ -49,6 +51,9 @@ const (
 	nifMessage      = 0x1
 	nifIcon         = 0x2
 	nifTip          = 0x4
+	nifInfo         = 0x10
+	niifInfo        = 0x1
+	ninBalloonClick = wmApp - 0x8000 + 0x405 // NIN_BALLOONUSERCLICK = WM_USER+5
 	mfString        = 0x0
 	mfGrayed        = 0x1
 	mfDisabled      = 0x2
@@ -178,6 +183,7 @@ type winUI struct {
 	added          bool
 	retries        int
 	iconWarned     bool
+	announced      bool // the first-start balloon was handled (shown or not due)
 
 	mu      sync.Mutex
 	pending *Snapshot // written by the feeder goroutine, read on the UI thread
@@ -294,8 +300,11 @@ func wndProc(hwnd, message, wParam, lParam uintptr) uintptr {
 		}
 		return 0
 	case wmTrayIcon:
-		if trayMessageOpensMenu(uint32(lParam & 0xFFFF)) {
+		switch ev := uint32(lParam & 0xFFFF); {
+		case trayMessageOpensMenu(ev):
 			u.showMenu()
+		case ev == ninBalloonClick:
+			u.onAction(ActionOpenAtlas)
 		}
 		return 0
 	case wmTimer:
@@ -303,6 +312,7 @@ func wndProc(hwnd, message, wParam, lParam uintptr) uintptr {
 		u.retries++
 		if u.notify(nimAdd) {
 			u.added = true
+			u.announce()
 		}
 		if u.added || u.retries >= retryMax {
 			call(procKillTimer, u.hwnd, retryTimer)
@@ -362,6 +372,7 @@ func (u *winUI) refresh() {
 // restarted), re-arms the bounded retry timer.
 func (u *winUI) tryAdd() {
 	if u.added = u.notify(nimAdd); u.added {
+		u.announce()
 		return
 	}
 	u.retries = 0
@@ -374,6 +385,51 @@ func (u *winUI) notify(op uintptr) bool {
 	tip, _ := windows.UTF16FromString(truncateUTF16(StatusLine(u.snap), tipMaxUnits))
 	copy(d.szTip[:], tip)
 	return call(procShellNotifyIcon, op, uintptr(unsafe.Pointer(&d))) != 0
+}
+
+// announce shows the first-start balloon once per executable path: Windows
+// puts an icon from a path it has not seen in the (^) overflow, so a first
+// install or a moved binary would otherwise show nothing (#1946). The app
+// never writes IsPromoted itself: pinning is the user's.
+func (u *winUI) announce() {
+	if u.announced {
+		return
+	}
+	u.announced = true
+	exe, err := os.Executable()
+	if err != nil || !FirstStartHere(stateDir(), exe) {
+		return
+	}
+	d := balloonData(u.hwnd, balloonTitle, balloonText)
+	if call(procShellNotifyIcon, nimModify, uintptr(unsafe.Pointer(&d))) == 0 {
+		log.Printf("tray: the first-start balloon was refused by Shell_NotifyIconW")
+	}
+}
+
+// stateDir is %LOCALAPPDATA%\cartographer, where the logs and task files live.
+func stateDir() string {
+	if d := os.Getenv("LOCALAPPDATA"); d != "" {
+		return filepath.Join(d, "cartographer")
+	}
+	return ""
+}
+
+const (
+	balloonTitle = "Cartographer is running"
+	balloonText  = "Click to open the Atlas. To keep the icon in the taskbar, drag it out of the ^ menu."
+)
+
+// balloonData is the NIM_MODIFY payload of the balloon: NIF_INFO only, so the
+// icon and tooltip are left as they are. The text is cut to the structure's
+// fields (a balloon longer than them is refused, not truncated, by the shell).
+func balloonData(hwnd uintptr, title, text string) notifyIconData {
+	d := notifyIconData{hWnd: hwnd, uID: iconUID, uFlags: nifInfo, dwInfoFlags: niifInfo}
+	d.cbSize = uint32(unsafe.Sizeof(d))
+	t, _ := windows.UTF16FromString(truncateUTF16(title, len(d.szInfoTitle)-1))
+	copy(d.szInfoTitle[:], t)
+	b, _ := windows.UTF16FromString(truncateUTF16(text, len(d.szInfo)-1))
+	copy(d.szInfo[:], b)
+	return d
 }
 
 // makeIcon builds the HICON of the current state at the small-icon size, white

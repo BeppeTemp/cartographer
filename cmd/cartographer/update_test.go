@@ -113,6 +113,7 @@ func TestMain(m *testing.M) {
 	trayInstallFn = func() error { return nil }
 	trayUninstallFn = func() error { return nil }
 	trayInstalledFn = func() bool { return true }
+	trayRunningFn = func() bool { return true } // never the real launchctl/Task Scheduler: status and doctor ask it (#1946)
 	localServiceInstalledFn = func() bool { return false }
 	// Same for the leftover doctor job connect and upgrade-repair remove (D704).
 	removeLegacyDoctorTimerFn = func() (bool, error) { return false, nil }

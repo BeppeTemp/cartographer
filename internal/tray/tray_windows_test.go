@@ -4,8 +4,11 @@ package tray
 
 import (
 	"runtime"
+	"strings"
 	"testing"
 	"unsafe"
+
+	"golang.org/x/sys/windows"
 )
 
 // A wrong NOTIFYICONDATAW layout silently shows no icon. The documented
@@ -90,5 +93,27 @@ func TestTrayMessageOpensMenu(t *testing.T) {
 		if got := trayMessageOpensMenu(msg); got != want {
 			t.Errorf("message %#x opens the menu = %v, want %v", msg, got, want)
 		}
+	}
+}
+
+// The balloon touches only the info fields: flags NIF_INFO, an info icon, the
+// texts in place, and a click on it is the one new callback message.
+func TestBalloonData(t *testing.T) {
+	d := balloonData(7, balloonTitle, balloonText)
+	if d.uFlags != nifInfo || d.dwInfoFlags != niifInfo || d.hWnd != 7 || d.uID != iconUID {
+		t.Errorf("flags %#x info %#x hwnd %d uid %d", d.uFlags, d.dwInfoFlags, d.hWnd, d.uID)
+	}
+	if got := windows.UTF16ToString(d.szInfoTitle[:]); got != balloonTitle {
+		t.Errorf("title %q", got)
+	}
+	if got := windows.UTF16ToString(d.szInfo[:]); got != balloonText {
+		t.Errorf("text %q", got)
+	}
+	long := balloonData(7, strings.Repeat("t", 200), strings.Repeat("x", 600))
+	if long.szInfoTitle[len(long.szInfoTitle)-1] != 0 || long.szInfo[len(long.szInfo)-1] != 0 {
+		t.Error("long texts must stay NUL-terminated")
+	}
+	if ninBalloonClick != 0x405 {
+		t.Errorf("NIN_BALLOONUSERCLICK = %#x", ninBalloonClick)
 	}
 }

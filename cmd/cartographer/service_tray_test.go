@@ -14,8 +14,9 @@ import (
 // PowerShell.
 func stubTray(t *testing.T) (home string, installs *int) {
 	t.Helper()
-	oi, ou, oq := trayInstallFn, trayUninstallFn, trayInstalledFn
-	t.Cleanup(func() { trayInstallFn, trayUninstallFn, trayInstalledFn = oi, ou, oq })
+	oi, ou, oq, orun := trayInstallFn, trayUninstallFn, trayInstalledFn, trayRunningFn
+	t.Cleanup(func() { trayInstallFn, trayUninstallFn, trayInstalledFn, trayRunningFn = oi, ou, oq, orun })
+	trayRunningFn = func() bool { return true }
 	home = t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
@@ -184,5 +185,36 @@ func TestServiceTray_UnsupportedPlatform(t *testing.T) {
 	withStdout(t, func() { installTrayWithService(false) })
 	if *installs != 0 {
 		t.Error("service install must not install a tray on linux")
+	}
+}
+
+// An installed tray with no live process is reported by status and doctor
+// (#1946); a running, absent or unsupported one is not.
+func TestTrayNotRunningLine(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		goos               string
+		installed, running bool
+		want               bool
+	}{
+		{"installed, dead", "windows", true, false, true},
+		{"installed, running", "windows", true, true, false},
+		{"not installed", "windows", false, false, false},
+		{"unsupported", "linux", true, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stubTray(t)
+			trayGOOS = tc.goos
+			trayInstalledFn = func() bool { return tc.installed }
+			trayRunningFn = func() bool { return tc.running }
+			out := withStdout(t, printTrayNotRunning)
+			if got := strings.Contains(out, trayNotRunningMsg); got != tc.want {
+				t.Fatalf("status line shown=%v want %v (%q)", got, tc.want, out)
+			}
+			f := checkTray()
+			if (len(f) == 1) != tc.want || (tc.want && f[0].Check != "tray_not_running") {
+				t.Fatalf("doctor findings = %+v", f)
+			}
+		})
 	}
 }

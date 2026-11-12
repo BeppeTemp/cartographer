@@ -20,6 +20,7 @@ var (
 	trayInstallFn      = func() error { return service.NewManager().InstallTray() }
 	trayUninstallFn    = func() error { return service.NewManager().UninstallTray() }
 	trayInstalledFn    = func() bool { return service.NewManager().TrayInstalled() }
+	trayRunningFn      = func() bool { return service.NewManager().TrayRunning() }
 )
 
 const trayUnsupportedMsg = "the status icon is supported on Windows and macOS only"
@@ -133,6 +134,31 @@ func printTrayHint(anyConnected bool) {
 		return
 	}
 	fmt.Println("the status icon is not installed \u2014 run `cartographer service tray install` (silence this hint with `cartographer service tray uninstall`)")
+}
+
+// trayNotRunning reports a tray that is installed but has no live process
+// (quit by the user, or dead at logon): the icon is then missing for a reason
+// `cartographer service tray install` fixes, which restarts it (#1946).
+func trayNotRunning() bool {
+	return traySupported() && trayInstalledFn() && !trayRunningFn()
+}
+
+const trayNotRunningMsg = "the status icon is installed but not running"
+const trayNotRunningFix = "run `cartographer service tray install` to start it; its log is the tray.log next to the server's"
+
+// printTrayNotRunning is the status line of trayNotRunning.
+func printTrayNotRunning() {
+	if trayNotRunning() {
+		fmt.Printf("%s \u2014 %s\n", trayNotRunningMsg, trayNotRunningFix)
+	}
+}
+
+// checkTray is doctor's finding for trayNotRunning.
+func checkTray() []doctorFinding {
+	if !trayNotRunning() {
+		return nil
+	}
+	return []doctorFinding{{Check: "tray_not_running", Severity: doctorWarning, Message: trayNotRunningMsg, Fix: trayNotRunningFix}}
 }
 
 // cmdServiceTray manages the status icon's autostart (D1482). `uninstall` is

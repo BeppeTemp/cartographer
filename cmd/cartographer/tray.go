@@ -60,6 +60,9 @@ func cmdTray(args []string) int {
 		defer f.Close()
 		detachOwnConsole() // the tray task's console window (D1479)
 	}
+	if exe, err := os.Executable(); err == nil {
+		log.Printf("tray: started from %s", exe) // the first line of tray.log: the file exists once the tray ran
+	}
 
 	ui, err := tray.NewUI()
 	if err != nil {

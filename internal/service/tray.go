@@ -150,6 +150,21 @@ func (m *Manager) TrayInstalled() bool {
 	return statErr == nil
 }
 
+// TrayRunning reports whether the installed tray has a live process: the
+// scheduler's answer (Windows task state, launchd's PID), not the definition
+// file TrayInstalled reads. Always false on Linux. A tray the user quit, or one
+// that died at logon for lack of a shell, is installed and not running (#1946).
+func (m *Manager) TrayRunning() bool {
+	switch goos {
+	case "darwin":
+		out, err := m.run("launchctl", "print", fmt.Sprintf("gui/%d/%s", os.Getuid(), trayLaunchdLabel))
+		return err == nil && launchdPrintHasPID(out)
+	case "windows":
+		return m.windowsTaskRunning(windowsTrayTaskName)
+	}
+	return false
+}
+
 // InstallTray writes the tray definition, registers it and starts it now, so
 // the icon appears without a logoff. Idempotent: a running tray is stopped
 // first, because IgnoreNew (Windows) and a loaded job (launchd) would keep the
