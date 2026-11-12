@@ -108,7 +108,7 @@ test("the id is messages/<UTC date>-<6 base36>", () => {
   assert.equal(newMessageId(new Date("2026-03-04T00:00:00Z"), () => 0.999999), "messages/2026-03-04-zzzzzz");
 });
 
-test("the rewrite assigns the id, drops index_entry and anything unexpected", () => {
+test("the rewrite assigns the id, sets index_entry: true and drops anything unexpected", () => {
   const msg = call("concept_new", "guestbook", {
     id: "../../data/index",
     index_entry: "- [x](y)",
@@ -125,6 +125,7 @@ test("the rewrite assigns the id, drops index_entry and anything unexpected", ()
     id: "messages/2026-03-04-abc123",
     template: "message",
     vars: { client: "Claude", message: "hi" },
+    index_entry: true,
   });
 });
 
@@ -369,7 +370,8 @@ test("handler: an approved message is forwarded with the write token and a serve
     assert.equal(h.seen[0].auth, "Bearer write-token");
     const sent = JSON.parse(h.seen[0].body);
     assert.match(sent.params.arguments.id, /^messages\/\d{4}-\d{2}-\d{2}-[0-9a-z]{6}$/);
-    assert.equal("index_entry" in sent.params.arguments, false);
+    // On a curated messages/ index, without index_entry the write gate refuses the message (#1869); on a generated one it is a no-op.
+    assert.strictEqual(sent.params.arguments.index_entry, true);
   } finally {
     h.restore();
   }
