@@ -15,6 +15,8 @@ type rawPluginPin struct {
 	Enabled  *bool             `yaml:"enabled"`
 	Settings map[string]any    `yaml:"settings"`
 	Env      map[string]string `yaml:"env"`
+	// AllowPrivateHosts is the Surveyor's half of the private-network grant.
+	AllowPrivateHosts []string `yaml:"allow_private_hosts"`
 }
 
 // PluginPin is a plugins.<name> entry: the tree digest the operator approved,
@@ -27,6 +29,10 @@ type PluginPin struct {
 	// declares to the name of the Surveyor's own variable that holds its value;
 	// a plugin never names an operator variable itself.
 	Env map[string]string
+	// AllowPrivateHosts are the hosts of the manifest's net_private this
+	// Surveyor lets a Starlark recipe reach on a private or loopback
+	// address. Each must be declared there (addPluginPoints checks).
+	AllowPrivateHosts []string
 	// Line is the line of the entry in the file, for a refusal at start.
 	Line int
 }
@@ -76,7 +82,34 @@ func (v *validator) plugins() error {
 		if err := envNames(r.Env); err != nil {
 			return v.errf(at+".env", v.line("plugins", n, "env"), "%v", err)
 		}
-		v.c.PluginPins[n] = PluginPin{Digest: r.Digest, Enabled: r.Enabled == nil || *r.Enabled, Settings: r.Settings, Env: r.Env, Line: ln}
+		if err := privateHosts(r.AllowPrivateHosts); err != nil {
+			return v.errf(at+".allow_private_hosts", v.line("plugins", n, "allow_private_hosts"), "%v", err)
+		}
+		v.c.PluginPins[n] = PluginPin{Digest: r.Digest, Enabled: r.Enabled == nil || *r.Enabled, Settings: r.Settings, Env: r.Env,
+			AllowPrivateHosts: r.AllowPrivateHosts, Line: ln}
+	}
+	return nil
+}
+
+// maxPrivateHosts is the length cap of allow_private_hosts, the manifest's for net_private.
+const maxPrivateHosts = 16
+
+// privateHosts checks the shape of allow_private_hosts: exact host names in the
+// manifest's grammar, no duplicate. Whether the manifest declares each is
+// judged once the tree is open.
+func privateHosts(hosts []string) error {
+	if len(hosts) > maxPrivateHosts {
+		return fmt.Errorf("%d hosts, at most %d", len(hosts), maxPrivateHosts)
+	}
+	seen := map[string]bool{}
+	for _, h := range hosts {
+		if why := core.PrivateHostProblem(h); why != "" {
+			return fmt.Errorf("%q %s", h, why)
+		}
+		if seen[h] {
+			return fmt.Errorf("%q is listed twice", h)
+		}
+		seen[h] = true
 	}
 	return nil
 }

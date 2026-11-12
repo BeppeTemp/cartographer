@@ -65,3 +65,21 @@ func TestPreviewListsTheSurveyorScript(t *testing.T) {
 		t.Errorf("preview lacks %q:\n%s", want, buf.String())
 	}
 }
+
+// A declared private-network host is shown with the Surveyor key that grants it
+// and with what the grant does not hold.
+func TestPreviewNamesThePrivateGrant(t *testing.T) {
+	manifest := "schema: 2\nname: acme-wiki\nversion: 1.0.0\ndisplay_name: Wiki\ndescription: A wiki reader.\ncartographer: \">=0.29.0\"\ncomponents:\n  surveyor:\n    sdk: {recipes: 1}\n    permissions: {net: [\"*.example.com\"], net_private: [wiki.example.com]}\n"
+	p, _ := core.ReadTree([]core.TreeFile{{Path: core.ManifestFile, Content: []byte(manifest)}}, core.Options{RunningVersion: "0.29.0"})
+	var buf bytes.Buffer
+	Preview(&buf, p, PreviewInfo{Side: core.SideSurveyor}, core.Options{RunningVersion: "0.29.0"})
+	for _, want := range []string{
+		"may reach private-network hosts (once the Surveyor grants each): wiki.example.com",
+		"under plugins.acme-wiki.allow_private_hosts: wiki.example.com",
+		"exec recipes and connector processes are not network-checked",
+	} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("preview lacks %q:\n%s", want, buf.String())
+		}
+	}
+}

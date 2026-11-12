@@ -81,6 +81,13 @@ func TestParseManifestV2Problems(t *testing.T) {
 		{"atlas env", v2With("components:\n  atlas:\n    permissions: {env: [X_Y]}\n"), "components.atlas.permissions.env: not allowed"},
 		{"surveyor bad host", v2With("components:\n  surveyor:\n    permissions: {net: [\"https://x.example.com\"]}\n"), "components.surveyor.permissions.net[0]"},
 		{"client bad env", v2With("components:\n  client:\n    permissions: {env: [PATH]}\n"), "components.client.permissions.env[0]"},
+		{"client net_private", v2With("components:\n  client:\n    permissions: {net: [a.example.com], net_private: [a.example.com]}\n"), "components.client.permissions.net_private: not allowed on the client side"},
+		{"server net_private", v2With("components:\n  server:\n    permissions: {net_private: [a.example.com]}\n"), "components.server.permissions.net_private: not allowed on the server side"},
+		{"surveyor net_private wildcard", v2With("components:\n  surveyor:\n    permissions: {net: [\"*.example.com\"], net_private: [\"*.example.com\"]}\n"), "components.surveyor.permissions.net_private[0]: \"*.example.com\" is a wildcard"},
+		{"surveyor net_private address", v2With("components:\n  surveyor:\n    permissions: {net: [\"*.example.com\"], net_private: [10.0.0.5]}\n"), "components.surveyor.permissions.net_private[0]"},
+		{"surveyor net_private single label", v2With("components:\n  surveyor:\n    permissions: {net: [\"*.example.com\"], net_private: [wiki]}\n"), "components.surveyor.permissions.net_private[0]"},
+		{"surveyor net_private outside net", v2With("components:\n  surveyor:\n    permissions: {net: [api.example.com], net_private: [wiki.example.org]}\n"), "components.surveyor.permissions.net_private[0]: \"wiki.example.org\" is not matched by any pattern of net"},
+		{"surveyor net_private bare suffix", v2With("components:\n  surveyor:\n    permissions: {net: [\"*.example.com\"], net_private: [example.com]}\n"), "is not matched by any pattern of net"},
 		{"bad name", strings.Replace(validV2, "team-forks", "Team", 1), "name:"},
 	}
 	for _, c := range cases {
@@ -90,6 +97,23 @@ func TestParseManifestV2Problems(t *testing.T) {
 				t.Errorf("want a problem containing %q, got %v", c.want, probs)
 			}
 		})
+	}
+}
+
+// A surveyor side may declare net_private for exact hosts of net; schema 1, the
+// client's, may not.
+func TestNetPrivateOnTheSurveyorSideOnly(t *testing.T) {
+	in := v2With("components:\n  surveyor:\n    sdk: {recipes: 1}\n    permissions: {net: [\"*.example.com\", api.example.org], net_private: [wiki.example.com, api.example.org]}\n")
+	m, probs := ParseManifest([]byte(in), v2Opts)
+	if len(probs) != 0 {
+		t.Fatalf("problems: %v", probs)
+	}
+	if got := m.Components[SideSurveyor].Permissions.NetPrivate; len(got) != 2 || got[0] != "wiki.example.com" {
+		t.Errorf("net_private not read: %v", got)
+	}
+	_, probs = ParseManifest([]byte(validManifest+"permissions:\n  net: [a.example.com]\n  net_private: [a.example.com]\n"), testOpts)
+	if !strings.Contains(strings.Join(probs, "\n"), "permissions.net_private: not allowed on the client side") {
+		t.Errorf("schema 1 net_private: %v", probs)
 	}
 }
 

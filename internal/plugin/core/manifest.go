@@ -109,6 +109,10 @@ type Permissions struct {
 	Net   []string `yaml:"net"`
 	Files *Files   `yaml:"files"`
 	Env   []string `yaml:"env"`
+	// NetPrivate (surveyor side only) names exact hosts of net that may resolve
+	// to a private or loopback address. It grants nothing alone:
+	// the Surveyor config must list the same host under allow_private_hosts.
+	NetPrivate []string `yaml:"net_private"`
 }
 
 // Files holds the path globs a plugin asks to read and to write.
@@ -311,6 +315,9 @@ func (v *validator) manifest(m *Manifest, opts Options) {
 		v.add("cartographer", "%v", err)
 	}
 	if m.Permissions != nil {
+		if len(m.Permissions.NetPrivate) > 0 {
+			v.add("permissions.net_private", "not allowed on the client side (only components.surveyor may declare it)")
+		}
 		v.permissions("permissions", m.Permissions)
 	}
 }
@@ -391,14 +398,54 @@ func (v *validator) sidePermissions(base string, side Side, p *Permissions) {
 	case SideSurveyor:
 		refuse("kb", p.KB != "")
 		refuse("files", p.Files != nil)
+		v.netPrivate(base, p)
 	case SideServer, SideAtlas:
 		refuse("kb", p.KB != "")
 		refuse("net", len(p.Net) > 0)
 		refuse("env", len(p.Env) > 0)
 		refuse("files", p.Files != nil)
+		refuse("net_private", len(p.NetPrivate) > 0)
 		return
+	default:
+		refuse("net_private", len(p.NetPrivate) > 0)
 	}
 	v.permissions(base, p)
+}
+
+// netPrivate checks the surveyor side's net_private: exact hosts, each also
+// matched by a net pattern, so the private grant never widens the allow-list.
+func (v *validator) netPrivate(base string, p *Permissions) {
+	v.list(base+".net_private", p.NetPrivate, PrivateHostProblem)
+	for i, h := range p.NetPrivate {
+		if PrivateHostProblem(h) == "" && !netCovers(h, p.Net) {
+			v.add(fmt.Sprintf("%s.net_private[%d]", base, i), "%s is not matched by any pattern of net", q(h))
+		}
+	}
+}
+
+// PrivateHostProblem checks one private-network host, of the manifest's
+// net_private or the Surveyor's allow_private_hosts: the grammar of a net host
+// without the *. wildcard, because a private grant names one machine.
+func PrivateHostProblem(h string) string {
+	if strings.HasPrefix(h, "*.") {
+		return "is a wildcard: a private-network host is one exact name"
+	}
+	return hostProblem(h)
+}
+
+// netCovers reports whether an exact host is matched by a net pattern: the
+// same name, or *.suffix for a subdomain of suffix (the http module's rule).
+func netCovers(host string, patterns []string) bool {
+	for _, p := range patterns {
+		if suffix, ok := strings.CutPrefix(p, "*"); ok && strings.HasPrefix(suffix, ".") {
+			if strings.HasSuffix(host, suffix) && len(host) > len(suffix) {
+				return true
+			}
+		} else if host == p {
+			return true
+		}
+	}
+	return false
 }
 
 func (v *validator) name(name string, opts Options) {

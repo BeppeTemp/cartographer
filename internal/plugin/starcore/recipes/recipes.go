@@ -222,7 +222,11 @@ type Request struct {
 	Values      map[string]any
 	// LookupEnv answers env.get from the mapping of the Surveyor config.
 	LookupEnv func(string) (string, bool)
-	Log       io.Writer
+	// PrivateHosts are the Surveyor config's allow_private_hosts: http.request
+	// may reach a private address for a host listed here and under the
+	// manifest's net_private, and for no other.
+	PrivateHosts []string
+	Log          io.Writer
 
 	// Seams are the test seams of the runtime; only startest can build one.
 	Seams *seam.Seams
@@ -238,7 +242,7 @@ func (p *Program) Call(ctx context.Context, req Request) ([]byte, error) {
 	v, err := p.Invoke(ctx, starcore.CallSpec{
 		Kind: kind, Name: req.Recipe, Plugin: req.Plugin, Version: req.Version,
 		Perms: req.Permissions, Declared: req.Declared, Values: req.Values,
-		LookupEnv: req.LookupEnv, Log: req.Log,
+		LookupEnv: req.LookupEnv, PrivateHosts: req.PrivateHosts, Log: req.Log,
 		Timeout: starcore.RecipeTimeout, Steps: starcore.MaxCallStepsRecipe,
 		Arg: func(*starcore.Registration) (starlark.Tuple, error) {
 			dec := json.NewDecoder(bytes.NewReader(req.Body))

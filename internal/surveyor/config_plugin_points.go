@@ -32,9 +32,17 @@ func (c *Config) addPluginPoints() error {
 		fail := func(format string, a ...any) error {
 			return fmt.Errorf("plugins.%s (line %d): %s", name, pin.Line, fmt.Sprintf(format, a...))
 		}
-		var declared, hosts []string
+		var declared, hosts, private []string
 		if perm := p.Manifest.Components[core.SideSurveyor].Permissions; perm != nil {
-			declared, hosts = perm.Env, perm.Net
+			declared, hosts, private = perm.Env, perm.Net, perm.NetPrivate
+		}
+		// TRAP: the private grant takes both keys. A host the config allows and
+		// the manifest does not declare stops the start rather than being
+		// dropped, so the operator never believes a grant is in force.
+		for _, h := range pin.AllowPrivateHosts {
+			if !slices.Contains(private, h) {
+				return fail("allow_private_hosts grants %s, which the plugin's manifest does not declare under components.surveyor.permissions.net_private", h)
+			}
 		}
 		for _, n := range declared {
 			if _, ok := pin.Env[n]; !ok {
@@ -140,6 +148,7 @@ func (c *Config) addPluginPoints() error {
 						Timeout: defaultExecTimeout, MaxOutput: defaultExecOutput, MaxContent: defaultExecContent},
 					Program: prog, Local: rc.Name, Plugin: name, Version: p.Manifest.Version,
 					Permissions: p.Manifest.Components[core.SideSurveyor].Permissions, Declared: p.Manifest.Settings,
+					PrivateHosts: slices.Clone(pin.AllowPrivateHosts),
 				}
 				c.StarRecipes = append(c.StarRecipes, sc)
 				continue

@@ -161,6 +161,19 @@ func TestHTTPDialRefusesPrivateAddresses(t *testing.T) {
 	}
 }
 
+// The client has no half of the private grant: even a net_private the manifest
+// check would refuse on this side opens nothing here.
+func TestHTTPClientHasNoPrivateGrant(t *testing.T) {
+	seams := &startest.NetSeams{Lookup: func(context.Context, string) ([]netip.Addr, error) {
+		return []netip.Addr{netip.MustParseAddr("10.0.0.5")}, nil
+	}}
+	perms := &core.Permissions{Net: []string{"wiki.example.com"}, NetPrivate: []string{"wiki.example.com"}}
+	_, err := netCall(t, perms, seams, `return http.request("GET", "https://wiki.example.com/")`)
+	if ce := callErr(t, err, Denied); !strings.Contains(ce.Msg, "wiki.example.com") {
+		t.Errorf("%q", ce.Msg)
+	}
+}
+
 func TestHTTPRedirects(t *testing.T) {
 	var auth, seen atomic.Value
 	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

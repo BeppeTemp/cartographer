@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"net/url"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -30,6 +31,7 @@ type netState struct {
 	version  string
 	seams    seam.NetSeams
 	requests atomic.Int32
+	private  []string // CallSpec.PrivateHosts: the host's half of the private grant
 
 	mu         sync.Mutex
 	proxyAddrs map[string]bool // proxies the environment chose, which the dial check lets through
@@ -287,20 +289,68 @@ var forbiddenPrefixes = []netip.Prefix{
 	netip.MustParsePrefix("198.18.0.0/15"), // benchmarking
 }
 
-// forbiddenAddr is an address a name must not lead to: where the host's own
-// services, the local network and cloud metadata live. An IPv6 address that
-// embeds an IPv4 one (NAT64 64:ff9b::/96, 6to4 2002::/16) is judged by it.
-func forbiddenAddr(a netip.Addr) bool {
+// privateGranted reports whether host holds both keys of the private grant:
+// the manifest's net_private declares it and the host's PrivateHosts (the
+// Surveyor config's allow_private_hosts) lists it. Either alone grants nothing.
+func (n *netState) privateGranted(host string) bool {
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+	in := func(list []string) bool {
+		return slices.ContainsFunc(list, func(h string) bool { return strings.EqualFold(h, host) })
+	}
+	return n.cc.Perms != nil && in(n.cc.Perms.NetPrivate) && in(n.private)
+}
+
+// metadataAddrs are cloud metadata endpoints inside a private range (AWS's
+// IPv6 one is a unique local address); the grant never opens them.
+var metadataAddrs = []netip.Addr{netip.MustParseAddr("fd00:ec2::254")}
+
+// privateReachable is an address a granted host may lead to: a private or
+// loopback one, judged through an embedded IPv4 as forbiddenAddr is.
+// TRAP: link-local stays shut, because that is where cloud metadata lives
+// (169.254.169.254) and an internal service does not; so do multicast,
+// unspecified, carrier-grade NAT and the other reserved ranges.
+func privateReachable(a netip.Addr) bool {
+	a = embeddedV4(a)
+	if slices.Contains(metadataAddrs, a) {
+		return false
+	}
+	return a.IsLoopback() || a.IsPrivate()
+}
+
+// refusal is the error for host leading to a forbidden address. When the
+// manifest declares host under net_private the message names the missing half
+// of the grant, the Surveyor config's.
+func (n *netState) refusal(host string) error {
+	if n.cc.Perms != nil && slices.ContainsFunc(n.cc.Perms.NetPrivate, func(h string) bool { return strings.EqualFold(h, strings.TrimSuffix(host, ".")) }) {
+		if n.privateGranted(host) {
+			return DeniedErr("http.request: %q resolves to an address the private grant does not open (link-local, cloud metadata, multicast, unspecified or reserved)", host)
+		}
+		return DeniedErr("http.request: %q resolves to a private address: the manifest declares it under net_private, but this Surveyor does not grant it (plugins.%s.allow_private_hosts)", host, n.cc.Plugin)
+	}
+	return DeniedErr("http.request: %q resolves to a loopback, private or link-local address, which a plugin may not reach", host)
+}
+
+// embeddedV4 returns the IPv4 address an IPv6 one embeds (NAT64 64:ff9b::/96,
+// 6to4 2002::/16), or a itself unmapped.
+func embeddedV4(a netip.Addr) netip.Addr {
 	a = a.Unmap()
 	if a.Is6() {
 		b := a.As16()
 		switch {
 		case netip.MustParsePrefix("64:ff9b::/96").Contains(a):
-			return forbiddenAddr(netip.AddrFrom4([4]byte(b[12:16])))
+			return netip.AddrFrom4([4]byte(b[12:16]))
 		case b[0] == 0x20 && b[1] == 0x02:
-			return forbiddenAddr(netip.AddrFrom4([4]byte(b[2:6])))
+			return netip.AddrFrom4([4]byte(b[2:6]))
 		}
 	}
+	return a
+}
+
+// forbiddenAddr is an address a name must not lead to: where the host's own
+// services, the local network and cloud metadata live. An IPv6 address that
+// embeds an IPv4 one (NAT64 64:ff9b::/96, 6to4 2002::/16) is judged by it.
+func forbiddenAddr(a netip.Addr) bool {
+	a = embeddedV4(a)
 	if a.IsLoopback() || a.IsPrivate() || a.IsLinkLocalUnicast() || a.IsLinkLocalMulticast() ||
 		a.IsInterfaceLocalMulticast() || a.IsMulticast() || a.IsUnspecified() {
 		return true
@@ -348,9 +398,10 @@ func (n *netState) checkTarget(ctx context.Context, host string) error {
 	if err != nil {
 		return err
 	}
+	granted := n.privateGranted(host)
 	for _, a := range addrs {
-		if forbiddenAddr(a) {
-			return DeniedErr("http.request: %q resolves to a loopback, private or link-local address, which a plugin may not reach", host)
+		if forbiddenAddr(a) && !(granted && privateReachable(a)) {
+			return n.refusal(host)
 		}
 	}
 	return nil
@@ -379,7 +430,8 @@ func proxyAddr(p *url.URL) string {
 }
 
 // dial resolves the name itself, refuses forbidden addresses unless the manifest
-// lists that very literal, and connects to the checked address, so a DNS answer
+// lists that very literal or the host holds the private grant (privateGranted),
+// and connects to the checked address, so a DNS answer
 // cannot change between the check and the connect.
 func (n *netState) dial(ctx context.Context, network, addr string) (net.Conn, error) {
 	var d net.Dialer
@@ -398,10 +450,13 @@ func (n *netState) dial(ctx context.Context, network, addr string) (net.Conn, er
 		return nil, err
 	}
 	exempt := n.literalGranted(host)
+	// A redirect dials its own host, so a hop from a granted host to another
+	// private one is judged here by that host's grant, not the first one's.
+	granted := n.privateGranted(host)
 	var last error
 	for _, a := range addrs {
-		if !exempt && forbiddenAddr(a) {
-			last = DeniedErr("http.request: %q resolves to a loopback, private or link-local address, which a plugin may not reach", host)
+		if !exempt && forbiddenAddr(a) && !(granted && privateReachable(a)) {
+			last = n.refusal(host)
 			continue
 		}
 		conn, err := d.DialContext(ctx, network, net.JoinHostPort(a.String(), port))

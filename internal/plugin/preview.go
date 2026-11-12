@@ -133,6 +133,7 @@ func previewPermissions(w io.Writer, head string, pm *core.Permissions) {
 			n++
 		}
 		say("may reach hosts: ", pm.Net...)
+		say("may reach private-network hosts (once the Surveyor grants each): ", pm.NetPrivate...)
 		say("may read environment variables: ", pm.Env...)
 		if pm.Files != nil {
 			say("may read files: ", pm.Files.Read...)
@@ -183,6 +184,12 @@ func previewSides(w io.Writer, p core.Plugin, in PreviewInfo) {
 		}
 		if side == core.SideSurveyor && c.Permissions != nil && len(c.Permissions.Env) > 0 {
 			fmt.Fprintf(w, "your Surveyor config must map under plugins.%s.env: %s\n", esc(p.Manifest.Name), escAll(c.Permissions.Env))
+		}
+		if side == core.SideSurveyor && c.Permissions != nil && len(c.Permissions.NetPrivate) > 0 {
+			// The grant is enforced by the Starlark http module only: an exec
+			// recipe or a connector process is outside the host's network control.
+			fmt.Fprintf(w, "your Surveyor config grants a private-network host only by listing it under plugins.%s.allow_private_hosts: %s\n", esc(p.Manifest.Name), escAll(c.Permissions.NetPrivate))
+			fmt.Fprintln(w, "  the grant holds Starlark recipes only: exec recipes and connector processes are not network-checked by the Surveyor")
 		}
 	}
 	if in.Side != "" {
