@@ -510,7 +510,7 @@ Two properties are load-bearing:
   not observable. Every other denial reads `forbidden: <code>: <hint>` (D343:
   `unclassified_tool`, `bad_arguments`, `read_only_token`, `needs_whole_kb`,
   `outside_scope`, `template_unusable`, `missing_id`, `no_kb_access`,
-  `no_principal`, `artifacts_read_only`, `secrets_restricted` (a rule with `secrets: none`, D1894), and `unbound_folder` for a read-only routed session, D1018, `read_only_profile` for `access=read-min`, D1184, `read_only_kb` for a KB Compass set read-only with `readonly=`, D1409); the reason describes the caller's own token and arguments,
+  `no_principal`, `artifacts_read_only`, `secrets_restricted` (a rule with `secrets: none`, D1894), and `unbound_folder` for a read-only routed session, D1018, `read_only_profile` for `access=read-min`, D1184, `read_only_kb` for a KB Compass set read-only with `readonly=`, D1409, `denied_by_hook` and `hook_unavailable` for a write an operator's `write_veto` hook refused or could not judge under `fail_closed`, the `hooks:` block of `deployment.md`); the reason describes the caller's own token and arguments,
   never hidden content, and a `concept_batch` denial never names the operation.
 - **Filtering before limiting.** Collection tools apply the permission
   predicate before the result limit, in the in-memory index, in SQLite FTS
@@ -596,7 +596,7 @@ strings, joined and bounded in items and bytes (`joinAuditList`, `audit.go`). A 
 the result's text (D301): what the call cost the agent to read, so read
 amplification per session is measurable from the log without logging content.
 The field is hashed only when present, so events written before it verify
-unchanged.
+unchanged. A write a `write_veto` hook judged adds the resources `hook` (its name) and `hook_verdict` (`deny`, `dry_run_deny` or `error`) to its pair; a veto is audited as an authorization denial (`unauthorized`).
 
 A record also names the kind of the token behind the principal
 (`principal_kind`: `human`, `client` or `surveyor`; empty when the call has no

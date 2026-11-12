@@ -141,7 +141,18 @@ oversized body, a response `version` other than the request's) is applied per th
 A `secret_resolver` must be `fail_closed`. After 5 consecutive failures a hook's circuit opens for 30 s and the policy
 applies without calling it; then one probe call decides whether it closes. A redirect is never followed and a response body
 is read up to 64 KiB. Failures and circuit transitions are logged with the hook name, never a body, URL query or credential.
-Why: `D1957`.
+**The write veto (`point: write_veto`).** For a tool that writes, after the core has authorized the call (an admin
+included: the veto sits outside the authorizer) and before the handler, the server asks each `write_veto` hook that covers
+the KB (`kbs`, empty means every KB) in config order and stops at the first deny. A tool that writes into another KB (`concept_transfer`, `artifact_move`) is judged on both: the hooks that cover the source KB and then those that cover `target_kb`, and a deny from either side denies; a hook scoped to the target only is asked when content moves into it. When several hooks record a verdict, the audit keeps the strongest (`deny`, then `dry_run_deny`, then `error`) with its hook name. The payload is `principal` (`id`, `kind`,
+`via`, `groups`), `kb`, `tool`, `class: "write"`, `target` (the audit's allow-listed identifiers, such as the concept id) and
+the caller's `reason`: never frontmatter, a body, a patch value or a secret name. A deny refuses the write with
+`forbidden: denied_by_hook: <reason>` (the reason cut to 200 printable characters); a failure under `fail_closed` refuses
+with `hook_unavailable`; a core refusal never reaches the hook. The audit pair of the call carries `hook` and `hook_verdict`
+(`deny`, `dry_run_deny`, `error`) among its resources. The call is made **outside the KB lock**: a slow hook delays its own
+request and no other writer, and nothing under the lock calls a hook. The limit: the veto judges the request, not the final
+diff, and state can change between the veto and the lock; the check that sees the resulting content is the write gate,
+which is the core's. A routed `/mcp/routed` write asks the hook once, on the target KB's server.
+Why: `D1957`, `D1967`.
 
 **Pinned plugins (`plugins_dir`, `plugins`).** The server runs no plugin unless its own file pins one: `plugins_dir`
 is the absolute path of a read-only store (`<dir>/<name>/<digest>/`, filled by `cartographer plugin vendor`, which

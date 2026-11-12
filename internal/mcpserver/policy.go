@@ -38,6 +38,8 @@ const (
 	denyArtifactsRO      = "artifacts_read_only"
 	denyReadOnlyKB       = "read_only_kb"
 	denySecretsRestr     = "secrets_restricted"
+	denyDeniedByHook     = "denied_by_hook"
+	denyHookUnavailable  = "hook_unavailable"
 )
 
 var denyHints = map[string]string{
@@ -52,6 +54,8 @@ var denyHints = map[string]string{
 	denyNoPrincipal:      "no principal resolved for this connection",
 	denyArtifactsRO:      "the token's rule for this KB carries artifacts: r, which withholds the tools that change skills, agents and hooks",
 	denySecretsRestr:     "the token's rule for this KB carries secrets: none, which withholds the secret tools, secret resolution and the concept fields that point at a secret",
+	denyDeniedByHook:     "a hook the operator configured refused this write",
+	denyHookUnavailable:  "a hook the operator configured could not be reached and its failure policy is fail_closed: retry later or ask the operator",
 	denyReadOnlyKB:       "this KB is read-only on this connection (knowledge_bases access: read on the client): the other KBs of the connection stay writable",
 	denyReadOnlyProfile:  "this connection was opened read-only (access=read-min): connect without it to write",
 	denyUnboundFolder: "this session is read-only because the folder it was started in is bound to no KB: " +
