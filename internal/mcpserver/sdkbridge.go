@@ -327,6 +327,15 @@ func (s *Server) callToolChecked(ctx context.Context, name string, args json.Raw
 	refusalsOnly := s.auditRefusalsOnly
 	hookReg, hookKB := s.hooks, s.kbName
 	s.mu.Unlock()
+	// A write the identity requirement will refuse never reaches a hook: no hook
+	// call for a write that will be refused (D1974). A routed
+	// view has no KB of its own here; the target KB's server decides.
+	if ToolRequiresWrite(name) && !isUnattended(ctx) {
+		if msg := identityRefusal(ctx, s.kbRef); msg != "" {
+			s.auditDenied(who, name, args)
+			return errorResult(msg), nil
+		}
+	}
 	// The write veto: after the core authorization, outside the KB lock (see
 	// vetoWrite). A routed view leaves it to the target KB's server, so a routed
 	// write calls the hooks once; with no hook configured this is a no-op.

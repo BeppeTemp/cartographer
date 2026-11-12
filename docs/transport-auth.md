@@ -542,7 +542,7 @@ The git **author and committer** of a write are the writer, not a setting (D904,
 D950). A client that knows who it acts for sends `Cartographer-Author: Name <email>`
 with the request; without a valid one the writer is the identity the operator
 configured for the KB in the server file (`git.identities`),
-else `<token id> <cartographer@<host>>`. Every write carries `Cartographer-Host`
+else, on a local server, the git identity of the user running it (D1974), else `<token id> <cartographer@<host>>`. Every write carries `Cartographer-Host`
 and `Cartographer-Token: <token id>` trailers that Meridian appends itself.
 The configured identity is attribution, never authorization. The author line is therefore a claim by the caller, and the
 trailer is what Meridian knows: attribution, not a signature, since whoever

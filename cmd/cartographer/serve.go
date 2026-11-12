@@ -383,6 +383,7 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 	}
 
 	phase("mounting")
+	local := localServer(cfg)
 	seenNames := make(map[string]string) // name → first path seen
 	seenRoots := make(map[string]string) // effective root → name of the first mount
 	var kbs []*kb.KB
@@ -420,6 +421,17 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 		k.GitEnv = gitEnvForKB(m.Name, credDir)
 		if n, e, ok := cfg.IdentityFor(m.Name); ok {
 			k.SetDefaultIdentity(n, e)
+		} else if local && !cfg.HasIdentityEntry(m.Name) {
+			// A personal install commits as the user who runs it, never as the
+			// technical local-admin identity (D1974); with none
+			// to derive, a write to a KB with a remote is refused.
+			k.SetIdentityRequired(true)
+			if n, e, ok := localIdentFn(m.Path); ok {
+				k.SetDefaultIdentity(n, e)
+				log.Printf("KB %q commits as %s <%s>, the git identity of the user running the server", m.Name, n, e)
+			} else {
+				log.Printf("warning: KB %q has no git identity: %s", m.Name, kb.IdentityMissingMessage)
+			}
 		}
 		k.SetBranchOverride(m.Spec.BranchOverride)
 		k.SopsAgeKeyFile = resolveSopsAgeKeyFile(credDir, m.Name)

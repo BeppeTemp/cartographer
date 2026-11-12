@@ -255,3 +255,34 @@ func TestRecordResolutionEditIsValidated(t *testing.T) {
 		t.Errorf("pending = %d, a refused edit must record nothing", n)
 	}
 }
+
+// A commit Cartographer makes with no writer (here the merge that settles a
+// conflict) carries the identity configured for the KB, which on a personal
+// install is the user's own git identity (D-new-local-git-identity); with none
+// it stays the server identity so a recovery never stalls. Not parallel.
+func TestFinalizeConflicts_CommitCarriesTheConfiguredIdentity(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not in PATH")
+	}
+	for name, configured := range map[string]bool{"configured": true, "none": false} {
+		t.Run(name, func(t *testing.T) {
+			k, localSHA, remoteSHA, branch, _ := setupDivergedKB(t)
+			mustRegisterFoo(t, k, localSHA, remoteSHA, branch)
+			if err := k.RecordResolution("foo", "theirs", ""); err != nil {
+				t.Fatalf("RecordResolution: %v", err)
+			}
+			noHostGitIdentity(t)
+			want := "Cartographer <" + func() string { _, e := ServerIdentity(); return e }() + ">"
+			if configured {
+				k.SetDefaultIdentity("Ada Example", "ada@example.test")
+				want = "Ada Example <ada@example.test>"
+			}
+			if _, err := k.FinalizeConflicts(); err != nil {
+				t.Fatalf("FinalizeConflicts: %v", err)
+			}
+			if got := tgit(t, k.Root, "log", "-1", "--format=%an <%ae>|%cn <%ce>"); got != want+"|"+want {
+				t.Errorf("author|committer = %q, want %q for both", got, want)
+			}
+		})
+	}
+}

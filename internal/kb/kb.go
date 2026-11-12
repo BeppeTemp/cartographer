@@ -88,6 +88,9 @@ type KB struct {
 	// adds the KB's default one (D950).
 	GitEnv []string
 
+	// identityRequired: a write to this KB needs a real git identity when it has
+	// a remote (a local server; SetIdentityRequired).
+	identityRequired bool
 	// defaultName and defaultEmail are the identity the operator configured for
 	// this KB (SetDefaultIdentity, D950); empty means the server identity.
 	defaultName, defaultEmail string

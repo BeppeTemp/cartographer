@@ -290,3 +290,51 @@ func hasKey(doc, key string) bool {
 	}
 	return false
 }
+
+// SetDefaultGitIdentity is what `connect` writes on a personal install: it
+// creates the git block when the file has none (or a bare one), keeps comments,
+// and never replaces an identity that is already there.
+func TestSetDefaultGitIdentity(t *testing.T) {
+	t.Parallel()
+	const ident = "Ada Example <ada@example.test>"
+	for name, body := range map[string]string{
+		"no git block":   "# my server\nhttp: \":39273\"\n",
+		"bare git block": "# my server\nhttp: \":39273\"\ngit:\n",
+		"git block":      "# my server\nhttp: \":39273\"\ngit:\n  sync: true\n",
+	} {
+		p := filepath.Join(t.TempDir(), "config.yaml")
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		wrote, err := SetDefaultGitIdentity(p, ident)
+		if err != nil || !wrote {
+			t.Fatalf("%s: SetDefaultGitIdentity = %v, %v, want it to write", name, wrote, err)
+		}
+		out, _ := os.ReadFile(p)
+		if !strings.Contains(string(out), "# my server") {
+			t.Errorf("%s: the comment was lost:\n%s", name, out)
+		}
+		if n, e, ok := loadGitYAML(t, string(out)).IdentityFor("kb-a"); !ok || n != "Ada Example" || e != "ada@example.test" {
+			t.Errorf("%s: written file reads back as %q <%q> %v:\n%s", name, n, e, ok, out)
+		}
+		if wrote, err := SetDefaultGitIdentity(p, "Other <other@example.test>"); err != nil || wrote {
+			t.Errorf("%s: an existing default must be kept, got %v, %v", name, wrote, err)
+		}
+	}
+	if _, err := SetDefaultGitIdentity(filepath.Join(t.TempDir(), "x.yaml"), "not an identity"); err == nil {
+		t.Error("an invalid identity must be refused")
+	}
+}
+
+func TestHasIdentityEntry(t *testing.T) {
+	t.Parallel()
+	if loadGitYAML(t, "http: \":1\"\n").HasIdentityEntry("kb-a") {
+		t.Error("no entry reported")
+	}
+	if !loadGitYAML(t, "git:\n  identities:\n    default: \"\"\n").HasIdentityEntry("kb-a") {
+		t.Error("an empty default entry is an explicit choice")
+	}
+	if !loadGitYAML(t, "git:\n  identities:\n    kb-a: \"Ada Example <ada@example.test>\"\n").HasIdentityEntry("kb-a") {
+		t.Error("the KB's own entry")
+	}
+}

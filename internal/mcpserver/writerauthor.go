@@ -104,6 +104,31 @@ func writerAuthor(ctx context.Context, k *kb.KB) (name, email string) {
 	return id, email
 }
 
+type unattendedKey struct{}
+
+// withUnattended marks ctx as the server's own unattended work (the auto-repair
+// heartbeat): it has no writer and keeps the fallback identity (D950). The key
+// is unexported, so no request can carry it.
+func withUnattended(ctx context.Context) context.Context {
+	return context.WithValue(ctx, unattendedKey{}, true)
+}
+
+func isUnattended(ctx context.Context) bool {
+	v, _ := ctx.Value(unattendedKey{}).(bool)
+	return v
+}
+
+// identityRefusal is the reason a write on k must be refused (kb.IdentityRefusal):
+// a local server whose KB has a remote and no real git identity. A request that
+// names its author in a valid Cartographer-Author header has a real identity of
+// its own and is not refused. "" when the write may go on.
+func identityRefusal(ctx context.Context, k *kb.KB) string {
+	if a, _ := ctx.Value(callerAuthorKey{}).(callerAuthor); a.problem == "" && a.name != "" {
+		return ""
+	}
+	return k.IdentityRefusal()
+}
+
 // tokenName makes a token id fit the author line: whitespace collapsed, angle
 // brackets dropped, bounded; "" when nothing usable is left.
 func tokenName(id string) string {

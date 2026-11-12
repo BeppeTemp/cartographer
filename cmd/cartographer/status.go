@@ -79,7 +79,11 @@ func cmdStatus(args []string) int {
 	if s.State == "unavailable" || s.State == "error" {
 		code = 2
 	}
-	return renderStatus(output, s, code)
+	code = renderStatus(output, s, code)
+	if output != "json" && isLoopbackURL(cfg.ServerURL) && !cfg.Auth {
+		ensureLocalGitIdentity(os.Stdout, "", false)
+	}
+	return code
 }
 
 // printServerLines writes what `status` and the bare `cartographer` screen both

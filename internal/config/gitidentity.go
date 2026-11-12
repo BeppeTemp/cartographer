@@ -87,6 +87,17 @@ func (c *Config) IdentityFor(kb string) (name, email string, ok bool) {
 	return n, e, true
 }
 
+// HasIdentityEntry reports whether git.identities says anything for the KB named
+// kb, its own entry or the default one, an empty entry included ("none: the
+// server identity", on purpose).
+func (c *Config) HasIdentityEntry(kb string) bool {
+	if _, found := c.GitIdentities[kb]; found {
+		return true
+	}
+	_, found := c.GitIdentities[IdentityDefault]
+	return found
+}
+
 // legacyGitIdentity is "Name <email>" built from the retired git.author_name
 // and git.author_email of the server YAML, "" when either is missing.
 func legacyGitIdentity(data []byte) string {
@@ -120,8 +131,26 @@ func MigrateGitIdentity(configPath string) (bool, error) {
 	if ident == "" {
 		return false, nil
 	}
+	return writeDefaultIdentity(configPath, ident, false)
+}
+
+// SetDefaultGitIdentity writes ident ("Name <email>") as git.identities.default
+// into the server YAML at configPath when the file has neither that entry nor
+// the retired git.identity, creating the git block if the file lacks one and
+// keeping the rest of the file as it is (D1725, and D1974 for
+// the personal install, where `connect` writes the user's own git identity). It
+// reports whether it wrote the key.
+func SetDefaultGitIdentity(configPath, ident string) (bool, error) {
+	return writeDefaultIdentity(configPath, ident, true)
+}
+
+func writeDefaultIdentity(configPath, ident string, createGit bool) (bool, error) {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return false, err
+	}
 	if _, _, problem := gitx.ParseIdent(ident); problem != "" {
-		return false, fmt.Errorf("git.author_name/git.author_email: %s", problem)
+		return false, fmt.Errorf("git identity: %s", problem)
 	}
 	// A second document would be lost by the rewrite: leave such a file alone.
 	dec := yaml.NewDecoder(bytes.NewReader(data))
@@ -136,12 +165,25 @@ func MigrateGitIdentity(configPath string) (bool, error) {
 	var git *yaml.Node
 	root := doc.Content[0]
 	for i := 0; i+1 < len(root.Content); i += 2 {
-		if root.Content[i].Value == "git" && root.Content[i+1].Kind == yaml.MappingNode {
-			git = root.Content[i+1]
+		if root.Content[i].Value != "git" {
+			continue
+		}
+		if v := root.Content[i+1]; v.Kind == yaml.MappingNode {
+			git = v
+		} else if createGit && v.Kind == yaml.ScalarNode && v.ShortTag() == "!!null" {
+			// A bare `git:`: fill it, never add a second key of the same name.
+			*v = yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", HeadComment: v.HeadComment, FootComment: v.FootComment}
+			git = v
+		} else if createGit {
+			return false, nil // not a mapping: leave the file to the operator
 		}
 	}
 	if git == nil {
-		return false, nil
+		if !createGit {
+			return false, nil
+		}
+		git = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		root.Content = append(root.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "git"}, git)
 	}
 	var ids *yaml.Node
 	for i := 0; i+1 < len(git.Content); i += 2 {

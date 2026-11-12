@@ -50,6 +50,12 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 	gated := gatedTool(t.Name)
 	t.GitWrapped = true
 	t.Handler = func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
+		// The unattended auto-repair has no writer of its own and keeps the
+		// fallback identity (D950); every write by a client, a kb_repair call
+		// included, is refused.
+		if msg := identityRefusal(ctx, k); msg != "" && !isUnattended(ctx) {
+			return errorResult(msg), nil
+		}
 		var res ToolResult
 		var handlerErr error
 		var syncInDur, handlerDur, commitDur, pushDur time.Duration

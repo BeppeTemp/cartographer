@@ -96,6 +96,35 @@ func (k *KB) ConfiguredIdentity() (name, email string, ok bool) {
 	return k.defaultName, k.defaultEmail, true
 }
 
+// SetIdentityRequired marks this KB as served by a local server (a personal
+// install: no tokens, or stdio), where a write that would be committed as the
+// technical local-admin identity is refused when the KB has a remote
+// (IdentityRefusal). The server calls it once, when it mounts the KB.
+func (k *KB) SetIdentityRequired(on bool) { k.identityRequired = on }
+
+// IdentityRefusal is why a write must not be committed on this KB, "" when it
+// may: the KB is served locally, has a remote, and neither git.identities nor
+// the user's git config gave it a real identity, so a forge with an author push
+// rule would reject what the server pushes. The text names the keys to set.
+func (k *KB) IdentityRefusal() string {
+	if k == nil || !k.identityRequired {
+		return ""
+	}
+	if _, _, ok := k.ConfiguredIdentity(); ok {
+		return ""
+	}
+	if _, ok := k.hasRemote(); !ok {
+		return ""
+	}
+	return IdentityMissingMessage
+}
+
+// IdentityMissingMessage names what a personal install lacks and where to set it.
+const IdentityMissingMessage = "no git identity for this KB, which has a remote: " + IdentityFixHint + " (a commit under the technical identity would be rejected by a forge with an author rule)"
+
+// IdentityFixHint says how to give a personal install a git identity.
+const IdentityFixHint = "set git.identities.default in the server file, or git config --global user.name and user.email, then restart the server"
+
 // DefaultIdentity is who a commit with no writer of its own is by (D950): the
 // identity configured for this KB, else the server identity.
 func (k *KB) DefaultIdentity() (name, email string) {
