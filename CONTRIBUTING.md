@@ -129,12 +129,16 @@ The repository ships its subagents in `.claude/agents/` (`ls .claude/agents`): `
 the `cartographer-review-pr`, `cartographer-implement-plan` and `cartographer-develop-live` skills spawn per pull request,
 `cartographer-security-reviewer`, the read-only attacker's-view pass they add on full-tier PRs,
 `cartographer-source-reader`, the read-only reader of one voluminous source (the failed log of a
-red CI run, a client's release notes) that returns a digest instead of the text, and the two a
+red CI run, a client's release notes) that returns a digest instead of the text, the two a
 maintainer spawns for the fixes of §Fixes without a plan: `cartographer-fix-implementer` and
-`cartographer-advisory-fixer`.
+`cartographer-advisory-fixer`, and the two a maintainer spawns before a decision:
+`cartographer-investigator`, the read-only investigator of one symptom or question (a red or flaky
+test, a regression, a performance question, the design comment of a `bug`) that returns the cause
+with `file:line` and the options, and `cartographer-docs-auditor`, the read-only auditor of the
+documentation over a commit range or an area, run before a release candidate.
 Each pins a Claude model (`cartographer-source-reader` runs on Haiku 5.5, the others on Sonnet 5.5:
 the plan writer drafts after the design decisions are taken, so its work is verification and pointers),
-and the read-only ones (the reviewers, the plan writer and the source reader) carry `tools: Read, Grep, Glob, Bash`;
+and the read-only ones (the reviewers, the plan writer, the source reader, the investigator and the docs auditor) carry `tools: Read, Grep, Glob, Bash`;
 `TestClaudeSubagentsPinAModelAndReadOnlyOnesCannotEdit` checks both. The procedure itself stays in the skill (D327).
 
 Working on more than one plan at a time? A subagent shares your working copy, so use a worktree per plan:
@@ -526,7 +530,9 @@ read of the diff before it is queued — is the same as for a plan.
 
 A `bug` whose fix is bounded skips the plan: the maintainer writes the design
 decisions in a comment on the issue and adds `accepted`, and a coordinator
-spawns `cartographer-fix-implementer` on a worktree with the issue number. The same
+spawns `cartographer-fix-implementer` on a worktree with the issue number. When the
+cause or the options are not known yet, `cartographer-investigator` finds them first and
+drafts that comment; the maintainer decides and posts it. The same
 agent takes a review round on a branch whose implementer is gone, with the verified
 findings as its mandate. Everything else — tests that fail without the fix, docs in
 the same change, `make check`, the review tier of `cartographer-review-pr`, `make ready` —
