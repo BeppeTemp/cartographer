@@ -83,3 +83,36 @@ func exampleFile(t *testing.T, keys ...settingschema.Key) []byte {
 	}
 	return b
 }
+
+// Every key a real table describes is known to Unknown: the file that sets all
+// the keys at their Example, and the commented form a realignment writes, hold
+// no unknown key, so a table and the check cannot disagree about what is a key.
+func TestRealSchemasKnowTheirOwnKeys(t *testing.T) {
+	for name, tc := range map[string]struct {
+		s   settingschema.Schema
+		reg settingschema.Registry
+	}{
+		"server": {config.Schema, config.Retired},
+		"client": {clientconfig.Schema, clientconfig.Retired},
+	} {
+		var keys []settingschema.Key
+		for _, k := range tc.s.Keys {
+			if k.Example != "" {
+				keys = append(keys, k)
+			}
+		}
+		file := exampleFile(t, keys...)
+		formatted, err := tc.s.Format(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for what, in := range map[string][]byte{"examples": file, "formatted": formatted} {
+			if got := tc.s.Unknown(in, tc.reg); len(got) != 0 {
+				t.Errorf("%s/%s: unknown = %+v\n%s", name, what, got, in)
+			}
+		}
+		if got := tc.s.Unknown([]byte("definitely_not_a_key: 1\n"), tc.reg); len(got) != 1 {
+			t.Errorf("%s: a stray key was not reported: %+v", name, got)
+		}
+	}
+}

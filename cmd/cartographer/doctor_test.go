@@ -28,7 +28,10 @@ import (
 // happens to be installed on the machine running the tests.
 func doctorStubs(t *testing.T, installed []string, timerInstalled bool) {
 	t.Helper()
-	origDetect, origTimer := doctorDetectFn, syncTimerStatusFn
+	origDetect, origTimer, origPath, origSvc, origSrvCfg := doctorDetectFn, syncTimerStatusFn, pathBinariesFn, serviceBinaryFn, serverConfigPathFn
+	pathBinariesFn = func() []string { return nil }
+	serviceBinaryFn = func() string { return "" }
+	serverConfigPathFn = func() string { return "" }
 	set := map[string]bool{}
 	for _, p := range installed {
 		set[p] = true
@@ -43,7 +46,9 @@ func doctorStubs(t *testing.T, installed []string, timerInstalled bool) {
 	syncTimerStatusFn = func() (service.SyncTimerStatus, error) {
 		return service.SyncTimerStatus{Installed: timerInstalled, Path: filepath.Join(os.TempDir(), "cartographer-sync.timer")}, nil
 	}
-	t.Cleanup(func() { doctorDetectFn, syncTimerStatusFn = origDetect, origTimer })
+	t.Cleanup(func() {
+		doctorDetectFn, syncTimerStatusFn, pathBinariesFn, serviceBinaryFn, serverConfigPathFn = origDetect, origTimer, origPath, origSvc, origSrvCfg
+	})
 }
 
 // doctorFixture connects one provider against a stub server and returns the

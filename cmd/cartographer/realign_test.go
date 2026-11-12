@@ -450,3 +450,29 @@ func TestAnnounceConfigUnwritableFile(t *testing.T) {
 		})
 	}
 }
+
+// An unknown key's name comes from the file, and a quoted YAML key can hold a
+// newline: the startup log must show it escaped, never as a forged line.
+func TestAnnounceConfigEscapesKeyNames(t *testing.T) {
+	buf := captureLog(t)
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("http: \":9090\"\n\"a\\nwarning: forged line\": 1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CARTOGRAPHER_TOKENS", "")
+	cfg, err := loadServeConfig(serveFlagSet(), config.FlagOverrides{}, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	announceConfig(cfg, path)
+
+	logged := buf.String()
+	if !strings.Contains(logged, `warning: a\nwarning: forged line: unknown key, ignored`) {
+		t.Errorf("the key name is not logged escaped:\n%s", logged)
+	}
+	for _, line := range strings.Split(logged, "\n") {
+		if strings.HasSuffix(strings.TrimSpace(line), "forged line") && !strings.Contains(line, `a\n`) {
+			t.Errorf("a forged log line: %q", line)
+		}
+	}
+}

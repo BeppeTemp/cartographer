@@ -55,3 +55,19 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	{Path: "usage_scan", Scope: settingschema.ScopeClient, Type: "bool", Default: "true",
 		Description: "Scan session transcripts to tell the server which skills and agents this machine loads. false reads no transcript and reports no usage."},
 }}
+
+// UnknownKeys lists the keys of a .cartographer.yaml that the table does not
+// describe, that no retired entry explains and that Save does not drop on
+// purpose (droppedKeys). A top-level one is kept and written back unchanged, so
+// a typo would otherwise sit there for good; a nested one (server.ulr) is
+// dropped on the next save, so doctor is where it shows before that. doctor
+// reports both.
+func UnknownKeys(data []byte) []settingschema.Unknown {
+	var out []settingschema.Unknown
+	for _, u := range Schema.Unknown(data, Retired) {
+		if !droppedKeys[u.Path] {
+			out = append(out, u)
+		}
+	}
+	return out
+}

@@ -232,6 +232,11 @@ every other value, comment and key order stays, and the original is kept beside 
 `config.yaml.bak-<version>` (`.1`, `.2`… when one of that name exists). Meridian logs what it changed, one line
 per key, and does nothing, writing no backup, to a file already in that form or one that only lacks the schema's comments (a hand-written or fresh file is the operator's, not rewritten for its comments alone). In that rewrite the comments the schema wrote in an earlier release are brought to the current wording, and the comment of a removed key is dropped with it, wherever an older realignment left it (`Key.Previous`, `Removed.Description`). A file it cannot write (a
 read-only mount) keeps working, since a removed key is ignored with a warning that names its replacement.
+A key that no table describes and no retired entry explains (a typo: `credentials_dri`) is ignored too, with a warning
+per key at load that names its line and the nearest known key (`credentials_dri: unknown key, ignored (line 2); did you mean
+credentials_dir?`); it is never an error, so a key a newer release adds does not stop an older server. The sections `auth`, `hooks`,
+`plugins` and `components` refuse an unknown key at load, as before. `cartographer doctor` reports the same keys, in this file and in
+`.cartographer.yaml` (`docs/configurator.md` §`cartographer doctor`, check `unknown-keys`).
 The same applies to a removed environment variable and flag (`CARTOGRAPHER_GIT_SYNC`, `--git-sync`, ...): ignored
 with a warning, never an error. Each KB's `settings.yaml` is realigned the same way as one commit by Meridian,
 through the normal commit and push, so it is revertible; a file with uncommitted edits is left alone. `write_gate`, `auto_repair`, `repair_on_write` and the `doctor_*` keys (D907), in a KB's `settings.yaml` or in a `kbs[]` entry, go the same way: the repair itself, on write and in the background, has no per-KB key. The server-level `maintenance.auto_repair` (default true) switches only the background timer. Compass

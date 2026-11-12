@@ -74,6 +74,9 @@ func TestLoadFullYAML(t *testing.T) {
 		UpdateCheck: true,
 		Feedback:    FeedbackConfig{Destination: "github"},
 		Maintenance: MaintenanceConfig{AutoRepair: true},
+		// The removed search block loads, ignored, and is named as removed
+		// (Retired, D135), not as an unknown key (#2000).
+		Warnings: []string{"search: removed setting, ignored: " + searchRetiredNote},
 	}
 
 	want.Origins = cfg.Origins // origins are covered in origin_test.go
@@ -411,6 +414,11 @@ func TestRemovedSearchConfigIsIgnored(t *testing.T) {
 	}
 	FromEnv(got)
 	FromEnv(want)
+	// The block changes nothing but is named as removed, never as unknown (#2000).
+	if n := len(got.Warnings) - len(want.Warnings); n != 1 || got.Warnings[len(got.Warnings)-1] != "search: removed setting, ignored: "+searchRetiredNote {
+		t.Errorf("warnings = %v, want those of the file without the block and one retired line for search", got.Warnings)
+	}
+	got.Warnings = want.Warnings
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("a stale search block changed the config:\ngot  %+v\nwant %+v", got, want)
 	}
@@ -437,6 +445,9 @@ func TestParseTokenSpecsIgnoresPureSeparators(t *testing.T) {
 	}
 }
 
+// searchRetiredNote is the note of the Retired row of the search block.
+const searchRetiredNote = "semantic search and the Ollama embedding backend are gone (D135); the keyword index needs no setting"
+
 // TestRemovedD288KeysAreIgnored pins D325: mcp.mount_mode, mcp.tool_prefix_mode
 // and kbs[].tool_prefix no longer exist, but a config that still carries them
 // loads without error and without effect (unknown YAML keys are ignored).
@@ -456,6 +467,21 @@ func TestRemovedD288KeysAreIgnored(t *testing.T) {
 	t.Setenv("CARTOGRAPHER_MCP_MOUNT_MODE", "routed")
 	t.Setenv("CARTOGRAPHER_MCP_TOOL_PREFIX_MODE", "kb-name")
 	FromEnv(cfg) // the removed env vars are dead: nothing to read them
+	// Retired, not unknown: no "unknown key" warning, and each is named as removed (#2000).
+	for _, w := range cfg.Warnings {
+		if strings.Contains(w, "unknown key") {
+			t.Errorf("a removed D288 key is reported as unknown: %s", w)
+		}
+	}
+	for _, key := range []string{"mcp.mount_mode", "mcp.tool_prefix_mode", "kbs[0].tool_prefix"} {
+		found := false
+		for _, w := range cfg.Warnings {
+			found = found || strings.Contains(w, key)
+		}
+		if !found {
+			t.Errorf("no removed-setting warning names %s: %v", key, cfg.Warnings)
+		}
+	}
 }
 
 // web.enabled follows the flag > env > YAML > default precedence, and the

@@ -372,10 +372,14 @@ func (n *node) child(name string) *node {
 	return c
 }
 
-func (s Schema) tree() *node {
+func (s Schema) tree() *node { return s.treeOf(false) }
+
+// treeOf is the key table as a tree; withHidden also lists the Hidden keys,
+// which a file may hold without being wrong (Unknown).
+func (s Schema) treeOf(withHidden bool) *node {
 	root := &node{byName: map[string]*node{}}
 	for i := range s.Keys {
-		if s.Keys[i].Hidden {
+		if s.Keys[i].Hidden && !withHidden {
 			continue
 		}
 		n := root
