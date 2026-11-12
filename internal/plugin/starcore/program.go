@@ -11,6 +11,7 @@ import (
 
 	"go.starlark.net/starlark"
 
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"github.com/BeppeTemp/cartographer/internal/plugin/starcore/internal/seam"
 )
 
@@ -44,6 +45,16 @@ type Registration struct {
 type Options struct {
 	Registrars starlark.StringDict
 	Extra      starlark.StringDict
+	// Entry is the script that registers; "" is plugin.star, the client's. The
+	// surveyor side's is surveyor.star, a single file that loads nothing.
+	Entry string
+}
+
+func (o Options) entry() string {
+	if o.Entry == "" {
+		return core.ScriptEntry
+	}
+	return o.Entry
 }
 
 // check refuses an option that would replace a builtin of the runtime: the

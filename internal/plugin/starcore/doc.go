@@ -1,5 +1,5 @@
-// Package starcore is the Starlark runtime a plugin script runs on, without
-// the half that only a client needs: the program loader and runner, the
+// Package starcore is the server-safe Starlark runtime of a plugin script. It is
+// the runtime without the half that only a client needs: the program loader and runner, the
 // registrar mechanism (a host adds the kinds of registration), Script.Invoke
 // with its limits, and the settings, log, env and http builtins. It imports
 // internal/plugin/core and the interpreter and nothing that writes into other

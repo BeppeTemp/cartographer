@@ -10,6 +10,11 @@ const (
 	// ScriptEntry is the plugin's script at the root: the one file that says what
 	// the plugin registers.
 	ScriptEntry = "plugin.star"
+	// SurveyorScript is the script of the surveyor side: the one file that
+	// registers its Starlark recipes. It is a single file at the root (it loads
+	// no lib/ file, which belongs to the client side) and is stored with the
+	// recipes family.
+	SurveyorScript = "surveyor.star"
 	// LibDir holds the flat *.star files plugin.star may load.
 	LibDir = "lib"
 	// MaxScriptBytes caps one script file; MaxLibFiles the files of lib/.

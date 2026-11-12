@@ -59,17 +59,18 @@ func loadError(err error) *LoadError {
 func LoadScript(files []core.TreeFile, opts Options) (*Script, error) {
 	srcs := map[string][]byte{}
 	libs := 0
+	entry := opts.entry()
 	for _, f := range files {
-		if !core.IsScriptPath(f.Path) {
+		if !core.IsScriptPath(f.Path) && f.Path != entry {
 			continue
 		}
 		switch {
-		case f.Path != core.ScriptEntry && !core.IsLibPath(f.Path):
+		case f.Path != entry && !core.IsLibPath(f.Path):
 			return nil, &LoadError{Msg: fmt.Sprintf("%s: only plugin.star and lib/<name>.star are scripts", f.Path)}
 		case len(f.Content) > core.MaxScriptBytes:
 			return nil, &LoadError{Msg: fmt.Sprintf("%s: %d bytes, over the %d cap of a script", f.Path, len(f.Content), core.MaxScriptBytes)}
 		}
-		if f.Path != core.ScriptEntry {
+		if f.Path != entry {
 			libs++
 		}
 		srcs[f.Path] = f.Content
@@ -77,9 +78,9 @@ func LoadScript(files []core.TreeFile, opts Options) (*Script, error) {
 	if len(srcs) == 0 {
 		return nil, nil
 	}
-	_, ok := srcs[core.ScriptEntry]
+	_, ok := srcs[entry]
 	if !ok {
-		return nil, &LoadError{Msg: "lib/ needs a plugin.star at the plugin root"}
+		return nil, &LoadError{Msg: "lib/ needs a " + entry + " at the plugin root"}
 	}
 	if libs > core.MaxLibFiles {
 		return nil, &LoadError{Msg: fmt.Sprintf("lib/: %d files, over the %d cap", libs, core.MaxLibFiles)}
@@ -104,7 +105,8 @@ func run(srcs map[string][]byte, settings *settingsValue, opts Options, lim *run
 	if err := opts.check(); err != nil {
 		return nil, &LoadError{Msg: err.Error()}
 	}
-	entry := srcs[core.ScriptEntry]
+	entryName := opts.entry()
+	entry := srcs[entryName]
 	reg := &Registry{}
 	ctx := &CallCtx{phase: phaseLoad, reg: reg}
 	pure, caps := pureModules(), Merge(capabilityModules(settings), opts.Extra)
@@ -120,9 +122,9 @@ func run(srcs map[string][]byte, settings *settingsValue, opts Options, lim *run
 	}
 	mem := watchHeap(base, l.cancelAll)
 	defer mem.stop()
-	thread := l.newThread(core.ScriptEntry)
+	thread := l.newThread(entryName)
 	entryEnv := Merge(pure, caps, opts.Registrars)
-	globals, err := l.exec(thread, core.ScriptEntry, entry, entryEnv)
+	globals, err := l.exec(thread, entryName, entry, entryEnv)
 	if mem.hit.Load() {
 		if lim != nil {
 			lim.memHit.Store(true)
@@ -134,7 +136,7 @@ func run(srcs map[string][]byte, settings *settingsValue, opts Options, lim *run
 	}
 	globals.Freeze()
 
-	p := &Script{Registrations: reg.regs, globals: globals, srcs: srcs, opts: Options{Registrars: opts.Registrars, Extra: opts.Extra}}
+	p := &Script{Registrations: reg.regs, globals: globals, srcs: srcs, opts: Options{Registrars: opts.Registrars, Extra: opts.Extra, Entry: opts.Entry}}
 	for _, path := range slices.Sorted(maps.Keys(srcs)) {
 		p.Files = append(p.Files, fileInfo(path, srcs[path]))
 	}
