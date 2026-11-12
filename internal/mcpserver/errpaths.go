@@ -32,6 +32,27 @@ func relPathErr(err error, roots ...string) string {
 	return scrubRoots(msg, roots...)
 }
 
+// scrubbedError is an error whose text went through relPathErr and whose chain
+// is the original's: errors.Is and errors.As still see what it wraps (an
+// okf.ErrStaleWrite stays a stale write), only Error() hides the host paths.
+type scrubbedError struct {
+	err error
+	msg string
+}
+
+func (e *scrubbedError) Error() string { return e.msg }
+func (e *scrubbedError) Unwrap() error { return e.err }
+
+// scrubErr is err with its text reduced by relPathErr to roots, for an error
+// that travels up through callers that print it with %v or %w into a tool
+// result. It returns nil for a nil err.
+func scrubErr(err error, roots ...string) error {
+	if err == nil {
+		return nil
+	}
+	return &scrubbedError{err: err, msg: relPathErr(err, roots...)}
+}
+
 // relToRoots is p relative to the first root that contains it (the root as
 // given or with its symlinks resolved), p's last element when it is absolute
 // and in none, and p itself otherwise.

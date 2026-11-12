@@ -133,6 +133,9 @@ func TestConceptBatch_IndexEntry_RefusedShapesChangeNothing(t *testing.T) {
 		{"patch", map[string]any{"op": "patch", "id": "manutenzione/test-runbook", "if_match": existing, "old_string": "Il runbook", "new_string": "Un runbook", "index_entry": true}, "applies only to a creation"},
 		{"update write", map[string]any{"op": "write", "id": "manutenzione/test-runbook", "if_match": existing, "frontmatter": map[string]any{"type": "Runbook"}, "body": "x", "index_entry": true}, "applies only to a creation"},
 		{"top-level id", batchWrite("toplevel", "Top", map[string]any{"index_entry": true}), "needs a concept inside a map"},
+		// #1911: services/ is the registry, not a Map; a folder with no _map.md is no Map either.
+		{"services id", batchWrite("services/svc-a", "S", map[string]any{"index_entry": true}), "services/ is not a Map, so it has no index to add an entry to: drop index_entry"},
+		{"folder without a map", batchWrite("nomap/page", "P", map[string]any{"index_entry": true}), "nomap/ is not a Map (no _map.md): drop index_entry, or create the Map first"},
 	}
 	preLog, _ := k.ReadRaw("log.md")
 	preIdx := readIdx(t, k, "docs")
@@ -265,5 +268,22 @@ func TestConceptNew_IndexEntry(t *testing.T) {
 	}
 	if postLog, _ := k.ReadRaw("log.md"); postLog != preLog {
 		t.Fatal("log changed on refusal")
+	}
+
+	// #1911: services/ is the registry, not a Map; a folder with no _map.md is
+	// no Map either. Both are refused before anything is written.
+	for _, c := range []struct{ id, want, path string }{
+		{"services/svc-a", "services/ is not a Map, so it has no index to add an entry to: drop index_entry", filepath.Join(k.Root, "services", "svc-a.md")},
+		{"nomap/page", "nomap/ is not a Map (no _map.md): drop index_entry, or create the Map first", filepath.Join(k.DataRoot(), "nomap", "page.md")},
+	} {
+		if tr = call(c.id); !tr.IsError || !containsText(tr, c.want) {
+			t.Fatalf("%s: %+v", c.id, tr.Content)
+		}
+		if _, err := os.Stat(c.path); !os.IsNotExist(err) {
+			t.Fatalf("%s written by a refused call", c.id)
+		}
+		if postLog, _ := k.ReadRaw("log.md"); postLog != preLog {
+			t.Fatalf("%s: log changed on refusal", c.id)
+		}
 	}
 }
