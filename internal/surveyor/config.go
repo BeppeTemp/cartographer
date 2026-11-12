@@ -139,6 +139,9 @@ type Config struct {
 	// Plugins are the pinned plugins that have a surveyor side, loaded and
 	// verified by LoadPlugins; empty before it runs.
 	Plugins []*core.Plugin
+	// opened, when set, is the folder PluginPoints read the one plugin from
+	// instead of the pinned store.
+	opened string
 	// Warnings are conditions worth one line at start that do not stop it.
 	Warnings []string
 
