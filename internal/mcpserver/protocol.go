@@ -96,6 +96,10 @@ type ToolResult struct {
 	// derives from the arguments: for a write whose subject needs a figure only
 	// the handler knows (kb_repair: the number of concepts changed, D290).
 	CommitSubject string `json:"-"`
+	// AuditResources, if set by a handler, are added to the resources of the
+	// call's completion event: a fact only the handler learns, such as the
+	// resolver hooks a secret resolution asked (identifiers, never a value).
+	AuditResources map[string]string `json:"-"`
 }
 
 // jsonResult builds a ToolResult whose single text block is v as compact JSON.

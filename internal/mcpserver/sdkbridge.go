@@ -363,6 +363,9 @@ func (s *Server) callToolChecked(ctx context.Context, name string, args json.Raw
 	// After the audit attempt: touchActivity reads the clock, and a panic there
 	// must still close the audit pair with internal_error (D1516).
 	s.touchActivity(principal, auth.PrincipalFromContext(ctx).Kind == auth.KindSurveyor, name)
+	if !refusalsOnly && hookReg.Len() > 0 {
+		ctx = withHookRegistry(ctx, hookReg) // the resolver point, reached from the handler
+	}
 	result, err := tool.Handler(ctx, args)
 	// The nudge runs before the audit closes: a panic in it leaves the call
 	// open for the deferred recover, which audits the internal-error outcome

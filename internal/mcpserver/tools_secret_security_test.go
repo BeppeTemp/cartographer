@@ -33,12 +33,12 @@ func writeSecretConcept(t *testing.T, kroot, id, frontmatter string) {
 
 func TestParseSecretRefsContracts(t *testing.T) {
 	t.Parallel()
-	refs, err := parseSecretRefs([]string{"TOKEN=secrets/a.sops.yaml#/allowed"})
+	refs, _, err := parseSecretRefs([]string{"TOKEN=secrets/a.sops.yaml#/allowed"}, nil)
 	if err != nil || len(refs) != 1 || refs[0].SOPSKey != "/allowed" {
 		t.Fatalf("%v %#v", err, refs)
 	}
 	for _, raw := range []any{nil, []string{}, []string{"bad"}, []string{"1BAD=secrets/a.sops.yaml#/x"}, []string{"X=/tmp/a.sops.yaml#/x"}, []string{"X=secrets/a.yaml#/x"}, []string{"X=secrets/a.sops.yaml#x"}, []string{"X=secrets/a.sops.yaml#/x", "X=secrets/a.sops.yaml#/y"}} {
-		if _, err := parseSecretRefs(raw); err == nil {
+		if _, _, err := parseSecretRefs(raw, nil); err == nil {
 			t.Errorf("accepted %#v", raw)
 		}
 	}

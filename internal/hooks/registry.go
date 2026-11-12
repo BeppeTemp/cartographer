@@ -48,6 +48,7 @@ type Registry struct {
 	now     func() time.Time
 	logf    func(string, ...any)
 	dir     string
+	secrets secretCache // resolved values of the secret_resolver hooks
 }
 
 // NewRegistry judges the entries, checks each against the approved plugins and

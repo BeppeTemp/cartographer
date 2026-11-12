@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/BeppeTemp/cartographer/internal/hooks"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/skill"
@@ -78,7 +79,7 @@ func toolServiceGet(k *kb.KB) Tool {
 				},
 				"resolve_secrets": {
 					"type": "boolean",
-					"description": "If true, decrypt the service's secrets_source (flat SOPS file) and include the resolved secrets in the result. Requires a KB with an age key (<kb>.age or default.age in the server's credentials_dir) and rw scope. Default false."
+					"description": "If true, resolve the service's secret_refs (or decrypt its secrets_source, flat SOPS files) and include the resolved secrets in the result. Requires rw scope, and for SOPS a KB with an age key (<kb>.age or default.age in the server's credentials_dir); a hook reference is asked of its resolver hook. Default false."
 				},
 				"reveal": {
 					"type": "boolean",
@@ -128,10 +129,11 @@ func toolServiceGet(k *kb.KB) Tool {
 				return textResult(sb.String()), nil
 			}
 
-			values, source, legacy, err := resolveFrontmatterSecrets(k, fm, nil)
+			res, err := resolveFrontmatterSecrets(ctx, k, params.ServiceID, fm, nil)
 			if err != nil {
-				return errorResult("service_get: resolve_secrets: " + err.Error()), nil
+				return withResultAudit(errorResult("service_get: resolve_secrets: "+err.Error()), res.audit), nil
 			}
+			values, source, legacy := res.values, res.source, res.legacy
 			sb.WriteString("\n\n---\nsecrets (from ")
 			sb.WriteString(source)
 			sb.WriteString("):\n")
@@ -156,9 +158,15 @@ func toolServiceGet(k *kb.KB) Tool {
 				}
 				sb.WriteByte('\n')
 			}
-			return textResult(sb.String()), nil
+			return withResultAudit(textResult(sb.String()), res.audit), nil
 		},
 	}
+}
+
+// withResultAudit attaches audit resources to a result (ToolResult.AuditResources).
+func withResultAudit(r ToolResult, extra map[string]string) ToolResult {
+	r.AuditResources = extra
+	return r
 }
 
 // errNoAgeKey says what is missing and the command that creates it; the server
@@ -170,26 +178,40 @@ func errNoAgeKey(k *kb.KB) error {
 
 var secretRefName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-func parseSecretRefs(raw any) ([]sops.SecretRef, error) {
+// parseSecretRefs reads secret_refs into the sops references and the
+// references a resolver hook serves (NAME=hook:<plugin>/<name>#<key>, D1987).
+// A NAME is declared once across both; a hook reference must name a
+// secret_resolver configured on this server.
+func parseSecretRefs(raw any, reg *hooks.Registry) ([]sops.SecretRef, []hooks.SecretRef, error) {
 	entries, ok := raw.([]string)
 	if !ok || len(entries) == 0 {
-		return nil, fmt.Errorf("secret_refs must be a non-empty list of NAME=secrets/file.sops.yaml#/json-pointer")
+		return nil, nil, fmt.Errorf("secret_refs must be a non-empty list of NAME=secrets/file.sops.yaml#/json-pointer")
 	}
 	refs := make([]sops.SecretRef, 0, len(entries))
+	var hookRefs []hooks.SecretRef
 	seen := map[string]bool{}
 	for _, entry := range entries {
 		eq, hash := strings.Index(entry, "="), strings.Index(entry, "#")
 		if eq <= 0 || hash <= eq+1 || hash == len(entry)-1 {
-			return nil, fmt.Errorf("invalid secret_refs entry %q; expected NAME=secrets/file.sops.yaml#/json-pointer", entry)
+			return nil, nil, fmt.Errorf("invalid secret_refs entry %q; expected NAME=secrets/file.sops.yaml#/json-pointer", entry)
 		}
 		name, path, ptr := entry[:eq], entry[eq+1:hash], entry[hash+1:]
+		if strings.HasPrefix(path, hooks.SecretRefPrefix) && secretRefName.MatchString(name) && !seen[name] {
+			ref, err := parseHookSecretRef(entry, name, path, ptr, reg)
+			if err != nil {
+				return nil, nil, err
+			}
+			seen[name] = true
+			hookRefs = append(hookRefs, ref)
+			continue
+		}
 		if strings.TrimSpace(name) != name || strings.TrimSpace(path) != path || strings.TrimSpace(ptr) != ptr || !secretRefName.MatchString(name) || !isSecretsPath(path) || !strings.HasPrefix(ptr, "/") || seen[name] {
-			return nil, fmt.Errorf("invalid secret_refs entry %q; expected NAME=secrets/file.sops.yaml#/json-pointer", entry)
+			return nil, nil, fmt.Errorf("invalid secret_refs entry %q; expected NAME=secrets/file.sops.yaml#/json-pointer", entry)
 		}
 		seen[name] = true
 		refs = append(refs, sops.SecretRef{Name: name, SOPSFile: path, SOPSKey: ptr})
 	}
-	return refs, nil
+	return refs, hookRefs, nil
 }
 
 // secretError turns an error of the sops package into the one a caller may
@@ -207,46 +229,65 @@ func secretError(k *kb.KB, err error) error {
 	return err
 }
 
+// resolvedSecrets is what resolveFrontmatterSecrets returns: the values, where
+// they come from, whether the legacy whole-file form answered, and the audit
+// resources of the resolution (the resolver hooks asked, never a value).
+type resolvedSecrets struct {
+	values map[string]string
+	source string
+	legacy bool
+	audit  map[string]string
+}
+
 // resolveFrontmatterSecrets resolves the concept's secrets. A non-empty names
 // restricts the resolution to those names; one the concept does not declare is
-// an error ("unknown name"), whatever the other references are.
-func resolveFrontmatterSecrets(k *kb.KB, fm *okf.Frontmatter, names []string) (map[string]string, string, bool, error) {
+// an error ("unknown name"), whatever the other references are. The references
+// a resolver hook serves are asked of it (outside the KB lock: both callers are
+// lock-free reads); a concept whose names all go to hooks needs no age key.
+func resolveFrontmatterSecrets(ctx requestContext, k *kb.KB, conceptID string, fm *okf.Frontmatter, names []string) (resolvedSecrets, error) {
 	var refs []sops.SecretRef
+	var hookRefs []hooks.SecretRef
 	if raw, ok := fm.Get("secret_refs"); ok {
 		var err error
-		refs, err = parseSecretRefs(raw)
+		refs, hookRefs, err = parseSecretRefs(raw, hookRegistryFrom(ctx))
 		if err != nil {
-			return nil, "", false, err
+			return resolvedSecrets{}, err
+		}
+		if refs == nil {
+			refs = []sops.SecretRef{} // declared refs, even when all are hook refs
 		}
 	}
+	if refs != nil && len(hookRefs) > 0 {
+		return resolveDeclaredWithHooks(ctx, k, conceptID, refs, hookRefs, names)
+	}
 	if k.SopsAgeKeyFile == "" {
-		return nil, "", false, errNoAgeKey(k)
+		return resolvedSecrets{}, errNoAgeKey(k)
 	}
 	if !sops.Available() {
-		return nil, "", false, fmt.Errorf("sops binary not found in PATH")
+		return resolvedSecrets{}, fmt.Errorf("sops binary not found in PATH")
 	}
 	if refs != nil {
 		values, err := sops.ResolveNamed(k.Root, refs, names, sops.AgeKeyEnv(k.SopsAgeKeyFile)...)
-		return values, "declared refs", false, secretError(k, err)
+		return resolvedSecrets{values: values, source: "declared refs"}, secretError(k, err)
 	}
 	raw, ok := fm.Get("secrets_source")
 	if !ok {
-		return nil, "", false, fmt.Errorf("concept has no secret_refs or secrets_source")
+		return resolvedSecrets{}, fmt.Errorf("concept has no secret_refs or secrets_source")
 	}
 	sources, ok := secretsSources(raw)
 	if !ok {
-		return nil, "", false, fmt.Errorf("secrets_source must be a path inside the KB under secrets/*.sops.yaml, or a list of them")
+		return resolvedSecrets{}, fmt.Errorf("secrets_source must be a path inside the KB under secrets/*.sops.yaml, or a list of them")
 	}
 	values := map[string]string{}
 	owner := map[string]string{}
 	for _, source := range sources {
 		sf, err := sops.Decrypt(k.Root, source, sops.AgeKeyEnv(k.SopsAgeKeyFile)...)
 		if err != nil {
-			return nil, "", false, secretError(k, err)
+			return resolvedSecrets{}, secretError(k, err)
 		}
 		for key, v := range sf.Values {
 			if first, dup := owner[key]; dup {
-				return nil, "", false, fmt.Errorf("secrets_source: key %q is in both %s and %s", key, first, source)
+				return resolvedSecrets{}, fmt.Errorf("secrets_source: key %q is in both %s and %s", key, first, source)
 			}
 			owner[key] = source
 			values[key] = v
@@ -254,10 +295,70 @@ func resolveFrontmatterSecrets(k *kb.KB, fm *okf.Frontmatter, names []string) (m
 	}
 	for _, n := range names {
 		if _, ok := values[n]; !ok {
-			return nil, "", false, fmt.Errorf("unknown name %q", n)
+			return resolvedSecrets{}, fmt.Errorf("unknown name %q", n)
 		}
 	}
-	return values, strings.Join(sources, ", "), true, nil
+	return resolvedSecrets{values: values, source: strings.Join(sources, ", "), legacy: true}, nil
+}
+
+// resolveDeclaredWithHooks resolves declared refs of which some are served by
+// a resolver hook: names are split between sops and the hooks, and sops (with
+// its age key) runs only when a sops reference is wanted.
+func resolveDeclaredWithHooks(ctx requestContext, k *kb.KB, conceptID string, refs []sops.SecretRef, hookRefs []hooks.SecretRef, names []string) (resolvedSecrets, error) {
+	wantSops, wantHooks := len(refs) > 0, hookRefs
+	var sopsNames []string
+	if len(names) > 0 {
+		byName := map[string]hooks.SecretRef{}
+		for _, r := range hookRefs {
+			byName[r.Name] = r
+		}
+		declared := map[string]bool{}
+		for _, r := range refs {
+			declared[r.Name] = true
+		}
+		wantHooks = nil
+		asked := map[string]bool{}
+		for _, n := range names {
+			switch r, isHook := byName[n]; {
+			case asked[n]:
+			case isHook:
+				wantHooks = append(wantHooks, r)
+			case declared[n]:
+				sopsNames = append(sopsNames, n)
+			default:
+				return resolvedSecrets{}, fmt.Errorf("unknown name %q", n)
+			}
+			asked[n] = true
+		}
+		wantSops = len(sopsNames) > 0
+	}
+	values := map[string]string{}
+	if wantSops {
+		if k.SopsAgeKeyFile == "" {
+			return resolvedSecrets{}, errNoAgeKey(k)
+		}
+		if !sops.Available() {
+			return resolvedSecrets{}, fmt.Errorf("sops binary not found in PATH")
+		}
+		v, err := sops.ResolveNamed(k.Root, refs, sopsNames, sops.AgeKeyEnv(k.SopsAgeKeyFile)...)
+		if err != nil {
+			return resolvedSecrets{}, secretError(k, err)
+		}
+		values = v
+	}
+	out := resolvedSecrets{values: values, source: "declared refs"}
+	if len(wantHooks) == 0 {
+		return out, nil
+	}
+	out.audit = map[string]string{"secret_resolver": resolverAuditValue(wantHooks)}
+	hv, err := hookRegistryFrom(ctx).ResolveSecrets(ctx, hooks.SecretQuery{KB: kbName(k), ConceptID: conceptID, Principal: hookPrincipal(ctx)}, wantHooks)
+	if err != nil {
+		return out, err
+	}
+	for n, v := range hv {
+		values[n] = v
+	}
+	return out, nil
 }
 
 // secretsSources reads the secrets_source field: a list of KB-relative sops
@@ -291,7 +392,7 @@ func secretsSources(raw any) (sources []string, ok bool) {
 }
 
 func toolSecretResolve(k *kb.KB) Tool {
-	return Tool{Name: "secret_resolve", Description: "Resolves declared SOPS secret_refs for any concept (requires rw scope). Returns the key names with values redacted; pass reveal: true to return the values, which then appear in the transcript and in any log that captures it.", InputSchema: json.RawMessage(`{"type":"object","required":["concept_id"],"properties":{"concept_id":{"type":"string"},"names":{"type":"array","items":{"type":"string"}},"reveal":{"type":"boolean","description":"Return the secret values instead of <redacted>; they will appear in the transcript"}}}`), Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
+	return Tool{Name: "secret_resolve", Description: "Resolves declared secret_refs (SOPS, or a resolver hook) for any concept (requires rw scope). Returns the key names with values redacted; pass reveal: true to return the values, which then appear in the transcript and in any log that captures it.", InputSchema: json.RawMessage(`{"type":"object","required":["concept_id"],"properties":{"concept_id":{"type":"string"},"names":{"type":"array","items":{"type":"string"}},"reveal":{"type":"boolean","description":"Return the secret values instead of <redacted>; they will appear in the transcript"}}}`), Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 		var p struct {
 			ConceptID string   `json:"concept_id"`
 			Names     []string `json:"names"`
@@ -311,10 +412,11 @@ func toolSecretResolve(k *kb.KB) Tool {
 		if err != nil {
 			return errorResult("secret_resolve: parse frontmatter: " + err.Error()), nil
 		}
-		values, _, _, err := resolveFrontmatterSecrets(k, fm, p.Names)
+		res, err := resolveFrontmatterSecrets(ctx, k, p.ConceptID, fm, p.Names)
 		if err != nil {
-			return errorResult("secret_resolve: " + err.Error()), nil
+			return withResultAudit(errorResult("secret_resolve: "+err.Error()), res.audit), nil
 		}
+		values := res.values
 		wanted := map[string]bool{}
 		for _, n := range p.Names {
 			wanted[n] = true
@@ -337,7 +439,7 @@ func toolSecretResolve(k *kb.KB) Tool {
 			}
 			sb.WriteString(n + "=<redacted>\n")
 		}
-		return textResult(strings.TrimSuffix(sb.String(), "\n")), nil
+		return withResultAudit(textResult(strings.TrimSuffix(sb.String(), "\n")), res.audit), nil
 	}}
 }
 

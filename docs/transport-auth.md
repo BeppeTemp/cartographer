@@ -627,7 +627,7 @@ strings, joined and bounded in items and bytes (`joinAuditList`, `audit.go`). A 
 the result's text (D301): what the call cost the agent to read, so read
 amplification per session is measurable from the log without logging content.
 The field is hashed only when present, so events written before it verify
-unchanged. A write a `write_veto` hook judged adds the resources `hook` (its name) and `hook_verdict` (`deny`, `dry_run_deny` or `error`) to its pair; a veto is audited as an authorization denial (`unauthorized`).
+unchanged. A write a `write_veto` hook judged adds the resources `hook` (its name) and `hook_verdict` (`deny`, `dry_run_deny` or `error`) to its pair; a veto is audited as an authorization denial (`unauthorized`). A `secret_resolve` or `service_get` that asked a `secret_resolver` hook adds `secret_resolver` (the hook names, sorted, comma-separated) to its completion event: never the key nor the value.
 
 A record also names the kind of the token behind the principal
 (`principal_kind`: `human`, `client` or `surveyor`; empty when the call has no

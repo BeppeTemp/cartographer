@@ -226,6 +226,30 @@ legacy `secrets_source` whole-file behavior. `secrets_source` is a list of
 every listed file is resolved in order, and a key present in two of them is an
 error naming both files (#1323).
 
+### Secrets held by a resolver hook
+
+A `secret_refs` item may name a secret an external vault holds instead of a sops file:
+`NAME=hook:<plugin>/<name>#<key>`, where `<plugin>/<name>` is a `secret_resolver` hook in the
+server config ([deployment](deployment.md) §Configuration: flags, env, YAML, the `hooks:` paragraph) and `<key>` is the vault's own reference,
+opaque to Cartographer (printable, at most 512 bytes). Both forms can be mixed in one concept, a
+`NAME` is declared once across them, and a hook that the server does not configure as a resolver
+makes the reference broken (`reference NAME: secret resolver "<hook>" is not configured on this
+server`). Lint does not check a hook reference: it names no file of the KB.
+
+`secret_resolve` and `service_get` with `resolve_secrets` ask the hook at the point of use, one
+call per reference, outside the KB lock; a concept whose wanted names are all hook references needs
+no age key and no `sops`. The hook is sent `kb`, `concept_id`, `name`, `key` and `principal` (`id`,
+`kind`, `via`, `groups`), never the age key nor another value, and answers
+`{"version": 1, "value": "..."}`, optionally with `ttl_seconds`. Without `ttl_seconds` nothing is
+cached; with it the value is kept in memory for at most that, 300 s and the hook's `cache_ttl`, keyed
+by hook, KB and key, at most 256 entries, never persisted nor logged — and reused for every caller
+the core lets resolve that reference, so a resolver that decides per caller answers no TTL. A failure
+(down, timeout, a wrong version, no `value`) is `secret_refs NAME: resolver unavailable`, a `deny`
+answer `secret_refs NAME: refused by the resolver: <reason>`: a resolver is `fail_closed`, there is
+nothing to open to. Everything before stays the core's: the `rw` scope, `secrets: none` (D1894,
+refused before any hook is asked), redaction unless `reveal: true` and its audit; the completion
+event records the resolver hooks asked (`secret_resolver`), never the key nor the value.
+
 ### The operator/Cartographer boundary
 
 The encryption flow is split, and the split is where onboarding actually fails
