@@ -1330,6 +1330,17 @@ func glossaryItems(concepts []*reviewConcept, contracts map[string]kb.MapContrac
 		for _, s := range append(append([]string{t.Canonical}, t.Aliases...), t.Forbidden...) {
 			known[search.Fold(strings.TrimSpace(s))] = true
 		}
+		// Candidates are single words, so a multi-word term (`ACME DATA`) covers
+		// its own words, as a glossary-map concept defines its words one by one
+		// (#1863). A forbidden form does not: it names what a page should stop
+		// writing, and its words are not defined by it.
+		for _, s := range append([]string{t.Canonical}, t.Aliases...) {
+			if ws := asciiWords(s); len(ws) > 1 {
+				for _, w := range ws {
+					known[search.Fold(w)] = true
+				}
+			}
+		}
 	}
 	for _, m := range defaultOpenMarkers {
 		known[search.Fold(m)] = true
