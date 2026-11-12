@@ -91,7 +91,7 @@ describe("the Settings panel", () => {
     render(<App />);
     const tabs = await screen.findByRole("tablist", { name: "Settings of" });
     // The page opens on the viewer's client; a tab names what it holds, no count.
-    expect(within(tabs).getAllByRole("tab").map((t) => t.textContent)).toEqual(["Compass", "Meridian", "Knowledge Base", "Surveyor"]);
+    expect(within(tabs).getAllByRole("tab").map((t) => t.textContent)).toEqual(["Compass", "Meridian", "Knowledge Base", "Surveyor", "Plugins"]);
     expect(within(tabs).getByRole("tab", { name: "Compass" })).toHaveAttribute("aria-selected", "true");
     await user.click(within(tabs).getByRole("tab", { name: /Knowledge Base/ }));
     const writes = screen.getByRole("list", { name: "KB kb-a Maintenance settings" });
@@ -292,5 +292,123 @@ describe("the Settings panel", () => {
     expect(formatValue(["a", "b"])).toBe("a, b");
     expect(formatValue("")).toBe("(empty)");
     expect(formatValue(false)).toBe("false");
+  });
+});
+
+describe("the Plugins tab", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  beforeEach(() => {
+    window.history.replaceState(null, "", "/ui/?kb=kb-a&panel=settings");
+    localStorage.clear();
+    sessionStorage.clear();
+  });
+  const comp = (component: string, state: string, digest = "") => ({ component, state, digest });
+  const open = async (user: ReturnType<typeof userEvent.setup>) => {
+    render(<App />);
+    const tabs = await screen.findByRole("tablist", { name: "Settings of" });
+    await user.click(within(tabs).getByRole("tab", { name: "Plugins" }));
+  };
+
+  it("says so when no plugin is installed", async () => {
+    stubApi({ "/settings": () => json(SETTINGS), "/whoami": () => json({ id: "op", admin: true, permissions: [] }) });
+    await open(userEvent.setup());
+    expect(await screen.findByText("No plugin installed on any component.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Plugins" })).toBeInTheDocument();
+  });
+
+  it("shows each component's state, a short digest and the sentence for a changed tree, with no approve button", async () => {
+    const full = "a".repeat(12) + "b".repeat(52);
+    stubApi({
+      "/settings": () => json(SETTINGS),
+      "/extensions": () =>
+        json({
+          views: [{ plugin: "acme", name: "board", title: "Board", description: "", icon: "", scope: "global", source: { route: "/api/v1/kbs/{kb}/x" }, renderer: "table", columns: [], limit: 10 }],
+          apps: [{ plugin: "acme", name: "dash", title: "Dash", description: "", icon: "", url: "https://dash.example.com/" }],
+          plugins: [
+            { name: "acme", version: "1.2.0", display_name: "Acme", components: [comp("meridian", "approved", full), comp("compass", "changed", full), comp("surveyor", "not_reported")] },
+            { name: "solo", version: "0.1.0", display_name: "Solo", components: [comp("compass", "pending", full)] },
+          ],
+        }),
+    });
+    const user = userEvent.setup();
+    await open(user);
+    const table = screen.getByRole("table", { name: "Installed plugins" });
+    const acmeMeridian = within(table).getByRole("cell", { name: "Acme on Meridian" });
+    expect(acmeMeridian).toHaveTextContent("approved");
+    expect(within(acmeMeridian).getByText("aaaaaaaaaaaa")).toHaveAttribute("title", full);
+    expect(within(table).getByRole("cell", { name: "Acme on Compass" })).toHaveTextContent("installed tree differs from the approved one");
+    expect(within(table).getByRole("cell", { name: "Acme on Surveyor" })).toHaveTextContent("not reported");
+    expect(within(table).getByRole("cell", { name: "Solo on Meridian" })).toHaveTextContent("-");
+    expect(screen.queryByRole("button", { name: /approve/i })).toBeNull();
+    // A row shows what the plugin's app opens before anyone clicks it: as text, not a link.
+    await user.click(within(table).getByRole("button", { name: /Acme 1\.2\.0/ }));
+    const sheet = screen.getByRole("dialog", { name: "Plugin Acme" });
+    expect(within(sheet).getByText("https://dash.example.com/")).toBeInTheDocument();
+    expect(within(sheet).queryByRole("link")).toBeNull();
+    expect(within(sheet).getByText("/api/v1/kbs/{kb}/x")).toBeInTheDocument();
+  });
+
+  it("tells a narrowed token that the list is the operator's, not that nothing is installed", async () => {
+    stubApi({
+      "/settings": () => json(SETTINGS),
+      "/whoami": () => json({ id: "agent-a", admin: false, permissions: [{ kb: "kb-a", write: false }] }),
+    });
+    await open(userEvent.setup());
+    expect(await screen.findByText("Visible to the operator only.")).toBeInTheDocument();
+  });
+});
+
+describe("the Plugins tab when a read fails", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  beforeEach(() => {
+    window.history.replaceState(null, "", "/ui/?kb=kb-a&panel=settings");
+    localStorage.clear();
+    sessionStorage.clear();
+  });
+
+  it("shows an error with a retry, never 'no plugin installed', and recovers", async () => {
+    let fail = true;
+    stubApi({
+      "/settings": () => json(SETTINGS),
+      "/extensions": () =>
+        fail
+          ? json({ error: { code: "internal", message: "boom" } }, 500)
+          : json({ views: [], apps: [], plugins: [{ name: "acme", version: "1.0.0", display_name: "Acme", components: [] }] }),
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    const tabs = await screen.findByRole("tablist", { name: "Settings of" });
+    await user.click(within(tabs).getByRole("tab", { name: "Plugins" }));
+    const retry = await screen.findByRole("button", { name: /try again/i });
+    expect(screen.queryByText("No plugin installed on any component.")).toBeNull();
+    fail = false;
+    await user.click(retry);
+    expect(await screen.findByRole("table", { name: "Installed plugins" })).toBeInTheDocument();
+  });
+
+  it("words an empty list neutrally when the caller's identity is unknown", async () => {
+    stubApi({ "/settings": () => json(SETTINGS) });
+    const user = userEvent.setup();
+    render(<App />);
+    const tabs = await screen.findByRole("tablist", { name: "Settings of" });
+    await user.click(within(tabs).getByRole("tab", { name: "Plugins" }));
+    expect(await screen.findByText("Visible to the operator only.")).toBeInTheDocument();
+  });
+});
+
+describe("the Surveyor tab is always present", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  beforeEach(() => {
+    window.history.replaceState(null, "", "/ui/?kb=kb-a&panel=settings");
+    localStorage.clear();
+    sessionStorage.clear();
+  });
+
+  it("stands with no surveyors and no template from an older server", async () => {
+    stubApi({ "/settings": () => json(SETTINGS) });
+    render(<App />);
+    const tabs = await screen.findByRole("tablist", { name: "Settings of" });
+    await userEvent.setup().click(within(tabs).getByRole("tab", { name: "Surveyor" }));
+    expect(screen.getByText(/No Surveyor has reported/)).toBeInTheDocument();
   });
 });

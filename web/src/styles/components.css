@@ -3760,6 +3760,25 @@ code.mapcontract__label {
   padding-inline: 0;
   border-block-end: 0;
 }
+/* The plugins table: one row per plugin, one cell per component, the digest short and monospaced. */
+.plugins__table {
+  width: 100%;
+  margin-top: var(--space-6);
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+.plugins__table th,
+.plugins__table td {
+  padding: var(--space-2) var(--space-3);
+  text-align: start;
+  vertical-align: top;
+  border-block-end: 1px solid var(--border-subtle);
+}
+.plugins__digest {
+  margin-inline-start: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+}
 .settings__bar .segmented {
   margin-block-end: var(--space-2);
 }
