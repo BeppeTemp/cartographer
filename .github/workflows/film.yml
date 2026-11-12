@@ -84,6 +84,8 @@ jobs:
           node-version-file: web/.nvmrc
           # The `trusted` output (set above, true only for main) is what keeps PR runs from reading or writing caches.
           cache: ${{ steps.needed.outputs.trusted == 'true' && 'npm' || '' }}
+          # An empty `cache` leaves setup-node's automatic cache on; this input turns it off for an untrusted ref.
+          package-manager-cache: ${{ steps.needed.outputs.trusted == 'true' }}
           cache-dependency-path: web/package-lock.json
       - if: steps.needed.outputs.render == 'true'
         run: cd web && npm ci --silent

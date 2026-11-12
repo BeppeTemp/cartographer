@@ -33,6 +33,9 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: web/.nvmrc
+          # No dependency cache: the ref is untrusted (D1068). setup-node v7 refuses `cache: false`;
+          # `package-manager-cache: false` is its off switch, and it also stops the automatic cache.
+          package-manager-cache: false
       - run: cd web && npm ci --silent
       - run: cd web && npx playwright install --with-deps chromium
       - run: sudo apt-get install -y ffmpeg webp
