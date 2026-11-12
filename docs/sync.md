@@ -657,8 +657,10 @@ whose bridge cannot start) keeps an HTTP entry, written once into a file every f
 the value is the KB's `knowledge_bases.<kb>.identity`, else `knowledge_bases.default.identity`, else the global git identity
 (`git config --global`, never a folder's). It is written only when all those KBs agree: an entry that
 reaches KBs with different writers sends none, and an entry without `?kbs=` also answers for every KB
-`knowledge_bases` names and any KB mounted later. A global git config with an `includeIf` is not read for
-it, since a folder may get another identity there: set `knowledge_bases.default.identity` (empty to send none) or
+`knowledge_bases` names and any KB mounted later. A global git config with an `includeIf` whose file may set
+an identity (`user`, `author` or `committer` `name`/`email`, or a file that is missing, unreadable, not a regular file, a path that cannot be resolved,
+or has an `includeIf` of its own; see [D2016](decisions/D2016-includeif-without-identity.md)) is not read for it, since a folder may get another identity there; an `includeIf` that
+only switches something else, such as `core.sshCommand`, changes no identity and is ignored. Set `knowledge_bases.default.identity` (empty to send none) or
 bind a workspace, whose bridge reads each folder. Either case prints a warning on every `connect` and
 `sync`. Which clients take the header: [harness ledger](harnesses.md).
 

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode"
@@ -58,6 +59,12 @@ func ParseIdent(raw string) (name, email, problem string) {
 // on the path of a write, and git reading its config takes milliseconds.
 const workTreeIdentTimeout = 2 * time.Second
 
+// globalIdentCallTimeout bounds each git command GlobalIdent runs, not the
+// whole function: the includeIf files add one command each, and one budget for
+// all of them would expire on a slow host and turn a harmless setup into the
+// per-folder warning. A variable so a test can shrink it.
+var globalIdentCallTimeout = workTreeIdentTimeout
+
 // WorkTreeIdent returns the author git would record for a commit made in dir,
 // as "Name <email>", or "" when there is none to send (D904). Only inside a
 // work tree: outside one git applies no includeIf gitdir:, and would answer
@@ -95,31 +102,39 @@ func WorkTreeIdent(dir string) string {
 
 // GlobalIdent returns the identity the global git config names, as
 // "Name <email>", for a client entry every folder shares (D904). It is "" with
-// perFolder true when that config includes files by condition (includeIf): one
-// of them can give a folder another identity, which a value written once into
-// an entry cannot follow, and a KB must not receive the identity a per-folder
-// setup keeps away from it. It is "" alone when the config names no valid
-// identity or cannot be read. GIT_AUTHOR_NAME and GIT_AUTHOR_EMAIL are not
-// read: they belong to one process, and the value goes into a file every later
-// session reads.
+// perFolder true when the config includes files by condition (includeIf) and
+// one of them may set an identity: a folder could then get another one, which
+// a value written once into an entry cannot follow, and a KB must not receive
+// the identity a per-folder setup keeps away from it. An includeIf whose files
+// set no user, author or committer name or email (a per-organisation
+// core.sshCommand, say) changes no identity and counts for nothing (#1910).
+// Whatever cannot be shown to be harmless counts as an identity: an unreadable,
+// missing or non-regular file, a nested includeIf, a key that is not a path. It is "" alone
+// when the config names no valid identity or cannot be read.
+// GIT_AUTHOR_NAME and GIT_AUTHOR_EMAIL are not read: they belong to one
+// process, and the value goes into a file every later session reads.
 func GlobalIdent() (ident string, perFolder bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), workTreeIdentTimeout)
-	defer cancel()
-	git := func(args ...string) (string, error) {
-		cmd := procattr.Hide(exec.CommandContext(ctx, "git", append([]string{"config", "--global", "--includes"}, args...)...))
+	git := func(args ...string) ([]byte, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), globalIdentCallTimeout)
+		defer cancel()
+		cmd := procattr.Hide(exec.CommandContext(ctx, "git", append([]string{"config"}, args...)...))
 		cmd.Env = identEnv()
 		cmd.Dir = os.TempDir()
-		out, err := cmd.Output()
+		return cmd.Output()
+	}
+	global := func(args ...string) (string, error) {
+		out, err := git(append([]string{"--global", "--includes"}, args...)...)
 		return strings.TrimSpace(string(out)), err
 	}
-	var exit *exec.ExitError
-	if _, err := git("--get-regexp", `^includeif\.`); err == nil {
-		return "", true
-	} else if !errors.As(err, &exit) || exit.ExitCode() != 1 {
+	if keys, err := git("--global", "--includes", "--null", "--get-regexp", `^includeif\.`); err == nil {
+		if includeIfMaySetIdentity(string(keys), git) {
+			return "", true
+		}
+	} else if exitCode(err) != 1 {
 		return "", false
 	}
-	name, errName := git("--get", "user.name")
-	email, errEmail := git("--get", "user.email")
+	name, errName := global("--get", "user.name")
+	email, errEmail := global("--get", "user.email")
 	if errName != nil || errEmail != nil {
 		return "", false
 	}
@@ -128,6 +143,99 @@ func GlobalIdent() (ident string, perFolder bool) {
 		return "", false
 	}
 	return n + " <" + e + ">", false
+}
+
+// includeIfMaySetIdentity says whether any file a conditional include of the
+// global config names can set an identity. keys is the NUL-separated
+// `key\nvalue` listing of every includeif.* key; git runs `git config`.
+// Conditions are not evaluated: outside a repository gitdir: and onbranch:
+// never match, but the file may be included in the folder a client entry is
+// used from, so every conditional include counts.
+func includeIfMaySetIdentity(keys string, git func(args ...string) ([]byte, error)) bool {
+	for _, rec := range strings.Split(keys, "\x00") {
+		key, _, _ := strings.Cut(rec, "\n")
+		if rec != "" && !strings.HasSuffix(key, ".path") {
+			return true // an includeif key this code does not know how to follow
+		}
+	}
+	// --type=path lets git expand ~ with its own HOME; --null because a
+	// condition may hold spaces. Records are origin NUL key LF value NUL.
+	out, err := git("--global", "--includes", "--show-origin", "--null", "--type=path",
+		"--get-regexp", `^includeif\..*\.path$`)
+	if err != nil {
+		return true
+	}
+	fields := strings.Split(string(out), "\x00")
+	if len(fields) < 2 || fields[len(fields)-1] != "" || len(fields)%2 != 1 {
+		return true
+	}
+	for i := 0; i+1 < len(fields); i += 2 {
+		origin, rec := fields[i], fields[i+1]
+		file, isFile := strings.CutPrefix(origin, "file:")
+		_, value, hasValue := strings.Cut(rec, "\n")
+		if !isFile || !hasValue || value == "" {
+			return true
+		}
+		p, ok := resolveIncludePath(file, value)
+		if !ok || !readableFile(p) {
+			return true
+		}
+		// A nested includeif is not evaluated outside a repository, so its
+		// files cannot be read here: it counts as an identity.
+		_, err := git("--file", p, "--includes", "--null", "--get-regexp",
+			`^(user|author|committer)\.(name|email)$|^includeif\.`)
+		if err == nil || exitCode(err) != 1 {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveIncludePath is the file an include path names, as git resolves it:
+// a relative path is relative to the file that includes it. ok is false when
+// the path cannot be resolved with certainty, which counts as an identity.
+// Git for Windows prints forward slashes; an MSYS-style /c/... path names no
+// file here. TRAP: on Windows a rooted path with no drive (`/etc/x`, `\x`) is
+// not absolute, and joining it to the including file's directory would read
+// another file than the one git reads (or the MSYS one) and call it harmless.
+func resolveIncludePath(file, value string) (p string, ok bool) {
+	p = filepath.FromSlash(value)
+	if filepath.IsAbs(p) {
+		return p, true
+	}
+	if p != "" && os.IsPathSeparator(p[0]) {
+		return "", false
+	}
+	return filepath.Join(filepath.Dir(filepath.FromSlash(file)), p), true
+}
+
+// readableFile says whether p is a regular file this process can open. TRAP:
+// os.Stat is not enough. git exits 1 for a file it cannot read (mode 000, a
+// directory) exactly as for a file with no match, so "git found nothing" would
+// be read as "the file sets no identity" for a file git never read. TRAP: the
+// open must not block, and a Stat before it does not make it safe: a path
+// swapped for a FIFO between the Stat and the open would wait for a writer
+// forever, outside any timeout, and hang sync and connect. So the file is
+// opened without blocking (openNoBlock) and the descriptor itself is checked
+// regular; there is no earlier Stat to race. Every failure is false.
+func readableFile(p string) bool {
+	f, err := openNoBlock(p)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	return err == nil && fi.Mode().IsRegular()
+}
+
+// exitCode is the exit status of a failed command, or -1 when it did not run
+// to an exit (not found, timed out, killed).
+func exitCode(err error) int {
+	var exit *exec.ExitError
+	if errors.As(err, &exit) {
+		return exit.ExitCode()
+	}
+	return -1
 }
 
 // identEnv is the environment of the git commands that read an identity:
