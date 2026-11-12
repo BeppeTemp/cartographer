@@ -332,6 +332,12 @@ func (s *Server) auditDenied(who auditWho, toolName string, rawArgs json.RawMess
 // is not empty (a routed view has no KB of its own: the KB the refusal
 // resolved to, never a name the caller merely typed).
 func (s *Server) auditDeniedFor(kbOverride string, who auditWho, toolName string, rawArgs json.RawMessage) {
+	s.auditDeniedWith(kbOverride, who, toolName, rawArgs, nil)
+}
+
+// auditDeniedWith is auditDeniedFor adding extra audit resources (the hook that
+// vetoed a write and its verdict).
+func (s *Server) auditDeniedWith(kbOverride string, who auditWho, toolName string, rawArgs json.RawMessage, extra map[string]string) {
 	s.mu.Lock()
 	log, kbName, transport := s.auditLog, s.kbName, s.transport
 	s.mu.Unlock()
@@ -347,7 +353,7 @@ func (s *Server) auditDeniedFor(kbOverride string, who auditWho, toolName string
 	if t, ok := s.Tools()[toolName]; ok {
 		readOnly = t.ReadOnly
 	}
-	resources := extractResources(canonical, rawArgs)
+	resources := withAuditResources(extractResources(canonical, rawArgs), extra)
 	requestID := newAuditRequestID()
 	start := time.Now()
 

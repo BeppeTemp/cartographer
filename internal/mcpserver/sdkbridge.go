@@ -325,7 +325,19 @@ func (s *Server) callToolChecked(ctx context.Context, name string, args json.Raw
 	resources := extractResources(name, args)
 	s.mu.Lock()
 	refusalsOnly := s.auditRefusalsOnly
+	hookReg, hookKB := s.hooks, s.kbName
 	s.mu.Unlock()
+	// The write veto: after the core authorization, outside the KB lock (see
+	// vetoWrite). A routed view leaves it to the target KB's server, so a routed
+	// write calls the hooks once; with no hook configured this is a no-op.
+	if !refusalsOnly && hookReg.Len() > 0 && ToolRequiresWrite(name) {
+		extra, err := s.vetoWrite(ctx, hookReg, hookKB, name, args, resources)
+		if err != nil {
+			s.auditDeniedWith("", who, name, args, extra)
+			return errorResult(err.Error()), nil
+		}
+		resources = withAuditResources(resources, extra)
+	}
 	var call auditCall // zero: end is a no-op on a routed view, the target KB audits the pair
 	var rejected ToolResult
 	ok := true

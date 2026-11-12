@@ -51,6 +51,7 @@ test or a decision record: none of them is a preference.
   conflict again. A client of `twoKBMove` must supply
   `TargetFiles`: `git add -A` skips a file an ignore rule matches without an error, and the
   skeleton checks the target commit's listing against it before the source is touched (#845).
+- **A hook call never happens inside `gitWrap`, `reauthorizeUnderLock` or anything under `k.WithGitLock`.** The write veto (`vetoWrite`, `writeveto.go`) runs in `callToolChecked`, after the core authorization and before the handler; a slow hook then delays only its own request. `TestNoHookUnderTheLock` and `TestWriteVeto_SlowHookIsNotHeldUnderTheKBLock` enforce it.
 - **Do not `os.WriteFile` a path you have not `Lstat`ed.** The KB side refuses to
   traverse a symlink for a reason: writing through one truncates the target
   instead of replacing the link, which is how a single sync modified 23 files in

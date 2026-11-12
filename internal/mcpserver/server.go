@@ -22,6 +22,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/audit"
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/feedback"
+	"github.com/BeppeTemp/cartographer/internal/hooks"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
@@ -180,6 +181,8 @@ type Server struct {
 	// the calls it refuses itself and leaves the pair of a call it dispatches
 	// to the target KB's server, so a dispatched call is recorded once.
 	auditRefusalsOnly bool
+	// hooks is the registry of the operator's hooks (SetHooks); nil means none.
+	hooks *hooks.Registry
 	// kbName identifies the KB this server serves, recorded on every audit
 	// event. Set via SetKBName at mount time.
 	kbName string
