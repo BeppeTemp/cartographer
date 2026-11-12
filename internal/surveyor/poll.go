@@ -89,6 +89,7 @@ type pollInstance struct {
 
 	reg    *recipe.Registry
 	regErr error
+	checks *CheckLog           // the last check of each recipe, for the settings report; nil records nothing
 	hosts  map[string][]string // built-in recipe -> its allowed hosts
 	secret map[string]string   // connector credential variables, for redaction
 	clone  recipe.CloneFunc    // nil = https; tests inject a fixture
@@ -112,6 +113,7 @@ func NewRecipeRegistry(cfg *Config, clone recipe.CloneFunc) (*recipe.Registry, e
 // Bind builds the recipe registry from the config.
 func (in *pollInstance) Bind(cfg *Config, _ Profile) {
 	in.reg, in.regErr = NewRecipeRegistry(cfg, in.clone)
+	in.checks = cfg.Checks
 	in.hosts = builtinHosts(cfg)
 	in.secret = map[string]string{}
 	in.connector = map[string]string{}

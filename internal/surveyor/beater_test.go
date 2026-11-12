@@ -13,6 +13,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/componentproto"
+	"github.com/BeppeTemp/cartographer/internal/surveyor/recipe"
 	"github.com/BeppeTemp/cartographer/internal/surveyorconfig"
 )
 
@@ -204,20 +205,53 @@ func TestBeaterNeverLogsAToken(t *testing.T) {
 	}
 }
 
-func TestBeaterRefusedSettingsAreNotRetried(t *testing.T) {
+// A 4xx on the settings report (an older server, a protocol skew, a restart,
+// no writable KB) may pass: the post backs off for runsBackoffBeats beats, is
+// tried again, and one 200 puts the report where it belongs. The refusal is
+// logged once per status.
+func TestBeaterRefusedSettingsBackOffThenRepost(t *testing.T) {
 	now := time.Now()
-	api := &stubAPI{answer: &client.HeartbeatAnswer{SettingsWanted: true}, postErr: &client.RemoteError{HTTPStatus: 400, Code: client.CodeHTTPFailed}}
-	var logs int
+	api := &stubAPI{answer: &client.HeartbeatAnswer{SettingsWanted: true}, postErr: &client.RemoteError{HTTPStatus: 404, Code: client.CodeHTTPFailed}}
+	var logs []string
 	b := newBeater(api, &now)
-	b.Logf = func(string, ...any) { logs++ }
-	b.Beat(context.Background(), State{Run: StateIdle})
-	b.send()
-	b.send()
-	if _, posts := api.counts(); posts != 1 {
-		t.Fatalf("posts = %d, want 1 (a 4xx is not retried)", posts)
+	b.Logf = func(f string, a ...any) { logs = append(logs, fmt.Sprintf(f, a...)) }
+	b.Beat(context.Background(), State{Run: StateIdle}) // refused
+	for i := 0; i < runsBackoffBeats; i++ {
+		b.send()
 	}
-	if logs != 1 {
-		t.Fatalf("log lines = %d, want one warning", logs)
+	if _, posts := api.counts(); posts != 1 {
+		t.Fatalf("posts = %d during the back-off, want 1", posts)
+	}
+	b.send() // back-off over: refused again, same status, not logged again
+	if _, posts := api.counts(); posts != 2 {
+		t.Fatalf("posts = %d, want a retry after the back-off", posts)
+	}
+	api.mu.Lock()
+	api.postErr = nil // the server was upgraded or restarted
+	api.mu.Unlock()
+	for i := 0; i < runsBackoffBeats; i++ {
+		b.send()
+	}
+	b.send() // accepted
+	if _, posts := api.counts(); posts != 3 {
+		t.Fatalf("posts = %d, want the report reposted once the route answers", posts)
+	}
+	n := 0
+	for _, l := range logs {
+		if strings.Contains(l, "settings report refused") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("refusal logged %d times, want once: %v", n, logs)
+	}
+	// Accepted, and nothing wanted: no further post, and the back-off is clear.
+	api.mu.Lock()
+	api.answer = &client.HeartbeatAnswer{}
+	api.mu.Unlock()
+	b.send()
+	if _, posts := api.counts(); posts != 3 {
+		t.Fatalf("posts = %d after an accepted report, want still 3", posts)
 	}
 }
 
@@ -428,5 +462,52 @@ func TestBeaterRefusedRunsRouteBacksOffThenResumes(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("logged %d times, want once: %v", n, logs)
+	}
+}
+
+// The sources change with the last check of a recipe: a new check posts the
+// report again, the age of an old one does not, and each post carries the
+// sources as they are then.
+func TestBeaterPostsAgainWhenAChecksGenerationChanges(t *testing.T) {
+	now := time.Now()
+	api := &stubAPI{answer: &client.HeartbeatAnswer{}}
+	b := newBeater(api, &now)
+	cfg := &Config{Checks: NewCheckLog(), ExecRecipes: []recipe.ExecConfig{{Name: "wiki-lister"}}}
+	b.Sources = func() ([]surveyorconfig.Source, uint64) {
+		gen := cfg.Checks.Generation()
+		return cfg.Sources(now), gen
+	}
+	b.Beat(context.Background(), State{Run: StateIdle})
+	if _, posts := api.counts(); posts != 1 {
+		t.Fatalf("posts = %d, want 1 (start)", posts)
+	}
+	now = now.Add(time.Hour) // an hour older, no new check
+	b.send()
+	if _, posts := api.counts(); posts != 1 {
+		t.Fatalf("posts = %d: the age of a check is no change", posts)
+	}
+	cfg.Checks.Record("wiki-lister", nil, now)
+	b.send()
+	if _, posts := api.counts(); posts != 2 {
+		t.Fatalf("posts = %d, want 2 (a check ran)", posts)
+	}
+	b.send()
+	if _, posts := api.counts(); posts != 2 {
+		t.Fatalf("posts = %d, want still 2", posts)
+	}
+	api.mu.Lock()
+	rep := api.settings.(*surveyorconfig.Report)
+	api.mu.Unlock()
+	var got string
+	for _, s := range rep.Sources {
+		if s.Name == "wiki-lister" {
+			got = s.Check.Outcome
+		}
+	}
+	if got != surveyorconfig.CheckOK {
+		t.Errorf("the second report carries %q for wiki-lister, want ok: %+v", got, rep.Sources)
+	}
+	if b.Settings.Sources != nil && len(b.Settings.Sources) != 0 {
+		t.Error("the beater wrote into the caller's report instead of a copy")
 	}
 }

@@ -994,13 +994,14 @@ window-only). **Beat, settings, idle (D1259).** The Surveyor declares itself wit
 start (before the triggers are read, so `--once` has the idle signal), every 60 s, and once with `state: stopped`
 on a clean exit; the instance id is the perimeter `name`, `-` and six random hex characters. Right after the first
 beat it posts its settings to `POST /api/component/v1/settings` (typed scalar entries, never a secret: an `*_env` value
-is a variable name followed by `(set)` or `(unset)`, a URL has no userinfo, models and tasks are not listed), and
-again whenever a beat answers `settings_wanted`. Finished tasks and open alarms go to `POST /api/component/v1/runs` (a task's tokens, its outcome, at most 20 per post, the whole recent history again on `runs_wanted`). The idle time is the answer's `now` minus `last_activity_at`
+is a variable name followed by `(set)` or `(unset)`, a URL has no userinfo, models and tasks are not listed) plus its `sources`
+(each recipe and connector: name, origin, kind and the outcome of its last `check`, never a command or a value; [control-plane](control-plane.md) §Surveyor settings reports), and
+again whenever a beat answers `settings_wanted` or a system recipe's check has run since the last report (at most once per beat). Finished tasks and open alarms go to `POST /api/component/v1/runs` (a task's tokens, its outcome, at most 20 per post, the whole recent history again on `runs_wanted`). The idle time is the answer's `now` minus `last_activity_at`
 (or `server_started_at` when `null`), plus the local time since the answer; an answer older than three beats, a
 `404` from an older server (it has no component route), a `426` (the server refuses the Surveyor's component protocol: logged once per distinct window, the beat goes on), a KB the answer omits and `activity_known: false` (authentication off: Meridian
 cannot tell the Surveyor from a person) all make the idle trigger not hold, so the Surveyor runs on its window only.
 A failed beat or report is a log line and never fails a run; a settings report Meridian refuses with a 4xx is
-logged once and not sent again. Meridian bounds a heartbeat, so the config is refused at load past **32 KBs**
+logged once per status, backed off for ten beats and sent again, as the runs report is. Meridian bounds a heartbeat, so the config is refused at load past **32 KBs**
 or **8 model profiles**.
 
 A run rebuilds the budget from the logs, then works the KBs in `kbs` order, one task at a time:

@@ -144,6 +144,11 @@ type Config struct {
 	opened string
 	// Warnings are conditions worth one line at start that do not stop it.
 	Warnings []string
+	// Checks holds the last check outcome of each recipe, in memory: the system
+	// poll records into it, Sources reads it (nil: never recorded). A feed poll
+	// sends list only, so a feed recipe reports never; `source test` is its own
+	// process and records nothing.
+	Checks *CheckLog
 
 	token string
 	doc   *yaml.Node
@@ -281,7 +286,7 @@ func parseConfig(data []byte, kinds *Kinds, dir string, scope EnvScope) (*Config
 	if err := root.Decode(&raw); err != nil {
 		return nil, err
 	}
-	c := &Config{doc: &doc}
+	c := &Config{doc: &doc, Checks: NewCheckLog()}
 	v := &validator{raw: raw, root: root, c: c, kinds: kinds, dir: dir, scope: scope}
 	if err := v.run(); err != nil {
 		return nil, err
