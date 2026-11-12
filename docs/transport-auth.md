@@ -461,6 +461,21 @@ Surveyor's tool allowlist stays its own (D1257). A read-only token, such as a
 dashboard, is a `client` token with `r` scopes: read-only is the scope's
 decision, not the kind's.
 
+### A token bound to a plugin
+
+A token may carry `plugin: <name>`, the name of a plugin pinned and enabled in
+`plugins` (an unpinned one refuses the start): it is that plugin's service
+identity, for a hook server that calls Cartographer back. Its principal id is
+forced to `plugin:<name>/<id>` (`<id>` is the token's `id`, or the derived one),
+whatever `id` says, so the audit and the `Cartographer-Token` trailer of its
+commits name the plugin; the commit author is that id. No other token may have an
+`id` starting with `plugin:`. The kind must be `client` and the rules of a
+`client` token apply (`expires_at`, scopes or roles, never admin); a plugin
+token is never `proxy: true`. Secrets are always withheld (`secrets: none`
+forced). Artifacts are withheld too, unless a role rule says `artifacts: rw`
+(the default of a write rule does not give them back); a legacy `scopes:` entry
+never does.
+
 ### Reloading tokens and roles without a restart
 
 A running server applies a changed `auth` section (tokens and roles) without a

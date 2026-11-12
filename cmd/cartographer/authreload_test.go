@@ -326,3 +326,55 @@ func TestAuthReloadAppliesProxyIdentity(t *testing.T) {
 		t.Fatalf("a refused reload changed the mapping: %d %+v", code, p)
 	}
 }
+
+// Unpinning a plugin while its token stays in the file revokes that token on
+// reload and still applies the rest of the file (another token's removal);
+// the reload is not refused as a whole.
+func TestAuthReloadDropsTheTokenOfAnUnpinnedPlugin(t *testing.T) {
+	pins := "plugins_dir: '" + t.TempDir() + "'\nplugins:\n  acme:\n    digest: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n"
+	tokens := reloadBase +
+		"    - token: tok-bbbb-0123456789\n      id: b\n      scopes: [kb:kb-a:r]\n" +
+		"    - token: tok-pppp-0123456789\n      id: p\n      kind: client\n      plugin: acme\n      expires_at: \"2999-01-01T00:00:00Z\"\n      scopes: [kb:kb-a:r]\n"
+	r, store, path := reloadFixture(t, pins+tokens)
+	buf := reloadLog(t)
+	if _, ok := store.Validate("tok-pppp-0123456789"); !ok {
+		t.Fatal("the plugin token is not in force at start")
+	}
+	// Unpin the plugin and remove token b in the same edit.
+	rest := strings.Replace(tokens, "    - token: tok-bbbb-0123456789\n      id: b\n      scopes: [kb:kb-a:r]\n", "", 1)
+	if err := os.WriteFile(path, []byte(rest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r.poll()
+	if _, ok := store.Validate("tok-pppp-0123456789"); ok {
+		t.Errorf("the token of the unpinned plugin still validates\n%s", buf)
+	}
+	if _, ok := store.Validate("tok-bbbb-0123456789"); ok {
+		t.Errorf("the other revocation in the file was dropped\n%s", buf)
+	}
+	if _, ok := store.Validate("tok-aaaa-0123456789"); !ok {
+		t.Error("the kept token was refused")
+	}
+	if !strings.Contains(buf.String(), "plugin acme") || strings.Contains(buf.String(), "tok-pppp") {
+		t.Errorf("the drop is not logged by id and plugin (or shows a value):\n%s", buf)
+	}
+}
+
+// The pin check judges the effective token set: a plugin token in the file that
+// CARTOGRAPHER_TOKENS replaces is not checked, and one that stays unpinned
+// refuses the start.
+func TestPluginTokenPinIsJudgedOnTheEffectiveSet(t *testing.T) {
+	body := reloadBase + "    - token: tok-pppp-0123456789\n      id: p\n      kind: client\n      plugin: acme\n      expires_at: \"2999-01-01T00:00:00Z\"\n      scopes: [kb:kb-a:r]\n"
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CARTOGRAPHER_TOKENS", "")
+	if _, err := loadServeConfig(serveFlagSet(), config.FlagOverrides{}, path); err == nil || !strings.Contains(err.Error(), `plugin "acme" is not pinned`) {
+		t.Fatalf("an unpinned plugin token must refuse the start: %v", err)
+	}
+	t.Setenv("CARTOGRAPHER_TOKENS", "tok-env-0123456789")
+	if _, err := loadServeConfig(serveFlagSet(), config.FlagOverrides{}, path); err != nil {
+		t.Fatalf("the replaced token set must not be judged: %v", err)
+	}
+}

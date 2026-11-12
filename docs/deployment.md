@@ -1462,6 +1462,12 @@ token's own, so a setup with one injected bearer keeps working unchanged. The
 block reloads with tokens and roles. Audit and commit trailers then name
 `user:<name>`.
 
+A plugin that calls the server back (a hook server) gets its own token: `kind: client`,
+`expires_at`, scopes or roles, and `plugin: <name>` of a plugin pinned and enabled in
+`plugins`. Its principal is `plugin:<name>/<id>` in the audit and the commit trailers; it
+never reads secrets, and changes artifacts only if a role rule says `artifacts: rw`
+(`docs/transport-auth.md`, A token bound to a plugin).
+
 The Atlas draws its graph in 3D, as a live force-directed network (D234, D235): it breathes and turns slowly on its own; drag to orbit, zoom with the
 wheel or a pinch, click a concept to select it (nodes are not dragged). A *Motion* toggle, remembered per browser,
 pauses the drift, the slow panorama and the signals a selection sends along its

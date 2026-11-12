@@ -274,3 +274,46 @@ func TestLoadAcceptsProxyIdentityKeysAndRefusesTypos(t *testing.T) {
 		t.Errorf("a misspelled proxy_identity key must be refused: %v", err)
 	}
 }
+
+// A token bound to a plugin: pinned and enabled plugin, kind client, expiring,
+// never proxy; the plugin: id prefix is reserved.
+func TestLoadPluginTokens(t *testing.T) {
+	pins := hookPlugins(t.TempDir())
+	roles := "auth:\n  roles:\n    - {name: r, rules: [{kb: docs, access: rw}]}\n  tokens:\n"
+	ok := "    - {token: abc, id: bot, kind: client, plugin: acme, expires_at: \"2999-01-01T00:00:00Z\", roles: [r]}\n"
+	cfg, err := loadAuthYAML(t, pins+roles+ok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Auth.Tokens[0].Plugin != "acme" {
+		t.Errorf("plugin not decoded: %+v", cfg.Auth.Tokens[0])
+	}
+	for name, tc := range map[string]struct{ body, want string }{
+		"not pinned":  {roles + ok, `plugin "acme" is not pinned`},
+		"human":       {pins + roles + "    - {token: abc, plugin: acme, roles: [r]}\n", "kind client"},
+		"surveyor":    {pins + roles + "    - {token: abc, kind: surveyor, plugin: acme, expires_at: \"2999-01-01T00:00:00Z\", roles: [r]}\n", "kind client"},
+		"no expiry":   {pins + roles + "    - {token: abc, kind: client, plugin: acme, roles: [r]}\n", "expires_at"},
+		"admin":       {pins + "auth:\n  tokens:\n    - {token: abc, kind: client, plugin: acme, expires_at: \"2999-01-01T00:00:00Z\"}\n", "never admin"},
+		"reserved id": {pins + roles + "    - {token: abc, id: \"plugin:acme/x\", roles: [r]}\n", "reserved"},
+		"misspelled":  {pins + roles + "    - {token: abc, kind: client, plugn: acme, expires_at: \"2999-01-01T00:00:00Z\", roles: [r]}\n", "plugn"},
+	} {
+		cfg, err := loadAuthYAML(t, tc.body)
+		if err == nil {
+			err = PluginTokensPinned(cfg.Auth.Tokens, cfg.Plugins)
+		}
+		if err == nil {
+			err = ValidateAuth(cfg.Auth)
+		}
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: err = %v, want it to mention %q", name, err, tc.want)
+		}
+	}
+}
+
+func TestPluginTokenNameHasNoSeparator(t *testing.T) {
+	a := AuthConfig{Roles: []RoleSpec{{Name: "r", Rules: []RuleSpec{{KB: "docs", Access: "rw"}}}},
+		Tokens: []TokenSpec{{Token: "abc", Kind: "client", Plugin: "a/b", ExpiresAt: "2999-01-01T00:00:00Z", Roles: []string{"r"}}}}
+	if err := ValidateAuth(a); err == nil || !strings.Contains(err.Error(), "plugin name") {
+		t.Errorf("err = %v", err)
+	}
+}

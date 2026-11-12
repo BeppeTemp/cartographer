@@ -298,6 +298,11 @@ type TokenSpec struct {
 	// Proxy marks the bearer of the trusted SSO proxy of auth.proxy_identity:
 	// only its requests may carry an identity header. Never admin.
 	Proxy bool `yaml:"proxy,omitempty"`
+	// Plugin binds the token to a plugin pinned in plugins: its principal is
+	// "plugin:<plugin>/<token id>" whatever id says, so what a hook-side plugin
+	// does when it calls the server back is labelled. Kind client, never
+	// admin, never proxy, never secrets.
+	Plugin string `yaml:"plugin,omitempty"`
 	// ScopesDeclared records that the entry wrote a scope or role list
 	// (`scopes:` or `roles:` in YAML, `|` in the env form). A declared list that ends up empty is refused
 	// by ValidateAuth: the admin token is the one that writes no scopes at all.

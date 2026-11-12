@@ -105,6 +105,41 @@ func hookSpecs(raw []rawHook) ([]hooks.Hook, error) {
 	return out, nil
 }
 
+// PluginTokensPinned refuses a token bound to a plugin the server does not pin
+// (enabled) in plugins: a service identity is only for an approved plugin. It
+// runs on the EFFECTIVE token set (after the environment and flag overrides),
+// not in Load, so no source of tokens can bypass it.
+func PluginTokensPinned(tokens []TokenSpec, pins map[string]PluginPin) error {
+	for i, t := range tokens {
+		if t.Plugin == "" {
+			continue
+		}
+		if p, ok := pins[t.Plugin]; !ok || !p.Enabled {
+			return fmt.Errorf("token %d: plugin %q is not pinned (and enabled) in plugins", i, t.Plugin)
+		}
+	}
+	return nil
+}
+
+// DropUnpinnedPluginTokens is the reload form: the tokens bound to a plugin that
+// is no longer pinned (and enabled) are left out and named in dropped, so the
+// edit that unpins a plugin revokes its token without blocking the rest of the
+// file. Startup refuses instead (PluginTokensPinned).
+func DropUnpinnedPluginTokens(tokens []TokenSpec, pins map[string]PluginPin) (kept []TokenSpec, dropped []string) {
+	for _, t := range tokens {
+		if p, ok := pins[t.Plugin]; t.Plugin != "" && (!ok || !p.Enabled) {
+			id := t.ID
+			if id == "" {
+				id = "(no id)"
+			}
+			dropped = append(dropped, id+" (plugin "+t.Plugin+")")
+			continue
+		}
+		kept = append(kept, t)
+	}
+	return kept, dropped
+}
+
 // pluginsPinned refuses a hook whose plugin the server does not pin (enabled)
 // in plugins: the pin is the consent, and without it there is no approved
 // plugin to serve the point.

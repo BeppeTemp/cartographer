@@ -92,6 +92,21 @@ func ValidateAuthAt(a AuthConfig, now time.Time) error {
 			// "user:<name>" is the principal id of a person a proxy names.
 			return fmt.Errorf("%s: an id starting with \"user:\" is reserved for people named by a proxy", where)
 		}
+		if strings.HasPrefix(tok.ID, auth.PluginPrefix) {
+			// "plugin:<id>/..." is the principal of a token bound to a plugin.
+			return fmt.Errorf("%s: an id starting with %q is reserved for tokens bound to a plugin (plugin:)", where, auth.PluginPrefix)
+		}
+		if tok.Plugin != "" {
+			if kind != auth.KindClient {
+				return fmt.Errorf("%s: a token bound to a plugin is kind client", where)
+			}
+			if tok.Proxy {
+				return fmt.Errorf("%s: a token bound to a plugin is not a proxy token", where)
+			}
+			if strings.ContainsAny(tok.Plugin, "/: \t") {
+				return fmt.Errorf("%s: plugin must be a plugin name, without \"/\" or \":\"", where)
+			}
+		}
 		if tok.Proxy {
 			proxyTokens++
 			if err := wholeKBOnly(a, tok); err != nil {
