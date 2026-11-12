@@ -708,6 +708,14 @@ toolchain (D227). What they hold:
 - the palette and archived pages (D820, `src/test/palette-archived.test.tsx`): the
   "Include archived" toggle sending `include_archived=1`, badging archived hits and
   saying so when the server fell back to them, and starting each opening unpressed;
+- the cluster view (D1986, `src/test/clusterview.test.tsx`):
+  clusters drawn beside the unfolded concepts with a log-scale weight, a weighted
+  edge as one to three overlaid strokes, a click unfolding and never selecting, a
+  zoom unfolding the cluster in the middle once (never under reduced motion),
+  members growing out of their cluster's place, the "Showing x of y" chip with
+  its Fold (and Escape), the Clusters / Nodes switch in the URL, the replay off,
+  the switch absent over a Map answered flat, and the legend's clusters, all of
+  them on request, each a button named "Unfold <label>, <n> concepts";
 - the clustered graph's data layer (D1986,
   `src/test/clusterstate.test.tsx`, `src/test/viewstate.test.ts`): the flat route
   below the threshold and with `graph=nodes`, the clusters route above it with the
@@ -809,6 +817,17 @@ of a relationship — the inspector lists every link.
   is a separate change. The first overview of the measurement also ran the lint
   on every call, as a server without the lint cache does (D294); a running
   Meridian serves it from that cache.
+- **The cluster view at scale** (D1986). `graph/clusters` on a
+  20,000-concept KB stays within 400 clusters and nodes, 1,500 edges and 150 KiB
+  uncompressed, folded and with clusters unfolded (`TestUIAPI_GraphClustersBudgetAtScale`,
+  `TestGraphClusters_BudgetsAtScale`). Measured once on a workstation at 50,000
+  concepts and 250,000 links: a warm `GraphClusters` takes about 1.1 s, the same
+  as building the visible graph alone, so the projection and the aggregation of
+  the cluster edges are a small share of it. Manual check on `make dev` with a KB above 2,000 concepts:
+  the first paint is the clustered graph; unfold a 3,000-member cluster (it says
+  "Showing x of 3,000"), fold it from its chip, pick a folded concept in the
+  palette (its cluster unfolds and it is selected), let a live refresh run with
+  clusters unfolded, and switch to Nodes and back.
 - **Selection feedback**: the same file asserts the inspector skeleton renders
   while the concept request is still pending, so feedback never waits on the
   network.

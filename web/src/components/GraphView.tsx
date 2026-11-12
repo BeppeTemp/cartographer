@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
-import type { GraphSnapshot } from "../api/types";
+import type { ClusterEdge, ClusterUnfold, GraphCluster, GraphSnapshot } from "../api/types";
+import { isClusterID } from "../lib/clusters";
 import { communitySlot, type Communities } from "../lib/communities";
 import { fade } from "../lib/encoding";
 import type { Pose } from "../lib/graph3d/camera";
@@ -102,7 +103,54 @@ interface Props {
   onSelect(id: string | null): void;
   /** WebGL is missing or was lost: the caller says so and keeps the list. */
   onUnavailable?(): void;
+  /** The clustered graph, when the snapshot is the unfolded part of one. */
+  clusterView?: ClusterView | null;
+  /** The Clusters / Nodes switch; absent where the KB is small enough to draw whole. */
+  graphLevel?: GraphLevel;
 }
+
+/** The clustered graph's folded communities and what reaches them
+ *  (D1986): drawn as sized super-nodes beside the
+ *  snapshot's concepts, which are the unfolded members. */
+export interface ClusterView {
+  clusters: GraphCluster[];
+  /** The edges with at least one cluster end; concept links stay in the snapshot. */
+  edges: ClusterEdge[];
+  unfolded: ClusterUnfold[];
+  /** The visible concepts in scope, folded or not. */
+  totalNodes: number;
+  onUnfold(id: string): void;
+  onFold(id: string): void;
+}
+
+/** The Clusters / Nodes switch, offered on a KB above the cluster threshold. */
+export interface GraphLevel {
+  mode: "clusters" | "nodes";
+  onChange(mode: "clusters" | "nodes"): void;
+}
+
+const NO_CLUSTERS: GraphCluster[] = [];
+const NO_CLUSTER_EDGES: ClusterEdge[] = [];
+/** How large a cluster's sphere may be against its share of concepts: a log
+ *  scale, so a 20,000-member cluster does not swallow the scene. */
+const CLUSTER_MIN_WEIGHT = 0.35;
+/** A cluster unfolds when a zoom brings it this large in the view (its
+ *  radius over its distance from the camera) near the middle of the canvas. */
+const UNFOLD_APPARENT_SIZE = 0.09;
+const UNFOLD_ZOOM_WINDOW_MS = 700;
+
+export function clusterWeight(size: number, maxSize: number): number {
+  return CLUSTER_MIN_WEIGHT + (1 - CLUSTER_MIN_WEIGHT) * (Math.log1p(size) / Math.log1p(Math.max(1, maxSize)));
+}
+
+/** How many strokes draw an edge of this weight: WebGL lines are one pixel
+ *  wide whatever the material says, so a heavier edge is drawn by overlaying
+ *  its stroke, up to three times on a log scale (1, 4+, 32+ links). */
+export function edgeStrokes(weight: number): number {
+  return weight >= 32 ? 3 : weight >= 4 ? 2 : 1;
+}
+
+const plural = (n: number, one: string) => `${n.toLocaleString("en")} ${one}${n === 1 ? "" : "s"}`;
 
 const endpoint = (end: string | SceneNode) => (typeof end === "object" ? end.id : end);
 
@@ -166,6 +214,8 @@ function View({
   occludedLeft = 0,
   onSelect,
   onUnavailable,
+  clusterView = null,
+  graphLevel,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const labelsRef = useRef<HTMLDivElement | null>(null);
@@ -323,6 +373,15 @@ function View({
   onUnavailableRef.current = onUnavailable;
   const onOpenArtifactRef = useRef(onOpenArtifact);
   onOpenArtifactRef.current = onOpenArtifact;
+  const clusterViewRef = useRef(clusterView);
+  clusterViewRef.current = clusterView;
+  const clusterList = clusterView?.clusters ?? NO_CLUSTERS;
+  const clusterEdges = clusterView?.edges ?? NO_CLUSTER_EDGES;
+  const clusterLabels = useRef(new Map<string, string>());
+  clusterLabels.current = new Map(clusterList.map((c) => [c.id, `${c.label} · ${plural(c.size, "concept")}`]));
+  // The members each cluster unfolded into, as first drawn: folding it again
+  // brings the cluster back where they are, not from a seed.
+  const membersOf = useRef(new Map<string, string[]>());
   const liveRef = useRef(live);
   liveRef.current = live;
   const occludedRef = useRef({ left: occludedLeft, right: occludedRight });
@@ -374,6 +433,8 @@ function View({
       nodeStore.current = { key: layoutKey, nodes: before.nodes, artifacts: before.artifacts };
     } else {
       nodeStore.current = { key: layoutKey, nodes: new Map(), artifacts: new Map() };
+      // Another KB's clusters: their members are not this one's.
+      membersOf.current = new Map();
     }
   }
   const layoutKeyRef = useRef(layoutKey);
@@ -393,6 +454,12 @@ function View({
       }
     }
     const next = new Map<string, SceneNode>();
+    // A cluster that has just unfolded (drawn before, gone now): when it is
+    // the only one, its new members grow out of where it stood.
+    const clusterIds = new Set(clusterList.map((c) => c.id));
+    const opened = [...store.keys()].filter((id) => isClusterID(id) && !clusterIds.has(id));
+    const openedFrom = opened.length === 1 ? store.get(opened[0]!) : undefined;
+    const newMembers: string[] = [];
     for (const n of snapshot.nodes) {
       const weight = Math.sqrt((n.in_degree + n.out_degree) / max);
       const kept = store.get(n.id);
@@ -401,16 +468,40 @@ function View({
         next.set(n.id, kept);
         continue;
       }
-      const anchor = placed ? (adjacent.get(n.id) ?? []).map((id) => store.get(id)).find(Boolean) : undefined;
+      const anchor =
+        openedFrom ?? (placed ? (adjacent.get(n.id) ?? []).map((id) => store.get(id)).find(Boolean) : undefined);
+      if (openedFrom) newMembers.push(n.id);
       next.set(n.id, {
         id: n.id,
         weight,
         ...(anchor ? beside(anchor, n.id) : seedPosition(n.id, snapshot.nodes.length, 3)),
       });
     }
+    if (openedFrom && newMembers.length > 0) membersOf.current.set(opened[0]!, newMembers);
+    const maxSize = Math.max(1, ...clusterList.map((c) => c.size));
+    const total = snapshot.nodes.length + clusterList.length;
+    for (const c of clusterList) {
+      const weight = clusterWeight(c.size, maxSize);
+      const kept = store.get(c.id);
+      if (kept) {
+        kept.weight = weight;
+        next.set(c.id, kept);
+        continue;
+      }
+      // A cluster folded back comes back at the centre of the members it had.
+      const members = (membersOf.current.get(c.id) ?? []).map((id) => store.get(id)).filter(Boolean) as SceneNode[];
+      const at = members.length
+        ? {
+            x: members.reduce((sum, m) => sum + (m.x ?? 0), 0) / members.length,
+            y: members.reduce((sum, m) => sum + (m.y ?? 0), 0) / members.length,
+            z: members.reduce((sum, m) => sum + (m.z ?? 0), 0) / members.length,
+          }
+        : seedPosition(c.id, total, 3);
+      next.set(c.id, { id: c.id, weight, ...at });
+    }
     nodeStore.current.nodes = next;
     return next;
-  }, [snapshot, layoutKey]);
+  }, [snapshot, layoutKey, clusterList]);
 
   // Artifact nodes: kept across toggles and refreshes like concept nodes, so
   // a diamond shown again returns to its place.
@@ -457,17 +548,25 @@ function View({
                   onOpenArtifactRef.current?.(ref.slice(0, slash), ref.slice(slash + 1));
                   return;
                 }
+                // A cluster is not a concept: a click unfolds it.
+                if (id && isClusterID(id)) {
+                  clusterViewRef.current?.onUnfold(id);
+                  return;
+                }
                 onSelectRef.current(id);
               },
               onExpand: (id) => {
-                if (!id.startsWith(ARTIFACT_PREFIX)) onExpandRef.current?.(id);
+                if (!id.startsWith(ARTIFACT_PREFIX) && !isClusterID(id)) onExpandRef.current?.(id);
               },
               onHover: (id, x, y) => {
                 const tip = tooltipRef.current;
                 if (!tip) return;
                 tip.hidden = !id;
                 if (id) {
-                  tip.textContent = artifactLabels.current.get(id) ?? nameOf(byIdRef.current.get(id) ?? { id });
+                  tip.textContent =
+                    artifactLabels.current.get(id) ??
+                    clusterLabels.current.get(id) ??
+                    nameOf(byIdRef.current.get(id) ?? { id });
                   tip.style.transform = `translate(${Math.round(x + 14)}px, ${Math.round(y + 14)}px)`;
                 }
               },
@@ -556,9 +655,17 @@ function View({
     lastVisible.current = ids;
     const closedReplay = !growth && wasGrowing.current;
     wasGrowing.current = growth !== null;
+    for (const c of clusterList) {
+      visible.push(nodes.get(c.id)!);
+      ids.add(c.id);
+    }
     const links: SceneLink[] = snapshot.edges
       .filter((e) => ids.has(e.source) && ids.has(e.target))
       .map((e) => ({ source: e.source, target: e.target }));
+    for (const e of clusterEdges) {
+      if (!ids.has(e.source) || !ids.has(e.target)) continue;
+      for (let k = 0; k < edgeStrokes(e.weight); k++) links.push({ source: e.source, target: e.target });
+    }
     for (const a of drawnArtifacts) {
       visible.push(a.node);
       for (const t of a.targets) links.push({ source: a.node.id, target: t });
@@ -583,7 +690,7 @@ function View({
       frame = requestAnimationFrame(() => setDrawn(true));
     });
     return () => cancelAnimationFrame(frame);
-  }, [ready, snapshot, hiddenIds, nodes, drawnArtifacts]);
+  }, [ready, snapshot, hiddenIds, nodes, drawnArtifacts, clusterList, clusterEdges]);
 
   // A selection hidden by a filter stays selected (the URL and the Inspector
   // keep it), but the graph draws the filtered set as if nothing were (D240).
@@ -610,6 +717,11 @@ function View({
         slots[colorBy === "community" ? communitySlot(communities, n.id) : collectionHue(n.collection ?? "")]!;
       return !focal || near.has(n.id) ? base : fade(base, RECEDED, canvas);
     });
+    // A cluster wears its community's colour, as its members do in the flat view.
+    for (const c of clusterList) {
+      const base = slots[colorBy === "community" ? c.slot : collectionHue(c.collection ?? "")]!;
+      colours.push(!focal || near.has(c.id) ? base : fade(base, RECEDED, canvas));
+    }
     // Diamonds wear the signal colour: an artifact is not in any community
     // or Map, and a colour of its own says so.
     const artifactColour = cssVar("--graph-signal");
@@ -623,7 +735,47 @@ function View({
       signal: cssVar("--graph-signal"),
       ring: cssVar("--graph-ring"),
     });
-  }, [ready, snapshot, hiddenIds, colorBy, communities, themeKey, shown, drawnArtifacts]);
+  }, [ready, snapshot, hiddenIds, colorBy, communities, themeKey, shown, drawnArtifacts, clusterList]);
+
+  // Zooming in on a cluster unfolds it: the one nearest the middle of the
+  // canvas, once it looks large enough. Only a zoom the reader made counts
+  // (the wheel or the zoom-in button), and never under reduced motion, where a
+  // click is the only way.
+  const zoomedIn = useRef(0);
+  useEffect(() => {
+    const scene = sceneRef.current;
+    const el = containerRef.current;
+    if (!scene || !el || clusterList.length === 0 || reducedMotion) return;
+    const onWheel = (event: WheelEvent) => {
+      if (event.deltaY < 0) zoomedIn.current = performance.now();
+    };
+    el.addEventListener("wheel", onWheel, { passive: true });
+    const off = scene.onFrame(() => {
+      if (performance.now() - zoomedIn.current > UNFOLD_ZOOM_WINDOW_MS) return;
+      const eye = scene.pose().position;
+      const w = el.clientWidth;
+      const h = el.clientHeight;
+      let best: { id: string; off: number } | null = null;
+      for (const c of clusterList) {
+        const node = scene.nodeById(c.id);
+        const p = node && scene.project(node);
+        if (!node || !p) continue;
+        const dist = Math.hypot((node.x ?? 0) - eye.x, (node.y ?? 0) - eye.y, (node.z ?? 0) - eye.z);
+        const centre = Math.hypot(p.x / w - 0.5, p.y / h - 0.5);
+        if (dist > 0 && scene.radiusOf(node) / dist >= UNFOLD_APPARENT_SIZE && centre < 0.2) {
+          if (!best || centre < best.off) best = { id: c.id, off: centre };
+        }
+      }
+      if (best) {
+        zoomedIn.current = 0;
+        clusterViewRef.current?.onUnfold(best.id);
+      }
+    });
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      off();
+    };
+  }, [ready, clusterList, reducedMotion]);
 
   // Motion on or off.
   useEffect(() => {
@@ -742,7 +894,15 @@ function View({
     );
   }
   const scene = () => sceneRef.current;
-  const growthControl = loadBirths ? { start: startGrowth, active: growth !== null } : null;
+  // The replay animates concepts as they are born: in the cluster view most
+  // of them are folded, so it is offered only on the Nodes level.
+  const growthControl = loadBirths
+    ? {
+        start: startGrowth,
+        active: growth !== null,
+        disabled: clusterView ? "The replay draws every concept: switch to Nodes to watch it" : undefined,
+      }
+    : null;
   return (
     <div
       className="graph graph--view"
@@ -763,7 +923,10 @@ function View({
           <button
             type="button"
             className="button button--icon"
-            onClick={() => scene()?.zoomBy(1 / 1.35)}
+            onClick={() => {
+              zoomedIn.current = performance.now();
+              scene()?.zoomBy(1 / 1.35);
+            }}
             aria-label="Zoom in"
           >
             <Icon name="plus" size={16} />
@@ -849,7 +1012,65 @@ function View({
           onExport={exp.supported ? exp.openDialog : undefined}
         />
       )}
-      {snapshot.truncated && (
+      {graphLevel && (
+        <div className="graph__level" role="group" aria-label="Graph level">
+          {(
+            [
+              ["clusters", "Clusters"],
+              ["nodes", "Nodes"],
+            ] as const
+          ).map(([mode, label]) => (
+            <button
+              key={mode}
+              type="button"
+              className="legend__option"
+              aria-pressed={graphLevel.mode === mode}
+              onClick={() => graphLevel.onChange(mode)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+      {clusterView && clusterView.unfolded.length > 0 && (
+        <ul className="graph__unfolded" aria-label="Unfolded clusters">
+          {clusterView.unfolded.map((u) => (
+            <li key={u.id} className="graph__unfold">
+              <span className="graph__unfold-label">{u.label}</span>
+              {u.shown < u.total && (
+                <span className="graph__unfold-count">
+                  Showing {u.shown.toLocaleString("en")} of {u.total.toLocaleString("en")}
+                </span>
+              )}
+              <button
+                type="button"
+                className="legend__option"
+                aria-label={`Fold ${u.label}`}
+                onClick={() => clusterView.onFold(u.id)}
+                onKeyDown={(event) => {
+                  if (event.key !== "Escape") return;
+                  // Handled here: the page's own Escape would drop the selection.
+                  event.preventDefault();
+                  clusterView.onFold(u.id);
+                }}
+              >
+                Fold
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {clusterView ? (
+        <div className="graph__banner banner" role="status">
+          <span className="banner__glyph">
+            <Icon name="info" size={16} />
+          </span>
+          <span>
+            {plural(clusterView.clusters.length, "cluster")}, {plural(clusterView.totalNodes, "concept")};{" "}
+            {clusterView.unfolded.length.toLocaleString("en")} unfolded
+          </span>
+        </div>
+      ) : snapshot.truncated && (
         <div className="graph__banner banner" role="status">
           <span className="banner__glyph">
             <Icon name="info" size={16} />
@@ -866,7 +1087,7 @@ function View({
 
 /** How an overlay drawn over the canvas starts the growth replay; null where
  *  the view offers none (no births to replay). */
-const GrowthControl = createContext<{ start(): void; active: boolean } | null>(null);
+const GrowthControl = createContext<{ start(): void; active: boolean; disabled?: string } | null>(null);
 
 /** The replay's trigger, for an overlay to place: nothing where the view has
  *  no replay to offer. */
@@ -880,7 +1101,8 @@ export function GrowthButton() {
       onClick={control.start}
       aria-label="Replay growth"
       aria-pressed={control.active}
-      title="Watch the KB grow from its first concept"
+      disabled={control.disabled !== undefined}
+      title={control.disabled ?? "Watch the KB grow from its first concept"}
     >
       <Icon name="grow" size={14} />
       <span aria-hidden="true">Replay</span>
