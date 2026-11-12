@@ -61,6 +61,9 @@ func StatusLine(s Snapshot) string {
 		if client && s.Rejected {
 			return s.serverName() + ": token rejected — run cartographer reconnect"
 		}
+		if s.Foreign != "" {
+			return "another program answers on " + s.Foreign
+		}
 		if client {
 			return s.serverName() + ": unreachable"
 		}
@@ -178,7 +181,10 @@ func InfoItems(s Snapshot) []MenuItem {
 		head.Badge, head.Tone = "Not ready", ToneBusy
 	case s.State == StateStopped:
 		head.Badge, head.Tone = "Stopped", ToneDown
-		if s.Mode == ModeClient {
+		if s.Foreign != "" {
+			head.Badge = "Port in use"
+		}
+		if s.Mode == ModeClient && s.Foreign == "" {
 			head.Badge = "Unreachable"
 			if s.Rejected {
 				head.Badge = "Token rejected"

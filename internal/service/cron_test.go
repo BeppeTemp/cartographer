@@ -119,7 +119,8 @@ type cronEnv struct {
 	ct        *fakeCrontab
 	procs     *fakeProcs
 	m         *Manager
-	answers   bool // what /health answers
+	answers   bool // a Cartographer /health answers
+	foreign   bool // another program answers on the address (wins over answers)
 }
 
 // newCronEnv is a Linux host whose $HOME is the account's home, with a fake
@@ -136,12 +137,20 @@ func newCronEnv(t *testing.T) *cronEnv {
 	}
 	accountHome = func() (string, error) { return home, nil }
 	osExecutable = func() (string, error) { return "/opt/bin/cartographer", nil }
-	healthAnswers = func(string) bool { return e.answers }
+	listenerAt = func(string) ListenerState {
+		switch {
+		case e.foreign:
+			return ListenerForeign
+		case e.answers:
+			return ListenerCartographer
+		}
+		return ListenerNone
+	}
 	serveAddrAnswers = func(string) bool { return e.answers }
 	cronSleep = func(time.Duration) {}
 	environ = func() []string { return nil }
 	t.Cleanup(func() {
-		osExecutable, healthAnswers, cronSleep, environ = os.Executable, checkHealth, time.Sleep, os.Environ
+		osExecutable, listenerAt, cronSleep, environ = os.Executable, func(addr string) ListenerState { return ProbeListener(addr, healthTimeout) }, time.Sleep, os.Environ
 	})
 	e.m = &Manager{run: e.ct.run, proc: e.procs.ops()}
 	e.cfg = filepath.Join(home, ".config", "cartographer", "server.yaml")
@@ -720,5 +729,38 @@ func TestReadCrontab_UsesStdoutRunner(t *testing.T) {
 	got, err := m.readCrontab()
 	if err != nil || got != "0 * * * * x\n" {
 		t.Errorf("readCrontab = %q, %v", got, err)
+	}
+}
+
+// A foreign program on the address (#1998): the watchdog does not spawn a
+// server that cannot bind, `start` names the program, and the service is not
+// Running because of it.
+func TestCronForeignListener(t *testing.T) {
+	e := newCronEnv(t)
+	e.install(t)
+	e.m.Stop()
+	os.Remove(e.state("server.pid"))
+	os.Remove(e.state("server.stopped"))
+	e.foreign = true
+	n := len(e.procs.starts)
+
+	if err := e.m.Ensure(e.cfg); err != nil || len(e.procs.starts) != n {
+		t.Errorf("watchdog tick next to a foreign program: err=%v starts %d -> %d", err, n, len(e.procs.starts))
+	}
+	err := e.m.Start()
+	if err == nil || !strings.Contains(err.Error(), "another program answers on 127.0.0.1:39999") || strings.Contains(err.Error(), "not running after start") {
+		t.Errorf("start next to a foreign program: %v", err)
+	}
+	if len(e.procs.starts) != n {
+		t.Errorf("start spawned a server next to a foreign program: %d starts", len(e.procs.starts)-n)
+	}
+	if st, _ := e.m.Status(e.cfg); st.Running {
+		t.Errorf("a foreign program made the service Running: %+v", st)
+	}
+
+	// A Cartographer server of unknown origin still counts as running.
+	e.foreign, e.answers = false, true
+	if st, _ := e.m.Status(e.cfg); !st.Running {
+		t.Errorf("a Cartographer /health answer is not Running: %+v", st)
 	}
 }

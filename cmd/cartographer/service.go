@@ -457,6 +457,8 @@ func printServiceStatus(w io.Writer, st service.Status, serverURL string) {
 		if st.Healthy {
 			// A measured fact, not a verdict (D174): the exit code stays 4.
 			fmt.Fprintf(w, "  a server answers on %s but no service is installed (started by hand?)\n", st.HTTPAddr)
+		} else if st.ForeignListener {
+			fmt.Fprintf(w, "  %s\n", foreignListenerLine(st.HTTPAddr))
 		}
 		fmt.Fprintf(w, "  install one with: cartographer service install --data %s\n", defaultDataDir())
 	}
@@ -465,9 +467,19 @@ func printServiceStatus(w io.Writer, st service.Status, serverURL string) {
 	}
 }
 
+// foreignListenerLine says that a program other than Cartographer holds the
+// server address (#1998): the port is taken, so the service cannot be the one
+// answering, and no health verdict can come from it.
+func foreignListenerLine(addr string) string {
+	return fmt.Sprintf("another program answers on %s: not a Cartographer server (stop it, or change http: in the server config)", addr)
+}
+
 // serviceHealthLine states whether the probe ran. A skipped check is never
 // rendered as `healthy: false`: nothing was measured.
 func serviceHealthLine(st service.Status) string {
+	if st.HealthChecked && st.ForeignListener {
+		return fmt.Sprintf("healthy:   false (%s)", foreignListenerLine(st.HTTPAddr))
+	}
 	if st.HealthChecked {
 		return fmt.Sprintf("healthy:   %v (http %s)", st.Healthy, st.HTTPAddr)
 	}

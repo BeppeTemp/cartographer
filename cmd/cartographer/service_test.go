@@ -262,6 +262,36 @@ func TestPrintServiceStatus_AnsweringServerWithoutServiceIsAFact(t *testing.T) {
 	}
 }
 
+// A program that is not Cartographer on the server address is named, never
+// shown as healthy and never as "nothing answers" (#1998).
+func TestPrintServiceStatus_ForeignListener(t *testing.T) {
+	st := service.Status{Installed: true, Running: true, Lifecycle: service.LifecycleLoaded, HealthChecked: true, ForeignListener: true, HTTPAddr: "127.0.0.1:39273"}
+	var sb strings.Builder
+	printServiceStatus(&sb, st, "")
+	out := sb.String()
+	for _, want := range []string{"healthy:   false", "another program answers on 127.0.0.1:39273", "change http: in the server config"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "healthy:   true") {
+		t.Errorf("a foreign listener printed as healthy:\n%s", out)
+	}
+	js, err := json.Marshal(newServiceSnapshot(st))
+	if err != nil || !strings.Contains(string(js), `"foreign_listener":true`) || !strings.Contains(string(js), `"healthy":false`) {
+		t.Errorf("json = %s, %v", js, err)
+	}
+
+	sb.Reset()
+	printServiceStatus(&sb, service.Status{HealthChecked: true, ForeignListener: true, HTTPAddr: "127.0.0.1:39273"}, "")
+	if !strings.Contains(sb.String(), "another program answers on 127.0.0.1:39273") || strings.Contains(sb.String(), "a server answers") {
+		t.Errorf("not installed, foreign listener:\n%s", sb.String())
+	}
+	if js, _ := json.Marshal(newServiceSnapshot(service.Status{HealthChecked: true})); strings.Contains(string(js), "foreign_listener") {
+		t.Errorf("the field is not additive-and-omitted when false: %s", js)
+	}
+}
+
 func TestServiceInstallConfigOnly_WritesConfigAndStartsNothing(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

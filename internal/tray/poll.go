@@ -74,9 +74,35 @@ func NewDeps(statusFn func() (service.Status, error), logPath string) Deps {
 	}
 }
 
+// ErrForeignListener is the probe error of an address where a program answers
+// that is not a Cartographer server: a 200 without the /health body of one, a
+// body that is not JSON, or another status. The snapshot is Stopped and says
+// so (Snapshot.Foreign), never Running (#1998).
+var ErrForeignListener = errors.New("tray: another program answers on the server address")
+
 // probeHealth reads /health of the server at addr. The tray carries no token:
 // /health is exempt from authentication.
 func probeHealth(addr string) (*client.Health, error) {
+	h, err := probeHealthRaw(addr)
+	return foreignCheck(h, err)
+}
+
+// foreignCheck turns an answer that is not Cartographer's into
+// ErrForeignListener. A transport failure, a bootstrapping server and a 401
+// from a remote keep their own error: only an answer that arrived and is not
+// ours is foreign.
+func foreignCheck(h *client.Health, err error) (*client.Health, error) {
+	var re *client.RemoteError
+	switch {
+	case err == nil && !h.IsServer():
+		return nil, ErrForeignListener
+	case errors.As(err, &re) && (re.State == client.RemoteFailed || re.HTTPStatus != 0):
+		return nil, fmt.Errorf("%w (%v)", ErrForeignListener, err)
+	}
+	return h, err
+}
+
+func probeHealthRaw(addr string) (*client.Health, error) {
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return nil, err
@@ -98,8 +124,17 @@ func probeHealth(addr string) (*client.Health, error) {
 // scheme and the client's rules (client.CheckServerURL inside Health): no
 // forced http://, no loopback rewrite. The token travels in the Authorization
 // header of this one request.
+//
+// A 200 whose body is not a Cartographer /health is ErrForeignListener, the
+// same shape rule as the local probe (#1998). A remote's own refusals (401,
+// 5xx, a proxy's error page) keep their error: only a well-formed answer of
+// another program is foreign here.
 func probeClient(t ClientTarget) (*client.Health, error) {
-	return client.New(t.ServerURL, t.Token).WithInsecureHTTP(t.AllowInsecureHTTP).Health(probeTimeout)
+	h, err := client.New(t.ServerURL, t.Token).WithInsecureHTTP(t.AllowInsecureHTTP).Health(probeTimeout)
+	if err == nil && !h.IsServer() {
+		return nil, ErrForeignListener
+	}
+	return h, err
 }
 
 // Run probes every interval and calls emit with the first snapshot and then
@@ -255,6 +290,10 @@ func (d Deps) clientSnapshot(cm *clientMemo) (Snapshot, bool) {
 	}
 	var remote *client.RemoteError
 	switch {
+	case errors.Is(err, ErrForeignListener):
+		// A program answers on the address: not a refused server_url. The host
+		// is the one the snapshot shows (no userinfo, path or query).
+		d.logProbeOnce(cm, fmt.Sprintf("tray: another program answers on %s", ClassifyClient(nil, err, t).Foreign))
 	case err != nil && !errors.As(err, &remote):
 		// A server_url the client's rules refuse (remote plain http://, a bad
 		// scheme, an unparsable URL). err is never logged: CheckServerURL

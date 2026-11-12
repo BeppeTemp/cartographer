@@ -20,6 +20,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -29,11 +30,13 @@ import (
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/agents"
+	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/mcpserver"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/safewrite"
+	"github.com/BeppeTemp/cartographer/internal/service"
 	"github.com/BeppeTemp/cartographer/internal/updatecheck"
 )
 
@@ -225,20 +228,25 @@ func runDoctor(dir, only string) doctorReport {
 		// One probe for the whole run (an unreachable server costs one
 		// probeTimeout, not three); the facts and the error go down.
 		facts, healthErr := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.Token, cfg.InsecureHTTPAllowed())
-		findings = append(findings, checkServer(dir, cfg, providers, facts, healthErr)...)
+		// Decided once: a foreign listener (#1998) is not the server, so nothing
+		// below may send it the bearer token or believe its /health.
+		foreignAddr, foreign := foreignServer(cfg.ServerURL, facts, healthErr)
+		findings = append(findings, checkServerAt(dir, cfg, providers, facts, healthErr, foreignAddr, foreign)...)
 		findings = append(findings, checkWSL()...)
 		findings = append(findings, checkPathBinaries()...)
 		findings = append(findings, checkUnknownKeys(dir)...)
 		findings = append(findings, checkTriggerCoverage(dir, providers)...)
 		findings = append(findings, checkSymlinkedDestinations(dir, providers)...)
-		findings = append(findings, checkCapabilities(dir, cfg, facts, healthErr)...)
-		findings = append(findings, checkSkippedKBs(dir, facts, healthErr)...)
-		findings = append(findings, checkPushLag(dir, facts, healthErr)...)
-		// facts.health is set whenever /health answered, even when the listing
-		// is malformed (enumerateKBs then returns facts with an error).
-		if cands, ok := doctorKBCandidates(cfg, providers, facts); ok {
-			findings = append(findings, kbCollisionFindings(dir, cfg, providers, cands)...)
-			findings = append(findings, checkWorkspaceShadows(cfg, providers, cands)...)
+		if !foreign {
+			findings = append(findings, checkCapabilities(dir, cfg, facts, healthErr)...)
+			findings = append(findings, checkSkippedKBs(dir, facts, healthErr)...)
+			findings = append(findings, checkPushLag(dir, facts, healthErr)...)
+			// facts.health is set whenever /health answered, even when the listing
+			// is malformed (enumerateKBs then returns facts with an error).
+			if cands, ok := doctorKBCandidates(cfg, providers, facts); ok {
+				findings = append(findings, kbCollisionFindings(dir, cfg, providers, cands)...)
+				findings = append(findings, checkWorkspaceShadows(cfg, providers, cands)...)
+			}
 		}
 		findings = append(findings, checkWorkspaceProjections(dir, cfg, providers)...)
 		findings = append(findings, checkUpdateAvailable()...)
@@ -847,7 +855,23 @@ func managedHookNames(lock provisioning.Lock) []string {
 // checkServer: reachability, then the two version comparisons. An unreachable
 // server is one finding, not a failure — doctor must stay useful offline.
 func checkServer(dir string, cfg *clientconfig.Config, providers []string, facts serverFacts, err error) []doctorFinding {
+	addr, foreign := foreignServer(cfg.ServerURL, facts, err)
+	return checkServerAt(dir, cfg, providers, facts, err, addr, foreign)
+}
+
+// checkServerAt is checkServer with the foreignServer verdict already taken, so
+// runDoctor probes once and gates the later checks on the same answer.
+func checkServerAt(dir string, cfg *clientconfig.Config, providers []string, facts serverFacts, err error, addr string, foreign bool) []doctorFinding {
 	configPath := filepath.Join(dir, clientconfig.FileName)
+	// Something answers, but not like a Cartographer server (#1998): "unreachable"
+	// would send the operator to a service that is not the problem.
+	if foreign {
+		return []doctorFinding{{
+			Check: "server", Severity: doctorWarning, Path: configPath,
+			Message: fmt.Sprintf("another program answers on %s: it is not a Cartographer server (its /health is not Cartographer's)", addr),
+			Fix:     "stop that program, or change the listen address/port in the server config (and server.url to match): cartographer service status",
+		}}
+	}
 	if err != nil {
 		f := doctorFinding{
 			Check: "server", Severity: doctorWarning, Path: configPath,
@@ -891,6 +915,37 @@ func checkServer(dir string, cfg *clientconfig.Config, providers []string, facts
 		})
 	}
 	return out
+}
+
+// doctorProbeListener is service.ProbeListener behind a seam: the failed-read
+// path of foreignServer dials the server address once more.
+var doctorProbeListener = service.ProbeListener
+
+// foreignServer reports whether the address of serverURL is held by a program
+// that is not a Cartographer server, and which host:port that is. A /health
+// that was read must carry the shape every other probe requires
+// (client.IsServerHealth); one that could not be read is probed once more,
+// over plain http on this machine only, because an unparsable 200 or a 404 is also a program
+// answering. A transport failure is not foreign: nothing answers.
+func foreignServer(serverURL string, facts serverFacts, err error) (string, bool) {
+	u, uerr := client.ServerBase(serverURL)
+	if uerr != nil {
+		return "", false
+	}
+	if err == nil {
+		return u.Host, facts.health != nil && !facts.health.IsServer()
+	}
+	if u.Scheme != "http" || !isLoopbackURL(serverURL) {
+		return "", false // a proxy in front of a remote server may refuse /health
+	}
+	if p := u.Path; p != "" && p != "/" {
+		return "", false // behind a path prefix the root /health is not the server's
+	}
+	host := u.Host
+	if u.Port() == "" {
+		host = net.JoinHostPort(u.Hostname(), "80")
+	}
+	return host, doctorProbeListener(host, probeTimeout) == service.ListenerForeign
 }
 
 // noLocalServiceFor reports whether rawURL names this machine and no native

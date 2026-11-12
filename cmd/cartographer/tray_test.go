@@ -136,7 +136,7 @@ func TestTrayStatusFnRunsNoSchedulerCommand(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		health.Add(1)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"ok","ready":true}`))
+		_, _ = w.Write([]byte(`{"status":"ok","version":"9","ready":true}`))
 	}))
 	defer srv.Close()
 	cfg := filepath.Join(t.TempDir(), "server.yaml")

@@ -742,7 +742,7 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		signal.Stop(sigCh)
-		return err
+		return listenError(addr, err)
 	}
 	eventCh := watchShutdownEvent()
 	serveErrCh := make(chan error, 1)

@@ -12,10 +12,13 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/agents"
+	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
@@ -1073,5 +1076,153 @@ func TestRunDoctor_CollisionCheckRunsOnPartialFacts(t *testing.T) {
 	runDoctor(dir, "")
 	if pulls.Load() == 0 {
 		t.Error("the collision check did not reach the server")
+	}
+}
+
+// A program that is not a Cartographer server holds the server address: doctor
+// names it rather than reporting an unreachable server or a healthy one
+// (#1998). Both ways it can answer are covered: a readable /health without a
+// version, and one doctor cannot read at all.
+func TestRunDoctor_ForeignListenerOnTheServerAddress(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		h    http.HandlerFunc
+	}{
+		{"a 200 that says ok", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprint(w, `{"status":"ok"}`)
+		}},
+		{"a 200 that is not json", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, "hello") }},
+		{"a 404", http.NotFound},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			doctorStubs(t, []string{"claude"}, false)
+			dir := doctorFixture(t, "claude")
+			srv := httptest.NewServer(tc.h)
+			defer srv.Close()
+			cfg, err := clientconfig.Load(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg.ServerURL = srv.URL + "/mcp"
+			if err := clientconfig.Save(dir, cfg); err != nil {
+				t.Fatal(err)
+			}
+			found := findingsFor(runDoctor(dir, ""), "server")
+			if len(found) != 1 || found[0].Severity != doctorWarning {
+				t.Fatalf("findings = %+v, want exactly one warning", found)
+			}
+			addr := strings.TrimPrefix(srv.URL, "http://")
+			if !strings.Contains(found[0].Message, "another program answers on "+addr) || strings.Contains(found[0].Message, "unreachable") {
+				t.Errorf("message = %q", found[0].Message)
+			}
+			if !strings.Contains(found[0].Fix, "change the listen address/port") {
+				t.Errorf("fix = %q", found[0].Fix)
+			}
+		})
+	}
+}
+
+// Nothing listening stays "unreachable", and a remote server is never probed a
+// second time: a proxy in front of it may refuse /health for its own reasons.
+func TestForeignServer_OnlyAnAnsweringLocalProgram(t *testing.T) {
+	orig := doctorProbeListener
+	t.Cleanup(func() { doctorProbeListener = orig })
+	probed := 0
+	doctorProbeListener = func(string, time.Duration) service.ListenerState {
+		probed++
+		return service.ListenerForeign
+	}
+	refused := errors.New("connection refused")
+	if _, foreign := foreignServer("https://cartographer.example.com/mcp", serverFacts{}, refused); foreign {
+		t.Error("a remote https server read as foreign")
+	}
+	if _, foreign := foreignServer("http://cartographer.example.com/mcp", serverFacts{}, refused); foreign {
+		t.Error("a remote http server read as foreign")
+	}
+	if probed != 0 {
+		t.Errorf("remote servers were probed %d times", probed)
+	}
+	doctorProbeListener = func(string, time.Duration) service.ListenerState { return service.ListenerNone }
+	if _, foreign := foreignServer("http://127.0.0.1:39273/mcp", serverFacts{}, refused); foreign {
+		t.Error("nothing answering read as foreign")
+	}
+	doctorProbeListener = func(string, time.Duration) service.ListenerState { return service.ListenerCartographer }
+	if _, foreign := foreignServer("http://127.0.0.1:39273/mcp", serverFacts{}, refused); foreign {
+		t.Error("a Cartographer server that failed the listing read as foreign")
+	}
+	ok := serverFacts{health: &client.Health{Status: "ok", Version: "1.0.0"}}
+	if _, foreign := foreignServer("http://127.0.0.1:39273/mcp", ok, nil); foreign {
+		t.Error("a Cartographer /health read as foreign")
+	}
+}
+
+// A foreign listener gets the /health probe and nothing else (#1998): doctor
+// must not pull KB artifacts from it with the bearer token, nor believe the
+// capabilities, skipped KBs or push lag its /health claims.
+func TestRunDoctor_ForeignListenerReceivesNoAuthenticatedRequest(t *testing.T) {
+	doctorStubs(t, []string{"claude"}, false)
+	dir := doctorFixture(t, "claude")
+	var mu sync.Mutex
+	var others []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/health" {
+			mu.Lock()
+			others = append(others, r.Method+" "+r.URL.Path+" auth="+r.Header.Get("Authorization"))
+			mu.Unlock()
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"status":"ok","kbs":[{"name":"alpha","capabilities":{"git_sync":{"state":"disabled","setting":"git.sync"}},"push":{"push_state":"failed","unpushed_commits":3,"remedy":"x"}}],"skipped_kbs":[{"name":"gone","reason":"r"}]}`)
+	}))
+	defer srv.Close()
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ServerURL = srv.URL + "/mcp"
+	cfg.Auth, cfg.Token = true, "tok-secret-0123456789"
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	report := runDoctor(dir, "")
+	mu.Lock()
+	defer mu.Unlock()
+	if len(others) != 0 {
+		t.Errorf("the foreign listener received requests besides /health: %q", others)
+	}
+	if len(findingsFor(report, "server")) != 1 {
+		t.Errorf("server findings = %+v, want the one foreign warning", findingsFor(report, "server"))
+	}
+	for _, check := range []string{"capability", "kb-not-mounted", "push-lag"} {
+		if f := findingsFor(report, check); len(f) != 0 {
+			t.Errorf("%s findings from a foreign listener's /health: %+v", check, f)
+		}
+	}
+}
+
+// Behind a path prefix the root /health is not the server's: a local reverse
+// proxy must not make a real Cartographer foreign (#1998). Without a prefix the
+// same unreadable answer is foreign.
+func TestForeignServer_PathPrefixIsNotReprobed(t *testing.T) {
+	orig := doctorProbeListener
+	t.Cleanup(func() { doctorProbeListener = orig })
+	probed := 0
+	doctorProbeListener = func(string, time.Duration) service.ListenerState {
+		probed++
+		return service.ListenerForeign
+	}
+	refused := errors.New("not json")
+	for _, u := range []string{"http://127.0.0.1:8080/prefix/mcp", "http://127.0.0.1:8080/prefix"} {
+		if _, foreign := foreignServer(u, serverFacts{}, refused); foreign {
+			t.Errorf("%s: a server behind a path prefix read as foreign", u)
+		}
+	}
+	if probed != 0 {
+		t.Errorf("the root /health was probed %d times behind a prefix", probed)
+	}
+	for _, u := range []string{"http://127.0.0.1:8080/mcp", "http://127.0.0.1:8080", "http://127.0.0.1:8080/"} {
+		if _, foreign := foreignServer(u, serverFacts{}, refused); !foreign {
+			t.Errorf("%s: an unreadable answer on the root was not foreign", u)
+		}
 	}
 }
