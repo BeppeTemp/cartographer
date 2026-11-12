@@ -133,7 +133,8 @@ type Options struct {
 	// nil reserves none.
 	ReservedName func(string) bool
 	// CheckScripts loads the script files of a side's tree (plugin.star and lib/
-	// for the client) and
+	// for the client; surveyor.star and the files under recipes/ for the
+	// surveyor) and
 	// returns why they do not, one problem each; nil checks nothing. It is a hook
 	// because the Starlark runtime lives in internal/plugin/star and internal/plugin/starcore, which import
 	// this package.

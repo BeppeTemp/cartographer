@@ -3,6 +3,7 @@ package star
 import (
 	"fmt"
 	"github.com/BeppeTemp/cartographer/internal/plugin/starcore"
+	"github.com/BeppeTemp/cartographer/internal/plugin/starcore/recipes"
 	"regexp"
 	"slices"
 	"strings"
@@ -57,8 +58,11 @@ type Program struct {
 
 // Check is core.Options.CheckScripts: the problems of a tree's scripts.
 func Check(side core.Side, files []core.TreeFile) []string {
+	if side == core.SideSurveyor {
+		return recipes.Check(side, files)
+	}
 	if side != core.SideClient {
-		return nil // no other side has a script entry in this build
+		return nil // the server and the Atlas have no script in this build
 	}
 	if _, err := Load(files); err != nil {
 		return []string{err.Error()}

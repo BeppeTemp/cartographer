@@ -175,6 +175,14 @@ The poll asks every time an entry needs content, without reading the spec, so **
 exit 64 with no output** on that verb: any other exit fails the poll with `fetch_failed` every time. Exit 64 after
 the script printed part of an answer is a `protocol_error`, not "no fetch".
 
+## Starlark recipes
+
+A pinned plugin can register a recipe in `surveyor.star` instead of shipping a program (`docs/plugins.md` §Surveyor
+side): no interpreter is needed in the image. The recipe's functions return dicts, which the Surveyor writes as the
+lines of protocol v2 and reads with the parser exec recipes use, so the caps, the key rules and the codes
+(`protocol_error`, `list_failed`, `identity_not_read_only`) are the same. A failure of the script is `list_failed`,
+`check_failed` or `fetch_failed` with the mapped variables redacted; a verb it does not register answers like exit 64.
+
 ## Failures
 
 A failure sets the Source's `feed_error` to `<code>: <detail>` and leaves its cursor untouched.

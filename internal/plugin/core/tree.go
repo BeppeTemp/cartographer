@@ -220,6 +220,15 @@ func ReadTree(files []TreeFile, opts Options) (Plugin, []string) {
 	if len(scripts) > 0 && len(problems) == 0 && opts.CheckScripts != nil && opts.loads(SideClient) && p.Unsupported[SideClient] == "" {
 		problems = append(problems, opts.CheckScripts(SideClient, scripts)...)
 	}
+	// The surveyor side has one script, surveyor.star; the check also sees the
+	// recipes/ files, to judge the registrations against the folders. A tree
+	// with recipes/ is checked even without the script, so a folder without
+	// recipe.yaml and without a registering script is reported at once.
+	if len(problems) == 0 && opts.CheckScripts != nil && opts.loads(SideSurveyor) && p.Unsupported[SideSurveyor] == "" {
+		if fs := surveyorScriptFiles(stored); len(fs) > 0 {
+			problems = append(problems, opts.CheckScripts(SideSurveyor, fs)...)
+		}
+	}
 	sort.Slice(p.Artifacts, func(i, j int) bool {
 		a, b := p.Artifacts[i], p.Artifacts[j]
 		return a.Kind+"\x00"+a.Name < b.Kind+"\x00"+b.Name
@@ -230,6 +239,18 @@ func ReadTree(files []TreeFile, opts Options) (Plugin, []string) {
 
 	sort.Strings(problems)
 	return p, problems
+}
+
+// surveyorScriptFiles are the files the surveyor side's script check reads:
+// surveyor.star and everything under recipes/.
+func surveyorScriptFiles(files []TreeFile) []TreeFile {
+	var out []TreeFile
+	for _, f := range files {
+		if f.Path == SurveyorScript || strings.HasPrefix(f.Path, "recipes/") {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 // undeclaredFamilies reports a top-level folder or file of a registered family

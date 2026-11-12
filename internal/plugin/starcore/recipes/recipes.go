@@ -75,6 +75,65 @@ func Load(files []core.TreeFile) (*Program, error) {
 	return &Program{s}, nil
 }
 
+// Check is core.Options.CheckScripts for the surveyor side: the script must
+// load, every recipe it registers needs recipes/<name>/instructions.md and no
+// recipe.yaml (a recipe is exec or Starlark, never both), and a folder without
+// recipe.yaml needs a registration.
+func Check(side core.Side, files []core.TreeFile) []string {
+	if side != core.SideSurveyor {
+		return nil
+	}
+	var problems []string
+	prog, err := Load(files)
+	if err != nil {
+		return []string{err.Error()}
+	}
+	registered := map[string]Recipe{}
+	if prog != nil {
+		for _, r := range prog.Recipes() {
+			registered[r.Name] = r
+		}
+	}
+	yml, instr := map[string]bool{}, map[string]bool{}
+	for _, f := range files {
+		name, rest, ok := strings.Cut(strings.TrimPrefix(f.Path, "recipes/"), "/")
+		if !ok || !strings.HasPrefix(f.Path, "recipes/") {
+			continue
+		}
+		switch rest {
+		case "recipe.yaml":
+			yml[name] = true
+		case "instructions.md":
+			instr[name] = true
+		}
+	}
+	for _, name := range slices.Sorted(mapKeys(registered)) {
+		r := registered[name]
+		switch {
+		case yml[name]:
+			problems = append(problems, fmt.Sprintf("%s: recipe %s is registered here and has recipes/%s/recipe.yaml: a recipe is exec or Starlark, not both", r.Pos, name, name))
+		case !instr[name]:
+			problems = append(problems, fmt.Sprintf("%s: recipe %s needs recipes/%s/instructions.md", r.Pos, name, name))
+		}
+	}
+	for _, name := range slices.Sorted(mapKeys(instr)) {
+		if _, ok := registered[name]; !ok && !yml[name] {
+			problems = append(problems, fmt.Sprintf("recipes/%s/: no recipe.yaml, and surveyor.star registers no recipe %s", name, name))
+		}
+	}
+	return problems
+}
+
+func mapKeys[V any](m map[string]V) func(func(string) bool) {
+	return func(yield func(string) bool) {
+		for k := range m {
+			if !yield(k) {
+				return
+			}
+		}
+	}
+}
+
 // Recipes lists what the script registered, by name.
 func (p *Program) Recipes() []Recipe {
 	by := map[string]*Recipe{}

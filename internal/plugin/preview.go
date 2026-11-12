@@ -173,6 +173,14 @@ func previewSides(w io.Writer, p core.Plugin, in PreviewInfo) {
 			fmt.Fprintf(w, "not loadable by this build: %s\n", esc(why))
 		}
 		previewPermissions(w, head, c.Permissions)
+		if side == core.SideSurveyor {
+			for _, f := range p.Files {
+				if f.Path == core.SurveyorScript {
+					// The script is code the Surveyor runs: say so, as the exec files are.
+					fmt.Fprintf(w, "  %s (%d bytes) registers Starlark recipes (runs code on the Surveyor)\n", core.SurveyorScript, len(f.Content))
+				}
+			}
+		}
 		if side == core.SideSurveyor && c.Permissions != nil && len(c.Permissions.Env) > 0 {
 			fmt.Fprintf(w, "your Surveyor config must map under plugins.%s.env: %s\n", esc(p.Manifest.Name), escAll(c.Permissions.Env))
 		}

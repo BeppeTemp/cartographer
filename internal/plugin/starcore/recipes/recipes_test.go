@@ -191,3 +191,32 @@ recipe("wiki", lst)
 		t.Errorf("no net grant: %v", err)
 	}
 }
+
+func TestCheckJudgesTheRegistrationsAgainstTheFolders(t *testing.T) {
+	script := core.TreeFile{Path: core.SurveyorScript, Content: []byte("def lst(r):\n    return {}\nrecipe(\"wiki\", lst)\n")}
+	instr := core.TreeFile{Path: "recipes/wiki/instructions.md", Content: []byte("x")}
+	yml := core.TreeFile{Path: "recipes/wiki/recipe.yaml", Content: []byte("command: run.sh\n")}
+	orphan := core.TreeFile{Path: "recipes/other/instructions.md", Content: []byte("x")}
+	for name, tc := range map[string]struct {
+		files []core.TreeFile
+		want  string // "" = no problem
+	}{
+		"fine":             {[]core.TreeFile{script, instr}, ""},
+		"no instructions":  {[]core.TreeFile{script}, "needs recipes/wiki/instructions.md"},
+		"both kinds":       {[]core.TreeFile{script, instr, yml}, "exec or Starlark, not both"},
+		"orphan folder":    {[]core.TreeFile{script, instr, orphan}, "registers no recipe other"},
+		"orphan no script": {[]core.TreeFile{orphan}, "registers no recipe other"},
+		"exec only":        {[]core.TreeFile{{Path: "recipes/other/recipe.yaml", Content: []byte("x")}, orphan}, ""},
+		"script broken":    {[]core.TreeFile{{Path: core.SurveyorScript, Content: []byte("recipe(")}}, "surveyor.star"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			probs := strings.Join(recipes.Check(core.SideSurveyor, tc.files), "\n")
+			if (tc.want == "") != (probs == "") || !strings.Contains(probs, tc.want) {
+				t.Fatalf("problems %q, want %q", probs, tc.want)
+			}
+		})
+	}
+	if recipes.Check(core.SideClient, []core.TreeFile{script}) != nil {
+		t.Error("another side is not judged here")
+	}
+}
