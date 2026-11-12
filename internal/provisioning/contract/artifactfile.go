@@ -6,6 +6,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/skill"
+	"gopkg.in/yaml.v3"
 )
 
 // The two validators below are the single authority (D191) for a candidate
@@ -72,6 +73,15 @@ func ValidateAgentFile(slug string, data []byte) error {
 	if err != nil {
 		return fmt.Errorf("parse frontmatter: %w", err)
 	}
+	// The OKF reader is lenient (D8): it reads an unquoted value containing ": "
+	// that gopkg.in/yaml.v3 rejects, and the approval gate parses with yaml.v3
+	// and holds what it cannot parse, so an agent that passed only the first
+	// would be held at every sync with no reason given (D212 for agents).
+	if err := ValidateFrontmatterYAML(data); err != nil {
+		return fmt.Errorf("the frontmatter is not valid YAML, so sync holds the agent for approval "+
+			"and a client may skip it: %v (line numbers are relative to the frontmatter block). "+
+			"The usual cause is an unquoted value containing \": \" — quote the value", err)
+	}
 	name, _ := fm.Get("name")
 	nameStr, _ := name.(string)
 	if strings.TrimSpace(nameStr) == "" {
@@ -92,4 +102,48 @@ func ValidateAgentFile(slug string, data []byte) error {
 		return err
 	}
 	return ValidateFrontmatterRequires("agent", slug, fm)
+}
+
+// FrontmatterYAML cuts the frontmatter block out of a skill's or agent's file
+// content and parses it with gopkg.in/yaml.v3, the parser the approval gate and
+// the clients use. It returns a nil node and a nil error when the content has no
+// frontmatter, and an error for a block that opens and never closes or whose
+// YAML does not parse. It is the one extraction both ValidateFrontmatterYAML and
+// the approval gate (provisioning.FrontmatterDeclaresCommands) use, so the write
+// check and the gate cannot disagree about what parses.
+func FrontmatterYAML(content []byte) (*yaml.Node, error) {
+	text := strings.TrimPrefix(string(content), "\ufeff")
+	text = strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n")
+	lines := strings.Split(text, "\n")
+	start := 0
+	for start < len(lines) && strings.TrimSpace(lines[start]) == "" {
+		start++
+	}
+	// A delimiter starts at column 0: an indented "---" is text inside a block
+	// scalar, and taking it for the close would hide the keys after it.
+	if start >= len(lines) || strings.TrimRight(lines[start], " \t") != "---" {
+		return nil, nil // no frontmatter
+	}
+	end := -1
+	for i := start + 1; i < len(lines); i++ {
+		if t := strings.TrimRight(lines[i], " \t"); t == "---" || t == "..." {
+			end = i
+			break
+		}
+	}
+	if end < 0 {
+		return nil, fmt.Errorf("the frontmatter block is never closed")
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(strings.Join(lines[start+1:end], "\n")), &doc); err != nil {
+		return nil, err
+	}
+	return &doc, nil
+}
+
+// ValidateFrontmatterYAML reports why the frontmatter of content is not valid
+// YAML for gopkg.in/yaml.v3, or nil when there is none or it parses.
+func ValidateFrontmatterYAML(content []byte) error {
+	_, err := FrontmatterYAML(content)
+	return err
 }

@@ -250,6 +250,7 @@ func TestFrontmatterDeclaresCommands_Table(t *testing.T) {
 		{"leading blank lines", "\n\n---\nhooks: {}\n---\n", true},
 		{"unterminated", "---\nname: a\n", true},
 		{"invalid yaml", "---\nname: [unclosed\n---\n", true},
+		{"unquoted colon in a value (the OKF reader accepts it, #1984)", "---\nname: a\ndescription: Use when a: b\n---\n", true},
 		{"hook named only in a value", "---\nname: hooks\ndescription: mcpServers\n---\n", false},
 		{"similar key", "---\nhookss: 1\nmy_hooks: 2\n---\n", false},
 	}
