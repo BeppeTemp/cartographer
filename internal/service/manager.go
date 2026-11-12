@@ -172,7 +172,7 @@ func (m *Manager) Install(opts InstallOptions) ([]string, error) {
 	switch goos {
 	case "darwin":
 		if err := m.installDarwin(binPath, configPath, env...); err != nil {
-			return warnings, err
+			return warnings, sandboxRefusal(err, unitsWrittenNote)
 		}
 	case "linux":
 		if backend == BackendCron {
@@ -186,14 +186,14 @@ func (m *Manager) Install(opts InstallOptions) ([]string, error) {
 				return warnings, err
 			}
 			if err := m.installLinux(binPath, configPath, env...); err != nil {
-				return warnings, err
+				return warnings, sandboxRefusal(err, unitsWrittenNote)
 			}
 		}
 		more, err := m.installWslSide(backend)
 		return append(warnings, more...), err
 	case "windows":
 		if err := m.installWindows(binPath, configPath, env...); err != nil {
-			return warnings, err
+			return warnings, sandboxRefusal(err, taskKeptNote)
 		}
 	default:
 		return warnings, fmt.Errorf("service: unsupported platform %q", goos)

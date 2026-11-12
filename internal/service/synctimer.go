@@ -346,7 +346,7 @@ func (m *Manager) InstallSyncTimer(interval time.Duration) error {
 			return err
 		}
 		if _, err := m.run("launchctl", "bootstrap", fmt.Sprintf("gui/%d", uid), plistPath); err != nil {
-			return fmt.Errorf("service: launchctl bootstrap sync timer: %w", err)
+			return sandboxRefusal(fmt.Errorf("service: launchctl bootstrap sync timer: %w", err), unitsWrittenNote)
 		}
 		return nil
 	case "linux":
@@ -378,10 +378,10 @@ func (m *Manager) InstallSyncTimer(interval time.Duration) error {
 			return fmt.Errorf("service: write sync timer: %w", err)
 		}
 		if _, err := m.run("systemctl", "--user", "daemon-reload"); err != nil {
-			return fmt.Errorf("service: systemctl daemon-reload: %w", err)
+			return sandboxRefusal(fmt.Errorf("service: systemctl daemon-reload: %w", err), unitsWrittenNote)
 		}
 		if _, err := m.run("systemctl", "--user", "enable", "--now", syncSystemdTimer); err != nil {
-			return fmt.Errorf("service: systemctl enable --now %s: %w", syncSystemdTimer, err)
+			return sandboxRefusal(fmt.Errorf("service: systemctl enable --now %s: %w", syncSystemdTimer, err), unitsWrittenNote)
 		}
 		return nil
 	case "windows":
@@ -401,7 +401,7 @@ func (m *Manager) InstallSyncTimer(interval time.Duration) error {
 		}
 		// Registered from a side file: a refused registration keeps the
 		// installed definition as it was (#1961).
-		return m.registerAndReplace(windowsSyncTaskName, taskPath, []byte(RenderWindowsSyncTaskXML(binPath, logPath, interval, windowsTaskUser(), windowsTaskSID())), writeDefinition)
+		return sandboxRefusal(m.registerAndReplace(windowsSyncTaskName, taskPath, []byte(RenderWindowsSyncTaskXML(binPath, logPath, interval, windowsTaskUser(), windowsTaskSID())), writeDefinition), taskKeptNote)
 	default:
 		return fmt.Errorf("service: unsupported platform %q", goos)
 	}

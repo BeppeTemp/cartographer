@@ -97,13 +97,39 @@ func samePath(a, b string) bool {
 	return clean(a) == clean(b)
 }
 
-// guardScheduler refuses a scheduler command under a sandboxed HOME.
+// guardScheduler refuses a scheduler command under a sandboxed HOME. The error
+// names what was refused (the command, whatever the caller was doing with it:
+// registering a unit, probing a task, reading a file through interop) and says
+// only what the guard knows: the command was not run. It does not say what
+// else was or was not changed, because the guard cannot know it (an install
+// creates an explicit --data directory, which can lie outside HOME, before its
+// first scheduler command). What the caller's operation did before the refusal
+// (an install wrote its unit files) is the caller's to add: sandboxRefusal.
 func guardScheduler(name string) error {
 	if !schedulerCommands[filepath.Base(name)] {
 		return nil
 	}
 	if sandboxed, env, acct := sandboxedHome(); sandboxed {
-		return fmt.Errorf("%w (HOME=%s, account home %s): the unit files are written, but nothing is registered with the per-user scheduler", errSandboxHome, env, acct)
+		return fmt.Errorf("%w (HOME=%s, account home %s): %s was not run", errSandboxHome, env, acct, filepath.Base(name))
 	}
 	return nil
+}
+
+// What an install did before the guard refused its scheduler command, for
+// sandboxRefusal: the definitions are on disk under HOME, or (a Windows task is
+// registered from a side file) were not replaced.
+const (
+	unitsWrittenNote = "the unit files are written under HOME, but nothing was registered with the scheduler"
+	taskKeptNote     = "no task was registered with the scheduler and the installed task definition is unchanged"
+)
+
+// sandboxRefusal adds what an install did to the guard's refusal, so a user
+// who sees "HOME is not this account's home" also learns the state it left. Any
+// other error, and nil, pass through. The wrap keeps errors.Is(err,
+// ErrSandboxHome) true: connect tells this deliberate refusal from a failure.
+func sandboxRefusal(err error, note string) error {
+	if err == nil || !errors.Is(err, errSandboxHome) {
+		return err
+	}
+	return fmt.Errorf("%w (%s)", err, note)
 }
