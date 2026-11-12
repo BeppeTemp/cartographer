@@ -12,6 +12,7 @@ import (
 
 const (
 	okRecipeYAML = "command: run.sh\n"
+	okConnYAML   = "transport: stdio\ncommand: bin/mcp\nenv: [WIKI_TOKEN]\ntools: [read]\n"
 )
 
 func tf(path, content string, exec bool) core.TreeFile {
@@ -27,12 +28,12 @@ func recipeTree(name, yaml string, extra ...core.TreeFile) []core.TreeFile {
 }
 
 func TestLoadPluginRecipes(t *testing.T) {
-	cs, probs := loadPluginRecipes(recipeTree("feed", okRecipeYAML+"timeout: 2m\nconnector: git\n"))
+	cs, probs := loadPluginRecipes(recipeTree("feed", okRecipeYAML+"timeout: 2m\nconnector: wiki\n"))
 	if len(probs) != 0 || len(cs) != 1 {
 		t.Fatalf("%v %v", cs, probs)
 	}
 	r := cs[0].Recipe
-	if r.Shape != "feed" || r.Command != "run.sh" || r.Timeout.Minutes() != 2 || r.Connector != "git" || len(cs[0].Executable) != 1 || cs[0].Executable[0] != "run.sh" {
+	if r.Shape != "feed" || r.Command != "run.sh" || r.Timeout.Minutes() != 2 || r.Connector != "wiki" || len(cs[0].Executable) != 1 || cs[0].Executable[0] != "run.sh" {
 		t.Errorf("%+v %v", r, cs[0].Executable)
 	}
 	noInstr := recipeTree("feed", okRecipeYAML)
@@ -50,7 +51,6 @@ func TestLoadPluginRecipes(t *testing.T) {
 		"bare name":       {recipeTree("feed", "command: sh\n"), "file of this recipe's folder"},
 		"not executable":  {recipeTree("feed", "command: recipe.yaml\n"), "no execute bit"},
 		"system+conn":     {recipeTree("feed", okRecipeYAML+"shape: system\nconnector: git\n"), "no connector"},
-		"other connector": {recipeTree("feed", okRecipeYAML+"connector: wiki\n"), "connector must be git or fetch"},
 		"bad shape":       {recipeTree("feed", okRecipeYAML+"shape: lake\n"), "shape must be"},
 		"big timeout":     {recipeTree("feed", okRecipeYAML+"timeout: 3h\n"), "timeout must be"},
 		"big output":      {recipeTree("feed", okRecipeYAML+"max_output_bytes: 999999999\n"), "max_output_bytes"},
@@ -64,7 +64,50 @@ func TestLoadPluginRecipes(t *testing.T) {
 	}
 }
 
-const pointsManifest = "schema: 2\nname: acme-wiki\nversion: 1.0.0\ndisplay_name: Wiki\ndescription: A wiki reader.\ncartographer: \">=0.29.0\"\ncomponents:\n  surveyor:\n    sdk: {recipes: 1}\n    permissions:\n      net: [wiki.example.com]\n      env: [WIKI_TOKEN]\n"
+func TestLoadPluginConnectors(t *testing.T) {
+	files := []core.TreeFile{tf("connectors/wiki.yaml", okConnYAML, false), tf("connectors/bin/mcp", "x", true),
+		tf("connectors/web.yaml", "transport: http\nurl: https://wiki.example.com/mcp\ntoken_env: WIKI_TOKEN\nheaders: {X-Org: ORG_NAME}\ntools: [read]\n", false),
+		tf("connectors/path.yaml", "transport: stdio\ncommand: wiki-mcp\ntools: [read]\n", false)}
+	cs, probs := loadPluginConnectors(files)
+	if len(probs) != 0 || len(cs) != 3 {
+		t.Fatalf("%v %v", cs, probs)
+	}
+	by := map[string]core.Contribution{}
+	for _, c := range cs {
+		by[c.Name] = c
+	}
+	if k := by["wiki"]; k.Connector.CommandOnPath || len(k.Executable) != 1 || k.Connector.Command != "bin/mcp" {
+		t.Errorf("tree command: %+v", k)
+	}
+	if k := by["path"]; !k.Connector.CommandOnPath || len(k.Executable) != 0 {
+		t.Errorf("PATH command is flagged, not an executable of the tree: %+v", k)
+	}
+	for name, tc := range map[string]struct {
+		files []core.TreeFile
+		want  string
+	}{
+		"no tools":       {[]core.TreeFile{tf("connectors/a.yaml", "transport: http\nurl: https://wiki.example.com/mcp\n", false)}, "tools is required"},
+		"http url":       {[]core.TreeFile{tf("connectors/a.yaml", "transport: http\nurl: http://wiki.example.com/mcp\ntools: [r]\n", false)}, "url"},
+		"http loopback":  {[]core.TreeFile{tf("connectors/a.yaml", "transport: http\nurl: http://127.0.0.1:8080/mcp\ntools: [r]\n", false)}, "url must be https"},
+		"url creds":      {[]core.TreeFile{tf("connectors/a.yaml", "transport: http\nurl: https://u:p@wiki.example.com/mcp\ntools: [r]\n", false)}, "credentials"},
+		"literal secret": {[]core.TreeFile{tf("connectors/a.yaml", "transport: http\nurl: https://wiki.example.com/mcp\ntoken_env: sk-abc\ntools: [r]\n", false)}, "token_env"},
+		"env value":      {[]core.TreeFile{tf("connectors/a.yaml", "transport: stdio\ncommand: x\nenv: [lower]\ntools: [r]\n", false)}, "variable names"},
+		"missing exec":   {[]core.TreeFile{tf("connectors/a.yaml", "transport: stdio\ncommand: bin/none\ntools: [r]\n", false)}, "executable file under connectors/"},
+		"stray exec":     {[]core.TreeFile{tf("connectors/bin/x", "x", true)}, "no connector names"},
+		"reserved":       {[]core.TreeFile{tf("connectors/git.yaml", okConnYAML, false)}, "not git"},
+		"flat helper":    {[]core.TreeFile{tf("connectors/run.sh", "x", true)}, "expected a file connectors/<name>.yaml"},
+		"mixed":          {[]core.TreeFile{tf("connectors/a.yaml", "transport: stdio\ncommand: x\nurl: https://x.example.com\ntools: [r]\n", false)}, "belong to transport http"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, probs := loadPluginConnectors(tc.files)
+			if len(probs) == 0 || !strings.Contains(strings.Join(probs, "\n"), tc.want) {
+				t.Fatalf("problems %v, want %q", probs, tc.want)
+			}
+		})
+	}
+}
+
+const pointsManifest = "schema: 2\nname: acme-wiki\nversion: 1.0.0\ndisplay_name: Wiki\ndescription: A wiki reader.\ncartographer: \">=0.29.0\"\ncomponents:\n  surveyor:\n    sdk: {recipes: 1, connectors: 1}\n    permissions:\n      net: [wiki.example.com]\n      env: [WIKI_TOKEN]\n"
 
 func pointsPlugin(t *testing.T, manifest string, extra ...core.TreeFile) *core.Plugin {
 	t.Helper()
@@ -83,30 +126,49 @@ func pointsConfig(t *testing.T, p *core.Plugin, env map[string]string) *Config {
 }
 
 func TestAddPluginPoints(t *testing.T) {
-	p := pointsPlugin(t, pointsManifest, recipeTree("feed", okRecipeYAML+"connector: git\n")...)
+	tree := append(recipeTree("feed", okRecipeYAML+"connector: wiki\n"),
+		tf("connectors/wiki.yaml", okConnYAML, false), tf("connectors/bin/mcp", "x", true),
+		tf("connectors/web.yaml", "transport: http\nurl: https://wiki.example.com/mcp\ntoken_env: WIKI_TOKEN\ntools: [read]\n", false))
+	p := pointsPlugin(t, pointsManifest, tree...)
 	c := pointsConfig(t, p, map[string]string{"WIKI_TOKEN": "OPERATOR_WIKI_TOKEN"})
 	if err := c.addPluginPoints(); err != nil {
 		t.Fatal(err)
 	}
-	if len(c.ExecRecipes) != 1 {
-		t.Fatalf("%+v", c.ExecRecipes)
+	if len(c.ExecRecipes) != 1 || len(c.Connectors) != 2 {
+		t.Fatalf("%+v %+v", c.ExecRecipes, c.Connectors)
 	}
 	r := c.ExecRecipes[0]
 	root := filepath.Join(c.PluginsDir, "acme-wiki", p.Digest)
-	if r.Name != "acme-wiki/feed" || r.Connector != "git" || r.Command != filepath.Join(root, "recipes", "feed", "run.sh") || r.Env["WIKI_TOKEN"] != "OPERATOR_WIKI_TOKEN" || r.Shape != "feed" {
+	if r.Name != "acme-wiki/feed" || r.Connector != "acme-wiki/wiki" || r.Command != filepath.Join(root, "recipes", "feed", "run.sh") || r.Env["WIKI_TOKEN"] != "OPERATOR_WIKI_TOKEN" || r.Shape != "feed" {
 		t.Errorf("recipe %+v", r)
+	}
+	web, wiki := c.Connectors[1], c.Connectors[0]
+	if wiki.Name == "acme-wiki/web" {
+		web, wiki = wiki, web
+	}
+	if wiki.Name != "acme-wiki/wiki" || wiki.Command != filepath.Join(root, "connectors", "bin", "mcp") || wiki.Env["WIKI_TOKEN"] != "OPERATOR_WIKI_TOKEN" {
+		t.Errorf("stdio %+v", wiki)
+	}
+	if web.TokenEnv != "OPERATOR_WIKI_TOKEN" || web.URL != "https://wiki.example.com/mcp" {
+		t.Errorf("http %+v", web)
 	}
 }
 
 func TestAddPluginPointsRefusals(t *testing.T) {
+	mapped := map[string]string{"WIKI_TOKEN": "A"}
+	otherEnv := strings.Replace(pointsManifest, "env: [WIKI_TOKEN]", "env: [OTHER]", 1)
 	for name, tc := range map[string]struct {
 		manifest string
 		tree     []core.TreeFile
 		env      map[string]string
 		want     string
 	}{
-		"unmapped": {pointsManifest, recipeTree("feed", okRecipeYAML), nil, "declares the variable WIKI_TOKEN"},
-		"extra":    {pointsManifest, recipeTree("feed", okRecipeYAML), map[string]string{"WIKI_TOKEN": "A", "OTHER": "B"}, "env maps OTHER"},
+		"unmapped":       {pointsManifest, recipeTree("feed", okRecipeYAML), nil, "declares the variable WIKI_TOKEN"},
+		"extra":          {pointsManifest, recipeTree("feed", okRecipeYAML), map[string]string{"WIKI_TOKEN": "A", "OTHER": "B"}, "env maps OTHER"},
+		"unknown conn":   {pointsManifest, recipeTree("feed", okRecipeYAML+"connector: nope\n"), mapped, `connector "nope" is not a connector of this plugin`},
+		"undeclared env": {otherEnv, []core.TreeFile{tf("connectors/a.yaml", okConnYAML, false), tf("connectors/bin/mcp", "x", true)}, map[string]string{"OTHER": "A"}, "does not declare"},
+		"host not in net": {pointsManifest, []core.TreeFile{tf("connectors/a.yaml", "transport: http\nurl: https://other.example.com/mcp\ntools: [r]\n", false)}, mapped,
+			"other.example.com is not under permissions.net"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			c := pointsConfig(t, pointsPlugin(t, tc.manifest, tc.tree...), tc.env)
@@ -171,15 +233,19 @@ func TestPluginEnvKeyIsValidated(t *testing.T) {
 
 // The install preview of a pinned plugin names what runs on the Surveyor.
 func TestPluginPointPreviews(t *testing.T) {
-	p := pointsPlugin(t, pointsManifest, recipeTree("feed", okRecipeYAML)...)
+	tree := append(recipeTree("feed", okRecipeYAML), tf("connectors/wiki.yaml", okConnYAML, false), tf("connectors/bin/mcp", "x", true),
+		tf("connectors/path.yaml", "transport: stdio\ncommand: wiki-mcp\nargs: [-c, serve]\ntools: [read]\n", false))
+	p := pointsPlugin(t, pointsManifest, tree...)
 	var b strings.Builder
 	for _, pt := range core.RegisteredPoints() {
 		for _, c := range p.Contributions[pt.Dir] {
 			pt.Preview(&b, c)
 		}
 	}
-	if want := `recipe "feed": feed, exec "run.sh" (runs code on the Surveyor)`; !strings.Contains(b.String(), want) {
-		t.Errorf("preview lacks %q:\n%s", want, b.String())
+	for _, want := range []string{`recipe "feed": feed, exec "run.sh" (runs code on the Surveyor)`, `connector "wiki": stdio, runs "bin/mcp"`, `runs program "wiki-mcp" looked up on the Surveyor's PATH with args ["-c" "serve"] (runs code on the Surveyor)`, "the model may use 1 tool(s): read"} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("preview lacks %q:\n%s", want, b.String())
+		}
 	}
 }
 

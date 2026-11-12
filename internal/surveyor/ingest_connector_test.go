@@ -145,7 +145,8 @@ func TestIngestUnitWhoseConnectorCannotStartIsSkippedNotClaimed(t *testing.T) {
 // builds its tool set with a connector. The tool-set builder is ingestTools.
 func TestOnlyTheIngestTaskImportsTheConnectorSet(t *testing.T) {
 	files, _ := filepath.Glob("*.go")
-	allowed := map[string]bool{"ingest.go": true, "ingest_fetch.go": true, "poll.go": true, "config.go": true, "config_connectors.go": true}
+	allowed := map[string]bool{"ingest.go": true, "ingest_fetch.go": true, "poll.go": true, "config.go": true, "config_connectors.go": true,
+		"config_plugin_points.go": true, "plugin_points.go": true} // config-time: types and constants, never Open
 	for _, f := range files {
 		if strings.HasSuffix(f, "_test.go") {
 			continue
