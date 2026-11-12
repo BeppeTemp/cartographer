@@ -11,8 +11,9 @@ import (
 )
 
 // Known is what a caller knows about the installation: every value that must
-// not reach a public issue. The redactor fails closed: it looks for each of
-// these in any case it can, and for token shapes it was not told about.
+// not reach a public issue. The redactor fails closed: it looks for token
+// shapes it was not told about, and for each of these in any ASCII case except
+// the concept IDs, which are case-sensitive paths and match only as written.
 type Known struct {
 	KBNames     []string
 	ServerHosts []string // hosts and host:port of the server URL and of any KB remote
@@ -355,10 +356,12 @@ func (r *redactor) kbNames(s string) string {
 		if i < 26 {
 			to = "kb-" + string(rune('a'+i))
 		}
-		if len(name) < 3 || name == to || strings.HasPrefix(name, "kb-") && len(name) == 4 {
+		// Names match in any ASCII case, so the placeholder guard compares folded.
+		low := asciiLower(name)
+		if len(name) < 3 || low == to || strings.HasPrefix(low, "kb-") && len(name) == 4 {
 			continue
 		}
-		s = r.token(s, name, false, "", func(string) string { r.sum.KBNames++; return to })
+		s = r.token(s, name, true, "", func(string) string { r.sum.KBNames++; return to })
 	}
 	return s
 }
