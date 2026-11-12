@@ -15,6 +15,27 @@ func (s *Server) SetHooks(r *hooks.Registry) {
 	s.hooks = r
 }
 
+// SetBlockingAuditSinks attaches the audit_sink hooks whose blocking mode
+// makes a call wait for the hook to acknowledge its attempt event.
+func (s *Server) SetBlockingAuditSinks(sinks []*hooks.Sink) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.blockingSinks = sinks
+}
+
+// awaitBlockingSinks waits for every blocking sink to acknowledge the attempt
+// event, each bounded by its timeout. It runs in beginAuditCall, before the
+// handler, so outside the KB lock. A fail_closed sink that did not acknowledge
+// rejects the call; a fail_open one lets it go on (its tailer delivers later).
+func awaitBlockingSinks(ctx context.Context, sinks []*hooks.Sink, hash string) (rejectedBy string) {
+	for _, sk := range sinks {
+		if err := sk.Await(ctx, hash); err != nil && sk.Hook().FailurePolicy == hooks.FailClosed {
+			return sk.Hook().Name
+		}
+	}
+	return ""
+}
+
 // vetoWrite asks every write_veto hook that covers the KB, in config order,
 // whether it objects to the call, and stops at the first deny. It runs from
 // callToolChecked after the core authorization (a hook is never called for a

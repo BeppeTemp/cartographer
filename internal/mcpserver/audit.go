@@ -247,9 +247,9 @@ type auditCall struct {
 //   - sink attached, append fails, required mode: (call, rejected, false) —
 //     the caller must return rejected to the client WITHOUT ever invoking the
 //     tool handler (fail closed) and must not call end.
-func (s *Server) beginAuditCall(who auditWho, tool string, readOnly bool, resources map[string]string) (call auditCall, rejected ToolResult, ok bool) {
+func (s *Server) beginAuditCall(ctx context.Context, who auditWho, tool string, readOnly bool, resources map[string]string) (call auditCall, rejected ToolResult, ok bool) {
 	s.mu.Lock()
-	log, kbName, transport := s.auditLog, s.kbName, s.transport
+	log, kbName, transport, sinks := s.auditLog, s.kbName, s.transport, s.blockingSinks
 	s.mu.Unlock()
 
 	call = auditCall{
@@ -259,7 +259,7 @@ func (s *Server) beginAuditCall(who auditWho, tool string, readOnly bool, resour
 	if log == nil {
 		return call, ToolResult{}, true
 	}
-	_, err := log.AppendEvent(audit.Entry{
+	attempt, err := log.AppendEvent(audit.Entry{
 		RequestID: call.requestID, PrincipalID: who.id, Transport: transport, KB: kbName,
 		Tool: tool, ReadOnly: readOnly, Resources: resources,
 		Phase: audit.PhaseAttempt, PrincipalKind: who.kind, Via: who.via,
@@ -271,6 +271,16 @@ func (s *Server) beginAuditCall(who auditWho, tool string, readOnly bool, resour
 		return call, ToolResult{}, true
 	}
 	call.recorded = true
+	if len(sinks) > 0 {
+		// Blocking audit sinks (D1991): the attempt is durable
+		// locally; the call waits for the external copy. A rejection closes the
+		// pair with audit_unavailable, so the chain stays paired.
+		if name := awaitBlockingSinks(ctx, sinks, attempt.Hash); name != "" {
+			rejected = errorResult("audit sink " + name + " unavailable: call rejected (blocking, fail_closed)")
+			call.end(s, audit.OutcomeAuditUnavailable, rejected)
+			return call, rejected, false
+		}
+	}
 	return call, ToolResult{}, true
 }
 
