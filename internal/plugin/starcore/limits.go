@@ -26,6 +26,9 @@ const (
 	// is a bridge request or a hook.
 	MaxCallStepsTool    uint64 = 20_000_000
 	MaxCallStepsCommand uint64 = 500_000_000
+	// MaxCallStepsRecipe caps one verb call of a Surveyor recipe: it pages
+	// through a source, so it gets more than a tool.
+	MaxCallStepsRecipe uint64 = 100_000_000
 	// MaxPrintBytes caps what print and log write in one call; the rest is
 	// dropped and a "truncated" line ends the output.
 	MaxPrintBytes = 64 << 10
@@ -46,6 +49,8 @@ var (
 const (
 	ToolTimeout  = 30 * time.Second
 	EventTimeout = 10 * time.Second
+	// RecipeTimeout is one verb call of a Surveyor recipe.
+	RecipeTimeout = 5 * time.Minute
 )
 
 // Network caps of one call (http.request).

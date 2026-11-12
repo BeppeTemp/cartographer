@@ -163,6 +163,12 @@ func TestServerNeverLinksTheApply(t *testing.T) {
 		t.Errorf("internal/plugin/starcore reaches the apply half or the server's config: %s",
 			strings.Join(c, " -> "))
 	}
+	// The surveyor side of the runtime (recipe() and the verb calls) is what the
+	// Surveyor links; it must stay clear of the same things.
+	if c := chainTo(t, "plugin/starcore/recipes", append([]string{"config", "service"}, apply...)); c != nil {
+		t.Errorf("internal/plugin/starcore/recipes reaches the apply half or the server's config: %s",
+			strings.Join(c, " -> "))
+	}
 	if c := chainTo(t, "provisioning/contract", []string{"kb", "provisioning", "plugin", "mcpbridge"}); c != nil {
 		t.Errorf("internal/provisioning/contract reaches the data plane or the apply half: %s", strings.Join(c, " -> "))
 	}

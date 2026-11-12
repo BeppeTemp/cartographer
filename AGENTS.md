@@ -56,65 +56,66 @@ Generated from the package doc comments — `make codemap` after adding a packag
 The synopsis says which package to open; what it does is in `go doc <pkg>`.
 
 ```
-cmd/cartographer                Command cartographer is the single binary of the Agentic Wiki
-internal/agents                 detects which LLM agent CLIs/apps are installed locally
-internal/artifactsig            signs and verifies provisioning artifact envelopes
-internal/atlasext               loads the data a plugin's atlas side declares
-internal/audit                  implements Cartographer's local, tamper-evident audit trail
-internal/auth                   implements bearer-token authorization for the HTTP transport
-internal/blocktext              implements the marker-delimited "managed block" primitive
-internal/boundaries             is the client import firewall
-internal/branding               parses and judges the branding/ folder of a plugin's atlas side
-internal/changelog              regroups a release-please changelog by area
-internal/client                 is a minimal MCP client over HTTP (JSON-RPC 2.0)
-internal/clientconfig           reads and writes the client-side `.cartographer.yaml` file
-internal/componentproto         is the server-component wire contract
-internal/config                 is the server configuration of `cartographer serve`
-internal/configurator           generates the MCP configuration of each agent client
-internal/defaults               holds the local endpoint defaults
-internal/execbit                reports whether the filesystem has the POSIX execute bit
-internal/feedback               redacts a bug report and builds its destination URL
-internal/gitx                   provides a git wrapper via os/exec for the Agentic Wiki
-internal/graphalgo              holds the graph algorithms behind the retrieval tools (D242)
-internal/hooks                  calls the hook points of the core
-internal/jsonorder              edits a JSON object without reformatting the rest
-internal/kb                     implements the data plane of the OKF knowledge base
-internal/lint                   implements deterministic lint checks on a KB scope
-internal/mcpbridge              is the local stdio MCP server scoped to a folder's KBs (D737)
-internal/mcpserver              implements the control plane
-internal/okf                    parser/serializer for the YAML subset used in OKF frontmatter
-internal/openapi                builds an OpenAPI document from Go types
-internal/plugin                 is the client side of a Cartographer plugin
-internal/plugin/core            is the half of the plugin system the server and the Surveyor link
-internal/plugin/star            runs the Starlark script of a plugin for a client
-internal/plugin/starcore        is the Starlark runtime a plugin script runs on, without the half that only a client needs
-internal/pluginserver           loads the data families of a plugin's server side
-internal/procattr               sets the process attributes every child of Cartographer shares
-internal/provisioning           manages the synchronization of artifacts (skill, agent, hook — D48
-internal/provisioning/contract  is the wire contract of provisioning
-internal/repodocs               keeps this repository navigable by a coding agent
-internal/repoindex              resolves `{{repo:<key>}}` placeholders (D75) to a local clone path
-internal/safewrite              guards client-side writes against symlinks
-internal/search                 implements an in-memory inverted keyword index for KB concepts
-internal/secretscan             finds potential credentials in text
-internal/service                manages the cartographer MCP server as a native per-user service
-internal/settingschema          describes a settings file's keys once, in code (D747)
-internal/skill                  loads and validates SKILL.md files (agentskills.io format)
-internal/skillbundle            embeds the skills shipped inside the binary (bundled/)
-internal/sops                   decrypts the sops-encrypted KB secrets a skill runs with
-internal/sqlindex               implements a persistent SQLite-backed keyword index
-internal/surveyor               is the model client and agent loop of the Surveyor (D1257)
-internal/surveyor/connector     mounts allowed MCP tools
-internal/surveyor/feed          handles a feed cursor
-internal/surveyor/poll          names units
-internal/surveyor/recipe        lists what changed in a feed Source
-internal/surveyor/synthesis     is the third task kind of the Surveyor
-internal/surveyor/system        diffs the state of a live system
-internal/surveyorconfig         holds the key table of the Surveyor config file
-internal/tray                   is the core of the status icon
-internal/updatecheck            answers whether a newer release exists and how to upgrade (D254)
-internal/webui                  serves the embedded read-only Atlas UI (D227)
-internal/wsl                    detects when the process runs inside WSL
+cmd/cartographer                  Command cartographer is the single binary of the Agentic Wiki
+internal/agents                   detects which LLM agent CLIs/apps are installed locally
+internal/artifactsig              signs and verifies provisioning artifact envelopes
+internal/atlasext                 loads the data a plugin's atlas side declares
+internal/audit                    implements Cartographer's local, tamper-evident audit trail
+internal/auth                     implements bearer-token authorization for the HTTP transport
+internal/blocktext                implements the marker-delimited "managed block" primitive
+internal/boundaries               is the client import firewall
+internal/branding                 parses and judges the branding/ folder of a plugin's atlas side
+internal/changelog                regroups a release-please changelog by area
+internal/client                   is a minimal MCP client over HTTP (JSON-RPC 2.0)
+internal/clientconfig             reads and writes the client-side `.cartographer.yaml` file
+internal/componentproto           is the server-component wire contract
+internal/config                   is the server configuration of `cartographer serve`
+internal/configurator             generates the MCP configuration of each agent client
+internal/defaults                 holds the local endpoint defaults
+internal/execbit                  reports whether the filesystem has the POSIX execute bit
+internal/feedback                 redacts a bug report and builds its destination URL
+internal/gitx                     provides a git wrapper via os/exec for the Agentic Wiki
+internal/graphalgo                holds the graph algorithms behind the retrieval tools (D242)
+internal/hooks                    calls the hook points of the core
+internal/jsonorder                edits a JSON object without reformatting the rest
+internal/kb                       implements the data plane of the OKF knowledge base
+internal/lint                     implements deterministic lint checks on a KB scope
+internal/mcpbridge                is the local stdio MCP server scoped to a folder's KBs (D737)
+internal/mcpserver                implements the control plane
+internal/okf                      parser/serializer for the YAML subset used in OKF frontmatter
+internal/openapi                  builds an OpenAPI document from Go types
+internal/plugin                   is the client side of a Cartographer plugin
+internal/plugin/core              is the half of the plugin system the server and the Surveyor link
+internal/plugin/star              runs the Starlark script of a plugin for a client
+internal/plugin/starcore          is the server-safe Starlark runtime of a plugin script
+internal/plugin/starcore/recipes  is the surveyor side of the Starlark runtime
+internal/pluginserver             loads the data families of a plugin's server side
+internal/procattr                 sets the process attributes every child of Cartographer shares
+internal/provisioning             manages the synchronization of artifacts (skill, agent, hook — D48
+internal/provisioning/contract    is the wire contract of provisioning
+internal/repodocs                 keeps this repository navigable by a coding agent
+internal/repoindex                resolves `{{repo:<key>}}` placeholders (D75) to a local clone path
+internal/safewrite                guards client-side writes against symlinks
+internal/search                   implements an in-memory inverted keyword index for KB concepts
+internal/secretscan               finds potential credentials in text
+internal/service                  manages the cartographer MCP server as a native per-user service
+internal/settingschema            describes a settings file's keys once, in code (D747)
+internal/skill                    loads and validates SKILL.md files (agentskills.io format)
+internal/skillbundle              embeds the skills shipped inside the binary (bundled/)
+internal/sops                     decrypts the sops-encrypted KB secrets a skill runs with
+internal/sqlindex                 implements a persistent SQLite-backed keyword index
+internal/surveyor                 is the model client and agent loop of the Surveyor (D1257)
+internal/surveyor/connector       mounts allowed MCP tools
+internal/surveyor/feed            handles a feed cursor
+internal/surveyor/poll            names units
+internal/surveyor/recipe          lists what changed in a feed Source
+internal/surveyor/synthesis       is the third task kind of the Surveyor
+internal/surveyor/system          diffs the state of a live system
+internal/surveyorconfig           holds the key table of the Surveyor config file
+internal/tray                     is the core of the status icon
+internal/updatecheck              answers whether a newer release exists and how to upgrade (D254)
+internal/webui                    serves the embedded read-only Atlas UI (D227)
+internal/wsl                      detects when the process runs inside WSL
 ```
 <!-- codemap:end -->
 
@@ -126,7 +127,7 @@ Not duplicated here:
 |---|---|
 | Doc map + reading paths | `docs/index.md` (read first, then only the relevant pages) |
 | Project status and planned work | GitHub issues, pull requests and releases (links in `docs/index.md`) |
-| Why behind a choice (`D<n>`) | One file per decision: `ls docs/decisions/D<n>-*`. The generated list is `docs/decisions.md` |
+| Why behind a choice (`D<n>`) | One file per decision: `ls docs/decisions/D<n>-*`; generated list: `docs/decisions.md` |
 | Working with an agent client (D992) | `CONTRIBUTING.md` §Working with an agent client |
 | List of MCP tools | `docs/control-plane.md` §MCP API |
 | Env vars, YAML config, deploy | `docs/deployment.md` |
@@ -137,14 +138,14 @@ Not duplicated here:
 ## Working rules
 
 - All changes land via PR: `main` is protected (required `gate`, `pr-title`, `plan-gate`). A contributor's PR is squash-merged; a maintainer's change is queued (`make ready`) and lands in a train (`CONTRIBUTING.md` §Pull requests). Titles are conventional commits (release-please computes the semver bump).
-- **Route a maintainer's change before writing any code**: a bug → an `accepted` `bug` issue with the design in a comment, fixed by `cartographer-fix-implementer` (`CONTRIBUTING.md` §Fixes without a plan); a feature → a plan (`cartographer-propose-plan`) implemented by `cartographer-implement-plan`; a change found by trying it → a live session (below). The coordinator writes no production code itself: it reviews and queues.
+- **Route a maintainer's change before writing any code**: a bug → an `accepted` `bug` issue with the design in a comment, fixed by `cartographer-fix-implementer` (`CONTRIBUTING.md` §Fixes without a plan); a feature → a plan (`cartographer-propose-plan`) implemented by `cartographer-implement-plan`; a change found by trying it → a live session (below). The coordinator writes no production code: it reviews and queues.
 - **This repository is public**: before any commit, doc, test, issue, PR or comment, replace what came from a real setup — KB names → `kb-a`/`work-kb`, hosts → `example.com`/`gitlab.example.com`, users → `user`, paths → `$HOME/…` — and drop employer, client and project names; in doubt, a name is private. The `privacy` workflow is a net, not the filter (D259).
 - **Done** means: `make check` green; the docs named in `docs/index.md` §Documentation maintenance rules updated in the same session; every trap you hit fixed where it bites — a test if it can be checked, else a comment next to the code or one line in the area `AGENTS.md` or the procedure's skill (D214); one decision file per architectural or contract choice (D672).
-- Design and implementation often happen in separate sessions: the maintainer's handoff is a **plan file** kept outside the repository (`CONTRIBUTING.md` §Plans): no agent implements a plan the maintainer did not give it in the session. A contributor opens an issue or a direct PR.
+- Design and implementation often run in separate sessions: the handoff is a **plan file** kept outside the repository (`CONTRIBUTING.md` §Plans); no agent implements a plan the maintainer did not give it in the session. A contributor opens an issue or a direct PR.
 - **Roles are GitHub permissions** (D955): `WRITE`/`MAINTAIN`/`ADMIN` on upstream is a maintainer, anyone else a contributor whose agent stops at an open PR (`CONTRIBUTING.md` §Working with an agent client).
-- A change whose outcome is found by trying it (Atlas UI, UX, output to tune) needs no plan: it is a **live session** with the user, ending in one queued change (`cartographer-develop-live` skill).
-- A PR, or a change before `make ready`, is reviewed with the `cartographer-review-pr` skill: scripted triage, then the `cartographer-contract-reviewer` subagent; the coordinator verifies only the lines its findings cite. Size cap: `CONTRIBUTING.md` §Pull requests.
-- Releases → maintainer-local tooling, not versioned here; the on-demand flow is in `CONTRIBUTING.md` §Releases.
-- **Documentation is updated in the same session as the code — never afterward.** The "what changes → which file" table is in `docs/index.md` §Documentation maintenance rules.
+- A change whose outcome is found by trying it (Atlas UI, UX, output to tune) needs no plan: it is a **live session** with the user that ends in one queued change (`cartographer-develop-live` skill).
+- A PR, or a change before `make ready`, is reviewed with the `cartographer-review-pr` skill: scripted triage then the `cartographer-contract-reviewer` subagent; the coordinator verifies only the lines its findings cite. Size cap: `CONTRIBUTING.md` §Pull requests.
+- Releases → maintainer-local tooling, not versioned here; on demand: `CONTRIBUTING.md` §Releases.
+- **Documentation is updated in the same session as the code — never afterward.** The "what changes → which file" table: `docs/index.md` §Documentation maintenance rules.
 - Conventions → `docs/conventions.md`. A decision is `docs/decisions/D<n>-<slug>.md`, `<n>` the PR's (D672) or, queued, `D-new-<slug>` numbered by the lander; never regenerate `docs/decisions.md` in a feature PR (D328).
-- **This file is stable imprinting**: no mutable state, versions, counts or changelog. Topic docs describe the **current state**; "how we got here" lives in `docs/decisions/` and the git log. Its size is a gate — `internal/repodocs` fails the build past 120 hand-written lines (generated blocks excluded) or 12.000 characters in total: past that a client drops instructions silently.
+- **This file is stable imprinting**: no mutable state, versions, counts or changelog. Topic docs describe the **current state**; the history lives in `docs/decisions/` and the git log. Size is a gate — `internal/repodocs` fails the build past 120 hand-written lines (generated blocks aside) or 12.000 characters in all: past that a client drops instructions silently.

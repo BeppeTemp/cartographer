@@ -20,6 +20,10 @@ type SurveyorRecipe struct {
 	MaxContent   int
 	Connector    string // a local connector of the plugin, git or fetch; "" = none
 	Instructions string
+	// Script marks a recipe whose folder holds instructions.md alone: it runs as
+	// Starlark, registered by surveyor.star, and has no command, shape or
+	// limits of its own here (the registration gives the shape).
+	Script bool
 }
 
 // SurveyorConnector is the contribution of connectors/<name>.yaml. Command is a
