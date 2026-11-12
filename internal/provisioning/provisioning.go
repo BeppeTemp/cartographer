@@ -3088,33 +3088,14 @@ func ArtifactRequiresApproval(a contract.Artifact, opts ApplyOptions) bool {
 // It answers true (approval needed) whenever it cannot tell: a file that opens
 // like frontmatter but never closes, or whose YAML does not parse.
 func FrontmatterDeclaresCommands(content []byte) bool {
-	text := strings.TrimPrefix(string(content), "\ufeff")
-	text = strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n")
-	lines := strings.Split(text, "\n")
-	start := 0
-	for start < len(lines) && strings.TrimSpace(lines[start]) == "" {
-		start++
+	doc, err := contract.FrontmatterYAML(content)
+	if err != nil {
+		return true
 	}
-	// A delimiter starts at column 0: an indented "---" is text inside a block
-	// scalar, and taking it for the close would hide the keys after it.
-	if start >= len(lines) || strings.TrimRight(lines[start], " \t") != "---" {
+	if doc == nil {
 		return false // no frontmatter
 	}
-	end := -1
-	for i := start + 1; i < len(lines); i++ {
-		if t := strings.TrimRight(lines[i], " \t"); t == "---" || t == "..." {
-			end = i
-			break
-		}
-	}
-	if end < 0 {
-		return true
-	}
-	var doc yaml.Node
-	if err := yaml.Unmarshal([]byte(strings.Join(lines[start+1:end], "\n")), &doc); err != nil {
-		return true
-	}
-	return yamlNodeDeclaresCommands(&doc, map[*yaml.Node]bool{})
+	return yamlNodeDeclaresCommands(doc, map[*yaml.Node]bool{})
 }
 
 func yamlNodeDeclaresCommands(n *yaml.Node, seen map[*yaml.Node]bool) bool {

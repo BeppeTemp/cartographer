@@ -925,6 +925,28 @@ func TestArtifactTools_VariantsPathIsNotWhitelisted(t *testing.T) {
 	}
 }
 
+// An agent whose frontmatter the OKF reader accepts but yaml.v3 rejects is
+// refused at write: the approval gate would hold it at every sync (#1984).
+func TestArtifactWrite_AgentFrontmatterNotYAMLRefused(t *testing.T) {
+	t.Parallel()
+	k := setupTestKB(t)
+	s := New("test")
+	RegisterKBTools(s, k, Deps{})
+	write := func(name, desc string) ToolResult {
+		r := runMCPSequence(t, s, []string{initMsg, artifactCallMsg(t, 2, "artifact_write", map[string]any{
+			"path": "agents/" + name + ".md", "content": "---\nname: " + name + "\ndescription: " + desc + "\n---\nBody\n",
+		})})
+		return decodeToolResult(t, r[1])
+	}
+	tr := write("colonagent", "Use when a: b")
+	if !tr.IsError || !containsText(tr, "not valid YAML") || !containsText(tr, "quote the value") {
+		t.Errorf("an unquoted \": \" must be refused with the reason: %+v", tr.Content)
+	}
+	if tr := write("quotedagent", `"Use when a: b"`); tr.IsError {
+		t.Errorf("the quoted form must be accepted: %+v", tr.Content)
+	}
+}
+
 // A Kiro agent whose providers.kiro carries V2-only keys is accepted with a
 // warning naming the V3 replacement; `permissions` draws none (#1717).
 func TestArtifactWrite_AgentKiroV2KeysWarn(t *testing.T) {

@@ -20,6 +20,29 @@ func TestValidateSkillFile(t *testing.T) {
 	}
 }
 
+func TestValidateAgentFile_QuotedColonAccepted(t *testing.T) {
+	in := "---\nname: helper\ndescription: \"Use when a: b\"\n---\nBody\n"
+	if err := ValidateAgentFile("helper", []byte(in)); err != nil {
+		t.Fatalf("the quoted form is refused: %v", err)
+	}
+}
+
+func TestValidateFrontmatterYAML(t *testing.T) {
+	for _, c := range []struct {
+		name, in string
+		bad      bool
+	}{
+		{"no frontmatter", "text: a: b\n", false},
+		{"valid", "---\nname: a\n---\nbody\n", false},
+		{"colon in a plain scalar", "---\ndescription: x: y\n---\n", true},
+		{"unterminated", "---\nname: a\n", true},
+	} {
+		if err := ValidateFrontmatterYAML([]byte(c.in)); (err != nil) != c.bad {
+			t.Errorf("%s: err = %v; want error %v", c.name, err, c.bad)
+		}
+	}
+}
+
 func TestValidateAgentFile(t *testing.T) {
 	ok := "---\nname: helper\ndescription: Helps.\n---\nBody\n"
 	if err := ValidateAgentFile("helper", []byte(ok)); err != nil {
@@ -30,6 +53,8 @@ func TestValidateAgentFile(t *testing.T) {
 		{"helper", "---\ndescription: x\n---\n", "'name' is required"},
 		{"other", ok, "must equal the file name"},
 		{"helper", "---\nname: helper\n---\n", "'description' is required"},
+		// The OKF reader accepts this, yaml.v3 (the approval gate's parser) does not (#1984).
+		{"helper", "---\nname: helper\ndescription: Use when a: b\n---\nBody\n", "not valid YAML"},
 	} {
 		err := ValidateAgentFile(c.slug, []byte(c.in))
 		if err == nil || !strings.Contains(err.Error(), c.want) {
