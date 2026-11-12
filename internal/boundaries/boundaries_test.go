@@ -19,7 +19,7 @@ var client = []string{
 	"agents", "artifactsig", "blocktext", "client", "clientconfig", "componentproto", "configurator",
 	"defaults", "execbit", "feedback", "gitx", "jsonorder", "mcpbridge", "okf", "plugin", "plugin/core", "plugin/starcore",
 	"procattr", "provisioning", "provisioning/contract", "repoindex", "safewrite", "secretscan", "settingschema", "skill",
-	"skillbundle", "updatecheck",
+	"skillbundle", "updatecheck", "wsl",
 }
 
 // exempt packages are client-side but reach the data plane today; the list only
