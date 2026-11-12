@@ -82,6 +82,25 @@ func (p syncProjection) Label() string {
 	return p.Provider + " [" + p.Workspace + "]"
 }
 
+// withholdLocalPaths decides, once for a projection, whether its instructions
+// block keeps this machine's absolute paths out — the "Local paths" rows and the
+// KB's own placeholders left unexpanded — because the file it goes into is
+// tracked by git (#1897): sync (materializeForProviders) and status
+// (workspaceProviderDiff) both ask it, so the paths-section hash they judge
+// agrees. Only a workspace projection can answer yes; a workspace in no
+// repository keeps the paths, and a git that fails withholds them.
+func withholdLocalPaths(p syncProjection) bool {
+	if p.Scope != contract.ScopeProject || p.Workspace == "" {
+		return false
+	}
+	return provisioning.InstructionsDestTracked(provisioning.ApplyOptions{
+		Provider:        configurator.Provider(p.Provider),
+		BaseDir:         p.BaseDir,
+		Scope:           p.Scope,
+		InstructionsRel: p.InstructionsRel,
+	})
+}
+
 // projectionsFor resolves every projection a provider currently has.
 //
 // In the default scope this is exactly one entry, identical in every respect to
@@ -1406,7 +1425,9 @@ func uncoveredProjectionFiles(provider configurator.Provider, workspace string, 
 	if len(args) == n {
 		return nil
 	}
-	raw, err := procattr.Hide(exec.Command("git", args...)).Output()
+	cmd := procattr.Hide(exec.Command("git", args...))
+	cmd.Env = gitx.Env() // -C names the repository: a hook's GIT_DIR must not
+	raw, err := cmd.Output()
 	if err != nil {
 		return nil
 	}

@@ -944,6 +944,7 @@ func materializeForProviders(manifests map[string]contract.Manifest, projections
 			opts.InstructionsRel = p.InstructionsRel
 			opts.HookSettingsRel = p.HookSettingsRel
 		}
+		opts.WithholdLocalPaths = withholdLocalPaths(p)
 		// Apply only the artifacts the provider knows how to materialize in
 		// this scope: unsupported kinds are neither drift nor pending, they
 		// simply don't concern it.

@@ -2,6 +2,7 @@ package clientconfig
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -368,5 +369,28 @@ func TestProjectionDoesNotReadUnboundAccess(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The bind guard reads the workspace's own remote even when a git hook left
+// GIT_DIR pointing at another repository.
+func TestGitRemoteOrigin_IgnoresInheritedRepoPins(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	mk := func(remote string) string {
+		dir := t.TempDir()
+		for _, args := range [][]string{{"init", "-q"}, {"remote", "add", "origin", remote}} {
+			if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+				t.Skipf("git %v: %v %s", args, err, out)
+			}
+		}
+		return dir
+	}
+	ws := mk("https://example.com/user/ws.git")
+	other := mk("https://example.com/user/other.git")
+	t.Setenv("GIT_DIR", filepath.Join(other, ".git"))
+	if got := gitRemoteOrigin(ws); got != "example.com/user/ws" {
+		t.Errorf("gitRemoteOrigin = %q, want the workspace's own remote", got)
 	}
 }

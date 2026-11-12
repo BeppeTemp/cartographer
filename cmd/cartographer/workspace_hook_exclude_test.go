@@ -237,3 +237,24 @@ func TestPrintApplySummary_WorkspaceDryRunHasNoNUL(t *testing.T) {
 		t.Errorf("want a [codex <workspace>] label, got:\n%s", out)
 	}
 }
+
+// A sync run from a git hook inherits GIT_DIR/GIT_INDEX_FILE: the listing that
+// feeds doctor and sync must answer for the workspace it names with -C, not for
+// the repository running the hook.
+func TestUncoveredProjectionFiles_IgnoresInheritedRepoPins(t *testing.T) {
+	ws := trackedRepo(t, map[string]string{"README.md": "x\n"})
+	if err := os.MkdirAll(filepath.Join(ws, ".codex"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ws, ".codex", "hooks.json"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// the other repository tracks the same path, so a pinned index hides the file
+	other := trackedRepo(t, map[string]string{".codex/hooks.json": "{}\n"})
+	t.Setenv("GIT_DIR", filepath.Join(other, ".git"))
+	t.Setenv("GIT_INDEX_FILE", filepath.Join(other, ".git", "index"))
+	codex := provisioning.Lock{Managed: []provisioning.ManagedFile{{Kind: "hook", Name: "g", Path: ".codex/hooks/g/hook.json"}}}
+	if got := uncoveredProjectionFiles(configurator.ProviderCodex, ws, codex); len(got) != 1 || got[0] != ".codex/hooks.json" {
+		t.Errorf("uncovered = %v, want the workspace's .codex/hooks.json (GIT_DIR pointed at another repository)", got)
+	}
+}
