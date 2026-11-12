@@ -1,3 +1,4 @@
+import { setServerNow } from "../lib/serverclock";
 import type {
   Artifact,
   ArtifactList,
@@ -286,7 +287,10 @@ export function fetchMaintenanceReview(kb: string, signal?: AbortSignal): Promis
 
 /** The components that concern this KB (D1901); 404 for a caller that does not see the whole KB. */
 export function fetchComponents(kb: string, signal?: AbortSignal): Promise<ComponentsResponse> {
-  return get<ComponentsResponse>(`/kbs/${encodeURIComponent(kb)}/components`, signal);
+  return get<ComponentsResponse>(`/kbs/${encodeURIComponent(kb)}/components`, signal).then((res) => {
+    setServerNow(res?.server?.now);
+    return res;
+  });
 }
 
 /** The Sources whose last poll failed, newest check first. */
@@ -349,6 +353,11 @@ export function fetchPendingSources(kb: string, signal?: AbortSignal): Promise<S
   // The server's maximum (source_list caps at 500; its default of 50 would cut
   // the column without saying so).
   return get<SourceList>(`/kbs/${encodeURIComponent(kb)}/sources?status=pending&limit=500`, signal);
+}
+
+/** Every registered Source whatever its ingest status (the Settings Surveyor tab counts them); the server caps the list at 500. */
+export function fetchAllSources(kb: string, signal?: AbortSignal): Promise<SourceList> {
+  return get<SourceList>(`/kbs/${encodeURIComponent(kb)}/sources?status=*&limit=500`, signal);
 }
 
 export function fetchAssets(kb: string, id: string, signal?: AbortSignal): Promise<AssetList> {

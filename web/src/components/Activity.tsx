@@ -4,6 +4,7 @@ import type {
   AuditLog,
   ChangesResponse,
   CollectionSummary,
+  ComponentRow,
   ConceptChange,
   GraphSnapshot,
   RetiredConcept,
@@ -20,6 +21,7 @@ import {
 } from "../lib/activity";
 import { collectionVar } from "../lib/palette";
 import { ErrorState } from "./States";
+import { SurveyorRunsSection } from "./Surveyors";
 import { Icon } from "./Icon";
 import {
   Avatar,
@@ -81,6 +83,7 @@ export function Activity({
   snapshot,
   collections = [],
   live = 0,
+  components = [],
   tabs,
   onOpen,
 }: {
@@ -88,6 +91,8 @@ export function Activity({
   snapshot: GraphSnapshot | null;
   collections?: CollectionSummary[];
   live?: number;
+  /** The components that concern the KB (D1901), read once by the App. */
+  components?: ComponentRow[];
   /** The section tabs, drawn under the header. */
   tabs?: ReactNode;
   onOpen(conceptId: string): void;
@@ -420,6 +425,7 @@ export function Activity({
         {data?.truncated && (
           <p className="page-note">Showing the {all.length} most recent changes: narrow the window to see the rest.</p>
         )}
+        <SurveyorRunsSection kb={kb} components={components} authors={authors.map(([a]) => a)} onAuthor={setAuthor} />
         {journal !== null && (data !== null || error !== null) && (
           <PageSection title="Journal" id="activity-journal">
             {journal.trim() === "" ? (

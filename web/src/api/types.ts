@@ -453,7 +453,7 @@ export interface ComponentRow {
 export interface ComponentsResponse {
   protocol: number;
   min_protocol: number;
-  server: { version: string; started_at: string };
+  server: { version: string; started_at: string; now?: string };
   components: ComponentRow[];
 }
 
