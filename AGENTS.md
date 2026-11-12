@@ -114,6 +114,7 @@ internal/surveyorconfig         holds the key table of the Surveyor config file
 internal/tray                   is the core of the status icon
 internal/updatecheck            answers whether a newer release exists and how to upgrade (D254)
 internal/webui                  serves the embedded read-only Atlas UI (D227)
+internal/wsl                    detects when the process runs inside WSL
 ```
 <!-- codemap:end -->
 
