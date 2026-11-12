@@ -66,3 +66,35 @@ func TestServerJSONLaunchesAServer(t *testing.T) {
 		}
 	}
 }
+
+// The registry entry's icon is what a registry or a marketplace that mirrors it
+// shows next to the name. It is served from this repository's main branch, so
+// a rename or a move of the brand file would break it silently: the src must
+// name a file that exists here.
+func TestServerJSONIconIsARepositoryFile(t *testing.T) {
+	var sj struct {
+		Icons []struct {
+			Src      string `json:"src"`
+			MimeType string `json:"mimeType"`
+		} `json:"icons"`
+	}
+	root := repoRoot(t)
+	if err := json.Unmarshal([]byte(readFile(t, root, "server.json")), &sj); err != nil {
+		t.Fatalf("server.json: %v", err)
+	}
+	if len(sj.Icons) == 0 {
+		t.Fatal("server.json declares no icon: the registry and its mirrors show a placeholder")
+	}
+	const prefix = "https://raw.githubusercontent.com/BeppeTemp/cartographer/main/"
+	for i, ic := range sj.Icons {
+		rel, ok := strings.CutPrefix(ic.Src, prefix)
+		if !ok {
+			t.Errorf("icons[%d]: src %q is not a file of this repository's main branch (%s…)", i, ic.Src, prefix)
+			continue
+		}
+		readFile(t, root, rel)
+		if ic.MimeType != "image/png" || !strings.HasSuffix(rel, ".png") {
+			t.Errorf("icons[%d]: %q is %q, want a PNG (the type every client must render)", i, rel, ic.MimeType)
+		}
+	}
+}

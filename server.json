@@ -7,6 +7,15 @@
     "url": "https://github.com/BeppeTemp/cartographer",
     "source": "github"
   },
+  "icons": [
+    {
+      "src": "https://raw.githubusercontent.com/BeppeTemp/cartographer/main/docs/brand/coordinate-pine-256.png",
+      "mimeType": "image/png",
+      "sizes": [
+        "256x256"
+      ]
+    }
+  ],
   "version": "0.0.0-dev",
   "packages": [
     {
