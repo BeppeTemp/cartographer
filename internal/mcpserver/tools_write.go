@@ -2582,7 +2582,7 @@ func removeCuratedEntry(k *kb.KB, mapName string, id okf.ConceptID) (removed boo
 func removeCuratedEntryAt(k *kb.KB, mapName string, id okf.ConceptID) (removed bool, kept string, keptLine int, err error) {
 	content, hash, err := k.IndexHash(mapName)
 	if err != nil {
-		return false, "", 0, fmt.Errorf("unreadable: %w", err)
+		return false, "", 0, errors.New("unreadable: " + relPathErr(err, k.Root, k.DataRoot()))
 	}
 	fmRaw, body, hasFM := okf.SplitFrontmatter(content)
 	newBody, removed, kept, bodyLine := dropEntryLines(k, mapName+"/index.md", body, id)
@@ -2592,8 +2592,11 @@ func removeCuratedEntryAt(k *kb.KB, mapName string, id okf.ConceptID) (removed b
 	if !removed {
 		return false, kept, keptLine, nil
 	}
+	// A write failure is an *fs.PathError with the data directory in it, and the
+	// callers print the error into a note: scrubErr keeps the chain (a stale
+	// write stays okf.ErrStaleWrite) and hides the path.
 	_, err = k.PatchIndex(mapName, hash, joinIndex(fmRaw, hasFM, newBody))
-	return err == nil, kept, keptLine, err
+	return err == nil, kept, keptLine, scrubErr(err, k.Root, k.DataRoot())
 }
 
 // dropEntryLines is the line removal of removeCuratedEntry on an index body
@@ -2780,7 +2783,7 @@ func appendCuratedEntry(k *kb.KB, mapName string, id okf.ConceptID) error {
 func appendCuratedEntries(k *kb.KB, mapName, heading string, ids []okf.ConceptID) (before string, err error) {
 	content, hash, err := k.IndexHash(mapName)
 	if err != nil {
-		return "", fmt.Errorf("unreadable: %w", err)
+		return "", errors.New("unreadable: " + relPathErr(err, k.Root, k.DataRoot()))
 	}
 	fmRaw, body, hasFM := okf.SplitFrontmatter(content)
 	entries := make([]string, len(ids))
@@ -2793,8 +2796,10 @@ func appendCuratedEntries(k *kb.KB, mapName, heading string, ids []okf.ConceptID
 	} else {
 		body = strings.TrimRight(body, "\n") + "\n\n" + heading + "\n\n" + block + "\n"
 	}
+	// As in removeCuratedEntryAt: the text loses the data directory, the chain
+	// stays (applyIndexEntries and batchWriteError test it for ErrStaleWrite).
 	_, err = k.PatchIndex(mapName, hash, joinIndex(fmRaw, hasFM, body))
-	return content, err
+	return content, scrubErr(err, k.Root, k.DataRoot())
 }
 
 // insertUnderHeading puts block at the end of heading's section: after the
@@ -2865,8 +2870,9 @@ type pendingIndexEntry struct {
 }
 
 // planIndexEntry decides, before anything is written, what index_entry does
-// for a created concept (D714): refuses a top-level id or an unreadable
-// curated index, notes a generated index or an existing link, else schedules
+// for a created concept (D714): refuses a top-level id, an id whose first
+// folder is not a Map (services/ or no _map.md) or an unreadable curated
+// index, notes a generated index or an existing link, else schedules
 // an append.
 func planIndexEntry(k *kb.KB, id string) (pendingIndexEntry, error) {
 	mapName, ok := conceptMapName(id)
@@ -2874,9 +2880,19 @@ func planIndexEntry(k *kb.KB, id string) (pendingIndexEntry, error) {
 		return pendingIndexEntry{}, fmt.Errorf("'index_entry' needs a concept inside a map")
 	}
 	p := pendingIndexEntry{id: id, mapName: mapName}
+	// The services/ tree is the service registry, never a Map: it has no
+	// descriptor and no index, so say that instead of a read error.
+	if kb.IsServicesID(okf.ConceptID(id)) {
+		return p, fmt.Errorf("'index_entry': %s/ is not a Map, so it has no index to add an entry to: drop index_entry", mapName)
+	}
 	contract, err := k.ReadMapContract(mapName)
 	if err != nil {
-		return p, fmt.Errorf("'index_entry': %s/index.md unreadable: %w", mapName, err)
+		// A first folder with no descriptor is no Map. A descriptor or an
+		// index that exists and cannot be read stays an "unreadable" error.
+		if errors.Is(err, okf.ErrNotFound) || errors.Is(err, fs.ErrNotExist) {
+			return p, fmt.Errorf("'index_entry': %s/ is not a Map (no _map.md): drop index_entry, or create the Map first", mapName)
+		}
+		return p, fmt.Errorf("'index_entry': %s/index.md unreadable: %s", mapName, relPathErr(err, k.Root, k.DataRoot()))
 	}
 	if contract.Index == kb.IndexGenerated {
 		p.note = fmt.Sprintf("%s/index.md is generated: it lists %s already", mapName, id)
@@ -2884,7 +2900,7 @@ func planIndexEntry(k *kb.KB, id string) (pendingIndexEntry, error) {
 	}
 	content, _, err := k.IndexHash(mapName)
 	if err != nil {
-		return p, fmt.Errorf("'index_entry': %s/index.md unreadable: %w", mapName, err)
+		return p, fmt.Errorf("'index_entry': %s/index.md unreadable: %s", mapName, relPathErr(err, k.Root, k.DataRoot()))
 	}
 	if indexLinks(k, mapName, content, okf.ConceptID(id)) {
 		p.note = fmt.Sprintf("curated index %s/index.md: already links %s, no entry added", mapName, id)
@@ -2921,7 +2937,7 @@ func applyIndexEntries(k *kb.KB, pending []pendingIndexEntry) error {
 				_, herr = k.PatchIndex(u.mapName, hash, u.before)
 			}
 			if herr != nil {
-				err = fmt.Errorf("%w (and restoring %s/index.md failed: %v)", err, u.mapName, herr)
+				err = fmt.Errorf("%w (and restoring %s/index.md failed: %s)", err, u.mapName, relPathErr(herr, k.Root, k.DataRoot()))
 			}
 		}
 		return err
