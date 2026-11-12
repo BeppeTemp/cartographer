@@ -64,6 +64,8 @@ func TestRedactClasses(t *testing.T) {
 		{"user is a prefix only", "alicia", "alicia"},
 		{"concept id", "see [[ops/runbook-db]] and dev/design-notes.md and ops/runbook-db", "see [[area/page-1]] and area/page-2 and area/page-1"},
 		{"kb names", "in team-kb and docs-kb, not team-kb-2", "in kb-a and kb-b, not team-kb-2"},
+		{"kb names any case", "in TEAM-KB, Team-Kb and DOCS-kb, not TEAM-KB-2", "in kb-a, kb-a and kb-b, not TEAM-KB-2"},
+		{"concept id stays case-sensitive", "see OPS/RUNBOOK-DB and ops/runbook-db", "see OPS/RUNBOOK-DB and area/page-1"},
 	} {
 		k := known()
 		if c.name == "windows home" {
@@ -74,6 +76,17 @@ func TestRedactClasses(t *testing.T) {
 		if got != c.want {
 			t.Errorf("%s:\n got %q\nwant %q", c.name, got, c.want)
 		}
+	}
+}
+
+// A KB named like its own placeholder (kb-x shape) is skipped in any case: the
+// guard folds like the match, so a second pass still replaces nothing.
+func TestRedactPlaceholderShapedKBName(t *testing.T) {
+	t.Parallel()
+	k := Known{KBNames: []string{"KB-A", "Kb-b"}}
+	got, sum := Redact("in kb-a, KB-A and Kb-B", k)
+	if got != "in kb-a, KB-A and Kb-B" || sum.KBNames != 0 {
+		t.Errorf("got %q, %+v", got, sum)
 	}
 }
 
@@ -116,6 +129,16 @@ func TestRedactNoKnownValueSurvives(t *testing.T) {
 			out, _ := Redact(in, k)
 			if strings.Contains(strings.ToLower(out), strings.ToLower(v)) {
 				t.Errorf("%q -> %q still holds %q", in, out, v)
+			}
+		}
+		// KB names also in upper and mixed case; concept IDs are case-sensitive paths.
+		for _, v := range []string{"team-kb", "docs-kb"} {
+			for _, w := range []string{strings.ToUpper(v), strings.ToUpper(v[:1]) + v[1:], v[:len(v)-1] + "B"} {
+				in := strings.ReplaceAll(shape, "%s", w)
+				out, _ := Redact(in, k)
+				if strings.Contains(strings.ToLower(out), v) {
+					t.Errorf("%q -> %q still holds %q", in, out, w)
+				}
 			}
 		}
 	}
