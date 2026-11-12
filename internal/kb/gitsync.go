@@ -616,9 +616,10 @@ func (k *KB) SyncOut() error {
 			return err
 		}
 
-		// A refusal no retry changes (a credential without write access, a
-		// repository rule, a required signature, a file over the size limit) is
-		// the remote's decision too: failed at once, with the remote's own line.
+		// A push no retry changes (a credential without write access, one the
+		// remote rejected or that git has none of, a repository rule, a required
+		// signature, a file over the size limit) is failed at once, with the
+		// remote's own line when it gave one.
 		// After the two above on purpose: their hook wording is also a
 		// "[remote rejected]".
 		if remedy, permanent := gitx.PermanentPushRejection(pushErr.Error()); permanent {
@@ -644,8 +645,9 @@ func (k *KB) SyncOut() error {
 			strings.Contains(errMsg, "Updates were rejected")
 
 		if !isRejected {
-			// Network or authentication error: still count as an attempt,
-			// back off and retry rather than returning immediately.
+			// Network error or a transient remote fault (a bad credential is
+			// permanent, above): still count as an attempt, back off and retry
+			// rather than returning immediately.
 			if attempt == maxAttempts {
 				err := fmt.Errorf("SyncOut: push failed after %d attempts: %w", maxAttempts, pushErr)
 				k.setGitStatus("failed", err, attempt)
@@ -785,10 +787,10 @@ func (e *ErrProtectedBranch) Error() string {
 		e.Branch, firstLines(e.Git, 3))
 }
 
-// ErrPushRefused is the error of a push the remote refused for a reason a retry
-// does not change and that is neither a protected branch nor an author rule: a
-// credential without write access, a repository rule, a required signature, a
-// file over the size limit. Remedy is the one line gitx.PermanentPushRejection
+// ErrPushRefused is the error of a push that fails for a reason a retry does not
+// change and that is neither a protected branch nor an author rule: a credential
+// without write access, rejected or absent, a repository rule, a required
+// signature, a file over the size limit. Remedy is the one line gitx.PermanentPushRejection
 // words, quoting the remote.
 type ErrPushRefused struct {
 	Branch string
@@ -798,7 +800,7 @@ type ErrPushRefused struct {
 }
 
 func (e *ErrPushRefused) Error() string {
-	return fmt.Sprintf("the remote refused the push to branch %q and it is not retried: %s. The change is committed and safe in the local clone. Git said: %s",
+	return fmt.Sprintf("the push to branch %q cannot succeed by retrying and is not retried: %s. The change is committed and safe in the local clone. Git said: %s",
 		e.Branch, e.Remedy, firstLines(e.Git, 3))
 }
 

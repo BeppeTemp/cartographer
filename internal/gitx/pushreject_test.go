@@ -21,6 +21,10 @@ func TestPermanentPushRejection(t *testing.T) {
 		"signed": {"remote: error: GH013: Repository rule violations found for refs/heads/main.\nremote: - Commits must have verified signatures.\n ! [remote rejected] main -> main (push declined due to repository rule violations)", "the remote requires signed commits: Cartographer does not sign them"},
 		"size":   {"remote: error: GH001: Large files detected. You may want to try Git Large File Storage\nremote: error: File big.bin is 150 MB; this exceeds GitHub's file size limit of 100 MB", "file over the remote's size limit"},
 		"hook":   {" ! [remote rejected] main -> main (hook declined)", "push rules declined the push"},
+		// A credential that is rejected, or that git has none of, does not heal.
+		"authentication failed": {"remote: Invalid username or password.\nfatal: Authentication failed for 'https://example.com/org/kb.git/'", "the credentials were rejected: check the token or credential helper"},
+		"no username":           {"fatal: could not read Username for 'https://example.com': terminal prompts disabled", "git had no credentials for this forge and could not ask: configure a token or credential helper, or use an ssh remote"},
+		"401":                   {"fatal: unable to access 'https://example.com/org/kb.git/': The requested URL returned error: 401", "the credentials were rejected: check the token or credential helper"},
 	} {
 		remedy, ok := PermanentPushRejection(c.out)
 		if !ok || !strings.Contains(remedy, c.want) || !strings.Contains(remedy, "the remote said:") && name != "hook" {
@@ -46,6 +50,37 @@ func TestPermanentPushRejection(t *testing.T) {
 		if remedy, ok := PermanentPushRejection(out); ok {
 			t.Errorf("%s is retried, got permanent: %q", name, remedy)
 		}
+	}
+}
+
+// PermanentPushRemedy is the rule's fixed sentence only: none of the remote's
+// own text, so it can go out on /health.
+func TestPermanentPushRemedy_FixedSentenceOnly(t *testing.T) {
+	t.Parallel()
+	out := "remote: Permission to org/kb.git denied to user-7f3.\nfatal: unable to access 'https://example.com/org/kb.git/': The requested URL returned error: 403"
+	got := PermanentPushRemedy(out)
+	if !strings.Contains(got, "this credential cannot push") {
+		t.Fatalf("PermanentPushRemedy = %q, want the cannot-push sentence", got)
+	}
+	for _, leak := range []string{"user-7f3", "org/kb", "example.com", "the remote said"} {
+		if strings.Contains(got, leak) {
+			t.Errorf("PermanentPushRemedy = %q leaks %q", got, leak)
+		}
+	}
+	if got := PermanentPushRemedy(" ! [remote rejected] main -> main (failed to update ref)"); got != "" {
+		t.Errorf("a transient refusal = %q, want none", got)
+	}
+}
+
+// An HTTP 401 on a clone or a fetch is a rejected credential too; a bare 403 is not.
+func TestRemoteRemedy_401IsRejectedCredentials(t *testing.T) {
+	t.Parallel()
+	out := "fatal: unable to access 'https://example.com/org/kb.git/': The requested URL returned error: 401"
+	if got := RemoteRemedy(out); !strings.Contains(got, "the credentials were rejected") {
+		t.Errorf("RemoteRemedy(401) = %q, want the credentials-were-rejected remedy", got)
+	}
+	if got := RemoteRemedy(strings.Replace(out, "401", "403", 1)); got != "" {
+		t.Errorf("RemoteRemedy(403) = %q, want none: it can be a rate limit", got)
 	}
 }
 

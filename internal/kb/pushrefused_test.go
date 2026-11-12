@@ -91,3 +91,41 @@ func TestSyncOut_RepositoryRuleFailsAtOnce(t *testing.T) {
 		t.Errorf("last_error %q does not quote the remote's rule line", s.LastError)
 	}
 }
+
+// A credential the remote rejects (a wrong token: HTTP 401, "Authentication failed")
+// or that git has none of ("could not read Username") does not heal between
+// retries: one attempt, the credentials remedy, the change kept in the clone.
+func TestSyncOut_RejectedCredentialFailsAtOnce(t *testing.T) {
+	t.Parallel()
+	if !haveGit() {
+		t.Skip("git not in PATH")
+	}
+	for name, c := range map[string]struct{ token, remedy string }{
+		"wrong token": {"not-the-token", "the credentials were rejected: check the token or credential helper for this forge"},
+		"no token":    {"", "git had no credentials for this forge and could not ask: configure a token or credential helper, or use an ssh remote"},
+	} {
+		token := c.token
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			url, _ := gitxtest.HTTPRemote(t, "token", "s3cret")
+			k, err := Init(filepath.Join(t.TempDir(), "kb"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := gitx.AddRemote(k.Root, "origin", url); err != nil {
+				t.Fatal(err)
+			}
+			k.GitEnv = gitxtest.IsolatedEnv()
+			if token != "" {
+				file := filepath.Join(t.TempDir(), "t")
+				if err := os.WriteFile(file, []byte(token+"\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				k.GitEnv = append(k.GitEnv, gitxtest.TokenEnv(file)...)
+			}
+			k.SetDefaultIdentity("Ada Example", "ada@example.test")
+			commitOne(t, k)
+			assertRefusedOnce(t, k, k.SyncOut(), c.remedy)
+		})
+	}
+}

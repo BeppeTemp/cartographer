@@ -371,6 +371,8 @@ func remoteRemedy(output string) string {
 		{"the project you were looking for could not be found", "the remote repository does not exist or this account cannot see it"},
 		{"not found in the known hosts", "the forge's host key is not in known_hosts: connect once with ssh to review and accept it, then retry"},
 		{"authentication failed", "the credentials were rejected: check the token or credential helper for this forge"},
+		// HTTP 401 only: a bare 403 can be a rate limit, not a verdict on the credential.
+		{"returned error: 401", "the credentials were rejected: check the token or credential helper for this forge"},
 		{"x509:", "the remote's TLS certificate is not trusted by this machine: point SSL_CERT_FILE (or git's http.sslCAInfo) at the CA bundle that signs it"},
 		{"ssl certificate problem", "the remote's TLS certificate is not trusted by this machine: point SSL_CERT_FILE (or git's http.sslCAInfo) at the CA bundle that signs it"},
 		{"terminal prompts disabled", "git needed credentials and could not ask: configure a credential helper or use an ssh remote"},
