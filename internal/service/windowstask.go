@@ -39,6 +39,9 @@ const (
 	windowsSyncTaskName  = "Sync"
 	// windowsTrayTaskName is the third task: the status icon (D1482).
 	windowsTrayTaskName = "Tray"
+	// windowsWslKeepAliveTaskName holds a WSL distro up for the server inside
+	// it; registered from the distro through interop (wslkeepalive.go).
+	windowsWslKeepAliveTaskName = "WslKeepAlive"
 )
 
 // The budgets of stopServeAndWait. Variables only so tests can shrink them.
@@ -125,7 +128,13 @@ func psQuote(s string) string {
 // non-terminating error leaves powershell.exe exiting 0, and every check here
 // reads the exit code.
 func (m *Manager) powershell(script string) (string, error) {
-	return m.run("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference='Stop'; "+script)
+	return m.powershellAt("powershell.exe", script)
+}
+
+// powershellAt is powershell with the interpreter's path: inside WSL it is the
+// one interop resolved (wsl.Info.PowerShell), which need not be on PATH.
+func (m *Manager) powershellAt(exe, script string) (string, error) {
+	return m.run(exe, "-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference='Stop'; "+script)
 }
 
 // taskDeniedExit is the exit code taskCmd's script uses for "the scheduler

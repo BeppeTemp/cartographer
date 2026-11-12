@@ -24,12 +24,15 @@ var errSandboxHome = errors.New("HOME is not this account's home directory")
 // this deliberate refusal from a real failure.
 var ErrSandboxHome = errSandboxHome
 
-// schedulerCommands are the commands that act on the account-wide scheduler.
+// schedulerCommands are the commands that act on the account-wide scheduler,
+// by base name: inside WSL the interop powershell.exe is run by its full path
+// (/mnt/c/...), and wsl.exe reaches the distro's own backend.
 var schedulerCommands = map[string]bool{
 	"launchctl":      true,
 	"systemctl":      true,
 	"powershell.exe": true,
 	"crontab":        true,
+	"wsl.exe":        true,
 }
 
 // accountHome and envHome are indirected for tests.
@@ -94,7 +97,7 @@ func samePath(a, b string) bool {
 
 // guardScheduler refuses a scheduler command under a sandboxed HOME.
 func guardScheduler(name string) error {
-	if !schedulerCommands[name] {
+	if !schedulerCommands[filepath.Base(name)] {
 		return nil
 	}
 	if sandboxed, env, acct := sandboxedHome(); sandboxed {

@@ -13,7 +13,7 @@ func TestSchedulerRefusedUnderSandboxedHome(t *testing.T) {
 	accountHome = func() (string, error) { return "/home/user", nil }
 
 	envHome = func() (string, error) { return "/tmp/sandbox", nil }
-	for _, cmd := range []string{"launchctl", "systemctl", "powershell.exe"} {
+	for _, cmd := range []string{"launchctl", "systemctl", "powershell.exe", "wsl.exe", "/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe"} {
 		if _, err := execRun(cmd, "print"); !errors.Is(err, errSandboxHome) {
 			t.Errorf("%s under a sandboxed HOME: err = %v, want errSandboxHome", cmd, err)
 		}
