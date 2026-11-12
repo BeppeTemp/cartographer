@@ -101,6 +101,21 @@ func runTray(ctx context.Context, ui tray.UI, deps tray.Deps, interval time.Dura
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	updates, emit, closeUpdates := tray.Latest()
+	// The menu opening asks for fresh agent rows (the UI reports
+	// tray.ActionMenuOpened); the send never blocks the UI thread, and a pending
+	// request already says it.
+	requests := make(chan struct{}, 1)
+	deps.AgentRequests = requests
+	onAction := func(a tray.Action) {
+		if a == tray.ActionMenuOpened {
+			select {
+			case requests <- struct{}{}:
+			default:
+			}
+			return
+		}
+		actions.Handle(a)
+	}
 	pollDone := make(chan struct{})
 	go func() {
 		defer close(pollDone)
@@ -111,7 +126,7 @@ func runTray(ctx context.Context, ui tray.UI, deps tray.Deps, interval time.Dura
 		closeUpdates()
 	}()
 
-	err := ui.Run(tray.DefaultMenu(), updates, actions.Handle)
+	err := ui.Run(tray.DefaultMenu(), updates, onAction)
 	cancel() // the user quit: stop polling
 	<-pollDone
 	actions.Wait()
@@ -138,8 +153,10 @@ func trayServerLogPath() string {
 	return p
 }
 
-// trayAgents is the agent-client row of the menu: what `cartographer status`
-// reports, read without the service part (the tray probes that itself).
+// trayAgents is the agent-client rows of the menu: what `cartographer status`
+// reports, read without the service part (the tray probes that itself). The
+// poll loop calls it at start, every tray.AgentsInterval, when the server comes
+// back and when the menu opens.
 func trayAgents() tray.Agents {
 	dir, err := clientconfig.TargetDir()
 	if err != nil {
@@ -149,7 +166,12 @@ func trayAgents() tray.Agents {
 	if err != nil || len(cfg.Agents) == 0 {
 		return tray.Agents{Known: err == nil}
 	}
-	s := snapshotForConfig(dir, cfg, false)
+	return agentRows(snapshotForConfig(dir, cfg, false))
+}
+
+// agentRows is the one place a status snapshot becomes the menu's rows: the
+// connected providers, in the snapshot's order, up to tray.MaxAgents.
+func agentRows(s statusSnapshot) tray.Agents {
 	a := tray.Agents{Known: true}
 	for _, p := range s.Providers {
 		if !p.Connected || a.N == tray.MaxAgents {

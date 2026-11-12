@@ -1043,7 +1043,7 @@ Menu (D1495), top to bottom: "Cartographer" with the state at the right (Running
 Stopped, Not installed) over the version and the address; "Update available" with the newer
 release, when `/health` reports one; an **Agents** section, one row per connected agent client with
 "In sync", "Out of sync" or "Not checked" (anything `status` could not judge) at the right, or "None
-connected"; read at start, every 5 minutes and whenever Meridian comes back;
+connected"; read at start, every 5 minutes, whenever Meridian comes back and whenever the menu is about to be opened (macOS: the menu opening; Windows: the pointer reaching the icon or a click). Never two reads run at a time, and a request starts at most one read every 10 seconds (the 5 minute and server-came-back reads do not wait for that window). A request the window or a running read cannot serve is remembered and read when the window ends (at the next 5 s tick at the latest), so opening the menu, running `sync` and reopening it within 10 seconds still ends in the right row. A read that finishes is shown at once; a macOS menu that is open is redrawn only when the Agents rows changed (any other change waits for the next opening, so an open KB submenu is not closed under the pointer);
 **Knowledge Bases (n)**, a submenu of the KBs `/health` lists, each opening the Atlas on that KB
 (`/ui/?kb=<name>`); then Open Atlas (greyed when the config has no web UI), Restart Service (runs off
 the UI thread, disabled while in flight and when no service is installed), Open Log, Quit (the tray

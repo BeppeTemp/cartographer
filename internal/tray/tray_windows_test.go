@@ -96,6 +96,16 @@ func TestTrayMessageOpensMenu(t *testing.T) {
 	}
 }
 
+// The agent rows are asked for when the pointer reaches the icon, so the read
+// usually lands before the click, and again by the click that opens the menu.
+func TestTrayMessageWantsFreshRows(t *testing.T) {
+	for msg, want := range map[uint32]bool{wmMouseMove: true, wmLButtonUp: true, wmRButtonUp: true, 0x0203: false, 0x0201: false} {
+		if got := trayMessageWantsFreshRows(msg); got != want {
+			t.Errorf("message %#x asks for fresh rows = %v, want %v", msg, got, want)
+		}
+	}
+}
+
 // The balloon touches only the info fields: flags NIF_INFO, an info icon, the
 // texts in place, and a click on it is the one new callback message.
 func TestBalloonData(t *testing.T) {

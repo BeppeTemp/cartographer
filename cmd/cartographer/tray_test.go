@@ -17,6 +17,9 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/service"
 	"github.com/BeppeTemp/cartographer/internal/tray"
 )
@@ -108,6 +111,59 @@ func TestTrayAgentRow(t *testing.T) {
 	} {
 		if got := trayAgentRow(providerStatus{Name: "claude", State: state}); got.Sync != want || got.Name != "Claude Code" {
 			t.Errorf("%s: got %+v, want sync %v as Claude Code", state, got, want)
+		}
+	}
+}
+
+// The tray's agent rows and `status` are one answer: for the same state each
+// row's badge is the mapping of the status provider's state (#1871). One agent
+// is in sync with the lockfile and one has drifted from it.
+func TestAgentRowsMatchStatus(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+	if err := clientconfig.Save(home, &clientconfig.Config{ServerURL: "https://cartographer.example/mcp", Agents: []string{"claude", "codex"}}); err != nil {
+		t.Fatal(err)
+	}
+	served := contract.Manifest{Revision: "rev1"}
+	stubBareStatus(t, &client.Health{Version: "v1.0.0"}, nil, served)
+	inSync := provisioning.FilterForProvider(served, configurator.ProviderClaudeCode).Revision
+	if err := provisioning.WriteLockFile(lockFilePath(home), provisioning.LockFile{Providers: map[string]provisioning.Lock{
+		"claude": {Provider: "claude", AppliedRevision: inSync},
+		"codex":  {Provider: "codex", AppliedRevision: "an-older-revision"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := clientconfig.Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	status := snapshotForConfig(home, cfg, true) // what `cartographer status` reads
+	states := map[string]string{}
+	for _, p := range status.Providers {
+		if p.Connected {
+			states[p.Name] = p.State
+		}
+	}
+	if states["claude"] != "in_sync" || states["codex"] != "drift" {
+		t.Fatalf("fixture: status says %v, want claude in_sync and codex drift", states)
+	}
+
+	got := trayAgents() // what the tray reads: the same file state, through the same snapshot
+	if !got.Known || got.N != 2 {
+		t.Fatalf("tray agents = %+v, want 2 known rows", got)
+	}
+	// Each row is the mapping of the status provider's state, in status's order.
+	byState := map[string]tray.Sync{"in_sync": tray.SyncOK, "drift": tray.SyncDrift}
+	var wantRows []tray.AgentRow
+	for _, p := range status.Providers {
+		if p.Connected {
+			wantRows = append(wantRows, tray.AgentRow{Name: trayAgentRow(p).Name, Sync: byState[p.State]})
+		}
+	}
+	for i, row := range got.Rows[:got.N] {
+		if row != wantRows[i] {
+			t.Errorf("row %d = %+v, status says %+v", i, row, wantRows[i])
 		}
 	}
 }

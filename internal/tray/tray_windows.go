@@ -40,6 +40,7 @@ const (
 	wmEndSession    = 0x0016
 	wmSettingChange = 0x001A
 	wmNull          = 0x0000
+	wmMouseMove     = 0x0200
 	wmLButtonUp     = 0x0202
 	wmRButtonUp     = 0x0205
 	wmApp           = 0x8000
@@ -112,6 +113,13 @@ var (
 // second one.
 func trayMessageOpensMenu(msg uint32) bool {
 	return msg == wmLButtonUp || msg == wmRButtonUp
+}
+
+// trayMessageWantsFreshRows maps the icon's mouse messages to "the user is
+// about to look at the menu": the pointer is over the icon (so the read of the
+// agent rows usually lands before the click) or a click opens the menu.
+func trayMessageWantsFreshRows(msg uint32) bool {
+	return msg == wmMouseMove || trayMessageOpensMenu(msg)
 }
 
 func moduleHandle() uintptr { return call(procGetModuleHandle, 0) }
@@ -300,7 +308,11 @@ func wndProc(hwnd, message, wParam, lParam uintptr) uintptr {
 		}
 		return 0
 	case wmTrayIcon:
-		switch ev := uint32(lParam & 0xFFFF); {
+		ev := uint32(lParam & 0xFFFF)
+		if trayMessageWantsFreshRows(ev) {
+			u.onAction(ActionMenuOpened) // never blocks, and many in a row are fine
+		}
+		switch {
 		case trayMessageOpensMenu(ev):
 			u.showMenu()
 		case ev == ninBalloonClick:

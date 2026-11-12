@@ -64,6 +64,16 @@ const (
 	selOpenKB = "openKB:"      // a KB row: the action is the sender's tag
 	selApply  = "applyUpdate:" // a snapshot is waiting in pending
 	selStop   = "stopLoop:"    // updates was closed: leave the run loop
+
+	// NSMenuDelegate methods of the status menu; no menu item sends them.
+	selMenuNeedsUpdate = "menuNeedsUpdate:" // the menu is about to open
+	selMenuWillOpen    = "menuWillOpen:"
+	selMenuDidClose    = "menuDidClose:"
+
+	// commonModes is the value of NSRunLoopCommonModes: a snapshot handed over
+	// while the menu is open (the run loop is in the tracking mode) must still
+	// reach the main thread.
+	commonModes = "kCFRunLoopCommonModes"
 )
 
 type nsSize struct{ W, H float64 }
@@ -79,6 +89,7 @@ type macUI struct {
 	app, item, button, target objc.ID
 	statusMenu                objc.ID
 	snap                      Snapshot // the newest applied; read on the main thread only
+	open                      bool     // the status menu is showing; main thread only
 	images                    map[State]objc.ID
 
 	mu      sync.Mutex
@@ -163,10 +174,22 @@ func (u *macUI) registerTarget() error {
 		}})
 	}
 	methods = append(methods,
-		objc.MethodDef{Cmd: s("menuNeedsUpdate:"), Fn: func(_ objc.ID, _ objc.SEL, menu objc.ID) {
+		objc.MethodDef{Cmd: s(selMenuNeedsUpdate), Fn: func(_ objc.ID, _ objc.SEL, menu objc.ID) {
 			if menu == u.statusMenu {
-				menu.Send(s("removeAllItems"))
-				u.fill(menu, MenuItems(u.menu, u.snap))
+				// The rows are read once more for the next opening; a result
+				// that lands while the menu shows is applied by apply.
+				u.onAction(ActionMenuOpened)
+				u.refill()
+			}
+		}},
+		objc.MethodDef{Cmd: s(selMenuWillOpen), Fn: func(_ objc.ID, _ objc.SEL, menu objc.ID) {
+			if menu == u.statusMenu {
+				u.open = true
+			}
+		}},
+		objc.MethodDef{Cmd: s(selMenuDidClose), Fn: func(_ objc.ID, _ objc.SEL, menu objc.ID) {
+			if menu == u.statusMenu {
+				u.open = false
 			}
 		}},
 		objc.MethodDef{Cmd: s(selOpenKB), Fn: func(_ objc.ID, _ objc.SEL, sender objc.ID) {
@@ -199,7 +222,8 @@ func (u *macUI) feed(updates <-chan Snapshot) {
 func (u *macUI) onMain(sel string) {
 	// Off the main thread: no run loop pool is active here, so bring our own.
 	pool(func() {
-		u.target.Send(s("performSelectorOnMainThread:withObject:waitUntilDone:"), s(sel), objc.ID(0), false)
+		modes := class("NSArray").Send(s("arrayWithObject:"), nsString(commonModes))
+		u.target.Send(s("performSelectorOnMainThread:withObject:waitUntilDone:modes:"), s(sel), objc.ID(0), false, modes)
 	})
 }
 
@@ -227,7 +251,17 @@ func (u *macUI) apply(sn Snapshot) {
 	u.button.Send(s("setImage:"), u.images[sn.State])
 	u.button.Send(s("setToolTip:"), nsString(StatusLine(sn)))
 
+	prev := u.snap
 	u.snap = sn // the menu is filled from it when it opens (menuNeedsUpdate:)
+	if refillOpenMenu(u.open, prev, sn) {
+		u.refill() // a result that lands while the menu shows is seen at once
+	}
+}
+
+// refill replaces the rows of the status menu with those of the newest snapshot.
+func (u *macUI) refill() {
+	u.statusMenu.Send(s("removeAllItems"))
+	u.fill(u.statusMenu, MenuItems(u.menu, u.snap))
 }
 
 // newMenu returns an empty NSMenu (retained: the owner releases it).
