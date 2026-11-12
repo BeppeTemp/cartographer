@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 
-	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/hooks"
 )
 
@@ -35,17 +34,12 @@ func (s *Server) vetoWrite(ctx context.Context, reg *hooks.Registry, kbName, too
 	if len(list) == 0 {
 		return nil, nil
 	}
-	p := auth.PrincipalFromContext(ctx)
-	kind := string(p.Kind)
-	if kind == "" && p.ID != "" {
-		kind = string(auth.KindHuman)
-	}
 	var reason struct {
 		Reason string `json:"reason"`
 	}
 	_ = json.Unmarshal(args, &reason)
 	fields := map[string]any{
-		"principal": map[string]any{"id": p.ID, "kind": kind, "via": p.Via, "groups": p.Groups},
+		"principal": hookPrincipal(ctx),
 		"tool":      tool,
 		"class":     "write",
 		"target":    resources,

@@ -741,3 +741,18 @@ func TestLint_ArtifactUnprefixed(t *testing.T) {
 		}
 	})
 }
+
+// A reference a resolver hook serves (NAME=hook:<plugin>/<name>#<key>) names
+// no file of the KB: the check leaves it to the server that resolves it.
+func TestLint_HookSecretRefIsNotBroken(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.Root, "data/ops/vault.md", "---\ntype: Service\ntitle: V\nsecret_refs:\n  - API=hook:acme/vault#prod/api\n---\n# V\n")
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := findingsOf(findings, "secret_ref_broken"); len(got) != 0 {
+		t.Fatalf("want no secret_ref_broken, got %v", got)
+	}
+}

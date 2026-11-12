@@ -364,7 +364,7 @@ func TestSecretsPaths_RefuseNonCanonicalSpellings(t *testing.T) {
 	if _, ok := secretsSources("secrets/a.sops.yaml"); !ok {
 		t.Error("secretsSources refused a canonical path")
 	}
-	if _, err := parseSecretRefs([]string{"PW=" + bad + "#/pw"}); err == nil {
+	if _, _, err := parseSecretRefs([]string{"PW=" + bad + "#/pw"}, nil); err == nil {
 		t.Errorf("parseSecretRefs accepted %q", bad)
 	}
 	k := secretRefsKB(t)

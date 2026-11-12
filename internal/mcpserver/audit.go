@@ -297,7 +297,7 @@ func (c auditCall) end(s *Server, outcome string, result ToolResult) {
 	}
 	_, _ = log.AppendEvent(audit.Entry{
 		RequestID: c.requestID, PrincipalID: c.who.id, Transport: transport, KB: kbName,
-		Tool: c.tool, ReadOnly: c.readOnly, Resources: c.resources,
+		Tool: c.tool, ReadOnly: c.readOnly, Resources: withAuditResources(c.resources, result.AuditResources),
 		Phase: audit.PhaseCompletion, Outcome: outcome,
 		DurationMs: time.Since(c.start).Milliseconds(), CommitSHA: result.CommitSHA,
 		ResultBytes: resultBytes(result), PrincipalKind: c.who.kind, Via: c.who.via,

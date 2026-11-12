@@ -139,7 +139,7 @@ oversized body, a response `version` other than the request's) is applied per th
 | `fail_closed` | the request is denied | logged only |
 | `fail_open` | the request continues, the failure is logged | logged only |
 
-A `secret_resolver` must be `fail_closed`. After 5 consecutive failures a hook's circuit opens for 30 s and the policy
+A `secret_resolver` must be `fail_closed`, and `mode: dry_run` is refused for it (it supplies a value or nothing); see [skills-services-secrets](skills-services-secrets.md) §Secrets held by a resolver hook. After 5 consecutive failures a hook's circuit opens for 30 s and the policy
 applies without calling it; then one probe call decides whether it closes. A redirect is never followed and a response body
 is read up to 64 KiB. Failures and circuit transitions are logged with the hook name, never a body, URL query or credential.
 **The write veto (`point: write_veto`).** For a tool that writes, after the core has authorized the call (an admin
