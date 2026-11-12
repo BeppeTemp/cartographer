@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/hooks"
 	"github.com/BeppeTemp/cartographer/internal/plugin/core"
@@ -13,6 +14,9 @@ import (
 // once at start. Empty when the config has no hooks: the points that consult it
 // are then no-ops and the server behaves as without hooks.
 var serverHooks *hooks.Registry
+
+// serverIdentityHook is the identity point built from serverHooks (nil: none).
+var serverIdentityHook auth.IdentityHook
 
 // buildServerHooks builds the registry or refuses the start, naming the hook.
 // A hook is active only when the operator's entry AND an approved plugin exist:
@@ -31,6 +35,18 @@ func buildServerHooks(cfg *config.Config, plugins []*core.Plugin) (*hooks.Regist
 	loaded := map[string]bool{}
 	for _, p := range plugins {
 		loaded[p.Manifest.Name] = true
+	}
+	n := 0
+	for _, h := range cfg.Hooks {
+		if h.Point == hooks.PointIdentity {
+			n++
+		}
+	}
+	if n > 1 {
+		return nil, fmt.Errorf("config: hooks: %d identity hooks: at most one serves the point", n)
+	}
+	if n == 1 && cfg.Auth.ProxyIdentity == nil {
+		return nil, fmt.Errorf("config: hooks: an identity hook needs auth.proxy_identity (it names the user behind a trusted proxy)")
 	}
 	return hooks.NewRegistry(cfg.Hooks, hooks.Options{
 		CredentialsDir: dir,

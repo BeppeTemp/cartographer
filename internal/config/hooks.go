@@ -25,6 +25,7 @@ type rawHook struct {
 	BatchSize     *int     `yaml:"batch_size"`
 	Blocking      *bool    `yaml:"blocking"`
 	CacheTTL      string   `yaml:"cache_ttl"`
+	Headers       []string `yaml:"headers"`
 }
 
 // checkHookKeys refuses an unknown key under a hooks: entry: a misspelled
@@ -81,7 +82,7 @@ func hookSpecs(raw []rawHook) ([]hooks.Hook, error) {
 	var out []hooks.Hook
 	for i, r := range raw {
 		h := hooks.Hook{Name: r.Name, Point: r.Point, Plugin: r.Plugin, URL: r.URL, Credential: r.Credential,
-			FailurePolicy: r.FailurePolicy, Mode: r.Mode, KBs: r.KBs}
+			FailurePolicy: r.FailurePolicy, Mode: r.Mode, KBs: r.KBs, Headers: r.Headers}
 		var err error
 		if h.Timeout, err = duration("timeout", r.Timeout); err != nil {
 			return nil, fmt.Errorf("hooks[%d] (%s): %w", i, r.Name, err)

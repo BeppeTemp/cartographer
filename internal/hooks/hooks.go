@@ -53,10 +53,13 @@ const (
 	MaxCacheTTL = 600 * time.Second
 	// MaxReasonLen bounds a deny reason, in printable characters.
 	MaxReasonLen = 200
+	// maxIdentityHeaders bounds the headers an identity hook is handed.
+	maxIdentityHeaders = 8
 )
 
 var (
 	nameRe       = regexp.MustCompile(`^([a-z][a-z0-9-]*)/([a-z0-9][a-z0-9-]*)$`)
+	headerNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]*$`)
 	credentialRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 )
 
@@ -75,6 +78,7 @@ type Hook struct {
 	BatchSize int           // audit_sink
 	Blocking  bool          // audit_sink
 	CacheTTL  time.Duration // secret_resolver and identity
+	Headers   []string      // identity: request headers handed to the hook
 }
 
 // AppliesTo reports whether a veto hook covers the KB.
@@ -143,6 +147,19 @@ func (h *Hook) Normalize() error {
 	}
 	if h.CacheTTL != 0 && h.Point != PointSecretResolver && h.Point != PointIdentity {
 		return fail("cache_ttl applies to secret_resolver and identity only")
+	}
+	if len(h.Headers) > 0 && h.Point != PointIdentity {
+		return fail("headers applies to identity only")
+	}
+	if len(h.Headers) > maxIdentityHeaders {
+		return fail("headers: at most %d", maxIdentityHeaders)
+	}
+	for _, name := range h.Headers {
+		// The caller's bearer must never reach a plugin; the others are the
+		// operator's explicit choice (a session cookie, a forwarded token).
+		if !headerNameRe.MatchString(name) || strings.EqualFold(name, "Authorization") || strings.EqualFold(name, "Proxy-Authorization") {
+			return fail("headers: %q is not an allowed header name", name)
+		}
 	}
 	if h.CacheTTL == 0 && (h.Point == PointSecretResolver || h.Point == PointIdentity) {
 		h.CacheTTL = DefaultCacheTTL

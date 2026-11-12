@@ -147,6 +147,7 @@ func cmdServe(args []string) int {
 		log.Fatal(err)
 	}
 	logServerHooks(serverHooks)
+	serverIdentityHook = identityHookFrom(serverHooks)
 
 	configPath := envFallback(*configFlag, "CARTOGRAPHER_CONFIG")
 	runServe(cfg, &authReload{
@@ -955,6 +956,7 @@ func proxyConfigFrom(spec *config.ProxyIdentitySpec, roles []config.RoleSpec) *a
 		GroupsHeader:    spec.GroupsHeader,
 		GroupsSeparator: spec.GroupsSeparator,
 		GroupPolicies:   make(map[string]auth.Policy, len(spec.GroupRoles)),
+		Hook:            serverIdentityHook,
 	}
 	for g, names := range spec.GroupRoles {
 		pc.GroupPolicies[g] = auth.Policy{Permissions: rolePermissions(byName, names)}
