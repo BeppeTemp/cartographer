@@ -110,6 +110,11 @@ type InstallOptions struct {
 	// silently ignored (config already present).
 	DataExplicit bool
 	HTTPExplicit bool
+	// KeepEnv keeps the proxy variables the service already records (the env
+	// file) instead of taking them from this process's environment: a binary
+	// switch or a repair must not drop or change them, only an explicit
+	// `service install` does (#1966).
+	KeepEnv bool
 }
 
 // resolvedConfigPath returns opts.ConfigPath if set, else the standard path.
@@ -159,9 +164,14 @@ func (m *Manager) Install(opts InstallOptions) ([]string, error) {
 		return warnings, err
 	}
 
+	env, err := recordEnv(configPath, opts.KeepEnv)
+	if err != nil {
+		return warnings, err
+	}
+
 	switch goos {
 	case "darwin":
-		if err := m.installDarwin(binPath, configPath); err != nil {
+		if err := m.installDarwin(binPath, configPath, env...); err != nil {
 			return warnings, err
 		}
 	case "linux":
@@ -172,11 +182,11 @@ func (m *Manager) Install(opts InstallOptions) ([]string, error) {
 		if err := m.removeCronLeftover(); err != nil {
 			return warnings, err
 		}
-		if err := m.installLinux(binPath, configPath); err != nil {
+		if err := m.installLinux(binPath, configPath, env...); err != nil {
 			return warnings, err
 		}
 	case "windows":
-		if err := m.installWindows(binPath, configPath); err != nil {
+		if err := m.installWindows(binPath, configPath, env...); err != nil {
 			return warnings, err
 		}
 	default:
@@ -227,7 +237,7 @@ func (m *Manager) prepareConfig(opts InstallOptions) (warnings []string, configP
 	return warnings, configPath, dataDir, nil
 }
 
-func (m *Manager) installDarwin(binPath, configPath string) error {
+func (m *Manager) installDarwin(binPath, configPath string, env ...EnvVar) error {
 	logPath, err := LaunchdLogPath()
 	if err != nil {
 		return fmt.Errorf("service: resolve log path: %w", err)
@@ -242,8 +252,8 @@ func (m *Manager) installDarwin(binPath, configPath string) error {
 	if err := mkdirSafe(filepath.Dir(plistPath)); err != nil {
 		return fmt.Errorf("service: create LaunchAgents dir: %w", err)
 	}
-	plist := RenderLaunchdPlist(binPath, configPath, logPath)
-	if err := writeSafe(plistPath, []byte(plist)); err != nil {
+	plist := RenderLaunchdPlist(binPath, configPath, logPath, env...)
+	if err := writePrivateDefinition(plistPath, []byte(plist), len(env) > 0); err != nil {
 		return fmt.Errorf("service: write plist: %w", err)
 	}
 
@@ -291,7 +301,7 @@ func (m *Manager) bootoutAndWait(label, plistPath string) error {
 	}
 }
 
-func (m *Manager) installLinux(binPath, configPath string) error {
+func (m *Manager) installLinux(binPath, configPath string, env ...EnvVar) error {
 	unitPath, err := SystemdUnitPath()
 	if err != nil {
 		return fmt.Errorf("service: resolve unit path: %w", err)
@@ -299,8 +309,8 @@ func (m *Manager) installLinux(binPath, configPath string) error {
 	if err := mkdirSafe(filepath.Dir(unitPath)); err != nil {
 		return fmt.Errorf("service: create systemd user dir: %w", err)
 	}
-	unit := RenderSystemdUnit(binPath, configPath)
-	if err := writeSafe(unitPath, []byte(unit)); err != nil {
+	unit := RenderSystemdUnit(binPath, configPath, env...)
+	if err := writePrivateDefinition(unitPath, []byte(unit), len(env) > 0); err != nil {
 		return fmt.Errorf("service: write unit: %w", err)
 	}
 
@@ -335,7 +345,17 @@ func (m *Manager) Uninstall(keepTray bool) error {
 	if !keepTray {
 		trayErr = m.UninstallTray()
 	}
+	// The env file goes with the definition that names it.
+	var envErr error
+	if cfg, cerr := m.EffectiveConfigPath(""); cerr == nil {
+		if rerr := removeSafe(EnvFilePath(cfg)); rerr != nil && !os.IsNotExist(rerr) {
+			envErr = fmt.Errorf("service: removed, but its env file could not be: %w", rerr)
+		}
+	}
 	err := m.uninstallServer()
+	if err == nil && envErr != nil {
+		return envErr
+	}
 	if err == nil && trayErr != nil {
 		return fmt.Errorf("service: removed, but the tray could not be: %w", trayErr)
 	}
@@ -792,12 +812,13 @@ func extractTaskBinary(data []byte) (string, error) {
 
 // SwitchBinary rewrites the installed service definition to run this
 // executable and reloads the job, keeping the config the definition names. It
-// is Install on that config, so the whole definition is re-rendered (hand edits
+// is Install on that config with the recorded proxy variables kept (KeepEnv),
+// so the whole definition is re-rendered (hand edits
 // to it are replaced, directories and PATH are recreated as install does); a
 // running unit is restarted by Install itself, so the new program is the one
 // serving.
 func (m *Manager) SwitchBinary(configPath string) error {
-	_, err := m.Install(InstallOptions{ConfigPath: configPath})
+	_, err := m.Install(InstallOptions{ConfigPath: configPath, KeepEnv: true})
 	return err
 }
 
@@ -1147,6 +1168,9 @@ type Status struct {
 	// (plist ProgramArguments[0], unit ExecStart, task Command); "" when
 	// nothing is installed or the definition cannot be read.
 	ServiceBinPath string
+	// ServiceEnv names (never the values) the proxy variables recorded in the
+	// service's env file (#1966); empty when none.
+	ServiceEnv []string
 	// ServiceBinWarning is why ServiceBinPath is empty for an installed
 	// service (definition unreadable or malformed); "" otherwise.
 	ServiceBinWarning string
@@ -1244,6 +1268,7 @@ func (m *Manager) Status(configPath string) (Status, error) {
 	}
 
 	if st.Installed {
+		st.ServiceEnv = EnvFileNames(st.ConfigPath)
 		var binErr error
 		if st.ServiceBinPath, binErr = m.DefinitionBinary(); binErr != nil {
 			st.ServiceBinWarning = binErr.Error()

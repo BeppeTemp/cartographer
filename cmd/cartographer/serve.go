@@ -94,6 +94,7 @@ func cmdServe(args []string) int {
 	updateCheckFlag := fs.Bool("update-check", true, "Look up the latest release once a day and report it in /health and kb_status when newer, and let the Atlas read the release history on demand; off, neither call is made (or CARTOGRAPHER_UPDATE_CHECK)")
 	logFileFlag := fs.String("log-file", "", "Append the server log to this file instead of stderr (created if absent; never rotated)")
 	supervisedFlag := fs.Bool("supervised", false, "Say that a service manager restarts this process when it exits non-zero (the Windows task passes it; or CARTOGRAPHER_SUPERVISED=1)")
+	envFileFlag := fs.String("env-file", "", "File of NAME=value lines holding the proxy and CA variables the service records (HTTPS_PROXY, HTTP_PROXY, NO_PROXY, SSL_CERT_FILE and lowercase forms); any other line is ignored")
 	fs.Parse(dropRemovedFlags(args))
 	if *supervisedFlag {
 		os.Setenv(supervisedEnv, "1")
@@ -110,6 +111,10 @@ func cmdServe(args []string) int {
 		// The service shape: close the console window a Scheduled Task
 		// opens, which would otherwise stop the server when closed (D1479).
 		detachOwnConsole()
+	}
+
+	if *envFileFlag != "" {
+		applyEnvFile(*envFileFlag)
 	}
 
 	overrides := config.FlagOverrides{
@@ -1274,4 +1279,27 @@ func displayAddr(addr string) string {
 		return "localhost" + strings.TrimPrefix(addr, "0.0.0.0")
 	}
 	return addr
+}
+
+// applyEnvFile sets the proxy and CA variables recorded by `service install`
+// (#1966) before anything reads the environment. Only the listed names are
+// honoured; an ignored line is logged by its key alone, never its value, which
+// may be a credential. An unreadable file is logged and the server starts
+// without it: a missing proxy fails visibly on its first call, a refused start
+// would hide the cause.
+func applyEnvFile(path string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		log.Printf("env file %s: %v", path, err)
+		return
+	}
+	env, ignored := service.ParseEnvFile(data)
+	for _, e := range env {
+		if err := os.Setenv(e.Name, e.Value); err != nil {
+			log.Printf("env file %s: cannot set %s", path, e.Name)
+		}
+	}
+	for _, k := range ignored {
+		log.Printf("env file %s: ignored %s", path, k)
+	}
 }

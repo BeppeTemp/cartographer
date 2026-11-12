@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
@@ -441,6 +442,9 @@ func printServiceStatus(w io.Writer, st service.Status, serverURL string) {
 	if st.Installed {
 		fmt.Fprintf(w, "loaded:    %v (registered and not stopped; not a liveness check)\n", st.Running)
 		fmt.Fprintln(w, serviceHealthLine(st))
+		if len(st.ServiceEnv) > 0 {
+			fmt.Fprintf(w, "env:       %s (copied from the shell at install; values not shown)\n", strings.Join(st.ServiceEnv, ", "))
+		}
 		if st.UIURL != "" {
 			fmt.Fprintf(w, "ui:        %s\n", st.UIURL)
 		}

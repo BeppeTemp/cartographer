@@ -378,7 +378,7 @@ func windowsTaskUserLabel() string {
 
 // installWindows writes the task definition and registers it, mirroring
 // installDarwin/installLinux.
-func (m *Manager) installWindows(binPath, configPath string) error {
+func (m *Manager) installWindows(binPath, configPath string, env ...EnvVar) error {
 	logPath, err := WindowsLogPath()
 	if err != nil {
 		return fmt.Errorf("service: resolve log path: %w", err)
@@ -397,7 +397,7 @@ func (m *Manager) installWindows(binPath, configPath string) error {
 	// Administrators) leaves the running server untouched, instead of stopped
 	// with nothing to start it again, and the installed definition as it was
 	// (#1961).
-	if err := m.registerAndReplace(windowsServeTaskName, taskPath, []byte(RenderWindowsTaskXML(binPath, configPath, logPath, windowsTaskUser(), windowsTaskSID())), writeDefinition); err != nil {
+	if err := m.registerAndReplace(windowsServeTaskName, taskPath, []byte(RenderWindowsTaskXML(binPath, configPath, logPath, windowsTaskUser(), windowsTaskSID(), envFileArg(configPath, env)...)), writeDefinition); err != nil {
 		return err
 	}
 	m.stopServeForReinstall(configHTTPAddr(configPath))
