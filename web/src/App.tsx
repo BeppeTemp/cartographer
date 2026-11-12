@@ -7,6 +7,7 @@ import {
   fetchChecks,
   fetchConcept,
   fetchGraph,
+  fetchGraphClusters,
   fetchKBs,
   fetchArtifacts,
   fetchLint,
@@ -17,9 +18,11 @@ import {
   setToken,
 } from "./api/client";
 import { filterReportByMap } from "./lib/health";
+import { clusterSnapshot, clustersAvailable, DEFAULT_CLUSTER_THRESHOLD, unfoldKey } from "./lib/clusters";
 import type {
   ArtifactList,
   CheckCatalog,
+  ClusterGraph,
   Concept,
   GitConflict,
   GraphSnapshot,
@@ -107,6 +110,12 @@ export function App() {
 
   const [overview, setOverview] = useState<Overview | null>(null);
   const [snapshot, setSnapshot] = useState<GraphSnapshot | null>(null);
+  // The clusters and the edges that reach one, when the graph on screen came
+  // from the clustered route; `snapshot` holds only its drawn concepts.
+  const [clusterGraph, setClusterGraph] = useState<ClusterGraph | null>(null);
+  // Each KB's visible concept count, from its overview: what decides whether
+  // its graph is clustered.
+  const [kbTotals, setKBTotals] = useState<Record<string, number>>({});
   // The KB and Map the snapshot on screen was fetched for: the graph keeps its
   // layout while this holds and starts a fresh one when it changes.
   const [snapshotKey, setSnapshotKey] = useState("");
@@ -305,7 +314,7 @@ export function App() {
   useEffect(() => {
     if (kbs.length === 0) return;
     if (view.kb && kbs.some((kb) => kb.name === view.kb)) return;
-    const next = { ...view, kb: kbs[0]!.name, scope: null, concept: null, hmap: null };
+    const next = { ...view, kb: kbs[0]!.name, scope: null, concept: null, hmap: null, unfold: [] };
     setView(next);
     replaceView(next);
   }, [kbs, view]);
@@ -320,6 +329,8 @@ export function App() {
   const navigate = useCallback((next: Partial<ViewState>) => {
     setView((current) => {
       const merged = { ...current, ...next };
+      // Cluster ids name one KB's communities: another KB starts folded.
+      if (merged.kb !== current.kb) merged.unfold = [];
       pushView(merged);
       return merged;
     });
@@ -370,7 +381,10 @@ export function App() {
   // shows it at once, and the request below brings it up to date in place,
   // like a live refresh.
   const viewCache = useRef(
-    new Map<string, { graph: GraphSnapshot; overview: Overview | null; artifacts: ArtifactList | null }>(),
+    new Map<
+      string,
+      { graph: GraphSnapshot; clusters: ClusterGraph | null; overview: Overview | null; artifacts: ArtifactList | null }
+    >(),
   );
   // Which KB the overview on screen belongs to.
   const overviewKB = useRef<string | null>(null);
@@ -382,15 +396,35 @@ export function App() {
   overviewNow.current = overview;
   const artifactsNow = useRef<ArtifactList | null>(null);
   artifactsNow.current = artifacts;
+  // Above the threshold the graph is clustered, unless the URL asks for the
+  // flat one (`graph=nodes`). A KB whose size is not known yet (its overview
+  // has not landed) is drawn flat until it is. The server answers the flat
+  // graph in the same envelope when the Map in scope is small.
+  const clusterThreshold = useRef(DEFAULT_CLUSTER_THRESHOLD);
+  const kbTotal = activeKB ? kbTotals[activeKB] : undefined;
+  const clustered =
+    view.graph !== "nodes" && clustersAvailable() && kbTotal !== undefined && kbTotal > clusterThreshold.current;
+  const unfoldSet = unfoldKey(view.unfold);
+  const unfoldNow = useRef(view.unfold);
+  unfoldNow.current = view.unfold;
+  // The selected concept rides every clustered request as `focus`, so a live
+  // refresh never folds it away.
+  const conceptNow = useRef(view.concept);
+  conceptNow.current = view.concept;
+  const [focusNonce, setFocusNonce] = useState(0);
   useEffect(() => {
     if (!activeKB || phase !== "ready") return;
     const controller = new AbortController();
+    // The layout follows the KB and Map; the cached view also the mode and
+    // the unfold set.
     const key = `${activeKB}\u0000${view.scope ?? ""}`;
+    const cacheKey = clustered ? `${key}\u0000clusters\u0000${unfoldSet}` : key;
     const sideKey = `${activeKB}\u0000${artifactsAllowed}\u0000${reloadKey}\u0000${live}`;
     const sideKnown = sideFetched.current === sideKey && overviewKB.current === activeKB;
-    const cached = viewCache.current.get(key);
+    const cached = viewCache.current.get(cacheKey);
     if (cached) {
       setSnapshot(cached.graph);
+      setClusterGraph(cached.clusters);
       setSnapshotKey(key);
       if (!sideKnown) {
         setOverview(cached.overview);
@@ -420,10 +454,11 @@ export function App() {
       if (!landedOverview || controller.signal.aborted) return;
       setOverview(landedOverview.ov);
       overviewKB.current = activeKB;
-      const entry = viewCache.current.get(key);
+      const entry = viewCache.current.get(cacheKey);
       if (entry) entry.overview = landedOverview.ov;
     };
     void overviewP.then((ov) => {
+      if (ov) setKBTotals((t) => (t[activeKB] === ov.concepts.total ? t : { ...t, [activeKB]: ov.concepts.total }));
       landedOverview = { ov };
       if (graphSettled || overviewKB.current === activeKB) showOverview();
     });
@@ -446,16 +481,39 @@ export function App() {
         setArtifactsError(arts.error);
       }
     };
-    Promise.all([fetchGraph(activeKB, view.scope, controller.signal), artifactsP])
-      .then(([graph, arts]) => {
-        const prev = viewCache.current.get(key);
-        viewCache.current.set(key, {
+    const graphP = clustered
+      ? fetchGraphClusters(
+          activeKB,
+          { scope: view.scope, unfold: unfoldNow.current, focus: conceptNow.current },
+          controller.signal,
+        ).then((g) => {
+          clusterThreshold.current = g.threshold;
+          return { graph: clusterSnapshot(g), clusters: g };
+        })
+      : fetchGraph(activeKB, view.scope, controller.signal).then((graph) => ({ graph, clusters: null }));
+    Promise.all([graphP, artifactsP])
+      .then(([{ graph, clusters }, arts]) => {
+        const prev = viewCache.current.get(cacheKey);
+        viewCache.current.set(cacheKey, {
           graph,
+          clusters,
           overview: landedOverview?.ov ?? prev?.overview ?? null,
           artifacts: arts?.data ?? null,
         });
         setSnapshot(graph);
+        setClusterGraph(clusters);
         setSnapshotKey(key);
+        // An unfold the server could not honour (its cluster is gone after a
+        // revision, or there is no room) leaves the set: it is folded.
+        const dropped = new Set(clusters?.dropped_unfolds ?? []);
+        if (dropped.size > 0) {
+          setView((current) => {
+            if (current.kb !== activeKB || !current.unfold.some((id) => dropped.has(id))) return current;
+            const next = { ...current, unfold: current.unfold.filter((id) => !dropped.has(id)) };
+            replaceView(next);
+            return next;
+          });
+        }
         setGraphError(null);
         applyArtifacts(arts);
         // Only a clean read of both is remembered: a failed overview or
@@ -480,7 +538,27 @@ export function App() {
         showOverview();
       });
     return () => controller.abort();
-  }, [activeKB, view.scope, artifactsAllowed, phase, handleFailure, reloadKey, live]);
+  }, [activeKB, view.scope, artifactsAllowed, phase, handleFailure, reloadKey, live, clustered, unfoldSet, focusNonce]);
+  // A concept the clustered graph does not draw (it sits in a folded cluster),
+  // whether picked in the palette, the inspector or a link, is asked for once
+  // with `focus`: the server unfolds its cluster. An id it cannot see is
+  // ignored there, and not asked again here.
+  const focusAsked = useRef<string | null>(null);
+  const undrawn =
+    clusterGraph?.mode === "clusters" && view.concept && snapshot && !snapshot.nodes.some((n) => n.id === view.concept)
+      ? view.concept
+      : null;
+  useEffect(() => {
+    // Once the concept is drawn (or deselected), a later fold may hide it again
+    // and must be able to ask once more.
+    if (!undrawn) {
+      focusAsked.current = null;
+      return;
+    }
+    if (undrawn === focusAsked.current) return;
+    focusAsked.current = undrawn;
+    setFocusNonce((n) => n + 1);
+  }, [undrawn]);
   // A KB switch in flight: what is on screen still belongs to the previous KB.
   const switching = graphLoading && snapshotKey !== "" && !snapshotKey.startsWith(`${activeKB}\u0000`);
 

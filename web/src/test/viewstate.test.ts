@@ -46,3 +46,19 @@ describe("the Components panel", () => {
     expect(viewStateToSearch(readViewState("?kb=kb-a&panel=components"))).toBe("?kb=kb-a&panel=components");
   });
 });
+
+describe("the cluster view's state", () => {
+  it("round-trips the graph mode and the unfold set, in unfold order", () => {
+    const view = readViewState("?kb=kb-a&graph=nodes&unfold=c%3Ainfra%2Fb%2Cc%3A~tail");
+    expect(view.graph).toBe("nodes");
+    expect(view.unfold).toEqual(["c:infra/b", "c:~tail"]);
+    expect(readViewState(viewStateToSearch(view))).toEqual(view);
+  });
+
+  it("leaves both out by default, and drops what is not a cluster id", () => {
+    const view = readViewState("?kb=kb-a&graph=flat&unfold=infra%2Fa,,c:x,c:x");
+    expect(view.graph).toBeNull();
+    expect(view.unfold).toEqual(["c:x"]);
+    expect(viewStateToSearch({ ...view, unfold: [] })).toBe("?kb=kb-a");
+  });
+});

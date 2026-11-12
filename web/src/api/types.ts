@@ -186,6 +186,53 @@ export interface GraphSnapshot {
   communities?: SnapshotCommunity[];
 }
 
+/** One folded community of the visible graph (`graph/clusters`). */
+export interface GraphCluster {
+  /** `c:` plus the top-PageRank member; `c:~tail` for the tail. Never a concept id. */
+  id: string;
+  label: string;
+  /** The dominant Map of its in-scope members. */
+  collection?: string;
+  size: number;
+  slot: number;
+  internal_edges: number;
+  /** The tail only: how many communities it holds. */
+  communities?: number;
+}
+
+/** An undirected edge between two elements, each a concept id or a cluster id. */
+export interface ClusterEdge {
+  source: string;
+  target: string;
+  /** How many links it stands for. */
+  weight: number;
+}
+
+/** An unfolded cluster: `shown` of its `total` members are drawn. */
+export interface ClusterUnfold {
+  id: string;
+  label: string;
+  shown: number;
+  total: number;
+}
+
+/** The link graph projected onto its communities (`GET .../graph/clusters`). */
+export interface ClusterGraph {
+  /** `nodes` at or below `threshold` visible concepts in scope: `nodes` and `edges` are the flat graph. */
+  mode: "nodes" | "clusters";
+  threshold: number;
+  clusters: GraphCluster[];
+  nodes: GraphNode[];
+  edges: ClusterEdge[];
+  unfolded: ClusterUnfold[];
+  /** Requested unfolds the server could not honour: unknown ids, or no room. */
+  dropped_unfolds: string[];
+  communities: SnapshotCommunity[];
+  total_nodes: number;
+  total_edges: number;
+  truncated?: boolean;
+}
+
 export interface OutlineEntry {
   level: number;
   title: string;

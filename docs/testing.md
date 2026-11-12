@@ -708,6 +708,12 @@ toolchain (D227). What they hold:
 - the palette and archived pages (D820, `src/test/palette-archived.test.tsx`): the
   "Include archived" toggle sending `include_archived=1`, badging archived hits and
   saying so when the server fell back to them, and starting each opening unpressed;
+- the clustered graph's data layer (D1986,
+  `src/test/clusterstate.test.tsx`, `src/test/viewstate.test.ts`): the flat route
+  below the threshold and with `graph=nodes`, the clusters route above it with the
+  Map sent, the unfold set surviving a live refresh and losing what the server
+  dropped, another KB starting folded, and the selected concept sent as `focus`,
+  asked once when it is not drawn;
 - retirements on Activity's timeline (D1146, `src/test/activity.test.tsx`): a retired
   concept's row with its status pill and "Replaced by …", the "retired" stat, the
   empty window's quiet notice with the earlier changes under it, and

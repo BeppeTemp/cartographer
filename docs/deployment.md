@@ -1489,7 +1489,15 @@ the controls, the camera eases slowly onto the fit, so hours of drift never carr
 the network off screen. The view draws only when something moves or changes, at most about 60
 times a second whatever the display's refresh, so an untouched graph at rest
 costs no drawing at all. There is no 2D view: when
-the WebGL context is lost the graph area says so. The view draws up to the graph API's ceiling of concepts. A browser without WebGL
+the WebGL context is lost the graph area says so. The view draws up to the graph API's ceiling of concepts.
+On a KB whose overview counts more visible concepts than the threshold of the
+clusters route (2,000), the Atlas reads `/api/ui/v1/kbs/<kb>/graph/clusters`
+instead of `/graph`, unless the URL says `graph=nodes`; until that overview has
+landed, the KB is read flat. The unfolded cluster ids live in the URL
+(`unfold=`, emptied on a KB switch); an id the server reports in
+`dropped_unfolds` leaves it, and the selected concept rides every request as
+`focus`, so a live refresh keeps it drawn and opening one that sits in a folded
+cluster asks for it once. A static snapshot always reads the flat graph. A browser without WebGL
 gets the concept list, search and inspector, with a note where the graph would
 be. The UI follows the system's light or dark scheme until the viewer picks one
 (D233). The reading panel is resizable: drag its left edge, or focus the edge
