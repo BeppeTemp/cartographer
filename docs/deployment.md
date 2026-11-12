@@ -620,7 +620,7 @@ docker run -i --rm \
 
 The folder must be writable by the image's user: a folder created by the host user needs `--user "$(id -u):$(id -g)"` on the `docker run`, and a fresh named volume is root-owned and needs one `chown` run before the first start (the same step as §Example: single VM).
 
-The MCP Registry entry (`server.json`) declares the image on stdio **with no arguments**: the image's entrypoint is `cartographer`, and with no arguments and no terminal it prints the usage and exits. A client that launches the entry as published gets no MCP server; the explicit `docker run -i` form above works. The entry is tracked by [#1438](https://github.com/BeppeTemp/cartographer/issues/1438).
+The MCP Registry entry (`server.json`) declares the image on stdio with the same form: the bind mount of a KB folder the client asks for (`kb_path`) and the arguments `serve --kb /kb`, because the image's entrypoint is `cartographer` and with no arguments and no terminal it prints the usage and exits (#1438, pinned by `TestServerJSONLaunchesAServer`). The release workflow stamps the version and the image tag. The entry also carries the icon a registry or a marketplace that mirrors it shows next to the name: `docs/brand/coordinate-pine-256.png`, served from `main` (`TestServerJSONIconIsARepositoryFile` fails when the file moves).
 
 #### Example: single VM
 
