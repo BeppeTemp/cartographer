@@ -45,6 +45,9 @@ func cmdService(args []string) int {
 		return 0
 	}
 	target, rest := splitPositional(args, "")
+	if code, done := maybeDelegateToWsl(target, rest); done {
+		return code
+	}
 
 	switch target {
 	case "install":
@@ -75,6 +78,7 @@ func cmdService(args []string) int {
 func printServiceUsage(w io.Writer) {
 	fmt.Fprintln(w, "Usage: cartographer service <install|uninstall|start|stop|restart|status> [flags]")
 	fmt.Fprintln(w, "       cartographer service install --config-only   (no service manager: write the config and data dir only)")
+	fmt.Fprintln(w, "       cartographer service install --wsl [<distro>]   (Windows: the server runs in WSL; the server verbs then act on it)")
 	fmt.Fprintln(w, "       cartographer service sync-timer <install|uninstall|status> [--interval <duration>]")
 	fmt.Fprintln(w, "       cartographer service tray <install|uninstall|status>")
 	fmt.Fprintln(w, "       cartographer service ensure --config <file> [--log-file <file>]   (used by the cron entries)")
