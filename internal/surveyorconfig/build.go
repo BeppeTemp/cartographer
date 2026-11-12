@@ -11,12 +11,15 @@ import (
 // Report is the body a surveyor posts to /api/component/v1/settings (D1259): typed
 // scalar entries and the perimeter's KBs, never a YAML file. The server
 // rebuilds every description from the key table and runs Scrub on receipt.
+// Sources are the recipes and connectors with the outcome of their last check
+// (ScrubSources runs on receipt); Build leaves them empty, the caller fills them.
 type Report struct {
 	Perimeter string   `json:"perimeter"`
 	Surveyor  string   `json:"surveyor"`
 	Version   string   `json:"version"`
 	KBs       []string `json:"kbs"`
 	Entries   []Entry  `json:"entries"`
+	Sources   []Source `json:"sources"`
 }
 
 // Build is the surveyor half of the report, made from the bytes of the config it
@@ -67,7 +70,7 @@ func Build(config []byte, perimeter, surveyor, version string, kbs []string, get
 		}
 		entries = append(entries, e)
 	}
-	return &Report{Perimeter: perimeter, Surveyor: surveyor, Version: version, KBs: kbs, Entries: Scrub(entries)}, nil
+	return &Report{Perimeter: perimeter, Surveyor: surveyor, Version: version, KBs: kbs, Entries: Scrub(entries), Sources: []Source{}}, nil
 }
 
 // envValue shows the name of a variable and whether it is set, never its value.

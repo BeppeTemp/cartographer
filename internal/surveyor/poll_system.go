@@ -167,7 +167,8 @@ func (r *pollRun) runSystem(ctx context.Context, rec recipe.Recipe, planID strin
 		return r.fail(codeRecipeShape, fmt.Sprintf("recipe %q does not list a system", f.Recipe))
 	}
 	store := &system.Store{Call: r.systemCall, Source: f.ID}
-	obs, pf, _, err := observeSystem(ctx, sr, systemRequest(f), store, f.Cursor)
+	obs, pf, refused, err := observeSystem(ctx, sr, systemRequest(f), store, f.Cursor)
+	in.checks.recordSystem(f.Recipe, pf, refused, err, in.now())
 	if err != nil {
 		return err
 	}

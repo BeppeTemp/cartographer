@@ -27,6 +27,7 @@ type surveyorSettings struct {
 	Version    string
 	KBs        []string
 	Entries    []surveyorconfig.Entry
+	Sources    []surveyorconfig.Source
 	ReceivedAt time.Time
 }
 
@@ -105,12 +106,15 @@ func (s *surveyorStore) hasSettings(principal, perimeter string) bool {
 
 // surveyorSettingsRow is what the Atlas reads of one perimeter.
 type surveyorSettingsRow struct {
-	Perimeter  string                 `json:"perimeter"`
-	Version    string                 `json:"version,omitempty"`
-	Replicas   int                    `json:"replicas"`
-	KBs        []string               `json:"kbs"`
-	Entries    []surveyorconfig.Entry `json:"entries"`
-	ReceivedAt time.Time              `json:"received_at"`
+	Perimeter string                 `json:"perimeter"`
+	Version   string                 `json:"version,omitempty"`
+	Replicas  int                    `json:"replicas"`
+	KBs       []string               `json:"kbs"`
+	Entries   []surveyorconfig.Entry `json:"entries"`
+	// Sources are the recipes and connectors of the perimeter with the outcome of
+	// their last check, replaced whole by each report; [] when none was reported.
+	Sources    []surveyorconfig.Source `json:"sources"`
+	ReceivedAt time.Time               `json:"received_at"`
 }
 
 // settingsRows returns the reports a live declaration backs, with replica counts and KBs.
@@ -121,7 +125,7 @@ func (s *surveyorStore) settingsRows() []surveyorSettingsRow {
 	rows := []surveyorSettingsRow{}
 	for p, m := range s.settings {
 		for per, r := range m {
-			row := surveyorSettingsRow{Perimeter: per, Version: r.Version, Entries: r.Entries, ReceivedAt: r.ReceivedAt}
+			row := surveyorSettingsRow{Perimeter: per, Version: r.Version, Entries: r.Entries, Sources: r.Sources, ReceivedAt: r.ReceivedAt}
 			seen := map[string]bool{}
 			for _, k := range r.KBs {
 				seen[k] = true
@@ -190,6 +194,9 @@ func (m *MultiKBServer) handleSurveyorSettings(w http.ResponseWriter, r *http.Re
 		Version   string                 `json:"version"`
 		KBs       []string               `json:"kbs"`
 		Entries   []surveyorconfig.Entry `json:"entries"`
+		// Sources are decoded element by element: one malformed element is dropped,
+		// it does not refuse the report.
+		Sources []json.RawMessage `json:"sources"`
 	}
 	bad := func(msg, field string) {
 		writeUIError(w, http.StatusBadRequest, uiCodeInvalidRequest, msg, field)
@@ -210,11 +217,14 @@ func (m *MultiKBServer) handleSurveyorSettings(w http.ResponseWriter, r *http.Re
 		bad("kbs must list 1-32 names", "kbs")
 		return
 	}
+	srcs := decodeSources(rep.Sources)
 	// A report carrying the caller's own token is refused, not masked.
 	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
 		tok := strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
 		// The raw body, and the decoded strings too: a JSON escape hides the token from the raw bytes.
 		decoded, _ := json.Marshal(rep.Entries)
+		more, _ := json.Marshal(srcs)
+		decoded = append(decoded, more...)
 		if tok != "" && (bytes.Contains(data, []byte(tok)) || strings.Contains(rep.Version, tok) || bytes.Contains(decoded, []byte(tok))) {
 			bad("the report contains the bearer token of the request", "")
 			return
@@ -239,9 +249,29 @@ func (m *MultiKBServer) handleSurveyorSettings(w http.ResponseWriter, r *http.Re
 		writeUINotFound(w)
 		return
 	}
+	// The server's clock dates the checks: the report says how long ago each ran.
+	received := m.surveyors.clock().UTC()
 	m.surveyors.putSettings(p.ID, rep.Perimeter, surveyorSettings{
 		Version: version, KBs: named, Entries: entries,
-		ReceivedAt: m.surveyors.clock().UTC(),
+		Sources:    surveyorconfig.ScrubSources(srcs, received),
+		ReceivedAt: received,
 	})
 	writeUIJSON(w, http.StatusOK, map[string]bool{"received": true})
+}
+
+// decodeSources reads the elements of a sources array that fit the Source type
+// and drops the others; it looks at no more than twice the cap, and ScrubSources
+// then judges each field. The server is the one that cuts, whatever the sender did.
+func decodeSources(raw []json.RawMessage) []surveyorconfig.Source {
+	out := make([]surveyorconfig.Source, 0, min(len(raw), surveyorconfig.MaxSources))
+	for i, r := range raw {
+		if i >= 2*surveyorconfig.MaxSources {
+			break
+		}
+		var s surveyorconfig.Source
+		if json.Unmarshal(r, &s) == nil {
+			out = append(out, s)
+		}
+	}
+	return out
 }

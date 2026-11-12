@@ -89,7 +89,11 @@ var surveyorRunFn = func(ctx context.Context, env *surveyorEnv, once bool) int {
 		tiers[p.Name] = p.Tier
 	}
 	beater := &surveyor.Beater{API: env.client, Perimeter: env.cfg.Name, Version: version, KBs: env.cfg.KBs,
-		Tiers: tiers, Tasks: surveyor.DeclaredTasks(env.cfg), Settings: env.settings, Logf: log.Printf}
+		Tiers: tiers, Tasks: surveyor.DeclaredTasks(env.cfg), Settings: env.settings, Logf: log.Printf,
+		Sources: func() ([]surveyorconfig.Source, uint64) {
+			gen := env.cfg.Checks.Generation() // before the sources: a check in between is posted next beat
+			return env.cfg.Sources(time.Now()), gen
+		}}
 	r, err := surveyor.NewRunner(env.cfg, surveyor.DefaultKinds(), surveyor.RunnerOptions{
 		Callers:      func(kb string) surveyor.ToolCaller { return env.client.WithKB(kb).WithHTTPTimeout(toolCallTimeout) },
 		CloseCallers: func(kb string) surveyor.ToolCaller { return env.client.WithKB(kb).WithHTTPTimeout(closeTimeout) },
