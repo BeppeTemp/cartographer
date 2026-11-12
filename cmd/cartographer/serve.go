@@ -93,7 +93,11 @@ func cmdServe(args []string) int {
 	apiEnabledFlag := fs.Bool("api-enabled", false, "Serve the public read-only API at /api/v1 in HTTP mode (or CARTOGRAPHER_API_ENABLED)")
 	updateCheckFlag := fs.Bool("update-check", true, "Look up the latest release once a day and report it in /health and kb_status when newer, and let the Atlas read the release history on demand; off, neither call is made (or CARTOGRAPHER_UPDATE_CHECK)")
 	logFileFlag := fs.String("log-file", "", "Append the server log to this file instead of stderr (created if absent; never rotated)")
+	supervisedFlag := fs.Bool("supervised", false, "Say that a service manager restarts this process when it exits non-zero (the Windows task passes it; or CARTOGRAPHER_SUPERVISED=1)")
 	fs.Parse(dropRemovedFlags(args))
+	if *supervisedFlag {
+		os.Setenv(supervisedEnv, "1")
+	}
 
 	// Before anything else can log: a service definition that names a log file
 	// expects everything in it, the startup lines included.
@@ -290,13 +294,18 @@ type kbBootstrap struct {
 	names           []string
 	artifactSigners []ed25519.PrivateKey
 	sqlIdxs         map[string]*sqlindex.Index
+	// skipped are the KBs that could not be mounted (#1963); retries are the
+	// clones among them that are attempted again (skippedkbs.go).
+	skipped *mcpserver.SkippedKBs
+	retries []cloneRetry
 }
 
 // bootstrapKBs clones remote KBs, opens every mount, wires it and reconciles
 // its SQL index. It is the slow part of startup: in HTTP mode it runs after
 // the listener is up (D348), in stdio before the transport. phase reports
-// "cloning", "mounting" and "indexing" for /health. Failures are fatal, as
-// they always were.
+// "cloning", "mounting" and "indexing" for /health. Over HTTP a KB that
+// cannot be cloned or opened is skipped and reported (#1963); over stdio, and
+// for any other failure, it is fatal, as it always was.
 func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 	// Collect all KB mounts: explicit KBSpec paths first (local, then
 	// remote clones — each carrying its own spec), then auto-discovered from
@@ -304,16 +313,27 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 	// the credentials directory, whatever its origin (D905).
 	phase("cloning")
 	credDir := cfg.CredentialsPath()
+	skipped := mcpserver.NewSkippedKBs()
+	var retries []cloneRetry
+	var firstOpenErr error // the first KB that would not open, for the fatal when none mounts
 	var mounts []kbMount
 	for _, spec := range cfg.KBs {
 		if spec.Remote != "" {
 			name := resolveKBName(spec, "")
 			dest, err := ensureClonedKBOn(spec.Remote, name, cfg.Data, spec.BranchOverride, gitEnvForKB(name, credDir)...)
 			if err != nil {
+				reason := skipReason(err)
 				if hint := credentialHint(spec.Remote, name, credDir); hint != "" {
 					err = fmt.Errorf("%w\n%s", err, hint)
 				}
-				log.Fatalf("KB remote %q: %v", gitx.RedactRemoteURL(spec.Remote), err)
+				if cfg.HTTP == "" {
+					log.Fatalf("KB remote %q: %v", gitx.RedactRemoteURL(spec.Remote), err)
+				}
+				// The others still serve (#1963): this one is reported and the clone retried.
+				log.Printf("ERROR: KB %q (remote %s) is skipped, the clone failed: %v", name, gitx.RedactRemoteURL(spec.Remote), err)
+				skipped.Set(mcpserver.SkippedKB{Name: name, Reason: reason, Retrying: true})
+				retries = append(retries, cloneRetry{spec: spec, name: name})
+				continue
 			}
 			mounts = append(mounts, kbMount{Path: dest, Name: name, Spec: spec})
 			continue
@@ -380,7 +400,20 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 		var err error
 		k, err = openMountedKB(m.Path)
 		if err != nil {
-			log.Fatal(err)
+			if cfg.HTTP == "" {
+				log.Fatal(err)
+			}
+			// The others still serve (#1963): this one is reported, not hidden.
+			reason := "the path is not a KB: create it with `cartographer kb create`, or fix kbs[].path"
+			if _, statErr := os.Stat(m.Path); statErr != nil {
+				reason = "path missing: moved? update kbs[].path"
+			}
+			log.Printf("ERROR: KB %q (%s) is skipped: %s: %v", m.Name, m.Path, reason, err)
+			skipped.Set(mcpserver.SkippedKB{Name: m.Name, Reason: reason})
+			if firstOpenErr == nil {
+				firstOpenErr = err
+			}
+			continue
 		}
 		k.SyncInWindow = kb.DefaultSyncInWindow
 		k.SyncOutDebounce = kb.SyncOutDebounceFor(os.Getenv)
@@ -439,7 +472,12 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 		// policy comes from its own settings.yaml (D746).
 	}
 
-	if len(kbs) == 0 && (cfg.Data == "" || cfg.HTTP == "") {
+	if len(kbs) == 0 && (cfg.Data == "" || cfg.HTTP == "") && len(retries) == 0 {
+		// Nothing is left to serve and no clone will come: failing at once is
+		// the old answer, and it names the cause when a KB was skipped.
+		if firstOpenErr != nil {
+			log.Fatal(firstOpenErr)
+		}
 		log.Fatal("no KBs specified")
 	}
 
@@ -465,7 +503,7 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 			log.Printf("sqlindex: reconciled at startup: indexed=%d updated=%d removed=%d", stats.Indexed, stats.Updated, stats.Removed)
 		}
 	}
-	return kbBootstrap{kbs: kbs, names: kbNames, artifactSigners: kbArtifactSigners, sqlIdxs: sqlIdxs}
+	return kbBootstrap{kbs: kbs, names: kbNames, artifactSigners: kbArtifactSigners, sqlIdxs: sqlIdxs, skipped: skipped, retries: retries}
 }
 
 // applyKBPolicy lays the KB's own settings.yaml over its server spec (D746) and
@@ -526,6 +564,11 @@ func runServe(cfg *config.Config, reload *authReload) {
 		// serveHTTP installs its own signal handler; the context only stops a
 		// bootstrap clone when the server is asked to end.
 		if err := serveHTTP(cfg.HTTP, func(phase func(string)) kbBootstrap { return bootstrapKBs(cfg, phase) }, cfg.Auth, reload, cfg.Web.Enabled, auditLog, latestVersion, cfg); err != nil {
+			if errors.Is(err, errRestartToMount) {
+				// Non-zero: launchd/systemd restart a failed process, and the
+				// restart mounts the KB that was cloned.
+				os.Exit(restartToMountExit)
+			}
 			log.Fatalf("HTTP server error: %v", err)
 		}
 	} else {
@@ -673,11 +716,15 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 	// published for the shutdown flush; nil until the bootstrap has finished.
 	var mounted atomic.Pointer[[]*kb.KB]
 	var multiMounted atomic.Pointer[mcpserver.MultiKBServer]
+	// restartCh is fed by retryClones when a KB skipped at start was cloned at
+	// last: the server ends so its supervisor starts it with that KB mounted.
+	restartCh := make(chan struct{}, 1)
 	go func() {
 		bs := boot(gate.SetPhase)
 		kbs, names, artifactSigners, sqlIdxs := bs.kbs, bs.names, bs.artifactSigners, bs.sqlIdxs
 		multi := mcpserver.NewMultiKBServer(version)
 		multi.SetLatestVersionSource(latestVersion)
+		multi.SetSkippedKBs(bs.skipped)
 		multi.SetFeedback(settingsCfg.FeedbackDestination()) // before MountKB: every server and routed view inherits it
 		multi.SetSettings(settingsCfg, string(updateChannelFn()))
 		if err := multi.SetAtlasPlugins(atlasPlugins); err != nil {
@@ -828,6 +875,7 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 		multiMounted.Store(multi)
 		gate.Open(handler)
 		log.Printf("bootstrap complete: %d KB(s) ready", len(kbs))
+		go retryClones(repairCtx, settingsCfg, bs.retries, bs.skipped, func(name string) { requestRestartToMount(name, supervisedProcess(os.Getenv), restartCh) })
 	}()
 
 	// One shutdown path, whatever asked for it: a second copy is how the drain
@@ -846,6 +894,7 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 		}
 	}
 
+	restarting := false
 	select {
 	case err := <-serveErrCh:
 		if err != nil && err != http.ErrServerClosed {
@@ -857,6 +906,10 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 	case <-eventCh:
 		log.Printf("received shutdown event, shutting down gracefully")
 		shutdown()
+	case <-restartCh:
+		log.Printf("restarting: the KB skipped at start was cloned and the server mounts KBs only at start; shutting down gracefully with exit status %d, for its supervisor to start it again", restartToMountExit)
+		shutdown()
+		restarting = true
 	}
 
 	// Nil while bootstrapping: nothing was mounted, so nothing to flush. The
@@ -870,6 +923,9 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 			flushers[i] = namedFlusher{name: k.Root, f: k}
 		}
 		flushPushes(flushers, shutdownPushFlushTimeout)
+	}
+	if restarting {
+		return errRestartToMount
 	}
 	return nil
 }

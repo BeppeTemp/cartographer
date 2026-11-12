@@ -192,6 +192,16 @@ type Health struct {
 	// carries no KB list, and reading it as "zero KBs" would let sync prune
 	// managed files against an empty list.
 	Bootstrapping bool `json:"bootstrapping,omitempty"`
+	// SkippedKBs are the KBs the server was told to serve and could not mount
+	// (a moved path, an unreachable remote), with the reason (#1963).
+	SkippedKBs []SkippedKB `json:"skipped_kbs,omitempty"`
+}
+
+// SkippedKB is one entry of Health.SkippedKBs.
+type SkippedKB struct {
+	Name     string `json:"name"`
+	Reason   string `json:"reason"`
+	Retrying bool   `json:"retrying,omitempty"`
 }
 
 // Routed reports whether this server serves a routed mount (D187).

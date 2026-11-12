@@ -355,6 +355,10 @@ func gitNetError(ctx context.Context, remote, verb, what string, err error, outp
 	return fmt.Errorf("git %s %s %s: %w: %s", verb, shown, what, redactedErr(err, remote), strings.TrimSpace(output))
 }
 
+// RemoteRemedy is remoteRemedy for a caller that holds a git error's text: the
+// one line an operator can act on, "" when no known phrase appears.
+func RemoteRemedy(output string) string { return remoteRemedy(output) }
+
 // remoteRemedy maps git's output for a failed network operation to the one
 // line an operator can act on, or "" when none of the known phrases appears.
 func remoteRemedy(output string) string {

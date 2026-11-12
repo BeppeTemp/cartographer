@@ -157,7 +157,7 @@ func TestRenderWindowsTaskXML(t *testing.T) {
 		`<Command>C:\bin\cartographer.exe</Command>`,
 		// Every path quoted: the config path here contains a space, and an
 		// unquoted one would reach the process as two arguments.
-		`<Arguments>serve --config "C:\Users\Nome Cognome\AppData\Roaming\cartographer\server.yaml" --log-file "C:\logs\server.log"</Arguments>`,
+		`<Arguments>serve --config "C:\Users\Nome Cognome\AppData\Roaming\cartographer\server.yaml" --log-file "C:\logs\server.log" --supervised</Arguments>`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("task XML missing %q\n---\n%s", want, out)
@@ -1129,5 +1129,18 @@ func TestStart_Windows_FailedEnableFailsTheStart(t *testing.T) {
 	}
 	if strings.Contains(joinedCalls(s.calls), "Start-ScheduledTask") {
 		t.Errorf("Start-ScheduledTask ran after a failed Enable:\n%s", joinedCalls(s.calls))
+	}
+}
+
+// The task marks the process as supervised (--supervised), and the extra flag
+// leaves the config path readable: EffectiveConfigPath parses these arguments.
+func TestWindowsTaskSupervisedFlagKeepsTheConfigPath(t *testing.T) {
+	out := RenderWindowsTaskXML(`C:\bin\cartographer.exe`, `C:\Users\Nome Cognome\server.yaml`, `C:\logs\server.log`, `HOST\user`)
+	if !strings.Contains(out, " --supervised</Arguments>") {
+		t.Fatalf("task XML lacks --supervised:\n%s", out)
+	}
+	got, err := extractTaskConfigPath([]byte(out))
+	if err != nil || got != `C:\Users\Nome Cognome\server.yaml` {
+		t.Errorf("extractTaskConfigPath = %q, %v", got, err)
 	}
 }

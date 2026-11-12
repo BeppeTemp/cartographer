@@ -256,6 +256,9 @@ type statusSnapshot struct {
 	// in /health (D254). Loopback servers are this machine's own binary,
 	// already covered by Update.
 	ServerLatest string `json:"server_latest_version,omitempty"`
+	// SkippedKBs are the KBs the server was told to serve and did not mount,
+	// with the reason (#1963). Informational: it never changes State.
+	SkippedKBs []client.SkippedKB `json:"skipped_kbs,omitempty"`
 	// UnresolvedPlaceholders are the placeholder keys the last sync could not
 	// resolve on this machine, read from the lockfile (D262). Additive and
 	// omitted when empty; informational like Update — it never changes State,
@@ -414,6 +417,7 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 	if health.LatestVersion != "" && !isLoopbackURL(cfg.ServerURL) {
 		s.ServerLatest = health.LatestVersion
 	}
+	s.SkippedKBs = health.SkippedKBs
 	if health.Routed() {
 		s.MountMode = "routed"
 	}

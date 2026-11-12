@@ -39,6 +39,7 @@ func TestRenderLaunchdPlist(t *testing.T) {
 		"<key>StandardOutPath</key>",
 		"<key>StandardErrorPath</key>",
 		"<string>/home/x/Library/Logs/cartographer/server.log</string>",
+		"<key>CARTOGRAPHER_SUPERVISED</key>",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("plist missing %q\n---\n%s", want, out)
@@ -54,6 +55,7 @@ func TestRenderSystemdUnit(t *testing.T) {
 		"[Service]",
 		"ExecStart=/usr/local/bin/cartographer serve --config /home/x/.config/cartographer/server.yaml",
 		"Restart=on-failure",
+		"Environment=CARTOGRAPHER_SUPERVISED=1",
 		"[Install]",
 		"WantedBy=default.target",
 	} {

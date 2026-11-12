@@ -229,6 +229,7 @@ func runDoctor(dir, only string) doctorReport {
 		findings = append(findings, checkTriggerCoverage(dir, providers)...)
 		findings = append(findings, checkSymlinkedDestinations(dir, providers)...)
 		findings = append(findings, checkCapabilities(dir, cfg, facts, healthErr)...)
+		findings = append(findings, checkSkippedKBs(dir, facts, healthErr)...)
 		// facts.health is set whenever /health answered, even when the listing
 		// is malformed (enumerateKBs then returns facts with an error).
 		if cands, ok := doctorKBCandidates(cfg, providers, facts); ok {
@@ -1040,6 +1041,23 @@ func checkCapabilities(dir string, cfg *clientconfig.Config, facts serverFacts, 
 				})
 			}
 		}
+	}
+	return out
+}
+
+// checkSkippedKBs: a KB the server was told to serve and could not mount is
+// served by nobody, and the other KBs hide it (#1963).
+func checkSkippedKBs(dir string, facts serverFacts, err error) []doctorFinding {
+	if err != nil || facts.health == nil {
+		return nil
+	}
+	var out []doctorFinding
+	for _, k := range facts.health.SkippedKBs {
+		out = append(out, doctorFinding{
+			Check: "kb-not-mounted", Severity: doctorWarning, Path: filepath.Join(dir, clientconfig.FileName),
+			Message: fmt.Sprintf("KB %q is not mounted on the server: %s", escapeControl(k.Name), escapeControl(k.Reason)),
+			Fix:     "fix the KB's kbs[] entry (path or remote) in the server config, then restart the server",
+		})
 	}
 	return out
 }

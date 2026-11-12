@@ -105,6 +105,8 @@ func RenderLaunchdPlist(binPath, configPath, logPath string) string {
 	<dict>
 		<key>PATH</key>
 		<string>%s</string>
+		<key>CARTOGRAPHER_SUPERVISED</key>
+		<string>1</string>
 	</dict>
 	<key>RunAtLoad</key>
 	<true/>
@@ -129,6 +131,7 @@ Description=Cartographer MCP server
 
 [Service]
 Environment=PATH=%s
+Environment=CARTOGRAPHER_SUPERVISED=1
 ExecStart=%s serve --config %s
 Restart=on-failure
 
@@ -230,7 +233,7 @@ const windowsTaskXMLDeclaration = `<?xml version="1.0"?>`
 // An empty userID (the account name could not be resolved) falls back to the
 // unscoped trigger rather than to no trigger.
 func RenderWindowsTaskXML(binPath, configPath, logPath, userID string) string {
-	args := fmt.Sprintf("serve --config %s --log-file %s", quotePath(configPath), quotePath(logPath))
+	args := fmt.Sprintf("serve --config %s --log-file %s --supervised", quotePath(configPath), quotePath(logPath))
 	userElem := ""
 	if userID != "" {
 		userElem = "\n      <UserId>" + xmlEscape(userID) + "</UserId>"
