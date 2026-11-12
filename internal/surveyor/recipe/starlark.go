@@ -30,7 +30,8 @@ type StarConfig struct {
 	// PrivateHosts are plugins.<name>.allow_private_hosts, each declared by the
 	// manifest's net_private (the loader checks): the two keys of the grant.
 	PrivateHosts []string
-	// Tune lets a test set the runtime's test seams on a call; nil in production.
+	// Tune sets the runtime's test seams on a call. Only the plugin test kit
+	// (recipetest, for the recorded replay) and tests set it; the Surveyor never.
 	Tune func(*recipes.Request)
 }
 
