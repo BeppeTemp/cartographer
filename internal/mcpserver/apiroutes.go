@@ -156,6 +156,11 @@ var apiRoutes = buildAPIRoutes([]apiRoute{
 
 	{Pattern: "/kbs/{kb}/graph", Tier: tierPreview, Summary: "The link graph",
 		Handler: kbRoute(func(w http.ResponseWriter, r *http.Request, srv *Server) { uiGraph(w, r, srv.kbRef) })},
+	{Pattern: "/kbs/{kb}/graph/clusters", Tier: tierPreview, Summary: "The link graph as clusters", Errors: errsBadRequest,
+		Query: []apiParam{{Name: "scope", Description: "One top-level collection"},
+			{Name: "unfold", Description: "Comma-separated cluster ids to unfold, at most 50"},
+			{Name: "focus", Description: "A concept id whose cluster is unfolded and which is drawn"}},
+		Handler: kbRoute(func(w http.ResponseWriter, r *http.Request, srv *Server) { uiGraphClusters(w, r, srv.kbRef) })},
 	{Pattern: "/kbs/{kb}/lint", Tier: tierPreview, Summary: "Lint findings",
 		Query:   []apiParam{limitParam, {Name: "cursor", Description: "The next_cursor of the previous page"}},
 		Handler: kbRoute(uiLint)},
