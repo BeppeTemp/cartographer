@@ -1037,7 +1037,7 @@ connected"; read at start, every 5 minutes and whenever Meridian comes back;
 (`/ui/?kb=<name>`); then Open Atlas (greyed when the config has no web UI), Restart Service (runs off
 the UI thread, disabled while in flight and when no service is installed), Open Log, Quit (the tray
 only; Meridian keeps running). On macOS the information rows are drawn in the label colour with the
-states coloured (the brand's accent for Running and In sync, orange, red, blue for an update) and the
+states coloured (the brand's accent for Running and In sync, orange, red, blue for an update; fixed sRGB values per appearance in `internal/tray/tone.go`, each at least 4.5:1 against the light and the dark menu, pinned by a test) and the
 actions have ⌘O, ⌘R, ⌘L, ⌘Q while the menu is open; Windows shows the same rows as plain text. `--log-file` appends the tray's own log there, as for `serve`. Either mouse button on the icon opens the menu on both platforms (a double-click has no action). A second tray exits silently with status 0: Windows by a named mutex, macOS by an `flock` on `~/Library/Application Support/cartographer/tray.lock`. A `Status` error that repeats is logged once, again when the message changes or after a success.
 
 ### `cartographer import`
