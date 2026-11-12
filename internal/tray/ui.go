@@ -95,6 +95,9 @@ func StatusLine(s Snapshot) string {
 	if s.NotReady && s.KBCount != 0 {
 		parts = append(parts, "not ready")
 	}
+	if s.PushLagKBs > 0 {
+		parts = append(parts, pushLagText(s.PushLagKBs))
+	}
 	if s.TokenMissing {
 		parts = append(parts, "token not available")
 	}
@@ -146,6 +149,14 @@ const (
 	ToneUpdate      // a newer release exists
 )
 
+// pushLagText is "1 KB not pushed" / "3 KBs not pushed".
+func pushLagText(n int) string {
+	if n == 1 {
+		return "1 KB not pushed"
+	}
+	return fmt.Sprintf("%d KBs not pushed", n)
+}
+
 func withV(v string) string {
 	if v == "" || v == "dev" || strings.HasPrefix(v, "v") {
 		return v
@@ -187,6 +198,9 @@ func InfoItems(s Snapshot) []MenuItem {
 	items := []MenuItem{head}
 	if s.TokenMissing {
 		items = append(items, MenuItem{Status: true, Text: "Token not available", Tone: ToneIdle})
+	}
+	if s.PushLagKBs > 0 {
+		items = append(items, MenuItem{Status: true, Text: "Commits not pushed", Badge: pushLagText(s.PushLagKBs), Tone: ToneBusy})
 	}
 	if s.LatestVersion != "" {
 		items = append(items, MenuItem{Status: true, Text: "Update available", Badge: withV(s.LatestVersion), Tone: ToneUpdate})

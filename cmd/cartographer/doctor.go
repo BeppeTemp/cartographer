@@ -230,6 +230,7 @@ func runDoctor(dir, only string) doctorReport {
 		findings = append(findings, checkSymlinkedDestinations(dir, providers)...)
 		findings = append(findings, checkCapabilities(dir, cfg, facts, healthErr)...)
 		findings = append(findings, checkSkippedKBs(dir, facts, healthErr)...)
+		findings = append(findings, checkPushLag(dir, facts, healthErr)...)
 		// facts.health is set whenever /health answered, even when the listing
 		// is malformed (enumerateKBs then returns facts with an error).
 		if cands, ok := doctorKBCandidates(cfg, providers, facts); ok {
@@ -1238,6 +1239,30 @@ func checkSteeringPatterns(dir string, providers []string) []doctorFinding {
 				}
 			}
 		}
+	}
+	return out
+}
+
+// checkPushLag: commits that stay unpushed pile up in the server's clone and
+// only an agent sees the warning on its writes; the remote and the local KB
+// diverge for days. /health carries a KB's push state once the push failed or
+// commits waited past a few minutes. Silent when the server is unreachable or
+// predates the field.
+func checkPushLag(dir string, facts serverFacts, err error) []doctorFinding {
+	if err != nil {
+		return nil
+	}
+	configPath := filepath.Join(dir, clientconfig.FileName)
+	var out []doctorFinding
+	for _, kbInfo := range facts.KBs {
+		if kbInfo.Push == nil {
+			continue
+		}
+		out = append(out, doctorFinding{
+			Check: "push-lag", Severity: doctorWarning, Path: configPath,
+			Message: fmt.Sprintf("KB %q: %s", escapeControl(kbInfo.Name), escapeControl(kbInfo.Push.Line())),
+			Fix:     "the changes are committed and safe in the server's clone; fix the remote or the credentials it pushes with, the next write or sync retries",
+		})
 	}
 	return out
 }

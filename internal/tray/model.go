@@ -78,6 +78,9 @@ type Snapshot struct {
 	// KBNames are the KBs the server reported, newline-separated in its order
 	// (a string keeps Snapshot comparable).
 	KBNames string
+	// PushLagKBs is how many KBs the server reports with a failed push or
+	// commits unpushed past a few minutes; 0 when none or unknown.
+	PushLagKBs int
 	// LatestVersion is a newer release the server knows of (D254). It only
 	// changes the status line, never the icon.
 	LatestVersion string
@@ -184,6 +187,11 @@ func (snap *Snapshot) fillHealth(health *client.Health, err error) {
 			names = append(names, kb.Name)
 		}
 		snap.KBNames = strings.Join(names, "\n")
+		for _, kb := range *health.KBs {
+			if kb.Push != nil {
+				snap.PushLagKBs++
+			}
+		}
 	}
 }
 

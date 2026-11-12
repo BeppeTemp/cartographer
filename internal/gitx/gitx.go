@@ -356,7 +356,8 @@ func gitNetError(ctx context.Context, remote, verb, what string, err error, outp
 }
 
 // RemoteRemedy is remoteRemedy for a caller that holds a git error's text: the
-// one line an operator can act on, "" when no known phrase appears.
+// fixed one-line sentence for a known failure phrase in output, "" otherwise.
+// It never returns any of output.
 func RemoteRemedy(output string) string { return remoteRemedy(output) }
 
 // remoteRemedy maps git's output for a failed network operation to the one
@@ -2660,4 +2661,31 @@ func Births(commits []CommitChanges, key func(path string) (string, bool)) map[s
 		}
 	}
 	return born
+}
+
+// OldestUnpushedAt is the committer time of the oldest commit in
+// <remote>/<branch>..HEAD, the one that has waited longest to be pushed; ok is
+// false when nothing is unpushed or the remote-tracking ref is absent. No
+// network is touched.
+func OldestUnpushedAt(dir, remote, branch string) (at time.Time, ok bool, err error) {
+	if branch == "" {
+		return time.Time{}, false, nil
+	}
+	ref := remote + "/" + branch
+	if _, err := runGit(dir, "rev-parse", "--verify", "refs/remotes/"+ref); err != nil {
+		return time.Time{}, false, nil
+	}
+	out, err := runGit(dir, "log", "--format=%ct", ref+"..HEAD")
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("git log %s..HEAD: %w: %s", ref, err, out)
+	}
+	lines := strings.Fields(out)
+	if len(lines) == 0 {
+		return time.Time{}, false, nil
+	}
+	sec, perr := strconv.ParseInt(lines[len(lines)-1], 10, 64)
+	if perr != nil {
+		return time.Time{}, false, fmt.Errorf("git log %s..HEAD: commit time %q: %w", ref, lines[len(lines)-1], perr)
+	}
+	return time.Unix(sec, 0).UTC(), true, nil
 }

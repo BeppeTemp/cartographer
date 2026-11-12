@@ -264,6 +264,10 @@ type statusSnapshot struct {
 	// omitted when empty; informational like Update — it never changes State,
 	// because an unresolved key is left verbatim, not a failed sync.
 	UnresolvedPlaceholders []placeholderRow `json:"unresolved_placeholders,omitempty"`
+	// PushLag lists, per KB, the commits the server could not push (additive,
+	// omitted when empty): "KB kb-a: 3 commits not pushed, <remedy>". It never
+	// changes State: the server is up and the commits are safe locally.
+	PushLag []string `json:"push_lag,omitempty"`
 }
 
 // snapshotUnresolvedPlaceholders reads the lockfile's unresolved keys. A
@@ -425,6 +429,9 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 	if health.KBs != nil {
 		for _, kb := range *health.KBs {
 			s.KBs = append(s.KBs, kb.Name)
+			if kb.Push != nil {
+				s.PushLag = append(s.PushLag, pushLagLine(kb.Name, *kb.Push))
+			}
 		}
 	}
 	routedPath := ""
@@ -941,4 +948,11 @@ func setupHint(s *statusSnapshot) string {
 		return setupHintText
 	}
 	return ""
+}
+
+// pushLagLine is the status line of a KB whose commits did not reach the
+// remote. The remedy is the server's free text: control characters are
+// already dropped by HealthPush.Line, and the KB name is checked above.
+func pushLagLine(name string, p client.HealthPush) string {
+	return "KB " + name + ": " + p.Line()
 }

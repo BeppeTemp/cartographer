@@ -7,6 +7,7 @@ import (
 	"image/color"
 	"image/png"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -438,5 +439,35 @@ func TestInfoItemsNotReady(t *testing.T) {
 	head := InfoItems(Snapshot{Checked: true, State: StateRunning, NotReady: true, KBCount: 0})[0]
 	if head.Badge != "Not ready" || head.Tone != ToneBusy {
 		t.Errorf("header = %q/%v, want Not ready/busy", head.Badge, head.Tone)
+	}
+}
+
+// A server that reports KBs with unpushed commits shows it in the tray's
+// state: the tooltip line and an information row.
+func TestTrayShowsPushLag(t *testing.T) {
+	kbs := []client.HealthKB{
+		{Name: "kb-a", Push: &client.HealthPush{State: "failed", UnpushedCommits: 2}},
+		{Name: "kb-b", Push: &client.HealthPush{State: "pending", UnpushedCommits: 1}},
+		{Name: "kb-c"},
+	}
+	snap := Classify(&client.Health{Version: "v1", KBs: &kbs}, nil, service.Status{})
+	if snap.PushLagKBs != 2 {
+		t.Fatalf("PushLagKBs = %d, want 2", snap.PushLagKBs)
+	}
+	if line := StatusLine(snap); !strings.Contains(line, "2 KBs not pushed") {
+		t.Errorf("StatusLine = %q, want the push lag", line)
+	}
+	var found bool
+	for _, it := range InfoItems(snap) {
+		if it.Text == "Commits not pushed" && it.Badge == "2 KBs not pushed" && it.Tone == ToneBusy {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("InfoItems has no push lag row")
+	}
+	quiet := Classify(&client.Health{Version: "v1", KBs: &[]client.HealthKB{{Name: "kb-c"}}}, nil, service.Status{})
+	if strings.Contains(StatusLine(quiet), "not pushed") {
+		t.Error("a KB in sync is reported as not pushed")
 	}
 }
