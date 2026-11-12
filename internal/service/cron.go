@@ -51,9 +51,10 @@ var (
 	cronPoll         = 200 * time.Millisecond
 	cronSleep        = time.Sleep
 	ensureLockWait   = 10 * time.Second
-	// healthAnswers is checkHealth behind a seam: a real dial reaches whatever
-	// the test host has on the port.
-	healthAnswers = checkHealth
+	// listenerAt is ProbeListener behind a seam: a real dial reaches whatever
+	// the test host has on the port. Cartographer and a foreign program (#1998)
+	// are told apart: neither is fixed by spawning a server.
+	listenerAt = func(addr string) ListenerState { return ProbeListener(addr, healthTimeout) }
 	// environ is the environment the clean one is filtered from.
 	environ = os.Environ
 )
@@ -368,8 +369,13 @@ func (m *Manager) startCron(b Backend) error {
 		return err
 	}
 	if m.ownPID(cfg) == 0 {
-		if addr := configHTTPAddr(cfg); addr != "" && healthAnswers(addr) {
-			return fmt.Errorf("service: something already answers on %s and was not started by this service", addr)
+		if addr := configHTTPAddr(cfg); addr != "" {
+			switch listenerAt(addr) {
+			case ListenerCartographer:
+				return fmt.Errorf("service: something already answers on %s and was not started by this service", addr)
+			case ListenerForeign:
+				return fmt.Errorf("service: another program answers on %s: not a Cartographer server (stop it, or change http: in the server config)", addr)
+			}
 		}
 		return fmt.Errorf("service: the server is not running after start (see server.log in the state directory)")
 	}
@@ -424,7 +430,7 @@ func (m *Manager) cronRunning(configPath string) bool {
 		return true
 	}
 	addr := configHTTPAddr(configPath)
-	return addr != "" && healthAnswers(addr)
+	return addr != "" && listenerAt(addr) == ListenerCartographer
 }
 
 func (m *Manager) setStopMarker() error {
@@ -553,7 +559,10 @@ func (m *Manager) ensure(bin, configPath string) error {
 		return nil
 	}
 	// A server started by hand, or a lost pidfile: never a second instance.
-	if addr := configHTTPAddr(configPath); addr != "" && healthAnswers(addr) {
+	// Nor next to a foreign program on the address (#1998): `serve` could not
+	// bind, and the watchdog would retry it every tick; `start` and `status`
+	// name the cause.
+	if addr := configHTTPAddr(configPath); addr != "" && listenerAt(addr) != ListenerNone {
 		return nil
 	}
 	args := []string{"serve", "--config", configPath, "--log-file", filepath.Join(dir, "server.log")}

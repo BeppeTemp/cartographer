@@ -164,7 +164,7 @@ func TestSkippedParts_ARefusedRemovalIsNotASkippedPart(t *testing.T) {
 
 // sync shares printMCPEntryLines: a refused provider's entry is not announced.
 func TestCmdSync_ARefusedEntryIsNotAnnounced(t *testing.T) {
-	srv := multiKBServer(t, `{"status":"ok","kbs":[{"name":"alpha"}]}`)
+	srv := multiKBServer(t, `{"status":"ok","version":"9","kbs":[{"name":"alpha"}]}`)
 	defer srv.Close()
 	dir := t.TempDir()
 	setHome(t, dir)

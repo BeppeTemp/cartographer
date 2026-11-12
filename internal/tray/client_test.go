@@ -280,7 +280,7 @@ func TestProbeHealthSendsNoAuthorization(t *testing.T) {
 	var auth atomic.Value
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		auth.Store(r.Header.Get("Authorization"))
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
+		_, _ = w.Write([]byte(`{"status":"ok","version":"9"}`))
 	}))
 	defer srv.Close()
 	if _, err := probeHealth(strings.TrimPrefix(srv.URL, "http://")); err != nil {

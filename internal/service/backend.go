@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/BeppeTemp/cartographer/internal/client"
 )
 
 // Backend names the mechanism that keeps the server running. The values are
@@ -159,11 +161,13 @@ const (
 )
 
 // ProbeListener classifies what is listening on addr. Any process can answer
-// {"status":"ok"}; the version field is what a real server adds.
+// {"status":"ok"}; the version field is what a real server adds
+// (client.IsServerHealth, the one rule setup, `service status` and the tray
+// share).
 func ProbeListener(addr string, timeout time.Duration) ListenerState {
 	hs, err := ProbeHealth(addr, timeout)
 	if err == nil || errors.Is(err, errBootstrapping) {
-		if hs.Status == "ok" && hs.Version != "" {
+		if client.IsServerHealth(hs.Status, hs.Version) {
 			return ListenerCartographer
 		}
 		return ListenerForeign

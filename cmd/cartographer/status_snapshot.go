@@ -202,6 +202,10 @@ type serviceSnapshot struct {
 	// UIURL is additive (D227): present only when the service is installed
 	// in HTTP mode with the embedded UI enabled.
 	UIURL string `json:"ui_url,omitempty"`
+	// ForeignListener is additive (#1998): true when the probe ran and a
+	// program that is not a Cartographer server answers on http_addr, so
+	// healthy is false because the port is taken, not because nothing listens.
+	ForeignListener bool `json:"foreign_listener,omitempty"`
 }
 
 // newServiceSnapshot projects a service.Status onto the JSON contract. One
@@ -216,6 +220,7 @@ func newServiceSnapshot(st service.Status) *serviceSnapshot {
 		HealthChecked:    st.HealthChecked,
 		HealthSkipReason: st.HealthSkipReason,
 		UIURL:            st.UIURL,
+		ForeignListener:  st.ForeignListener,
 	}
 }
 

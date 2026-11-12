@@ -1189,9 +1189,13 @@ type Status struct {
 	Installed         bool
 	Running           bool
 	Healthy           bool
-	HealthChecked     bool
-	HealthSkipReason  string
-	Lifecycle         Lifecycle
+	// ForeignListener: the probe ran and a program that is not a Cartographer
+	// server answers on HTTPAddr (a 200 without a Cartographer /health body, or
+	// another status). Healthy is false then, and the port is not free (#1998).
+	ForeignListener  bool
+	HealthChecked    bool
+	HealthSkipReason string
+	Lifecycle        Lifecycle
 	// UIURL is where the embedded Atlas UI answers (D227): set only for an
 	// installed service whose config is in HTTP mode with web.enabled on, so
 	// an empty value never reads as "the UI is down" -- it means there is none.
@@ -1307,7 +1311,14 @@ func (m *Manager) Status(configPath string) (Status, error) {
 	default:
 		st.HTTPAddr = cfg.HTTP
 		st.HealthChecked = true
-		st.Healthy = checkHealth(cfg.HTTP)
+		// Healthy needs a Cartographer answer: another program on the port
+		// is not a healthy service (#1998).
+		switch ProbeListener(cfg.HTTP, healthTimeout) {
+		case ListenerCartographer:
+			st.Healthy = true
+		case ListenerForeign:
+			st.ForeignListener = true
+		}
 		if st.Installed && cfg.Web.Enabled {
 			st.UIURL = webui.URL(cfg.HTTP)
 		}
@@ -1347,21 +1358,12 @@ func (m *Manager) TrayView(explicitConfig string) (Status, error) {
 	return st, nil
 }
 
-// checkHealth reports whether GET http://<addr>/health returns 200 within
-// healthTimeout. addr may be a bare port (":39273") or host:port
-// ("127.0.0.1:39273"); a bare port is normalized to a 127.0.0.1 host.
+// checkHealth reports whether a Cartographer server answers GET
+// http://<addr>/health within healthTimeout: a 200 from another program does
+// not count (ProbeListener, #1998). addr may be a bare port (":39273") or
+// host:port ("127.0.0.1:39273"); a bare port is normalized to a 127.0.0.1 host.
 func checkHealth(addr string) bool {
-	url := healthURL(addr)
-	if url == "" {
-		return false
-	}
-	client := http.Client{Timeout: healthTimeout}
-	resp, err := client.Get(url)
-	if err != nil {
-		return false
-	}
-	defer resp.Body.Close()
-	return resp.StatusCode == http.StatusOK
+	return ProbeListener(addr, healthTimeout) == ListenerCartographer
 }
 
 // healthURL builds the /health URL from a server http address, normalizing a

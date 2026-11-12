@@ -208,6 +208,9 @@ func installServiceAndWaitHealthy(mgr *service.Manager, timeout time.Duration) e
 			return nil
 		}
 		if time.Now().After(deadline) {
+			if err == nil && st.ForeignListener {
+				return fmt.Errorf("service installed but %s", foreignListenerLine(st.HTTPAddr))
+			}
 			return fmt.Errorf("service installed but not healthy after %s", timeout)
 		}
 		time.Sleep(500 * time.Millisecond)
