@@ -131,9 +131,13 @@ func (s *Server) connectionGuide(ctx context.Context) string {
 // server, so it names the reading path in client-neutral words: the tools only,
 // never a call syntax (OpenCode prefixes its own, Pi uses the first line as the
 // server summary). A non-provisioned connection gets the full guide, which
-// carries the same advice. A test pins the byte budget.
+// carries the same reading advice; the Atlas sentence (#1945) is here only,
+// the guide's own budget (TestRenderGuide_Budget) has no room for a second
+// copy. A test pins the byte budget.
 const entryInstructions = "Cartographer knowledge base: consult it before answering on history, decisions or architecture. " +
-	"Start with `search`, then `concept_read` on a hit; `graph_context` gathers the linked pages around a question and `atlas_overview` orients."
+	"Start with `search`, then `concept_read` on a hit; `graph_context` gathers the linked pages around a question and `atlas_overview` orients. " +
+	// #1945: an agent asked to show the KB answers with the Atlas link.
+	"The Atlas is the browser view of the KB: its URL is `ui_url` in `kb_status`, when the server serves it."
 
 // handshakeInstructions is the `instructions` of one handshake: the entry
 // paragraph and, when the session has one, the read-only sentence for a

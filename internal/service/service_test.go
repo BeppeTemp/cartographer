@@ -696,23 +696,6 @@ func TestHealthURL(t *testing.T) {
 	}
 }
 
-func TestUIURL(t *testing.T) {
-	cases := map[string]string{
-		"":                  "",
-		":39273":            "http://127.0.0.1:39273/ui/",
-		"127.0.0.1:39273":   "http://127.0.0.1:39273/ui/",
-		"0.0.0.0:9090":      "http://127.0.0.1:9090/ui/",
-		"[::]:9090":         "http://127.0.0.1:9090/ui/",
-		"10.0.0.5:9090":     "http://10.0.0.5:9090/ui/",
-		"not-a-valid-value": "",
-	}
-	for addr, want := range cases {
-		if got := uiURL(addr); got != want {
-			t.Errorf("uiURL(%q) = %q, want %q", addr, got, want)
-		}
-	}
-}
-
 // TestStatus_UIURL: the UI address is reported only for an installed service
 // in HTTP mode with web.enabled on (D227). An empty value must mean "there is
 // no UI", never "the UI is down".

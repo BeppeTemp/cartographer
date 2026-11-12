@@ -129,6 +129,10 @@ A KB syncs exactly when it has a remote, and every write is one commit: neither 
    `~/src`, `~/code`, `~/projects`) — then `cartographer sync`. A key missing
    from the KB's `paths.yaml` is fixed in the KB, not on the client: declare it there with a
    `~/`-anchored default so every machine resolves it with no configuration.
+9. Asked to see a KB, give the Atlas link: `ui_url` in `kb_status` (present only when the agent runs
+   on the server's own machine), or the `ui:` line of `cartographer service status` on the server host.
+   No `ui_url` means stdio, `CARTOGRAPHER_WEB_ENABLED=false`, a stopped service, or a server on another
+   machine or behind a proxy: give the address the user reaches the server by, with `/ui/?kb=<name>`.
 
 ## Upgrade
 

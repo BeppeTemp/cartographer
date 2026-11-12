@@ -156,7 +156,7 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	register(gitWrap(k, toolConflictResolve(k)))
 	cc := &conformanceCache{}
 	s.conformance = cc
-	register(toolKBStatus(k, misses, reads, s.version, s.knownLatestVersion, s.feedbackDestination, cc))
+	register(toolKBStatus(k, misses, reads, s.version, s.knownLatestVersion, s.feedbackDestination, s.atlasKBURL, cc))
 	register(toolKBReview(k, cc))
 	register(toolWorkList(k, cc))
 	// Core on every connection (D1100): a host that gives the model only tools
