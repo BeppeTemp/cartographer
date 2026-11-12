@@ -355,6 +355,126 @@ func taskSDDL(sid string) string {
 	return "D:(A;;FA;;;" + sid + ")(A;;FA;;;SY)(A;;FA;;;BA)"
 }
 
+// The two logon types of the WSL keep-alive task.
+const (
+	// WslLogonS4U runs the task in session 0, with no window and no password.
+	WslLogonS4U = "S4U"
+	// WslLogonInteractive runs it in the user's session through wslg.exe, which
+	// opens no window either (wsl.exe would open a terminal).
+	WslLogonInteractive = "Interactive"
+)
+
+// WslKeepAliveSpec is what RenderWslKeepAliveTaskXML needs.
+type WslKeepAliveSpec struct {
+	Distro string // WSL_DISTRO_NAME of the installing shell
+	User   string // the Linux user the keep-alive runs as
+	Binary string // absolute Linux path of cartographer
+	// Account and SID are the Windows user's (DOMAIN\name, S-1-...).
+	Account, SID string
+	Logon        string // WslLogonS4U or WslLogonInteractive
+	// Wslg is the Windows path of wslg.exe, needed by WslLogonInteractive.
+	Wslg string
+}
+
+var (
+	wslDistroPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+	wslUserPattern   = regexp.MustCompile(`^[A-Za-z0-9._$-]+$`)
+)
+
+// wslKeepAliveArgs is the command line of the task: the distro and user are
+// validated names, the binary single-quoted for the shell WSL runs it with.
+// `--`, not `--exec`: wslg.exe accepts only the first, and both launchers then
+// share one argument form.
+func wslKeepAliveArgs(s WslKeepAliveSpec) string {
+	return fmt.Sprintf("-d %s -u %s -- %s wsl keepalive", s.Distro, s.User, shQuote(s.Binary))
+}
+
+// RenderWslKeepAliveTaskXML renders `\Cartographer\WslKeepAlive`, the Windows
+// task that holds a WSL distro up: WSL terminates an idle distro ~15 s after
+// the last wsl.exe exits, and the server running inside would go with it. The
+// task runs `cartographer wsl keepalive`, never `serve`: the server belongs to
+// the Linux backend (systemd or cron).
+//
+// The settings are the serve task's (D217: no time limit, battery and idle
+// overrides, IgnoreNew), the user and descriptor are #1961's helpers, and
+// RestartOnFailure allows 999 restarts, because `wsl --shutdown` kills the
+// keep-alive and it must come back every time.
+func RenderWslKeepAliveTaskXML(s WslKeepAliveSpec) (string, error) {
+	if !wslDistroPattern.MatchString(s.Distro) {
+		return "", fmt.Errorf("service: WSL distro name %q is not one the keep-alive task can name (letters, digits, '.', '_', '-')", s.Distro)
+	}
+	if !wslUserPattern.MatchString(s.User) {
+		return "", fmt.Errorf("service: Linux user name %q is not one the keep-alive task can name", s.User)
+	}
+	if !strings.HasPrefix(s.Binary, "/") || strings.ContainsAny(s.Binary, "\n\r\x00") {
+		return "", fmt.Errorf("service: the keep-alive needs an absolute Linux binary path without line breaks, got %q", s.Binary)
+	}
+	if s.Account == "" {
+		return "", fmt.Errorf("service: the keep-alive task needs the Windows account name")
+	}
+	var logon, command string
+	switch s.Logon {
+	case WslLogonS4U:
+		logon, command = "S4U", "wsl.exe"
+	case WslLogonInteractive:
+		if s.Wslg == "" {
+			return "", fmt.Errorf("service: an interactive keep-alive task needs the path of wslg.exe")
+		}
+		logon, command = "InteractiveToken", s.Wslg
+	default:
+		return "", fmt.Errorf("service: unknown keep-alive logon type %q", s.Logon)
+	}
+	userElem := taskUserElem(s.Account)
+	return fmt.Sprintf(windowsTaskXMLDeclaration+`
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>Cartographer: keeps the WSL distro %s running for its server</Description>
+    <URI>\%s\%s</URI>%s
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>%s
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">%s
+      <LogonType>%s</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>7</Priority>
+    <RestartOnFailure>
+      <Interval>PT1M</Interval>
+      <Count>999</Count>
+    </RestartOnFailure>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>%s</Command>
+      <Arguments>%s</Arguments>
+    </Exec>
+  </Actions>
+</Task>
+`, xmlEscape(s.Distro), xmlEscape(windowsTaskFolder), xmlEscape(windowsWslKeepAliveTaskName), taskSDDLElem(s.SID), userElem, userElem, logon, xmlEscape(command), xmlEscape(wslKeepAliveArgs(s))), nil
+}
+
 // DefaultServerYAML renders the minimal `cartographer serve --config` YAML
 // generated by `cartographer service install` when no config file exists yet
 // at the target path. See config.example.yaml for the full set of options.
