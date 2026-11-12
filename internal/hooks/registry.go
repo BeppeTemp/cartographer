@@ -188,33 +188,9 @@ func (r *Registry) Decide(ctx context.Context, name string, req Request) Outcome
 	if !ok {
 		return Outcome{Hook: name, Decision: Deny, Unavailable: true, Verdict: "error", Err: fmt.Errorf("hook %q is not configured", name)}
 	}
-	now := r.now()
-	allowed, probe := e.br.allow(now)
-	if !allowed {
-		e.failures.Add(1)
-		return r.failed(e, ErrBreakerOpen)
-	}
-	ans, err := r.client.Call(ctx, &e.Hook, *e.cred.Load(), req)
-	if errors.Is(err, ErrCanceled) {
-		// The hook did not fail: no breaker input, no counter. But the request
-		// has no answer from it, so the operator's policy decides what that
-		// means (fail_closed denies, fail_open and dry_run continue): a client
-		// must not be able to turn a slow veto into an allow by cancelling.
-		e.br.release(probe)
-		return r.failed(e, err)
-	}
-	e.calls.Add(1)
+	ans, err := r.call(ctx, e, req)
 	if err != nil {
-		e.failures.Add(1)
-		if e.br.failure(r.now(), probe) {
-			r.logf("hook %s: circuit breaker open for %s after a failure: %v", e.Name, BreakerOpenFor, err)
-		} else {
-			r.logf("hook %s: call failed: %v", e.Name, err)
-		}
 		return r.failed(e, err)
-	}
-	if e.br.success(probe) {
-		r.logf("hook %s: circuit breaker closed", e.Name)
 	}
 	if e.Mode == ModeDryRun {
 		out := Outcome{Hook: e.Name, DryRun: true}
@@ -229,6 +205,40 @@ func (r *Registry) Decide(ctx context.Context, name string, req Request) Outcome
 		out.Decision, out.Reason, out.Verdict = Deny, ans.Reason, "deny"
 	}
 	return out
+}
+
+// call makes one call through the hook's breaker and keeps its counters and
+// the log lines of failures and breaker transitions. A call the caller
+// cancelled returns ErrCanceled and touches neither the breaker nor the
+// counters.
+func (r *Registry) call(ctx context.Context, e *entry, req Request) (Answer, error) {
+	allowed, probe := e.br.allow(r.now())
+	if !allowed {
+		e.failures.Add(1)
+		return Answer{}, ErrBreakerOpen
+	}
+	ans, err := r.client.Call(ctx, &e.Hook, *e.cred.Load(), req)
+	if errors.Is(err, ErrCanceled) {
+		// The hook did not fail: no breaker input, no counter. The caller's
+		// policy still decides what having no answer means: a client must not
+		// be able to turn a slow veto into an allow by cancelling.
+		e.br.release(probe)
+		return Answer{}, err
+	}
+	e.calls.Add(1)
+	if err != nil {
+		e.failures.Add(1)
+		if e.br.failure(r.now(), probe) {
+			r.logf("hook %s: circuit breaker open for %s after a failure: %v", e.Name, BreakerOpenFor, err)
+		} else {
+			r.logf("hook %s: call failed: %v", e.Name, err)
+		}
+		return Answer{}, err
+	}
+	if e.br.success(probe) {
+		r.logf("hook %s: circuit breaker closed", e.Name)
+	}
+	return ans, nil
 }
 
 // failed applies the failure policy to a call that did not produce an answer.

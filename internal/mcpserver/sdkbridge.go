@@ -294,7 +294,7 @@ func (s *Server) callToolChecked(ctx context.Context, name string, args json.Raw
 			msg = "tool not found: " + name
 		}
 		result := errorResult(msg)
-		call, rejected, ok := s.beginAuditCall(who, name, false, nil)
+		call, rejected, ok := s.beginAuditCall(ctx, who, name, false, nil)
 		if !ok {
 			return rejected, nil
 		}
@@ -351,7 +351,7 @@ func (s *Server) callToolChecked(ctx context.Context, name string, args json.Raw
 	var rejected ToolResult
 	ok := true
 	if !refusalsOnly {
-		call, rejected, ok = s.beginAuditCall(who, name, tool.ReadOnly, resources)
+		call, rejected, ok = s.beginAuditCall(ctx, who, name, tool.ReadOnly, resources)
 	}
 	if !ok {
 		// Required mode, attempt-phase append failed: reject before the tool

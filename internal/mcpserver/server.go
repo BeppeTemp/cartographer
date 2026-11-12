@@ -183,6 +183,8 @@ type Server struct {
 	auditRefusalsOnly bool
 	// hooks is the registry of the operator's hooks (SetHooks); nil means none.
 	hooks *hooks.Registry
+	// blockingSinks are the audit_sink hooks in blocking mode (SetBlockingAuditSinks).
+	blockingSinks []*hooks.Sink
 	// kbName identifies the KB this server serves, recorded on every audit
 	// event. Set via SetKBName at mount time.
 	kbName string

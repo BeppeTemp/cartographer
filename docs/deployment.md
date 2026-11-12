@@ -127,7 +127,8 @@ behaves as without hooks. Each entry has `name` (`<plugin>/<name>`), `point` (`w
 (`https`, or `http` only to a loopback host; no credentials in it), `credential` (the name of a file in `credentials_dir`
 holding the bearer sent as `Authorization`; a missing or empty file stops the start), `timeout` (default `2s`, at most
 `10s`, over the whole call), `failure_policy` (`fail_open` or `fail_closed`, **required**) and `mode` (`enforce`, the
-default, or `dry_run`). Per-point keys: `kbs` (`write_veto`), `batch_size` and `blocking` (`audit_sink`), `cache_ttl`
+default, or `dry_run`). Per-point keys: `kbs` (`write_veto`), `batch_size` (1 to 1000, default 100) and `blocking` (`audit_sink`, see
+[transport-auth](transport-auth.md) §The audit sink), `cache_ttl`
 (`secret_resolver`, `identity`, at most `600s`) and `headers` (`identity`, at most 8 request header names handed to the
 hook; `Authorization` and `Proxy-Authorization` are refused). A misspelled key, a duplicate name or a `hook:` list stops the load. The
 keys are YAML only and need a restart. A hook only supplies an input or denies: `allow` or any unknown answer is "no

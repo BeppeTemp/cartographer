@@ -705,6 +705,36 @@ truncate. Open repairs only an index it can trust: with a key the index
 signature must verify and the last checkpoint must continue the chain of the
 one before, otherwise the file is left untouched for `audit verify` to report.
 
+### The audit sink
+
+An `audit_sink` hook ([deployment](deployment.md) §Configuration: flags, env, YAML, the `hooks:`
+paragraph) receives the chain as it is written, for a SIEM or an archive outside the host. One
+goroutine per sink reads the entries after its **cursor** — the hash of the last entry the hook
+acknowledged, unique and ordered in the chain — at each append (a wake-up the log sends without ever
+waiting) and every 2 s, and POSTs `{events: [<entry>...], first_hash, last_hash, gap}` in chain
+order, at most `batch_size` (default 100) entries per call. Each entry is the line the log stores,
+`hash` and `sig` included, so the receiver can verify the chain itself. The hook acknowledges a batch
+by answering `{"version": 1, "ack": "<last_hash>"}`; only then does the cursor move, persisted
+atomically in `sink-<plugin>.<name>.cursor` beside the audit log, so a restart resumes where it was
+and a deleted cursor replays from the oldest retained entry. Delivery is at least once (an entry may
+arrive twice across a restart; its `id` is unique), and a failure retries with a backoff from 1 s to
+60 s: the local chain is the source of truth and nothing is lost, so `failure_policy` only matters in
+blocking mode, and `mode` does not apply. `gap: true` (also logged) says that entries after the
+cursor were deleted by retention (or that the cursor is not a hash of this log): delivery resumes at
+the oldest retained entry. The cursor is the chain hash, not a `changes_since` position:
+`changes_since` sees concept commits, the chain also records reads, denials and refused attempts. At
+shutdown each sink makes one last delivery attempt, bounded by 3 s. An `audit_sink` on a server that
+keeps no audit log stops the start.
+
+**Blocking mode** (`blocking: true`) is a footgun on purpose: after the attempt event is appended,
+before the tool runs and outside any KB lock, the call waits up to the hook's `timeout` for the hook
+to acknowledge it. A `fail_closed` sink that did not refuses the call (`audit sink <name>
+unavailable: call rejected (blocking, fail_closed)`), and the pair is closed with
+`audit_unavailable`; a `fail_open` one lets it run, and the tailer delivers the event later. The
+completion event never waits. A dead blocking sink slows every call by its timeout until its circuit
+opens, and then, under `fail_closed`, refuses every call: it trades availability for the guarantee
+that no call runs without an external copy.
+
 The operator commands are offline by design — they read the files, not a
 running server, because an audit trail is most needed when Meridian is down:
 
