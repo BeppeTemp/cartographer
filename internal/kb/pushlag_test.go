@@ -53,7 +53,12 @@ func TestRemedy_ClassifiedTextOnly(t *testing.T) {
 		"git push " + secret + ": remote: GH006: Protected branch update failed\nremote: see ssh://git@internal.example.com:2222/x": "protected",
 		"remote: GitLab: Author 'a' is not a member of team " + secret:                                                              "authored or committed",
 		"git push " + secret + ": Could not resolve host: git.example.com":                                                          "does not resolve",
-		"fatal: something unknown happened with " + secret + "\nremote: private line":                                               "the push failed",
+		// A push refused for its credentials, as SyncOut's ErrPushRefused words it: the
+		// three surfaces (/health, status, doctor) show the credentials remedy.
+		"the push to branch \"main\" cannot succeed by retrying and is not retried: the credentials were rejected: check the token. Git said: remote: Invalid username or password.\nfatal: Authentication failed for '" + secret + "'": "credentials were rejected",
+		"the push to branch \"main\" cannot succeed by retrying and is not retried: git had no credentials. Git said: fatal: could not read Username for 'https://git.example.com': terminal prompts disabled":                          "could not ask",
+		"the push to branch \"main\" cannot succeed by retrying and is not retried: the credentials were rejected. Git said: fatal: unable to access '" + secret + "': The requested URL returned error: 401":                           "credentials were rejected",
+		"fatal: something unknown happened with " + secret + "\nremote: private line": "the push failed",
 	}
 	for in, want := range cases {
 		got := Remedy(in)
@@ -68,6 +73,38 @@ func TestRemedy_ClassifiedTextOnly(t *testing.T) {
 	}
 	if Remedy("") != "" || Remedy("  \n") != "" {
 		t.Error("Remedy of no error must be empty")
+	}
+}
+
+// Every permanent push refusal, as SyncOut's ErrPushRefused words it, shows its
+// rule's sentence on the three surfaces, not the generic "the cause is in the
+// server's log", and none of the remote's own line.
+func TestRemedy_PermanentPushRefusals(t *testing.T) {
+	t.Parallel()
+	const prefix = "the push to branch \"main\" cannot succeed by retrying and is not retried: remedy (the remote said: \"line-from-remote\"). Git said: "
+	cases := map[string]struct{ git, want string }{
+		"write access":   {"remote: Permission to org/kb.git denied to user-7f3.\nfatal: unable to access 'https://git.example.com/org/kb.git/': The requested URL returned error: 403", "this credential cannot push"},
+		"read-only key":  {"ERROR: the deploy key is a read-only deploy key.\nfatal: Could not read from remote repository.", "this credential cannot push"},
+		"gh013":          {"remote: error: GH013: Repository rule violations found for refs/heads/main.\n ! [remote rejected] main -> main (push declined due to repository rule violations)", "the remote's rules refuse this push"},
+		"signed commits": {"remote: error: GH013: Repository rule violations found for refs/heads/main.\nremote: - Commits must have verified signatures.", "requires signed commits"},
+		"gh001":          {"remote: error: GH001: Large files detected.\nremote: error: File big.bin is 150 MB; this exceeds GitHub's file size limit of 100 MB", "file over the remote's size limit"},
+		"hook declined":  {" ! [remote rejected] main -> main (hook declined)", "push rules declined the push"},
+		"no username":    {"fatal: could not read Username for 'https://git.example.com': terminal prompts disabled", "could not ask"},
+		"authentication": {"fatal: Authentication failed for 'https://git.example.com/org/kb.git/'", "credentials were rejected"},
+	}
+	for name, c := range cases {
+		got := Remedy(prefix + c.git)
+		if !strings.Contains(got, c.want) {
+			t.Errorf("%s: Remedy = %q, want it to say %q", name, got, c.want)
+		}
+		if strings.Contains(got, "the push failed") {
+			t.Errorf("%s: Remedy = %q is the generic sentence", name, got)
+		}
+		for _, leak := range []string{"user-7f3", "org/kb", "example.com", "line-from-remote", "remote said", "remote: Permission", "Git said"} {
+			if strings.Contains(got, leak) {
+				t.Errorf("%s: Remedy = %q leaks %q", name, got, leak)
+			}
+		}
 	}
 }
 

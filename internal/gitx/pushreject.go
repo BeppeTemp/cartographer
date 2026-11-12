@@ -28,13 +28,21 @@ var permanentPushRules = []struct {
 		[]string{"write access", "denied to", "key is read-only", "read-only deploy key"}, false},
 	{"the remote's push rules declined the push and a retry will not change that",
 		[]string{"hook declined"}, false},
+	// A credential the remote rejected, or that git had none to offer, does not
+	// heal between retries. HTTP 401 only: a bare 403 can be a rate limit.
+	{"the credentials were rejected: check the token or credential helper for this forge",
+		[]string{"authentication failed", "returned error: 401"}, false},
+	{"git had no credentials for this forge and could not ask: configure a token or credential helper, or use an ssh remote",
+		[]string{"could not read username"}, false},
 }
 
 // PermanentPushRejection reports whether the output of a failed push is a
 // refusal that retrying only repeats, and the one-line remedy quoting the
 // remote's own line: a credential without write access ("Permission to X
 // denied", "write access", a read-only deploy key; a bare HTTP 403 is not enough,
-// GitHub's secondary rate limit is one and heals), a repository rule or required
+// GitHub's secondary rate limit is one and heals), a credential the remote
+// rejected ("Authentication failed", HTTP 401) or that git had none of to offer
+// ("could not read Username": its own remedy), a repository rule or required
 // signature (GitHub "GH013"), a file over the size limit ("GH001"), a server-side
 // hook that declined. Only policy wording is permanent: a "[remote rejected]" for
 // a lock, a ref update, an internal error or an unpacker error is a race or a
@@ -43,25 +51,44 @@ var permanentPushRules = []struct {
 // non-fast-forward "[rejected]" is not matched either: it is retried through a
 // rebase.
 func PermanentPushRejection(output string) (remedy string, ok bool) {
+	fixed, quote, ok := permanentPushRule(output)
+	if !ok {
+		return "", false
+	}
+	return fixed + quote, true
+}
+
+// PermanentPushRemedy is PermanentPushRejection for a surface that must not
+// carry the remote's words (/health, status, doctor): only the rule's fixed
+// sentence, "" when output is not a permanent refusal. It never returns any of
+// output.
+func PermanentPushRemedy(output string) string {
+	fixed, _, _ := permanentPushRule(output)
+	return fixed
+}
+
+// permanentPushRule classifies output: the matching rule's fixed sentence and the
+// quote of the remote's line that triggered it.
+func permanentPushRule(output string) (fixed, quote string, ok bool) {
 	lower := strings.ToLower(output)
 	for _, t := range transientPushRefusals {
 		if strings.Contains(lower, t) {
-			return "", false
+			return "", "", false
 		}
 	}
 	for _, r := range permanentPushRules {
 		for _, p := range r.phrases {
 			if lineWith(output, []string{p}, r.rejectedOnly) != "" {
-				return r.remedy + quoteLine(output, r.phrases, r.rejectedOnly), true
+				return r.remedy, quoteLine(output, r.phrases, r.rejectedOnly), true
 			}
 		}
 	}
 	// "Permission to X denied" and a 403 that says why. A 403 alone, or one that
 	// mentions a rate limit, is not a verdict on the credential.
 	if strings.Contains(lower, "permission to") && strings.Contains(lower, "denied") {
-		return permanentPushRules[3].remedy + quoteLine(output, []string{"permission to"}, false), true
+		return permanentPushRules[3].remedy, quoteLine(output, []string{"permission to"}, false), true
 	}
-	return "", false
+	return "", "", false
 }
 
 // lineWith is the first line of output holding one of phrases (case-folded); with

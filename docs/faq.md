@@ -65,7 +65,9 @@ simpler and you should use it.
 
 Some refusals are the remote's decision and retrying only repeats them: a token without write access (HTTP 403,
 `Permission to … denied`, a read-only deploy key), a repository rule such as GitHub's `GH013` (required signatures,
-pull-request-only branches), a file over the size limit (`GH001`). The KB is `failed` after one attempt and
+pull-request-only branches), a file over the size limit (`GH001`), a credential the remote rejects (`Authentication
+failed`, HTTP 401: check the token or credential helper for this forge) or that git has none of to offer (`could not
+read Username`: configure a token or credential helper, or use an ssh remote). A bare HTTP 403 is still retried, it can be a rate limit. The KB is `failed` after one attempt and
 `sync_status` quotes the remote's own line with the way out; the change stays committed in the local clone and is
 pushed by the next write once the cause is fixed. `cartographer setup` checks push access with a dry run before it
 creates anything.

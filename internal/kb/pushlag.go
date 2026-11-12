@@ -76,6 +76,13 @@ func Remedy(errText string) string {
 	case gitx.IsProtectedBranchRejection(errText):
 		return "the remote refused the push: the branch is protected or a server-side hook declined it"
 	}
+	// A push refused for a reason a retry does not change (write access, a
+	// repository rule, a required signature, the size limit, a declining hook):
+	// the rule's fixed sentence, without the remote's line it is quoted with in
+	// kb_status.
+	if r := gitx.PermanentPushRemedy(errText); r != "" {
+		return r
+	}
 	if r := gitx.RemoteRemedy(errText); r != "" {
 		return r
 	}
