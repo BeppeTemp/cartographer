@@ -159,6 +159,8 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 		Description: "For audit_sink only: wait for the hook to acknowledge an attempt before the call runs. A footgun: a slow sink slows every call."},
 	{Path: "hooks[].cache_ttl", Scope: settingschema.ScopeServer, Type: "duration", Values: "up to 600s", Default: "60s", Restart: true,
 		Description: "For secret_resolver and identity only: how long an answer is reused."},
+	{Path: "hooks[].headers", Scope: settingschema.ScopeServer, Type: "list", Default: "[]", Restart: true,
+		Description: "For identity only: request header names handed to the hook (at most 8; Authorization and Proxy-Authorization are refused)."},
 
 	{Path: "plugins_dir", Scope: settingschema.ScopeServer, Type: "string", Values: "absolute path", Default: `""`, Restart: true,
 		Description: "The read-only store the pinned plugins are read from: <dir>/<name>/<digest>/, filled by cartographer plugin vendor. The server never writes into it and never fetches. Required when plugins is set. YAML only."},

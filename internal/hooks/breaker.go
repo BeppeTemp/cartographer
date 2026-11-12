@@ -11,6 +11,10 @@ import (
 const (
 	BreakerThreshold = 5
 	BreakerOpenFor   = 30 * time.Second
+	// RetryAfterSeconds is the Retry-After a request refused because the
+	// identity hook is down carries: the window after which the breaker lets a
+	// probe through.
+	RetryAfterSeconds = int(BreakerOpenFor / time.Second)
 )
 
 // Breaker states, as Metrics reports them.

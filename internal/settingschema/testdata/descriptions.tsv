@@ -60,6 +60,7 @@ server	hooks[].kbs	For write_veto only: the KBs the hook is consulted for; empty
 server	hooks[].batch_size	For audit_sink only: audit entries per delivery.
 server	hooks[].blocking	For audit_sink only: wait for the hook to acknowledge an attempt before the call runs. A footgun: a slow sink slows every call.
 server	hooks[].cache_ttl	For secret_resolver and identity only: how long an answer is reused.
+server	hooks[].headers	For identity only: request header names handed to the hook (at most 8; Authorization and Proxy-Authorization are refused).
 server	plugins_dir	The read-only store the pinned plugins are read from: <dir>/<name>/<digest>/, filled by cartographer plugin vendor. The server never writes into it and never fetches. Required when plugins is set. YAML only.
 server	plugins	Plugins whose server side (and atlas side: the Atlas branding) this server loads, by plugin name: the digest pinned here is the only consent. At start a tree whose digest differs, or a plugin that is missing, has neither a server nor an atlas side or cannot load here, stops the server with the plugin named; a changed plugin needs a new digest and a restart. Empty: the server loads no plugin. YAML only.
 server	plugins.{name}.digest	Tree digest of the approved plugin, as printed by cartographer plugin vendor. Required.

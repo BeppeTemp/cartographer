@@ -13,11 +13,14 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 	"unicode"
+
+	"github.com/BeppeTemp/cartographer/internal/hooks"
 )
 
 // contextKey is a private type for context keys to avoid collisions.
@@ -531,6 +534,9 @@ func (ts *TokenStore) Middleware(next http.Handler) http.Handler {
 			var status int
 			var msg string
 			if principal, status, msg = proxy.resolve(r, principal); status != 0 {
+				if status == http.StatusServiceUnavailable {
+					w.Header().Set("Retry-After", strconv.Itoa(hooks.RetryAfterSeconds)) // the identity hook's breaker window
+				}
 				http.Error(w, msg, status)
 				return
 			}

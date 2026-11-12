@@ -572,6 +572,22 @@ principal id (activity, usage, the author fallback, the `Cartographer-Token`
 trailer) then names the person. `auth.IdentityResolver` is the hook a plugin
 can fill in place of the header reader; trust and mapping apply either way.
 
+**Identity hook.** An `identity` hook (`hooks:` in `deployment.md`; one at most, and `auth.proxy_identity` must be set)
+lets an external system name the person. It is asked only for a request on a `proxy: true` token from a trusted peer
+whose user header carries an identity, never for an unauthenticated or public path. The body carries `peer`,
+`token_id`, `headers` (the names listed in the entry's `headers`) and `proxy_identity` (the user and groups the header
+named). It answers `{"user": ..., "groups": [...]}`, which replaces the header identity, or no opinion, which keeps it.
+The answer is only names: the group map and the clamp by the proxy token then run as for a header, so the hook can
+never exceed the token, and the same limits apply (a violation is a `400`). The answer is cached for `cache_ttl`
+(default `60s`, 4096 entries) under a key made of the token id, the header identity and the listed header values; a
+failed call is not cached and the hook's circuit breaker bounds a hook that is down. A failure (including an answer that
+does not parse) under `fail_open` keeps the header identity; under `fail_closed` it is a `503` with `Retry-After: 30`. A
+`deny` answer is a `403`; a `dry_run` hook is only observed. The `Retry-After` is the breaker's open window
+(`hooks.RetryAfterSeconds`). A `deny` answer and an answer that does not parse are never cached and do not count as a
+breaker failure: only a failed call does, so a hook that keeps denying is asked again on every request. Every listed
+header reaches the plugin as sent: a listed `Cookie` hands it the person's session cookie, so list only what the plugin
+needs. The header identity is checked against the limits before the hook sees it.
+
 Tokens are declared in the YAML `auth.tokens` list; the flat
 `CARTOGRAPHER_TOKENS` form cannot carry the fields of a
 mapping. A `token:` written as exactly `${NAME}` is read from the environment, so the file never holds the secret; an

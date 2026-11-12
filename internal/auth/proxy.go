@@ -39,6 +39,21 @@ type Identity struct {
 // checks and the group mapping run in either case.
 type IdentityResolver func(r *http.Request, via Principal) (id Identity, found bool, err error)
 
+// The two failures an IdentityHook reports: the proxy's request is refused with
+// 503 (the hook is down under fail_closed) or 403 (the hook denied the user).
+var (
+	ErrIdentityUnavailable = errors.New("identity service unavailable")
+	ErrIdentityDenied      = errors.New("identity denied")
+)
+
+// IdentityHook may replace the identity the proxy header named. It runs only
+// for a trusted peer on a proxy token whose header carries an identity (header,
+// groups and all), after the default reader. supplied false: no opinion, or a
+// failure the operator chose to ignore (fail_open), and header stays in force.
+// The answer is only names: the group mapping and the clamp run on it as on
+// any other identity, so it can never exceed the proxy token.
+type IdentityHook func(r *http.Request, via Principal, header Identity) (id Identity, supplied bool, err error)
+
 // ProxyConfig is the compiled proxy_identity section.
 type ProxyConfig struct {
 	Trusted         []netip.Prefix
@@ -50,6 +65,8 @@ type ProxyConfig struct {
 	GroupPolicies map[string]Policy
 	// Resolver replaces the header reader when set.
 	Resolver IdentityResolver
+	// Hook is the operator's identity hook, nil when there is none.
+	Hook IdentityHook
 }
 
 // ParseTrustedAddresses reads CIDRs strictly: a /0 prefix (trust everyone) and
@@ -192,11 +209,31 @@ func (c *ProxyConfig) resolve(r *http.Request, token Principal) (p Principal, st
 	if !found {
 		return token, 0, ""
 	}
-	id.Via = token.ID
+	// The header identity is judged BEFORE the hook sees it: over-limit proxy
+	// input never reaches a plugin.
 	if err := checkIdentity(id); err != nil {
 		log.Printf("auth: proxy %q sent an invalid identity: %v", token.ID, err)
 		return Principal{}, http.StatusBadRequest, "invalid identity"
 	}
+	if c.Hook != nil {
+		hid, supplied, herr := c.Hook(r, token, id)
+		switch {
+		case errors.Is(herr, ErrIdentityUnavailable):
+			return Principal{}, http.StatusServiceUnavailable, "identity service unavailable"
+		case errors.Is(herr, ErrIdentityDenied):
+			return Principal{}, http.StatusForbidden, "identity denied"
+		case herr != nil: // a hook bug is never a pass: keep the header identity out of it
+			return Principal{}, http.StatusServiceUnavailable, "identity service unavailable"
+		case supplied:
+			// The plugin's answer has the same limits as a header.
+			if err := checkIdentity(hid); err != nil {
+				log.Printf("auth: identity hook for proxy %q answered an invalid identity: %v", token.ID, err)
+				return Principal{}, http.StatusBadRequest, "invalid identity"
+			}
+			id = hid
+		}
+	}
+	id.Via = token.ID
 	var mapped Policy
 	for _, g := range id.Groups {
 		mapped.Permissions = append(mapped.Permissions, c.GroupPolicies[g].Permissions...)

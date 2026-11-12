@@ -35,18 +35,30 @@ func TestHooks_Load(t *testing.T) {
 	}
 }
 
+func TestHooks_IdentityHeaders(t *testing.T) {
+	cfg, err := loadComponents(t, hookPlugins(t.TempDir())+strings.Replace(hookEntry, "write_veto", "identity", 1)+"    headers: [X-Session, Cookie]\n    cache_ttl: 5m\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h := cfg.Hooks[0]; len(h.Headers) != 2 || h.CacheTTL != 5*time.Minute {
+		t.Fatalf("%+v", h)
+	}
+}
+
 func TestHooks_LoadErrors(t *testing.T) {
 	for name, tc := range map[string]struct{ body, want string }{
-		"not pinned":      {hookEntry, `plugin "acme" is not pinned`},
-		"no policy":       {hookPlugins(t.TempDir()) + strings.Replace(hookEntry, "    failure_policy: fail_closed\n", "", 1), "failure_policy is required"},
-		"unknown key":     {hookPlugins(t.TempDir()) + hookEntry + "    failure_polcy: fail_open\n", `unknown key "failure_polcy" under hooks[0]`},
-		"bad timeout":     {hookPlugins(t.TempDir()) + hookEntry + "    timeout: soon\n", "timeout"},
-		"long timeout":    {hookPlugins(t.TempDir()) + hookEntry + "    timeout: 11s\n", "timeout"},
-		"plain http":      {hookPlugins(t.TempDir()) + strings.Replace(hookEntry, "https://hooks.example.com", "http://hooks.example.com", 1), "loopback"},
-		"duplicate":       {hookPlugins(t.TempDir()) + hookEntry + hookEntry[len("hooks:\n"):], "twice"},
-		"bad mode":        {hookPlugins(t.TempDir()) + hookEntry + "    mode: shadow\n", "mode"},
-		"misspelled list": {hookPlugins(t.TempDir()) + strings.Replace(hookEntry, "hooks:", "hook:", 1), `did you mean "hooks"`},
-		"batch zero":      {hookPlugins(t.TempDir()) + hookEntry + "    batch_size: 0\n", "batch_size"},
+		"not pinned":           {hookEntry, `plugin "acme" is not pinned`},
+		"no policy":            {hookPlugins(t.TempDir()) + strings.Replace(hookEntry, "    failure_policy: fail_closed\n", "", 1), "failure_policy is required"},
+		"unknown key":          {hookPlugins(t.TempDir()) + hookEntry + "    failure_polcy: fail_open\n", `unknown key "failure_polcy" under hooks[0]`},
+		"bad timeout":          {hookPlugins(t.TempDir()) + hookEntry + "    timeout: soon\n", "timeout"},
+		"long timeout":         {hookPlugins(t.TempDir()) + hookEntry + "    timeout: 11s\n", "timeout"},
+		"plain http":           {hookPlugins(t.TempDir()) + strings.Replace(hookEntry, "https://hooks.example.com", "http://hooks.example.com", 1), "loopback"},
+		"duplicate":            {hookPlugins(t.TempDir()) + hookEntry + hookEntry[len("hooks:\n"):], "twice"},
+		"bad mode":             {hookPlugins(t.TempDir()) + hookEntry + "    mode: shadow\n", "mode"},
+		"misspelled list":      {hookPlugins(t.TempDir()) + strings.Replace(hookEntry, "hooks:", "hook:", 1), `did you mean "hooks"`},
+		"headers off identity": {hookPlugins(t.TempDir()) + hookEntry + "    headers: [X-Session]\n", "headers applies to identity only"},
+		"bearer header":        {hookPlugins(t.TempDir()) + strings.Replace(hookEntry, "write_veto", "identity", 1) + "    headers: [authorization]\n", "not an allowed header name"},
+		"batch zero":           {hookPlugins(t.TempDir()) + hookEntry + "    batch_size: 0\n", "batch_size"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := loadComponents(t, tc.body)
