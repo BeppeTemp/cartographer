@@ -255,7 +255,7 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
   `main` is still the commit the train was gated on (`main` does not require a branch to be
   up to date): if `main` moved, during the gate or before the merge, the PR is closed and the
   train composed and gated again. A required check that fails is rerun once before the
-  lander stops, and an open train PR on the current `main` that it did not open is adopted
+  lander stops (one in `startup_failure` stops it at once: it will not turn green), and an open train PR on the current `main` that it did not open is adopted
   (one on an older `main` is closed). Each queued change gets a hosted pre-check
   (`ready-check.yml`: its Windows tests and, for `web/`, the frontend unit tests): a train of
   several changes takes only the green ones, and a red one is gated alone. `make land-status` shows the queue; `make land` runs the lander in the
@@ -295,7 +295,8 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
   re-propose) gets **one** decision file. A maintainer's change writes it as pending,
   `make decisions-new SLUG=<slug> TOPIC=<topic>` → `docs/decisions/D-new-<slug>.md`, and cites
   it as `D-new-<slug>` (a link as `D-new-<slug>.md`): the lander gives it the next free number and rewrites the citations
-  in the change's own files (D1706). A contributor's PR numbers it after the PR (D672):
+  in the change's own files (D1706); a citation or an edit of one whose change already landed
+  follows the number it was given, and a second `D-new-<slug>` for a landed slug is rejected. A contributor's PR numbers it after the PR (D672):
   `make decisions-new N=<n> SLUG=<slug> TOPIC=<topic>`.
   Smaller choices need no file — the PR is
   their record. Do not regenerate `docs/decisions.md` in a feature PR: the
