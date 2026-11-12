@@ -45,17 +45,14 @@ func TrayWindowsLogPath() (string, error) { return windowsLogFile("tray.log") }
 // limit) with two differences: no RestartOnFailure, because a tray that fails
 // for lack of a shell must not loop, and no battery or idle conditions to
 // override beyond the ones the server task already turns off.
-func RenderWindowsTrayTaskXML(binPath, logPath, userID string) string {
+func RenderWindowsTrayTaskXML(binPath, logPath, userID, sid string) string {
 	args := fmt.Sprintf("tray --log-file %s", quotePath(logPath))
-	userElem := ""
-	if userID != "" {
-		userElem = "\n      <UserId>" + xmlEscape(userID) + "</UserId>"
-	}
+	userElem := taskUserElem(userID)
 	return fmt.Sprintf(windowsTaskXMLDeclaration+`
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
     <Description>Cartographer status icon</Description>
-    <URI>\%s\%s</URI>
+    <URI>\%s\%s</URI>%s
   </RegistrationInfo>
   <Triggers>
     <LogonTrigger>
@@ -63,7 +60,7 @@ func RenderWindowsTrayTaskXML(binPath, logPath, userID string) string {
     </LogonTrigger>
   </Triggers>
   <Principals>
-    <Principal id="Author">
+    <Principal id="Author">%s
       <LogonType>InteractiveToken</LogonType>
       <RunLevel>LeastPrivilege</RunLevel>
     </Principal>
@@ -94,7 +91,7 @@ func RenderWindowsTrayTaskXML(binPath, logPath, userID string) string {
     </Exec>
   </Actions>
 </Task>
-`, xmlEscape(windowsTaskFolder), xmlEscape(windowsTrayTaskName), userElem, xmlEscape(binPath), xmlEscape(args))
+`, xmlEscape(windowsTaskFolder), xmlEscape(windowsTrayTaskName), taskSDDLElem(sid), userElem, userElem, xmlEscape(binPath), xmlEscape(args))
 }
 
 // RenderTrayLaunchdPlist renders the LaunchAgent that runs `<binPath> tray` in
@@ -202,15 +199,16 @@ func (m *Manager) InstallTray() error {
 		}
 		return nil
 	}
-	if err := safewrite.WriteFile(base, defPath, []byte(RenderWindowsTrayTaskXML(binPath, logPath, windowsTaskUser())), 0o644); err != nil {
-		return fmt.Errorf("service: write tray task definition: %w", err)
+	// Register first: a refused registration (an old Administrators-owned
+	// task) leaves the running tray alone instead of stopped, and the installed
+	// definition as it was (#1961).
+	guarded := func(path string, data []byte) error { return safewrite.WriteFile(base, path, data, 0o644) }
+	if err := m.registerAndReplace(windowsTrayTaskName, defPath, []byte(RenderWindowsTrayTaskXML(binPath, logPath, windowsTaskUser(), windowsTaskSID())), guarded); err != nil {
+		return err
 	}
 	// IgnoreNew turns a start on a running task into a no-op, so a tray that
 	// survives the stop would keep the old binary and definition: an error.
 	if err := m.stopTrayAndWait(); err != nil {
-		return err
-	}
-	if err := m.registerWindowsTask(windowsTrayTaskName, defPath); err != nil {
 		return err
 	}
 	return m.startWindowsTask(windowsTrayTaskName)

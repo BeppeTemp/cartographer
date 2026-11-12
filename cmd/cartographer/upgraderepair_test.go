@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,6 +30,7 @@ func saveRepairFns(t *testing.T) {
 	origRunSync := repairRunSyncFn
 	origSame := repairSameBinaryFn
 	origSwitch := repairSwitchBinaryFn
+	origTaskOwner := repairTaskOwnerFn
 	origCheck, origDef := repairCheckBinaryFn, repairDefinitionPathFn
 	origTray := repairEnsureTrayFn
 	// Never the real tray: on a Mac it would register a LaunchAgent.
@@ -44,6 +46,7 @@ func saveRepairFns(t *testing.T) {
 		repairSwitchWait, repairSwitchPoll = origWait, origPoll
 		repairSameBinaryFn = origSame
 		repairSwitchBinaryFn = origSwitch
+		repairTaskOwnerFn = origTaskOwner
 		version = origVersion
 		repairEffectiveConfigFn = origEffective
 		repairServiceStatusFn = origStatus
@@ -909,4 +912,43 @@ func TestCmdUpgradeRepair_AfterSwitch_WaitsForHealthInsteadOfReplacing(t *testin
 			t.Fatalf("exit = %d", code)
 		}
 	})
+}
+
+// An installed serve task without its user's descriptor is re-registered by
+// upgrade-repair; a refusal is a warning that carries the remedy, never a
+// failure of the repair (#1961).
+func TestUpgradeRepair_HandsTheServeTaskToItsUser(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		refreshed []string
+		err       error
+		wantOut   string
+		wantErr   string
+	}{
+		{name: "re-registered", refreshed: []string{"Serve", "Tray"}, wantOut: "Serve, Tray"},
+		{name: "refused", err: fmt.Errorf("%w: run `cartographer service install` once from an elevated terminal", service.ErrTaskAccessDenied), wantErr: "cartographer service install"},
+		{name: "nothing to do"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			saveRepairFns(t)
+			calls := 0
+			repairTaskOwnerFn = func() ([]string, error) { calls++; return tc.refreshed, tc.err }
+			repairEnsureTrayFn = func() error { return nil }
+			repairEffectiveConfigFn = func(string) (string, error) { return "/cfg.yaml", nil }
+			repairServiceStatusFn = func(string) (service.Status, error) { return service.Status{Installed: true}, nil }
+			var code int
+			out := withStdout(t, func() {
+				errOut := withStderr(t, func() { code = cmdUpgradeRepair(nil) })
+				if !strings.Contains(errOut, tc.wantErr) {
+					t.Errorf("stderr %q lacks %q", errOut, tc.wantErr)
+				}
+			})
+			if calls != 1 || code != exitRepairOK {
+				t.Errorf("calls=%d exit=%d, want 1 and %d", calls, code, exitRepairOK)
+			}
+			if !strings.Contains(out, tc.wantOut) {
+				t.Errorf("stdout %q lacks %q", out, tc.wantOut)
+			}
+		})
+	}
 }

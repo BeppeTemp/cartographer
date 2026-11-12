@@ -128,6 +128,62 @@ func (m *Manager) powershell(script string) (string, error) {
 	return m.run("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference='Stop'; "+script)
 }
 
+// taskDeniedExit is the exit code taskCmd's script uses for "the scheduler
+// refused this account the right to change the task" (#1961), so the mapping
+// reads an exit code and never the localised text of the error.
+const taskDeniedExit = 5
+
+// taskNotDisabledExit is the exit code windowsTaskDisabled's script uses for
+// "the task is enabled", apart from 0 (disabled) and any failure of the probe.
+const taskNotDisabledExit = 4
+
+// taskCmd runs a script that changes or starts the serve task. A refusal for
+// lack of rights on the task (an access-denied CIM error, which PowerShell
+// reports as PermissionDenied or an UnauthorizedAccessException) exits
+// taskDeniedExit, and the error then says whose task it is and what to do.
+func (m *Manager) taskCmd(name, script string) (string, error) {
+	wrapped := "try { " + script + " } catch { $e = $_.Exception; " +
+		"if ($_.CategoryInfo.Category -eq 'PermissionDenied' -or $e -is [System.UnauthorizedAccessException] -or $e.HResult -eq -2147024891 -or $e.NativeErrorCode -eq 'AccessDenied') { exit " + fmt.Sprint(taskDeniedExit) + " }; throw }"
+	out, err := m.powershell(wrapped)
+	if err == nil {
+		return out, nil
+	}
+	var ex interface{ ExitCode() int }
+	if errors.As(err, &ex) && ex.ExitCode() == taskDeniedExit {
+		return out, m.taskDeniedError(name, err)
+	}
+	return out, err
+}
+
+// ErrTaskAccessDenied marks a change to a scheduled task the scheduler refused
+// this session for lack of rights on the task.
+var ErrTaskAccessDenied = errors.New("access denied on a scheduled task")
+
+// taskRemedy is the command that registers each task again, by task name.
+func taskRemedy(name string) string {
+	switch name {
+	case windowsSyncTaskName:
+		return "cartographer service sync-timer install"
+	case windowsTrayTaskName:
+		return "cartographer service tray install"
+	}
+	return "cartographer service install"
+}
+
+// taskDeniedError names the task's owner (best effort: reading it may be denied
+// too) and the way out. A task an older install registered from an elevated
+// shell belongs to Administrators: one install from an elevated shell hands it
+// to the user (the definition names the user's SID), and after that a normal
+// session administers it.
+func (m *Manager) taskDeniedError(name string, cause error) error {
+	owner := "an administrator"
+	script := fmt.Sprintf("$sd = (Get-ScheduledTask %s).SecurityDescriptor; (New-Object System.Security.AccessControl.RawSecurityDescriptor $sd).Owner.Translate([System.Security.Principal.NTAccount]).Value", taskSelector(name))
+	if out, err := m.powershell(script); err == nil && strings.TrimSpace(out) != "" {
+		owner = strings.TrimSpace(out)
+	}
+	return fmt.Errorf("service: %w %s%s: it is owned by %s, so this session cannot change it. Run `%s` once from an elevated (administrator) terminal to hand the task to your user: %w", ErrTaskAccessDenied, windowsTaskPathArg(), name, owner, taskRemedy(name), cause)
+}
+
 // taskSelector is the `-TaskName x -TaskPath \Cartographer\` pair every cmdlet
 // below needs.
 func taskSelector(name string) string {
@@ -146,33 +202,50 @@ func taskSelector(name string) string {
 func (m *Manager) registerWindowsTask(name, xmlPath string) error {
 	script := fmt.Sprintf("Register-ScheduledTask %s -Xml (Get-Content -Raw -Encoding UTF8 -LiteralPath %s) -Force | Out-Null",
 		taskSelector(name), psQuote(xmlPath))
-	if _, err := m.powershell(script); err != nil {
+	if _, err := m.taskCmd(name, script); err != nil {
 		return fmt.Errorf("service: register scheduled task %s: %w", name, err)
 	}
 	return nil
 }
 
-func (m *Manager) startWindowsTask(name string) error {
-	// Enable first: Stop disables the task (see Stop), and starting a disabled
-	// task succeeds silently without running anything — so a failed Enable is
-	// an error, not something to start past.
-	if _, err := m.powershell(fmt.Sprintf("Enable-ScheduledTask %s | Out-Null", taskSelector(name))); err != nil {
-		return fmt.Errorf("service: enable scheduled task %s: %w", name, err)
+// windowsTaskDisabled reports whether the task is Disabled, as Stop leaves it.
+// Only an answer of "enabled" skips the Enable: a probe that failed reads as
+// disabled, so the Enable runs as it always did.
+func (m *Manager) windowsTaskDisabled(name string) bool {
+	script := fmt.Sprintf("if ((Get-ScheduledTask %s).State -eq 'Disabled') { exit 0 } else { exit %d }", taskSelector(name), taskNotDisabledExit)
+	_, err := m.powershell(script)
+	if err == nil {
+		return true
 	}
-	if _, err := m.powershell(fmt.Sprintf("Start-ScheduledTask %s", taskSelector(name))); err != nil {
+	var ex interface{ ExitCode() int }
+	return !(errors.As(err, &ex) && ex.ExitCode() == taskNotDisabledExit)
+}
+
+func (m *Manager) startWindowsTask(name string) error {
+	// Enable first when Stop disabled the task (see Stop): starting a disabled
+	// task succeeds silently without running anything — so a failed Enable is
+	// an error, not something to start past. An enabled task is not touched:
+	// Enable needs write rights on the task, and a session that only has the
+	// right to start it (#1961) must still be able to restart it.
+	if m.windowsTaskDisabled(name) {
+		if _, err := m.taskCmd(name, fmt.Sprintf("Enable-ScheduledTask %s | Out-Null", taskSelector(name))); err != nil {
+			return fmt.Errorf("service: enable scheduled task %s: %w", name, err)
+		}
+	}
+	if _, err := m.taskCmd(name, fmt.Sprintf("Start-ScheduledTask %s", taskSelector(name))); err != nil {
 		return fmt.Errorf("service: start scheduled task %s: %w", name, err)
 	}
 	return nil
 }
 
 func (m *Manager) stopWindowsTask(name string) error {
-	if _, err := m.powershell(fmt.Sprintf("Stop-ScheduledTask %s", taskSelector(name))); err != nil {
+	if _, err := m.taskCmd(name, fmt.Sprintf("Stop-ScheduledTask %s", taskSelector(name))); err != nil {
 		return fmt.Errorf("service: stop scheduled task %s: %w", name, err)
 	}
 	// A stopped service must stay stopped (D156): the logon trigger and
 	// restart-on-failure would otherwise bring it straight back, which is the
 	// same reason the launchd branch disables the job before killing it.
-	if _, err := m.powershell(fmt.Sprintf("Disable-ScheduledTask %s | Out-Null", taskSelector(name))); err != nil {
+	if _, err := m.taskCmd(name, fmt.Sprintf("Disable-ScheduledTask %s | Out-Null", taskSelector(name))); err != nil {
 		return fmt.Errorf("service: disable scheduled task %s: %w", name, err)
 	}
 	return nil
@@ -279,6 +352,30 @@ var windowsTaskUser = func() string {
 	return u.Username
 }
 
+// windowsTaskSID is the SID of the installing user, for the task's descriptor
+// (user.Current().Uid is the SID on Windows). A test seam; "" omits the
+// descriptor (see RenderWindowsTaskXML).
+var windowsTaskSID = func() string {
+	u, err := user.Current()
+	if err != nil {
+		return ""
+	}
+	return u.Uid
+}
+
+// windowsElevated reports whether this process runs with an elevated token
+// (shutdownevent_windows.go's sibling, elevated_windows.go). A test seam.
+var windowsElevated = processElevated
+
+// windowsTaskUserLabel names the account the tasks are registered for, for the
+// notice an elevated install prints.
+func windowsTaskUserLabel() string {
+	if u := windowsTaskUser(); u != "" {
+		return u
+	}
+	return "the current user"
+}
+
 // installWindows writes the task definition and registers it, mirroring
 // installDarwin/installLinux.
 func (m *Manager) installWindows(binPath, configPath string) error {
@@ -296,14 +393,122 @@ func (m *Manager) installWindows(binPath, configPath string) error {
 	if err := os.MkdirAll(filepath.Dir(taskPath), 0o755); err != nil {
 		return fmt.Errorf("service: create tasks dir: %w", err)
 	}
-	if err := os.WriteFile(taskPath, []byte(RenderWindowsTaskXML(binPath, configPath, logPath, windowsTaskUser())), 0o644); err != nil {
-		return fmt.Errorf("service: write task definition: %w", err)
-	}
-	m.stopServeForReinstall(configHTTPAddr(configPath))
-	if err := m.registerWindowsTask(windowsServeTaskName, taskPath); err != nil {
+	// Register first: a refused registration (an old task owned by
+	// Administrators) leaves the running server untouched, instead of stopped
+	// with nothing to start it again, and the installed definition as it was
+	// (#1961).
+	if err := m.registerAndReplace(windowsServeTaskName, taskPath, []byte(RenderWindowsTaskXML(binPath, configPath, logPath, windowsTaskUser(), windowsTaskSID())), writeDefinition); err != nil {
 		return err
 	}
+	m.stopServeForReinstall(configHTTPAddr(configPath))
 	return m.startWindowsTask(windowsServeTaskName)
+}
+
+// RefreshTaskOwners brings the installed Windows tasks (Serve, Sync, Tray) up
+// to the definition that names their user (#1961): for each one whose
+// definition file exists without a descriptor it re-renders the definition for
+// the binary (and config, interval) the installed one names and registers it,
+// without stopping or starting anything, so a running server or tray is
+// untouched. It does nothing off Windows or when the user's SID cannot be
+// resolved. It returns the names it re-registered; a task still owned by
+// Administrators fails with ErrTaskAccessDenied, joined over the tasks, and the
+// caller says what to do once.
+func (m *Manager) RefreshTaskOwners() (refreshed []string, err error) {
+	if goos != "windows" || windowsTaskSID() == "" {
+		return nil, nil
+	}
+	var errs []error
+	for _, t := range []struct {
+		name   string
+		path   func() (string, error)
+		render func(data []byte, bin string) (string, error)
+	}{
+		{windowsServeTaskName, WindowsTaskPath, func(data []byte, bin string) (string, error) {
+			configPath, err := extractTaskConfigPath(data)
+			if err != nil {
+				return "", err
+			}
+			logPath, err := WindowsLogPath()
+			if err != nil {
+				return "", err
+			}
+			return RenderWindowsTaskXML(bin, configPath, logPath, windowsTaskUser(), windowsTaskSID()), nil
+		}},
+		{windowsSyncTaskName, SyncWindowsTaskPath, func(data []byte, bin string) (string, error) {
+			logPath, err := SyncWindowsLogPath()
+			if err != nil {
+				return "", err
+			}
+			return RenderWindowsSyncTaskXML(bin, logPath, intervalFromTaskXML(string(data)), windowsTaskUser(), windowsTaskSID()), nil
+		}},
+		{windowsTrayTaskName, TrayWindowsTaskPath, func(_ []byte, bin string) (string, error) {
+			logPath, err := TrayWindowsLogPath()
+			if err != nil {
+				return "", err
+			}
+			return RenderWindowsTrayTaskXML(bin, logPath, windowsTaskUser(), windowsTaskSID()), nil
+		}},
+	} {
+		done, err := m.refreshTaskOwner(t.name, t.path, t.render)
+		if err != nil {
+			errs = append(errs, err)
+		} else if done {
+			refreshed = append(refreshed, t.name)
+		}
+	}
+	return refreshed, errors.Join(errs...)
+}
+
+// writeDefinition is registerAndReplace's plain writer.
+func writeDefinition(path string, data []byte) error { return os.WriteFile(path, data, 0o644) }
+
+// registerAndReplace registers a task from a side file and replaces the
+// installed definition only once the scheduler accepted it. The file is the
+// authority for "installed" and for whether the task already has its
+// descriptor (refreshTaskOwner reads it): a refused registration must leave it
+// as it was, or the refresh would skip a task the scheduler still holds in the
+// old form, for good (#1961). write is the caller's writer (the tray's guards
+// against symlinks).
+func (m *Manager) registerAndReplace(name, path string, def []byte, write func(path string, data []byte) error) error {
+	next := path + ".new"
+	if err := write(next, def); err != nil {
+		return fmt.Errorf("service: write %s task definition: %w", name, err)
+	}
+	defer os.Remove(next)
+	if err := m.registerWindowsTask(name, next); err != nil {
+		return err
+	}
+	if err := os.Rename(next, path); err != nil {
+		return fmt.Errorf("service: replace %s task definition: %w", name, err)
+	}
+	return nil
+}
+
+// refreshTaskOwner is RefreshTaskOwners for one task. The new definition is
+// registered from a side file and replaces the installed one only once the
+// scheduler accepted it: the file is the authority for "installed", and a
+// refused registration must leave it as it was, so the next run tries again.
+func (m *Manager) refreshTaskOwner(name string, pathFn func() (string, error), render func([]byte, string) (string, error)) (bool, error) {
+	taskPath, err := pathFn()
+	if err != nil {
+		return false, err
+	}
+	data, err := os.ReadFile(taskPath)
+	if err != nil || strings.Contains(string(data), "<SecurityDescriptor>") {
+		return false, nil
+	}
+	binPath, err := extractTaskBinary(data)
+	if err != nil {
+		return false, fmt.Errorf("service: read the installed %s task definition: %w", name, err)
+	}
+	def, err := render(data, binPath)
+	if err != nil {
+		return false, fmt.Errorf("service: read the installed %s task definition: %w", name, err)
+	}
+	if err := m.registerAndReplace(name, taskPath, []byte(def), writeDefinition); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // stopServeForReinstall ends a serve task that is already running, so the start
@@ -385,7 +590,7 @@ func (m *Manager) stopServeAndWait(addr string) error {
 	} else if m.waitServeExit(addr, windowsDrainTimeout) {
 		return nil
 	}
-	_, stopErr := m.powershell(fmt.Sprintf("Stop-ScheduledTask %s", taskSelector(windowsServeTaskName)))
+	_, stopErr := m.taskCmd(windowsServeTaskName, fmt.Sprintf("Stop-ScheduledTask %s", taskSelector(windowsServeTaskName)))
 	if m.waitServeExit(addr, windowsKillTimeout) {
 		return nil
 	}

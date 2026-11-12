@@ -12,3 +12,7 @@ func tryLockFile(*os.File) error { return nil }
 func unlockFile(*os.File) error { return nil }
 
 func isLockBusy(error) bool { return false }
+
+func isOpenDenied(error) bool { return false }
+
+func processIdentity() (string, bool) { return "an unknown account", false }

@@ -146,7 +146,7 @@ func TestResolveStableBinPath_Windows(t *testing.T) {
 }
 
 func TestRenderWindowsTaskXML(t *testing.T) {
-	out := RenderWindowsTaskXML(`C:\bin\cartographer.exe`, `C:\Users\Nome Cognome\AppData\Roaming\cartographer\server.yaml`, `C:\logs\server.log`, `HOST\user`)
+	out := RenderWindowsTaskXML(`C:\bin\cartographer.exe`, `C:\Users\Nome Cognome\AppData\Roaming\cartographer\server.yaml`, `C:\logs\server.log`, `HOST\user`, "")
 
 	for _, want := range []string{
 		`<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">`,
@@ -210,12 +210,12 @@ func assertTaskXMLDeclaresNoEncoding(t *testing.T, out string) {
 }
 
 func TestRenderWindowsTaskXML_EscapesTheBinaryPath(t *testing.T) {
-	out := RenderWindowsTaskXML(`C:\R&D\cartographer.exe`, `C:\cfg\server.yaml`, `C:\logs\server.log`, `HOST\user`)
+	out := RenderWindowsTaskXML(`C:\R&D\cartographer.exe`, `C:\cfg\server.yaml`, `C:\logs\server.log`, `HOST\user`, "")
 	if !strings.Contains(out, `<Command>C:\R&amp;D\cartographer.exe</Command>`) {
 		t.Errorf("an ampersand in the path was not escaped, which makes the whole definition unparseable:\n%s", out)
 	}
 	// And it round-trips: the reader has to give the path back as written.
-	got, err := extractTaskConfigPath([]byte(RenderWindowsTaskXML(`C:\R&D\cartographer.exe`, `C:\R&D\server.yaml`, `C:\logs\server.log`, `HOST\user`)))
+	got, err := extractTaskConfigPath([]byte(RenderWindowsTaskXML(`C:\R&D\cartographer.exe`, `C:\R&D\server.yaml`, `C:\logs\server.log`, `HOST\user`, "")))
 	if err != nil {
 		t.Fatalf("extractTaskConfigPath: %v", err)
 	}
@@ -225,7 +225,7 @@ func TestRenderWindowsTaskXML_EscapesTheBinaryPath(t *testing.T) {
 }
 
 func TestRenderWindowsSyncTaskXML(t *testing.T) {
-	out := RenderWindowsSyncTaskXML(`C:\bin\cartographer.exe`, `C:\logs\sync.log`, 20*time.Minute)
+	out := RenderWindowsSyncTaskXML(`C:\bin\cartographer.exe`, `C:\logs\sync.log`, 20*time.Minute, `HOST\user`, "")
 	assertTaskXMLDeclaresNoEncoding(t, out)
 
 	for _, want := range []string{
@@ -252,7 +252,7 @@ func TestRenderWindowsSyncTaskXML(t *testing.T) {
 // The server task also carries an <Interval> (the restart backoff), so a reader
 // that searched for the bare element would report a 1-minute sync period.
 func TestIntervalFromTaskXML_IgnoresTheRestartBackoff(t *testing.T) {
-	out := RenderWindowsTaskXML(`C:\bin\cartographer.exe`, `C:\cfg\server.yaml`, `C:\logs\server.log`, `HOST\user`)
+	out := RenderWindowsTaskXML(`C:\bin\cartographer.exe`, `C:\cfg\server.yaml`, `C:\logs\server.log`, `HOST\user`, "")
 	if got := intervalFromTaskXML(out); got != 0 {
 		t.Errorf("intervalFromTaskXML on the server task = %v, want 0 (it has no repetition)", got)
 	}
@@ -414,6 +414,15 @@ type fakeServeTask struct {
 	// still-running process: the new instance that dies on bind.
 	startedWhileRunning int
 	fail                map[string]bool
+	// enabled makes the task answer "enabled" to the Disabled probe (the zero
+	// value is a task Stop left disabled, as before).
+	enabled bool
+	// denyEnable refuses Enable-ScheduledTask the way an admin-owned task does
+	// (exit taskDeniedExit); owner is what the owner query then answers.
+	denyEnable bool
+	// denyRegister refuses Register-ScheduledTask the same way.
+	denyRegister bool
+	owner        string
 }
 
 func (f *fakeServeTask) stop() {
@@ -432,6 +441,16 @@ func (f *fakeServeTask) run(name string, args ...string) (string, error) {
 		}
 	}
 	switch {
+	case strings.Contains(key, "State -eq 'Disabled'"):
+		if f.enabled {
+			return "", exitCodeErr(taskNotDisabledExit)
+		}
+	case strings.Contains(key, "Enable-ScheduledTask") && f.denyEnable:
+		return "", exitCodeErr(taskDeniedExit)
+	case strings.Contains(key, "Register-ScheduledTask") && f.denyRegister:
+		return "", exitCodeErr(taskDeniedExit)
+	case strings.Contains(key, "RawSecurityDescriptor"):
+		return f.owner + "\r\n", nil
 	case strings.Contains(key, "State -eq 'Running'"):
 		if f.stopping {
 			if f.lingerPolls > 0 {
@@ -553,7 +572,7 @@ func TestRestart_Windows_WaitsForThePortToBeReleased(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(taskPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(taskPath, []byte(RenderWindowsTaskXML(`C:\bin\cartographer.exe`, configPath, `C:\logs\server.log`, `HOST\user`)), 0o644); err != nil {
+	if err := os.WriteFile(taskPath, []byte(RenderWindowsTaskXML(`C:\bin\cartographer.exe`, configPath, `C:\logs\server.log`, `HOST\user`, "")), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(configPath, []byte("http: \"127.0.0.1:39273\"\n"), 0o644); err != nil {
@@ -612,7 +631,7 @@ func TestRestart_Windows_FallsBackToRegisterWhenUnknown(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(taskPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(taskPath, []byte(RenderWindowsTaskXML(`C:\bin\cartographer.exe`, `C:\cfg\server.yaml`, `C:\logs\server.log`, `HOST\user`)), 0o644); err != nil {
+	if err := os.WriteFile(taskPath, []byte(RenderWindowsTaskXML(`C:\bin\cartographer.exe`, `C:\cfg\server.yaml`, `C:\logs\server.log`, `HOST\user`, "")), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	s := &stubRunner{fail: map[string]bool{"Get-ScheduledTask -TaskName 'Serve'": true}}
@@ -892,7 +911,7 @@ func TestEffectiveConfigPath_Windows(t *testing.T) {
 		if err := os.MkdirAll(filepath.Dir(taskPath), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		xml := RenderWindowsTaskXML(`C:\bin\cartographer.exe`, configPath, `C:\logs\server.log`, `HOST\user`)
+		xml := RenderWindowsTaskXML(`C:\bin\cartographer.exe`, configPath, `C:\logs\server.log`, `HOST\user`, "")
 		if err := os.WriteFile(taskPath, []byte(xml), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -1068,14 +1087,14 @@ func TestInstall_Windows_StopsARunningTaskBeforeStarting(t *testing.T) {
 // any user's logon and needs administrator rights to register, which is how a
 // standard user got "Access denied" and no service (verified on Windows 11).
 func TestRenderWindowsTaskXML_ScopesTheLogonTriggerToItsUser(t *testing.T) {
-	out := RenderWindowsTaskXML(`C:\bin\cartographer.exe`, `C:\cfg\server.yaml`, `C:\logs\server.log`, `CORP\R&D user`)
+	out := RenderWindowsTaskXML(`C:\bin\cartographer.exe`, `C:\cfg\server.yaml`, `C:\logs\server.log`, `CORP\R&D user`, "")
 	want := "<LogonTrigger>\n      <Enabled>true</Enabled>\n      <UserId>CORP\\R&amp;D user</UserId>\n    </LogonTrigger>"
 	if !strings.Contains(out, want) {
 		t.Errorf("logon trigger not scoped to the user:\n%s", out)
 	}
 	assertTaskXMLDeclaresNoEncoding(t, out)
 
-	if unscoped := RenderWindowsTaskXML(`C:\bin\cartographer.exe`, `C:\cfg\server.yaml`, `C:\logs\server.log`, ""); strings.Contains(unscoped, "<UserId>") {
+	if unscoped := RenderWindowsTaskXML(`C:\bin\cartographer.exe`, `C:\cfg\server.yaml`, `C:\logs\server.log`, "", ""); strings.Contains(unscoped, "<UserId>") {
 		t.Errorf("an unresolved user must not render an empty UserId:\n%s", unscoped)
 	}
 }
@@ -1135,7 +1154,7 @@ func TestStart_Windows_FailedEnableFailsTheStart(t *testing.T) {
 // The task marks the process as supervised (--supervised), and the extra flag
 // leaves the config path readable: EffectiveConfigPath parses these arguments.
 func TestWindowsTaskSupervisedFlagKeepsTheConfigPath(t *testing.T) {
-	out := RenderWindowsTaskXML(`C:\bin\cartographer.exe`, `C:\Users\Nome Cognome\server.yaml`, `C:\logs\server.log`, `HOST\user`)
+	out := RenderWindowsTaskXML(`C:\bin\cartographer.exe`, `C:\Users\Nome Cognome\server.yaml`, `C:\logs\server.log`, `HOST\user`, "")
 	if !strings.Contains(out, " --supervised</Arguments>") {
 		t.Fatalf("task XML lacks --supervised:\n%s", out)
 	}

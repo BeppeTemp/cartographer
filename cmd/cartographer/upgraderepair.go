@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
@@ -46,6 +47,7 @@ var (
 	repairSameBinaryFn       = sameExecutable
 	repairCheckBinaryFn      = service.CheckStableBinary
 	repairDefinitionPathFn   = service.DefinitionPath
+	repairTaskOwnerFn        = func() ([]string, error) { return service.NewManager().RefreshTaskOwners() }
 	repairSwitchBinaryFn     = func(configPath string) error { return service.NewManager().SwitchBinary(configPath) }
 )
 
@@ -76,6 +78,18 @@ func cmdUpgradeRepair(args []string) int {
 		return exitRepairServiceFailure
 	}
 
+	if st.Installed {
+		// The tasks an older install registered carry no user or descriptor
+		// (#1961): register the current definitions, once per run. Never an
+		// error of the repair: the server it serves is fine.
+		refreshed, err := repairTaskOwnerFn()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Warning: could not hand a scheduled task to your user:", err)
+		}
+		if len(refreshed) > 0 {
+			fmt.Printf("scheduled tasks re-registered for your user: %s (nothing running was stopped)\n", strings.Join(refreshed, ", "))
+		}
+	}
 	if !st.Installed {
 		// A client-only machine's tray may still run the previous binary (an
 		// in-place update moves the exe aside): refresh it, never create one.

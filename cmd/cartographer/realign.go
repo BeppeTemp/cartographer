@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -252,6 +253,9 @@ func realignKBSettings(k *kb.KB, name string) (refusal string) {
 func realignClientConfig(dir string) {
 	release, err := provisioning.LockClientState(dir, provisioning.DefaultClientLockTimeout)
 	if err != nil {
+		if errors.Is(err, provisioning.ErrClientDirDenied) {
+			return // the lock the sync takes next reports it, once
+		}
 		fmt.Fprintf(os.Stderr, "warning: %s is not realigned: %v\n", clientconfig.Path(dir), err)
 		return
 	}

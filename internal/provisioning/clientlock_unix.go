@@ -23,3 +23,9 @@ func unlockFile(f *os.File) error {
 func isLockBusy(err error) bool {
 	return errors.Is(err, syscall.EWOULDBLOCK) || errors.Is(err, syscall.EAGAIN)
 }
+
+// isOpenDenied is false off Windows: the denied-open message is the Windows
+// agent-sandbox case, and an EACCES here keeps the plain open error.
+func isOpenDenied(error) bool { return false }
+
+func processIdentity() (string, bool) { return "an unknown account", false }
