@@ -296,7 +296,8 @@ type Log struct {
 	lastErr        error
 	sequence       uint64
 	index          checkpointIndex
-	lock           *os.File // the SingleWriter lock, held for the life of the Log
+	lock           *os.File        // the SingleWriter lock, held for the life of the Log
+	wake           []chan struct{} // readers woken after an append (Wake)
 }
 
 // writerLockPath is the lock file of a log opened with SingleWriter.
@@ -572,6 +573,7 @@ func (l *Log) appendLocked(e *Entry) error {
 	l.lastHash = e.Hash
 	l.healthy = true
 	l.lastErr = nil
+	l.signalLocked()
 	return nil
 }
 
