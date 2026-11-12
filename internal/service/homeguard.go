@@ -33,6 +33,8 @@ var schedulerCommands = map[string]bool{
 	"powershell.exe": true,
 	"crontab":        true,
 	"wsl.exe":        true,
+	// loginctl enable-linger changes the account's login manager, not $HOME.
+	"loginctl": true,
 }
 
 // accountHome and envHome are indirected for tests.

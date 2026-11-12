@@ -4,6 +4,8 @@ import (
 	"encoding/base64"
 	"encoding/xml"
 	"errors"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -300,3 +302,108 @@ func TestWslKeepAliveRegistered(t *testing.T) {
 }
 
 func joinedStrings(s []string) string { return strings.Join(s, "\n") }
+
+// wslHost is a Linux host inside WSL2 on the systemd backend: the interop
+// PowerShell goes to the fake scheduler, every other command to the stub.
+type wslHost struct {
+	win  *fakeKeepAliveWindows
+	stub *stubRunner
+	m    *Manager
+	cfg  string
+}
+
+func newWslHost(t *testing.T, info wsl.Info) *wslHost {
+	t.Helper()
+	withKeepAliveHost(t)
+	wslDetect = func() wsl.Info { return info }
+	h := &wslHost{win: &fakeKeepAliveWindows{}, stub: &stubRunner{}}
+	h.m = &Manager{run: func(name string, args ...string) (string, error) {
+		if name == testPS {
+			return h.win.run(name, args...)
+		}
+		return h.stub.run(name, args...)
+	}}
+	h.cfg = filepath.Join(t.TempDir(), "server.yaml")
+	if err := os.WriteFile(h.cfg, []byte("data: "+filepath.ToSlash(t.TempDir())+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return h
+}
+
+func (h *wslHost) called(sub string) bool {
+	for _, c := range h.stub.calls {
+		if strings.Contains(strings.Join(c, " "), sub) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestInstall_WSLSystemdRegistersTheKeepAliveAndLinger(t *testing.T) {
+	h := newWslHost(t, wslInfo())
+	warnings, err := h.m.Install(InstallOptions{ConfigPath: h.cfg})
+	if err != nil || len(warnings) != 0 {
+		t.Fatalf("Install = %v, %v", warnings, err)
+	}
+	if !h.win.registered || len(h.win.logons) != 1 {
+		t.Errorf("keep-alive registrations = %v", h.win.logons)
+	}
+	if !h.called("loginctl enable-linger user") {
+		t.Errorf("no enable-linger: %v", h.stub.calls)
+	}
+	// A re-install registers again (-Force) rather than skipping.
+	if _, err := h.m.Install(InstallOptions{ConfigPath: h.cfg}); err != nil || len(h.win.logons) != 2 {
+		t.Errorf("re-install = %v, registrations %v", err, h.win.logons)
+	}
+
+	if err := h.m.Uninstall(true); err != nil {
+		t.Fatal(err)
+	}
+	if h.win.registered {
+		t.Error("uninstall left the keep-alive task")
+	}
+}
+
+func TestInstall_WSLLingerRefusedIsAWarning(t *testing.T) {
+	h := newWslHost(t, wslInfo())
+	h.stub.fail = map[string]bool{"enable-linger": true}
+	warnings, err := h.m.Install(InstallOptions{ConfigPath: h.cfg})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "loginctl enable-linger user") {
+		t.Errorf("warnings = %v", warnings)
+	}
+}
+
+func TestInstall_WSLWithoutInteropWarns(t *testing.T) {
+	info := wslInfo()
+	info.Interop, info.PowerShell = false, ""
+	h := newWslHost(t, info)
+	warnings, err := h.m.Install(InstallOptions{ConfigPath: h.cfg})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "interop disabled") {
+		t.Errorf("warnings = %v", warnings)
+	}
+	if len(h.win.calls) != 0 {
+		t.Errorf("Windows was called: %v", h.win.calls)
+	}
+}
+
+// Off WSL (and on WSL1) a Linux install never reaches Windows nor linger.
+func TestInstall_NotWSL2TouchesNoWindows(t *testing.T) {
+	for name, info := range map[string]wsl.Info{
+		"plain linux": {},
+		"wsl1":        {Is: true, Distro: "Ubuntu", Version: 1, Interop: true, PowerShell: testPS},
+	} {
+		h := newWslHost(t, info)
+		if _, err := h.m.Install(InstallOptions{ConfigPath: h.cfg}); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if len(h.win.calls) != 0 || h.called("loginctl") {
+			t.Errorf("%s: windows %v, stub %v", name, h.win.calls, h.stub.calls)
+		}
+	}
+}

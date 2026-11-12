@@ -29,6 +29,53 @@ var wslUser = func() string {
 	return u.Username
 }
 
+// wslDetect is wsl.Detect behind a test seam: a test on a real WSL host must
+// not reach Windows, and one elsewhere must be able to pretend.
+var wslDetect = wsl.Detect
+
+// installWslSide is the part of a Linux install that only WSL2 has: the
+// keep-alive task and, for systemd, linger. Off WSL it does nothing at all.
+func (m *Manager) installWslSide(backend Backend) ([]string, error) {
+	info := wslDetect()
+	if !info.Is || info.Version != 2 {
+		return nil, nil
+	}
+	var warnings []string
+	// A systemd user manager runs only while a logind session or linger
+	// exists, and `wsl.exe -- cmd` (what the keep-alive task runs) need not
+	// open a session: without linger the unit would not start after
+	// `wsl --shutdown` or a reboot.
+	if backend == BackendSystemd {
+		if u := wslUser(); u != "" {
+			if _, err := m.run("loginctl", "enable-linger", u); err != nil {
+				warnings = append(warnings, fmt.Sprintf("`loginctl enable-linger %s` failed (%v): without linger the systemd user manager, and the server, may not start when the distro does; run it yourself", u, err))
+			}
+		}
+	}
+	w, err := m.InstallWslKeepAlive(info)
+	if w != "" {
+		warnings = append(warnings, w)
+	}
+	return warnings, err
+}
+
+// KeepAliveEnsure is the keep-alive's periodic step: on the cron backend it
+// runs Ensure, because inside WSL nothing starts a cron daemon at distro boot,
+// so after `wsl --shutdown` or a reboot no cron line would ever bring the
+// server back. Ensure starts the server detached (its own session), so the
+// keep-alive still does not own it. On systemd, or with nothing installed, it
+// does nothing: the server is the user manager's.
+func (m *Manager) KeepAliveEnsure() error {
+	if goos != "linux" || linuxInstalledBackend() != BackendCron {
+		return nil
+	}
+	cfg, err := m.EffectiveConfigPath("")
+	if err != nil {
+		return err
+	}
+	return m.Ensure(cfg)
+}
+
 // wslIdleTimeoutFix is the manual alternative to the task: WSL then never
 // stops an idle distro. The key lives in [general], not [wsl2].
 const wslIdleTimeoutFix = "add to %USERPROFILE%\\.wslconfig on Windows:\n  [general]\n  instanceIdleTimeout=-1\nthen run `wsl --shutdown` once"

@@ -177,14 +177,20 @@ func (m *Manager) Install(opts InstallOptions) ([]string, error) {
 	case "linux":
 		if backend == BackendCron {
 			more, err := m.installCron(binPath, configPath)
-			return append(warnings, more...), err
+			warnings = append(warnings, more...)
+			if err != nil {
+				return warnings, err
+			}
+		} else {
+			if err := m.removeCronLeftover(); err != nil {
+				return warnings, err
+			}
+			if err := m.installLinux(binPath, configPath, env...); err != nil {
+				return warnings, err
+			}
 		}
-		if err := m.removeCronLeftover(); err != nil {
-			return warnings, err
-		}
-		if err := m.installLinux(binPath, configPath, env...); err != nil {
-			return warnings, err
-		}
+		more, err := m.installWslSide(backend)
+		return append(warnings, more...), err
 	case "windows":
 		if err := m.installWindows(binPath, configPath, env...); err != nil {
 			return warnings, err
@@ -405,6 +411,10 @@ func (m *Manager) uninstallServer() error {
 		}
 		if hasUnit || (!hasCron && m.Backend() == BackendSystemd) {
 			errs = append(errs, m.uninstallSystemd())
+		}
+		// After the server: the keep-alive only holds the distro up for it.
+		if info := wslDetect(); info.Is {
+			errs = append(errs, m.UninstallWslKeepAlive(info))
 		}
 		return errors.Join(errs...)
 	case "windows":
