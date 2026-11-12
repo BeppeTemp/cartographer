@@ -945,6 +945,10 @@ func TestBuildManifest_AgentFrontmatterNotYAML_NamedAsIssue(t *testing.T) {
 			t.Errorf("issue must contain %q: %s", want, m.Issues[0])
 		}
 	}
+	// status recognises the line by this prefix to name the agent as held.
+	if !strings.HasPrefix(m.Issues[0], contract.AgentFrontmatterIssuePrefix("kb-a", "bad")) {
+		t.Errorf("issue must start with AgentFrontmatterIssuePrefix: %s", m.Issues[0])
+	}
 	// The line must not claim the agent is waiting (an approval releases it),
 	// and must not name a command (it reaches sync output).
 	for _, bad := range []string{"waits", "stays held", "cartographer "} {

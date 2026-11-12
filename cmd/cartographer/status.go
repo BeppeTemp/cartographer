@@ -200,6 +200,9 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 			if trust == "needs_approval" || trust == "approval_stale" {
 				approvalPending = true
 			}
+			if a.HeldReason != "" {
+				fmt.Printf("    held for approval: %s\n", escapeControl(a.HeldReason))
+			}
 			if a.Kind == "hook" {
 				printHookRegistrationHint(p.Name, a, "new hook")
 			}
@@ -209,6 +212,9 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 			fmt.Printf("  ~ %s/%s [%s] trust=%s\n", escapeControl(a.Kind), escapeControl(a.Name), escapeControl(a.Source), trust)
 			if trust == "needs_approval" || trust == "approval_stale" {
 				approvalPending = true
+			}
+			if a.HeldReason != "" {
+				fmt.Printf("    held for approval: %s\n", escapeControl(a.HeldReason))
 			}
 			if a.Kind == "hook" {
 				printHookRegistrationHint(p.Name, a, "hook updated")
@@ -228,6 +234,11 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 	// counts above do not miss it.
 	for _, is := range s.Issues {
 		fmt.Printf("not in the catalogue: %s\n", escapeControl(is))
+	}
+	// An artifact that is in the catalogue and not shown as held, with a problem
+	// in its content: never "not in the catalogue".
+	for _, w := range s.CatalogueWarnings {
+		fmt.Printf("in the catalogue, with a problem: %s\n", escapeControl(w))
 	}
 
 	// D262: informational, never a drift — the sync left the keys verbatim.

@@ -27,7 +27,7 @@ var sourceSites = map[string]struct {
 	"cmd/cartographer/doctor_shadow.go":              {3, "a KB artifact shadowed by a workspace file: a plugin artifact is not a KB's, so it is skipped"},
 	"cmd/cartographer/kbrename.go":                   {1, "rename prefix of a KB, unrelated"},
 	"cmd/cartographer/plugins_local.go":              {3, "builds the plugin artifacts from approved trees; words a collision that names the bundle, a KB or a plugin"},
-	"cmd/cartographer/status_snapshot.go":            {2, "trust is `plugin`, never needs_approval"},
+	"cmd/cartographer/status_snapshot.go":            {3, "trust is `plugin`, never needs_approval; kbAgentIssuePrefix: only a KB's agent has a sync_pull issue to match, a bundle or plugin agent yields none"},
 	"cmd/cartographer/usagesync.go":                  {1, "groups usage per KB and ignores other sources"},
 	"cmd/cartographer/workspace.go":                  {2, "workspace projections permit bundle and bound KBs; plugins join the global scope only (forProjection)"},
 	"internal/artifactsig/artifactsig.go":            {2, "identity requires kb:, so a plugin artifact can never be signed"},
