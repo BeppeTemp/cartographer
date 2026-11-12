@@ -688,6 +688,22 @@ at all would be refused by `workspace bind` rather than degraded to the global c
 projects every kind into its workspace `.agents/` layer and `AGENTS.md` (probed on CLI 1.3.2); a
 rule file is not used for instructions because it is read only with `trigger: always_on`.
 
+**Linked git worktrees.** A workspace projection is written into the bound folder only (for Kiro,
+agents go to `<repo>/.kiro/agents/<name>.json`), and the files it creates are untracked and excluded
+from git (§Repository hygiene), so a linked worktree of the repository (`git worktree add`, for example
+`<repo>/.worktrees/<slug>`) is a different folder that does not contain them: Cartographer writes
+nothing there. (A block written inside a file the repository tracks, `AGENTS.md` for example, is in the
+worktree at its committed state.) To project into it, bind the worktree too, as any other folder:
+`cartographer workspace bind <provider> <repo>/.worktrees/<slug> --kb <name>…` (the path only has to be
+an existing directory), then `cartographer sync`: `bind` only records the binding and prints that `sync`
+projects it. Tool scoping is different from file projection: the stdio bridge resolves a session started
+in any folder under a bound path, such as a worktree below `<repo>/.worktrees/`, to the longest matching
+binding (`ResolveWorkspace`), so the MCP tools are scoped to the repository's KBs there even though the
+files stop at the bound folder. The binding is per path, so it is also removed per path: a bound worktree
+that `git worktree remove` deleted is an error for that provider's `sync` until
+`cartographer workspace unbind <provider> <path>`. Projecting into a repository's linked worktrees
+without binding each one is proposed in [#1982](https://github.com/BeppeTemp/cartographer/issues/1982).
+
 **Shared paths.** `.agents/skills/` is Codex's project skill directory too, and `AGENTS.md` is shared
 by Codex, OpenCode, Antigravity, Copilot and Pi. Two providers bound to one workspace write such a path
 identically, so a prune never deletes a path that another provider's projection of the same
