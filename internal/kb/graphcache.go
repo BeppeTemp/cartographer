@@ -283,7 +283,10 @@ type graphCache struct {
 	// files: view is then an older snapshot, possibly naming concepts that
 	// are gone.
 	stale bool
-	stats graphCacheStats
+	// validatedAt is when the last full validation ended successfully: what
+	// GraphGenerationWithin trusts instead of walking again.
+	validatedAt time.Time
+	stats       graphCacheStats
 	// reported is, per id, the content hash ConceptChanges last reported
 	// (D245). nil until the first call or a seed.
 	reported map[okf.ConceptID]string
@@ -354,6 +357,38 @@ func (kb *KB) GraphGeneration() (uint64, error) {
 	return v.generation, nil
 }
 
+// GraphGenerationWithin is GraphGeneration for a poller: when some reader
+// validated the cache less than maxAge ago it returns that view's generation
+// without another walk of the concept files, so N tabs polling every few
+// seconds cost one lstat walk per maxAge, not N. Every other reader still
+// validates strictly (D241), and its validation counts as the last one. A
+// write made through the server (WithGitLock) forgets the last validation, so
+// the next poll sees it at once; an edit made out of band is seen within
+// maxAge.
+func (kb *KB) GraphGenerationWithin(maxAge time.Duration) (uint64, error) {
+	kb.graphMu.Lock()
+	defer kb.graphMu.Unlock()
+	if c := kb.graph; c != nil && c.view != nil && !c.stale && time.Since(c.validatedAt) < maxAge {
+		return c.view.generation, nil
+	}
+	v, err := kb.graphViewLocked(nil)
+	if err != nil {
+		return 0, err
+	}
+	return v.generation, nil
+}
+
+// forgetGraphValidation makes the next GraphGenerationWithin validate: every
+// write goes through WithGitLock, which calls it when the write ends, so the
+// poll never answers with the generation from before a write this server made.
+func (kb *KB) forgetGraphValidation() {
+	kb.graphMu.Lock()
+	defer kb.graphMu.Unlock()
+	if kb.graph != nil {
+		kb.graph.validatedAt = time.Time{}
+	}
+}
+
 func (kb *KB) graphCacheLocked() *graphCache {
 	if kb.graph == nil {
 		kb.graph = &graphCache{entries: map[string]*graphEntry{}, facetOnly: map[string]*graphEntry{}}
@@ -414,6 +449,7 @@ func (kb *KB) graphViewLocked(read map[string]string) (*graphView, error) {
 	if !changed && c.view != nil && len(emitted) != len(c.view.entries) {
 		changed = true
 	}
+	c.validatedAt = time.Now()
 	if !changed {
 		return c.view, nil
 	}
@@ -728,4 +764,36 @@ func (kb *KB) SeedReportedHashes(hashes map[okf.ConceptID]string) {
 	for id, h := range hashes {
 		c.reported[id] = h
 	}
+}
+
+// CatalogEntry is what a count of the KB needs from one concept: the facets
+// the link-graph cache already holds, so no file is read.
+type CatalogEntry struct {
+	ID       okf.ConceptID
+	Expanded bool // the concept lives in <id>/index.md
+	Title    string
+	Type     string
+	Status   string
+}
+
+// ConceptCatalog lists the concepts WalkConceptPaths would emit, in its
+// order and one per file, from the stat-validated cache (D241): a warm call
+// reads and parses nothing. A file whose frontmatter does not parse has empty
+// facets, as it has in the walk.
+func (kb *KB) ConceptCatalog() ([]CatalogEntry, error) {
+	view, err := kb.graphView()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]CatalogEntry, 0, len(view.entries))
+	for _, e := range view.entries {
+		out = append(out, CatalogEntry{
+			ID:       e.id,
+			Expanded: e.rel == path.Join(string(e.id), "index.md"),
+			Title:    e.facets.Title,
+			Type:     e.facets.Type,
+			Status:   e.facets.Status,
+		})
+	}
+	return out, nil
 }

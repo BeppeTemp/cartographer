@@ -157,6 +157,7 @@ var apiRoutes = buildAPIRoutes([]apiRoute{
 	{Pattern: "/kbs/{kb}/graph", Tier: tierPreview, Summary: "The link graph",
 		Handler: kbRoute(func(w http.ResponseWriter, r *http.Request, srv *Server) { uiGraph(w, r, srv.kbRef) })},
 	{Pattern: "/kbs/{kb}/lint", Tier: tierPreview, Summary: "Lint findings",
+		Query:   []apiParam{limitParam, {Name: "cursor", Description: "The next_cursor of the previous page"}},
 		Handler: kbRoute(uiLint)},
 	{Pattern: "/kbs/{kb}/checks", Tier: tierPreview, Summary: "The lint checks and their state",
 		Handler: kbRoute(func(w http.ResponseWriter, _ *http.Request, srv *Server) { uiChecks(w, srv.kbRef) })},

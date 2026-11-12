@@ -227,6 +227,8 @@ export interface LintReport {
   findings: LintFinding[];
   count: number;
   by_check: Record<string, number>;
+  /** Set while more findings follow this page; `count` is the total across pages. */
+  next_cursor?: string;
 }
 
 /** GET /kbs/{kb}/search: the search tool's own response. */

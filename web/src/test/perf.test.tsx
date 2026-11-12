@@ -27,8 +27,9 @@ describe("2,000-node budget fixture", () => {
 
   it("warms the simulation up within budget", () => {
     const detected = performance.now();
-    // The graph view's warm-up for this size (GraphView: 600,000 / n ticks,
-    // clamped to 80..300), on the view's own force configuration.
+    // The graph view's longest warm-up for this size, on the view's own force
+    // configuration (GraphView: 300,000 / n ticks clamped to 60..150, and with
+    // reduced motion 600,000 / n clamped to 60..300: 300 ticks at 2,000 nodes).
     const nodes: PhysicsNode[] = FIXTURE.nodes.map((n) => ({ id: n.id, ...seedPosition(n.id, FIXTURE.nodes.length) }));
     const links = FIXTURE.edges.map((e) => ({ source: e.source, target: e.target }));
     const sim = forceSimulation<PhysicsNode>(nodes, 3)

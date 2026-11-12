@@ -216,6 +216,11 @@ type KB struct {
 	// view generation (D251).
 	prMu    sync.Mutex
 	prCache *pageRankPercentiles
+	// rankMu guards rankMemo, the snapshot's PageRank and communities of one
+	// graph view generation, per visible set (snapshotrank.go).
+	rankMu   sync.Mutex
+	rankMemo *rankMemo
+	rankRuns int
 	// retireMu guards retireCache, the parsed root log (Retirements, D820).
 	retireMu    sync.Mutex
 	retireCache *retirementCache

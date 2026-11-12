@@ -84,7 +84,9 @@ func writeUIInternal(w http.ResponseWriter, context string, err error) {
 func (m *MultiKBServer) handleUIAPI(w http.ResponseWriter, r *http.Request) {
 	// The Atlas is the operator's own surface: it keeps the full texts (D1101).
 	r = r.WithContext(withOperator(r.Context()))
-	m.serveAPI(w, r, UIAPIPrefix, tierAll)
+	uiGzip(func(w http.ResponseWriter, r *http.Request) {
+		m.serveAPI(w, r, UIAPIPrefix, tierAll)
+	})(w, r)
 }
 
 // uiKBVisible reports whether the principal may see anything at all in this
@@ -191,10 +193,26 @@ type uiOverviewBody struct {
 func (m *MultiKBServer) uiOverview(w http.ResponseWriter, r *http.Request, srv *Server) {
 	k := srv.kbRef
 	ctx := r.Context()
-	res, err := queryConcepts(k, ConceptQuery{Include: func(id string) bool { return Visible(ctx, k, id) }})
+	// The facets come from the stat-validated graph cache (D241), not from a
+	// read of every concept file: a warm overview parses nothing, which is
+	// what keeps a 50k-concept KB's page load, KB switch and live refresh
+	// cheap.
+	catalog, err := k.ConceptCatalog()
 	if err != nil {
 		writeUIInternal(w, "overview: walk", err)
 		return
+	}
+	var res ConceptQueryResult
+	res.Entries = make([]ConceptEntry, 0, len(catalog))
+	for _, c := range catalog {
+		id := string(c.ID)
+		if !Visible(ctx, k, id) {
+			continue
+		}
+		res.Entries = append(res.Entries, ConceptEntry{
+			ID: id, Collection: conceptCollection(id), Expanded: c.Expanded,
+			Title: c.Title, Type: c.Type, Status: c.Status,
+		})
 	}
 
 	// Every count below is derived from the permission-filtered walk, never
@@ -438,10 +456,19 @@ func uiLint(w http.ResponseWriter, r *http.Request, srv *Server) {
 		writeUIInternal(w, "lint: run", err)
 		return
 	}
-	// Every finding is a problem (D947): the response lists them all, in the
-	// registry's category order, with the totals by check.
+	// Every finding is a problem (D947): the response lists them in the
+	// registry's category order, with the totals by check, a page at a time.
 	byCheck := lint.CountsByCheck(findings)
-	kept := lint.Order(findings)
+	ordered := lint.Order(findings)
+	start, ok := uiLintCursor(w, r, len(ordered))
+	if !ok {
+		return
+	}
+	end := len(ordered)
+	if page := uiLimit(r, uiLintDefaultLimit, uiLintMaxLimit); end-start > page {
+		end = start + page
+	}
+	kept := ordered[start:end]
 	type findingRow struct {
 		Path    string `json:"path"`
 		Concept string `json:"concept,omitempty"`
@@ -460,11 +487,40 @@ func uiLint(w http.ResponseWriter, r *http.Request, srv *Server) {
 			Handler: findingHandler(f, auto),
 		})
 	}
-	writeUIJSON(w, http.StatusOK, map[string]interface{}{
+	body := map[string]interface{}{
 		"findings": rows,
-		"count":    len(rows),
+		"count":    len(ordered),
 		"by_check": byCheck,
-	})
+	}
+	if end < len(ordered) {
+		body["next_cursor"] = strconv.Itoa(end)
+	}
+	writeUIJSON(w, http.StatusOK, body)
+}
+
+// A lint page: the default keeps a response small on a KB with tens of
+// thousands of findings, the maximum bounds what a caller can ask for.
+const (
+	uiLintDefaultLimit = 1000
+	uiLintMaxLimit     = 5000
+)
+
+// uiLintCursor reads the cursor of a lint page: the position of its first
+// finding in the ordered list, handed out as next_cursor. A page of a list that
+// changes between two calls may repeat or skip a finding; the Atlas reloads the
+// whole list when the revision moves. It answers whether the request goes on.
+func uiLintCursor(w http.ResponseWriter, r *http.Request, total int) (int, bool) {
+	raw := r.URL.Query().Get("cursor")
+	if raw == "" {
+		return 0, true
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 0 {
+		writeUIError(w, http.StatusBadRequest, uiCodeInvalidRequest, "cursor is not one this list handed out", "cursor")
+		return 0, false
+	}
+	// A list that shrank since the cursor was handed out ends the walk.
+	return min(n, total), true
 }
 
 // Who acts on a finding (D365): "auto" when the background repair will fix it

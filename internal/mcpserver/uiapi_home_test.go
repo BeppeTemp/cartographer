@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -162,7 +163,8 @@ func TestUIAPI_WorkFiltersLikeTheTool(t *testing.T) {
 }
 
 func TestUIAPI_RevisionMovesOnAnOutOfBandEdit(t *testing.T) {
-	t.Parallel()
+	// Not parallel: it narrows the poll's trust window, a package variable.
+	setRevisionMaxAge(t, 0)
 	k := uiFixtureKB(t, "docs")
 	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
 		{Token: "whole", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "docs"}}}},
@@ -202,4 +204,14 @@ func TestUIAPI_SearchMissIsAnEmptyList(t *testing.T) {
 	if !strings.Contains(rr.Body.String(), `"results":[]`) {
 		t.Fatalf("body = %s, want results: []", rr.Body.String())
 	}
+}
+
+// setRevisionMaxAge sets uiRevisionMaxAge for a test that does not run in
+// parallel with the others: a parallel test is paused until every serial one
+// has finished, so the variable is never written under a reader.
+func setRevisionMaxAge(t *testing.T, d time.Duration) {
+	t.Helper()
+	old := uiRevisionMaxAge
+	uiRevisionMaxAge = d
+	t.Cleanup(func() { uiRevisionMaxAge = old })
 }
