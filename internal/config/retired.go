@@ -34,6 +34,12 @@ func (c *Config) noteRetired(data []byte, specs []KBSpec) {
 	}
 }
 
+// UnknownKeys lists the keys of a server config.yaml that no table describes
+// and no retired entry explains. Load warns of each (a typo silently does
+// nothing, but a key a newer release adds must not stop an older server), and
+// doctor reports them with the nearest known key.
+func UnknownKeys(data []byte) []settingschema.Unknown { return Schema.Unknown(data, Retired) }
+
 // noteRetiredEnv does the same for the environment variables and, in
 // Retired, the removed settings they used to feed.
 func (c *Config) noteRetiredEnv() {

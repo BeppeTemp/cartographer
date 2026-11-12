@@ -227,6 +227,8 @@ func runDoctor(dir, only string) doctorReport {
 		facts, healthErr := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.Token, cfg.InsecureHTTPAllowed())
 		findings = append(findings, checkServer(dir, cfg, providers, facts, healthErr)...)
 		findings = append(findings, checkWSL()...)
+		findings = append(findings, checkPathBinaries()...)
+		findings = append(findings, checkUnknownKeys(dir)...)
 		findings = append(findings, checkTriggerCoverage(dir, providers)...)
 		findings = append(findings, checkSymlinkedDestinations(dir, providers)...)
 		findings = append(findings, checkCapabilities(dir, cfg, facts, healthErr)...)

@@ -282,6 +282,12 @@ var Retired = settingschema.Registry{Removed: []settingschema.Removed{
 	{Path: "tools.profile", Plan: 906, Env: "CARTOGRAPHER_TOOLS_PROFILE", Flag: "--tools-profile", FlagValue: true, Note: "tools/list always shows the core set, and the other tools stay callable by name"},
 	{Path: "mcp.allowed_origins", Plan: 906, Env: "CARTOGRAPHER_MCP_ALLOWED_ORIGINS", Note: "a request with an Origin header is accepted only when the origin's host and port are the request's Host; one without an Origin header is accepted"},
 	{Path: "kb_aliases", Plan: 906, Note: "the old names of renamed KBs live in .cartographer/state.json under data, written by `kb rename`; the realignment moves the list there"},
+	// Keys older releases read and the code no longer parses at all (#2000): without a row they were ignored in silence, and the unknown-key check would call them typos.
+	{Path: "search", Plan: 135, Note: "semantic search and the Ollama embedding backend are gone (D135); the keyword index needs no setting"},
+	{Path: "mcp.mount_mode", Plan: 325, Note: "every HTTP server serves the one routed mount at /mcp/routed (D288, removed by D325)"},
+	{Path: "mcp.tool_prefix_mode", Plan: 325, Note: "tools are never prefixed (D288, removed by D325)"},
+	{Path: "kbs[].tool_prefix", Plan: 325, Note: "tools are never prefixed (D288, removed by D325)"},
+	{Path: "peers", Plan: 586, Note: "agent-to-agent messaging (beta, reverted by PR #586) no longer exists"},
 }, Moved: []settingschema.Moved{
 	// git.identity said what git.identities.default says (D1725).
 	{From: "git.identity", To: "git.identities.default", Description: "The git identity, Name <email>, the server commits as in every KB without its own entry in git.identities: the author and the committer of the commits it makes with no writer of their own (the unattended repair, merges, conflict resolution) and of a write whose client sends no valid Cartographer-Author. Set it when the remote's forge rejects commits whose author or committer is not one of its accounts. Empty keeps the server identity, Cartographer <cartographer@host>."},

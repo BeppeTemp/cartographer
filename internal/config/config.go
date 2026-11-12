@@ -16,6 +16,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/feedback"
 	"github.com/BeppeTemp/cartographer/internal/hooks"
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/settingschema"
 	"gopkg.in/yaml.v3"
 )
 
@@ -578,26 +579,7 @@ func looksLikeAuth(key string) bool {
 }
 
 // editDistance is the Levenshtein distance of two strings.
-func editDistance(x, y string) int {
-	a, b := []rune(x), []rune(y)
-	prev := make([]int, len(b)+1)
-	for j := range prev {
-		prev[j] = j
-	}
-	for i := 1; i <= len(a); i++ {
-		cur := make([]int, len(b)+1)
-		cur[0] = i
-		for j := 1; j <= len(b); j++ {
-			cost := 1
-			if a[i-1] == b[j-1] {
-				cost = 0
-			}
-			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
-		}
-		prev = cur
-	}
-	return prev[len(b)]
-}
+func editDistance(x, y string) int { return settingschema.EditDistance(x, y) }
 
 // mappingPairs returns the key and value nodes of a mapping with its merge
 // keys (`<<: *a` and `<<: [*a, *b]`) resolved, so a key supplied through a
@@ -713,6 +695,9 @@ func Load(path string) (*Config, error) {
 	}
 	cfg.markFile(data, specs)
 	cfg.noteRetired(data, specs)
+	for _, u := range UnknownKeys(data) {
+		cfg.Warnings = append(cfg.Warnings, u.String())
+	}
 	cfg.HTTP = raw.HTTP
 	cfg.Data = raw.Data
 	cfg.CredentialsDir = raw.CredentialsDir

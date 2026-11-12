@@ -53,7 +53,9 @@ func dropRemovedFlags(args []string) []string {
 // and the next start lists them again.
 func announceConfig(cfg *config.Config, configPath string) {
 	for _, w := range cfg.Warnings {
-		log.Printf("warning: %s", w)
+		// A warning can carry a key name from the file, and a quoted YAML key
+		// may hold a newline: raw, it would forge a log line.
+		log.Printf("warning: %s", escapeControl(w))
 	}
 	placed := migrateCredentials(cfg, configPath)
 	if configPath == "" {
