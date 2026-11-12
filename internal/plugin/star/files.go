@@ -346,7 +346,7 @@ func filesRead(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple
 	if err != nil {
 		return nil, err
 	}
-	t, err := c.files.target("read", p, func(f *core.Files) []string { return f.Read }, false)
+	t, err := filesOf(c).target("read", p, func(f *core.Files) []string { return f.Read }, false)
 	if err != nil {
 		return nil, err
 	}
@@ -397,7 +397,7 @@ func filesWrite(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tupl
 	if err != nil {
 		return nil, err
 	}
-	t, err := c.files.target("write", p, func(f *core.Files) []string { return f.Write }, true)
+	t, err := filesOf(c).target("write", p, func(f *core.Files) []string { return f.Write }, true)
 	if err != nil {
 		return nil, err
 	}
@@ -424,7 +424,7 @@ func filesRemove(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tup
 	if err != nil {
 		return nil, err
 	}
-	t, err := c.files.target("remove", p, func(f *core.Files) []string { return f.Write }, true)
+	t, err := filesOf(c).target("remove", p, func(f *core.Files) []string { return f.Write }, true)
 	if err != nil {
 		return nil, err
 	}
@@ -459,7 +459,7 @@ func filesGlob(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tuple
 	if err != nil {
 		return nil, err
 	}
-	s := c.files
+	s := filesOf(c)
 	if c.perms == nil || c.perms.Files == nil || len(c.perms.Files.Read) == 0 {
 		return nil, denied("files.glob needs permissions.files.read in the manifest")
 	}
