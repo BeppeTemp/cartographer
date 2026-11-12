@@ -121,6 +121,9 @@ func printServerLines(w, errw io.Writer, s statusSnapshot) {
 	if s.ServerLatest != "" {
 		fmt.Fprintf(w, "server update available: %s (server %s) — for the server's operator\n", s.ServerLatest, s.Server)
 	}
+	for _, k := range s.SkippedKBs {
+		fmt.Fprintf(w, "KB not mounted: %s — %s\n", escapeControl(k.Name), escapeControl(k.Reason))
+	}
 	// The server this client's state was materialized against, when it is not
 	// the one answering now (D142): inspectable without running a sync.
 	if changed := snapshotMaterializedVersions(s); len(changed) > 0 {

@@ -589,7 +589,9 @@ A newer release known to the update cache adds `update available: vX (installed 
 (JSON `update: {latest, kind, channel, command}`, present only then), and a remote server that
 reports one in `/health` adds `server update available: vX` — the Meridian operator's job, so no
 command. Both read local state only (the cache is refreshed by the session hook and `update
-check`) and neither changes the exit code (D254).
+check`) and neither changes the exit code (D254). A KB the server was told to serve and could not
+mount adds `KB not mounted: <name> — <reason>` per KB (JSON `skipped_kbs: [{name, reason, retrying?}]`,
+from `/health`); it never changes the exit code either.
 Placeholder keys the last sync could not resolve and the operator did not `paths ignore` (read from the lockfile, no network) add
 ``N placeholder(s) unresolved — run `cartographer paths` `` to the table and an additive
 `unresolved_placeholders: [{key, kbs, reason}]` to the JSON, present only when non-empty; neither
@@ -771,6 +773,7 @@ The checks:
 | `capability` | every per-KB gate Meridian advertises on `/health` is on, and no KB was mounted by discovery rather than by a `kbs[]` entry (D151). Info severity: it names the setting that would change it |
 | `symlink` | no managed destination directory (global, or under a workspace binding) is a symlink, or anything else that is not a plain directory — provisioning refuses to write through one, so the artifacts it would hold are not installed (D148, widened in D216); the fix is to replace it or to list it with `cartographer client symlinks <provider> --add <path>`. A destination that is itself a **listed** link (`providers.<provider>.allow_symlinks`) is an `info` finding naming its target, with no fix |
 | `kb-collisions` | no two KBs bound to the same provider claim one `kind`+`name` (D171). `sync` refuses outright when they do, so a machine that has not synced since the binding changed would otherwise show no symptom. Silent when the server is unreachable |
+| `kb-not-mounted` | the server mounts every KB it was told to serve. A warning per KB listed in `/health` `skipped_kbs` (a moved path, a remote that cannot be cloned), with the reason; silent when the server is unreachable (#1963) |
 | `workspace-shadow` | no KB agent or skill has the same name as a file a bound workspace commits (tracked by git) at the provider's project destination (`.claude/agents/<name>.md`, `.claude/skills/<name>/`...): the provider reads one of the two and which one depends on the client. Warning severity; the finding names both files. It applies in every scope, for each provider and bound workspace, and is silent when the server is unreachable or a pull failed. The fix is to rename one; a KB's `artifact_prefix` (`docs/data-plane.md` §The KB's own settings) prevents it |
 | `legacy_steering_pattern` | the operator's own steering text — the provider's instructions file outside the managed block, plus, for Kiro, the other `*.md` files beside `~/.kiro/steering/cartographer.md` — names a pre-D288 prefixed tool (`<prefix>__<tool>`, where `<tool>` is a real Cartographer tool and `<prefix>` neither is `mcp` nor contains `__`, so Claude Code's `mcp__<server>__<tool>` names are not flagged), which `sync` never rewrites there. Warning severity; the fix names the unprefixed tool ([D320](decisions/D320-upgrades-and-provisioning-tell-the-user-what-changed.md)) |
 | `update_available` | a newer release is in the update cache (D254). Info severity; the fix is the channel's upgrade command. Cache only, so doctor stays offline |

@@ -664,6 +664,9 @@ func (m *MultiKBServer) routedHandler(toolName string, set []string, sink *Serve
 			// an unreadable one is "unknown" (named in the URL) or "not
 			// available", with the same texts as a name that does not exist.
 			operator := addressesOperator(ctx)
+			if text := m.notMountedText(ctx, kbName); text != "" {
+				return refuse("", errorResult(text+" — allowed: "+allowed))
+			}
 			if _, mounted := m.servers[kbName]; mounted && kbRosterVisible(ctx, kbName) {
 				if !operator {
 					return refuse("", errorResult(fmt.Sprintf("kb %q is mounted on this server but is not part of this connection (allowed: %s). "+

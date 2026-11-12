@@ -466,7 +466,7 @@ fields and none is required) and its stored replica is marked `protocol_skew: "a
 one at N `""`. The obligation that makes N+1 safe is the newer sender's: it must speak the server's N, which is
 its own N-1, read from the heartbeat answer (`protocol`, `min_protocol`) or from `/health`
 (`component_protocol`, `component_min_protocol`, public: no secret, no inventory; `/health` stays liveness and
-never reports a component). Additive optional fields never bump `protocol`; removing or re-typing a field, or
+never reports a component). For an identified caller `/health` also lists `skipped_kbs: [{name, reason, retrying?}]`, the KBs Meridian was told to serve and did not mount (a moved path, an uncloneable remote), only those the caller reads, with a reason that names no server path; omitted when there are none (#1963). Additive optional fields never bump `protocol`; removing or re-typing a field, or
 changing the meaning of one, does. A Surveyor refuses an unsupported server at start-up from `/health`, and at
 run time never exits on a `426`: it logs once per distinct window, treats the activity as unknown and keeps
 beating, since its budget is enforced locally and Meridian may be upgraded under it.

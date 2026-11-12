@@ -282,6 +282,7 @@ type KBCapability struct {
 type MultiKBServer struct {
 	servers map[string]*Server // one MCP server per KB
 	kbs     []KBInfo
+	skipped *SkippedKBs // KBs the start could not mount (#1963); nil when none
 	version string
 	// routed is the optional single endpoint advertising the union of the
 	// mounted KBs' tools once, with the KB as a tool argument (D187). Nil —
@@ -532,6 +533,9 @@ func (m *MultiKBServer) Handler() http.Handler {
 					}
 				}
 				result["kbs"] = visible
+				if rows := m.skipped.visible(r.Context()); len(rows) > 0 {
+					result["skipped_kbs"] = rows
+				}
 				// D254: additive, and only when a newer release is known —
 				// absent means unknown or up to date.
 				if m.latestVersion != nil {
@@ -772,6 +776,10 @@ func (m *MultiKBServer) Handler() http.Handler {
 func (m *MultiKBServer) serveKB(w http.ResponseWriter, r *http.Request, kbName string) {
 	srv, ok := m.servers[kbName]
 	if !ok {
+		if text := m.notMountedText(r.Context(), kbName); text != "" {
+			http.Error(w, text, http.StatusNotFound)
+			return
+		}
 		http.Error(w, fmt.Sprintf("unknown kb %q", kbName), http.StatusNotFound)
 		return
 	}
