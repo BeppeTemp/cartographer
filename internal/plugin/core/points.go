@@ -57,6 +57,9 @@ type Contribution struct {
 	// every other kind.
 	View *View
 	App  *App
+	// Recipe is what the surveyor side contributes (surveyor.go); nil for every
+	// other kind.
+	Recipe *SurveyorRecipe
 	// Branding is the data of an atlas-side branding/ folder (one contribution
 	// per plugin); nil for every other kind.
 	Branding *branding.Spec
@@ -72,6 +75,10 @@ type Point struct {
 	// Load validates the files under Dir (paths are tree-relative, so they start
 	// with Dir+"/") and returns the contributions with every problem found.
 	Load func(files []TreeFile) ([]Contribution, []string)
+	// Check, when set, judges one contribution against the plugin's name, which
+	// Load does not know; ReadTree reports its problems as tree problems, so a
+	// tree that passes `plugin vendor` and the preview also loads at start.
+	Check func(plugin string, c Contribution) []string
 	// Preview prints what the install preview shows for one contribution.
 	Preview func(w io.Writer, c Contribution)
 	// Executable marks a point whose files run (hooks).

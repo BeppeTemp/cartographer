@@ -69,9 +69,9 @@ components:
 - A tree folder or file of a registered family whose side does not declare that family is a problem
   (`skills/: declare sdk.artifacts under components.client`). Under schema 2 a top-level entry no family claims is stored, digested and reported in `Plugin.Unknown` (`entry <name>`), never loaded; under schema 1 it stays the error it was.
 - Families (`core.Families`): client `artifacts` (`skills/`, `agents/`, `hooks/`), `providers` (`providers/`), `scripts`
-  (`plugin.star`, `lib/`); server `presets` (`presets/`) and `roles` (`roles/`); atlas `views` (`views/`), `apps` (`apps/`) and `branding` (`branding/`). A name belongs to one family only. The client
+  (`plugin.star`, `lib/`); server `presets` (`presets/`) and `roles` (`roles/`); surveyor `recipes` (`recipes/`); atlas `views` (`views/`), `apps` (`apps/`) and `branding` (`branding/`). A name belongs to one family only. The client
   families load on the client; the server families `roles/` and `presets/` are loaded by `internal/pluginserver` (the server side of the plugin package, which may reach the data plane to
-  judge what it reads; `internal/plugin` is client-only and `internal/pluginserver` imports `internal/plugin/core`) and are data only; the atlas families `views/` and `apps/` are loaded by `internal/atlasext` (below) and `branding/` by `internal/pluginserver`, all data only; the Surveyor has no loader yet.
+  judge what it reads; `internal/plugin` is client-only and `internal/pluginserver` imports `internal/plugin/core`) and are data only; the atlas families `views/` and `apps/` are loaded by `internal/atlasext` (below) and `branding/` by `internal/pluginserver`, all data only; the Surveyor family `recipes/` is loaded by `internal/surveyor` (below).
 - Permissions per side: the client may ask for everything schema 1 allows; the Surveyor for `net` and `env` (`kb` and `files` are
   `components.surveyor.permissions.<key>: not allowed on the surveyor side`); the server and the Atlas for nothing.
   `Manifest.Permissions` is always the client side's.
@@ -260,6 +260,28 @@ behaviour is carried by the KB and must not differ per server (D746, D906):
   returns no KB data and the same result for every principal.
 
 The start log says `roles N, presets M` per plugin. The preview of a server side (`plugin vendor` prints it) lists both.
+
+### Surveyor side: recipes
+
+A pinned plugin's `surveyor` side ships **exec recipes** (`D1970`). It runs code on the
+Surveyor, so the preview lists every file with the execute bit under "runs code on this machine".
+
+- `recipes/<name>/` holds `instructions.md` (required, non-empty UTF-8, at most 16 KiB: the model text of the poll)
+  and `recipe.yaml`: `shape` (`feed`, the default, or `system`), `command`, `args`, `timeout`, `max_output_bytes`,
+  `max_content_bytes` (the limits of `recipes.<name>.exec`, `docs/surveyor-recipes.md`) and `connector` (`git` or
+  `fetch`; a `system` recipe has none). `command` is a file of the recipe folder with the execute bit: a name looked
+  up on PATH is refused, because shipped code is a file of the tree. An unknown key is a problem. A folder name is
+  `[a-z0-9-]`, 1 to 40 characters, but the qualified `<plugin>/<name>` is at most 31 characters in all and no part
+  starts or ends with `-`; the tree reader reports a recipe that breaks this, so `plugin vendor` and the preview refuse it.
+- The qualified name a Source stores is `<plugin>/<name>` (`D1956`). A plugin never names an operator variable: the
+  manifest's surveyor `permissions.env` declares the names the code sees, and the Surveyor config maps every one of
+  them with `plugins.<name>.env: {NAME: SURVEYOR_VARIABLE}`. A declared name left unmapped or a mapped name the
+  manifest does not declare stops the Surveyor at start, naming `plugins.<name>` and its line. The code sees only the
+  mapped names plus `PATH` and `HOME`; the preview ends with "your Surveyor config must map under
+  plugins.<name>.env: ...".
+- At start the pinned plugin's recipes join `ExecRecipes`, the list the operator's `recipes:` fills, so the registry,
+  the poll and the unit executor have one code path. The command is the absolute path in the read-only store. A load
+  never runs a script.
 
 ### Atlas branding
 

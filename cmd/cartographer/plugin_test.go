@@ -237,7 +237,7 @@ func TestPluginNewOnAnOlderCore(t *testing.T) {
 func writeSurveyorOnly(t *testing.T, name string) string {
 	t.Helper()
 	dir := t.TempDir()
-	manifest := "schema: 2\nname: " + name + "\nversion: 1.0.0\ndisplay_name: Feeds\ndescription: A feed reader.\ncartographer: \">=0.29.0\"\ncomponents:\n  surveyor:\n    sdk: {recipes: 1}\n"
+	manifest := "schema: 2\nname: " + name + "\nversion: 1.0.0\ndisplay_name: Feeds\ndescription: A feed reader.\ncartographer: \">=0.29.0\"\ncomponents:\n  surveyor:\n    sdk: {feeds: 1}\n"
 	if err := os.WriteFile(filepath.Join(dir, "cartographer-plugin.yaml"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -260,7 +260,7 @@ func TestPluginValidateReportsSides(t *testing.T) {
 	pluginFixture(t)
 	dir := writeSurveyorOnly(t, "feeds")
 	code, out := runPlugin(t, "validate", dir)
-	for _, want := range []string{"is valid", "sides: surveyor", "surveyor side not loadable by this build: unknown family recipes"} {
+	for _, want := range []string{"is valid", "sides: surveyor", "surveyor side not loadable by this build: unknown family feeds"} {
 		if code != 0 || !strings.Contains(out, want) {
 			t.Errorf("validate lacks %q: exit %d\n%s", want, code, out)
 		}
@@ -352,7 +352,7 @@ func mustTree(t *testing.T, dir string) []core.TreeFile {
 func TestPluginVendorSkipsSidesThatCannotBePinned(t *testing.T) {
 	pluginFixture(t)
 	src := t.TempDir()
-	manifest := "schema: 2\nname: feeds\nversion: 1.0.0\ndisplay_name: Feeds\ndescription: A feed reader.\ncartographer: \">=0.29.0\"\ncomponents:\n  surveyor:\n    sdk: {recipes: 1}\n  atlas: {}\n  server: {}\n"
+	manifest := "schema: 2\nname: feeds\nversion: 1.0.0\ndisplay_name: Feeds\ndescription: A feed reader.\ncartographer: \">=0.29.0\"\ncomponents:\n  surveyor:\n    sdk: {feeds: 1}\n  atlas: {}\n  server: {}\n"
 	if err := os.WriteFile(filepath.Join(src, "cartographer-plugin.yaml"), []byte(manifest), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -363,7 +363,7 @@ func TestPluginVendorSkipsSidesThatCannotBePinned(t *testing.T) {
 	if strings.Contains(out, "# pin the surveyor") || strings.Contains(out, "# pin the atlas") {
 		t.Errorf("a side that cannot be pinned got pin lines:\n%s", out)
 	}
-	for _, want := range []string{"surveyor side: not pinnable", "unknown family recipes", "atlas side: loaded by the server", "# pin the server side in the server config"} {
+	for _, want := range []string{"surveyor side: not pinnable", "unknown family feeds", "atlas side: loaded by the server", "# pin the server side in the server config"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}

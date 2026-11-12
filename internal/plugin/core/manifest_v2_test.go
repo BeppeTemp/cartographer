@@ -133,7 +133,8 @@ func TestFamiliesAreDisjointAndSupported(t *testing.T) {
 		{SideClient, "artifacts", 2, "needs sdk artifacts 2 (this build has 1)"},
 		{SideClient, "roles", 1, "unknown family roles"},
 		{SideServer, "roles", 1, ""},
-		{SideSurveyor, "recipes", 1, "unknown family recipes"},
+		{SideSurveyor, "recipes", 1, ""},
+		{SideSurveyor, "feeds", 1, "unknown family feeds"},
 	} {
 		if got := Supported(c.side, c.fam, c.level); got != c.reason {
 			t.Errorf("Supported(%s,%s,%d) = %q, want %q", c.side, c.fam, c.level, got, c.reason)
@@ -177,7 +178,7 @@ func TestReadTreeSchema2Declarations(t *testing.T) {
 	}
 
 	// An sdk entry the build cannot meet makes that side unsupported, not the tree invalid.
-	manifest := v2With("components:\n  client:\n    sdk: {artifacts: 2}\n  surveyor:\n    sdk: {recipes: 1}\n  server: {sdk: {roles: 1}}\n  hologram: {}\n")
+	manifest := v2With("components:\n  client:\n    sdk: {artifacts: 2}\n  surveyor:\n    sdk: {feeds: 1}\n  server: {sdk: {roles: 1}}\n  hologram: {}\n")
 	p, probs := ReadTree(schema2Tree(manifest, TreeFile{Path: "extras/a.txt", Content: []byte("x")}), v2Opts)
 	if len(probs) != 0 {
 		t.Fatal(probs)
@@ -185,7 +186,7 @@ func TestReadTreeSchema2Declarations(t *testing.T) {
 	if got := p.Unsupported[SideClient]; got != "needs sdk artifacts 2 (this build has 1)" {
 		t.Errorf("client: %q", got)
 	}
-	if got := p.Unsupported[SideSurveyor]; got != "unknown family recipes" {
+	if got := p.Unsupported[SideSurveyor]; got != "unknown family feeds" {
 		t.Errorf("surveyor: %q", got)
 	}
 	if _, bad := p.Unsupported[SideServer]; bad {

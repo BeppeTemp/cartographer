@@ -11,9 +11,10 @@ import (
 
 // rawPluginPin is one plugins.<name> entry. Enabled is a pointer: absent is true.
 type rawPluginPin struct {
-	Digest   string         `yaml:"digest"`
-	Enabled  *bool          `yaml:"enabled"`
-	Settings map[string]any `yaml:"settings"`
+	Digest   string            `yaml:"digest"`
+	Enabled  *bool             `yaml:"enabled"`
+	Settings map[string]any    `yaml:"settings"`
+	Env      map[string]string `yaml:"env"`
 }
 
 // PluginPin is a plugins.<name> entry: the tree digest the operator approved,
@@ -22,6 +23,10 @@ type PluginPin struct {
 	Digest   string
 	Enabled  bool
 	Settings map[string]any
+	// Env maps each variable name the manifest's surveyor permissions.env
+	// declares to the name of the Surveyor's own variable that holds its value;
+	// a plugin never names an operator variable itself.
+	Env map[string]string
 	// Line is the line of the entry in the file, for a refusal at start.
 	Line int
 }
@@ -68,7 +73,10 @@ func (v *validator) plugins() error {
 				return v.errf(at+".settings."+k, v.line("plugins", n, "settings"), "must be a scalar (string, number or boolean)")
 			}
 		}
-		v.c.PluginPins[n] = PluginPin{Digest: r.Digest, Enabled: r.Enabled == nil || *r.Enabled, Settings: r.Settings, Line: ln}
+		if err := envNames(r.Env); err != nil {
+			return v.errf(at+".env", v.line("plugins", n, "env"), "%v", err)
+		}
+		v.c.PluginPins[n] = PluginPin{Digest: r.Digest, Enabled: r.Enabled == nil || *r.Enabled, Settings: r.Settings, Env: r.Env, Line: ln}
 	}
 	return nil
 }
@@ -98,5 +106,5 @@ func (c *Config) LoadPlugins(opts core.Options) error {
 		return err
 	}
 	c.Plugins = got
-	return nil
+	return c.addPluginPoints()
 }

@@ -790,7 +790,10 @@ config file's directory) and `plugins.<name>` with `digest`, `enabled` and `sett
 side. The digest is the only consent: a plugin whose tree differs from it, or that is missing, edited, without a
 `surveyor` side or not loadable by this binary, stops the start with an error naming `plugins.<name>` and its line,
 before any model or network call; a malformed digest or `plugins` without `plugins_dir` is refused at load. The
-`recipe` dry run (`surveyor --recipe`) does not load plugins. A change of a pin takes a restart.
+`recipe` dry run (`surveyor --recipe`) does not load plugins. A change of a pin takes a restart. `plugins.<name>.env`
+maps each variable name the plugin's manifest declares under `permissions.env` to one of the Surveyor's own variables
+(`{WIKI_TOKEN: WIKI_API_TOKEN}`): every declared name and no other, or the start is refused. The plugin's recipes
+(`<plugin>/<name>`, `docs/plugins.md` §Surveyor side) then run with only those variables plus `PATH` and `HOME`.
 
 **Recipes and the git reader (D1262).** A recipe lists what changed in a feed Source since its cursor, with no
 model; `git-docs` is the first built-in (Source `locator` = https repository URL, `feed_include` default

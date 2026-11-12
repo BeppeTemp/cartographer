@@ -57,6 +57,10 @@ string (UTF-8, at most 4 KiB), a bool or a finite number in range, a name is 1 t
 64 settings; the load refuses anything else, naming the key and line.
 - `max_content_bytes` tops at 1 MiB, the unit executor's read cap, so the executor never truncates inline content.
 
+A pinned plugin can ship exec recipes of its own, under `recipes/<name>/` of its tree (`docs/plugins.md` §Surveyor side):
+same protocol, same limits, and the credential comes from the plugin's `plugins.<name>.env` mapping instead of
+`recipes.<name>.exec.env`.
+
 ## Inline content
 
 An entry with `content` travels with its unit. The poll creates the unit as `draft` (which `work_list` never offers)

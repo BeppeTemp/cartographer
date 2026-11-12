@@ -138,6 +138,8 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 		Description: "Tree digest of the approved plugin, as printed by cartographer plugin vendor. Required."},
 	{Path: "plugins.{name}.enabled", Scope: settingschema.ScopeSurveyor, Type: "bool", Default: "true",
 		Description: "Set to false to skip the pin: the tree is not read, but the name and digest are still validated."},
+	{Path: "plugins.{name}.env", Scope: settingschema.ScopeSurveyor, Type: "map", Default: "{}",
+		Description: "Variables of the plugin's code, as NAME: the name of the Surveyor's own variable holding the value. Every NAME the manifest declares under permissions.env must be mapped and no other; the plugin's recipes see only these plus PATH and HOME."},
 	{Path: "plugins.{name}.settings", Scope: settingschema.ScopeSurveyor, Type: "map", Default: "{}",
 		Description: "Scalar settings handed to the plugin, typed by the settings its manifest declares."},
 
