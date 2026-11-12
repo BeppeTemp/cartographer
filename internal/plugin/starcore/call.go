@@ -83,6 +83,10 @@ type CallSpec struct {
 	// Perms.NetPrivate declares it too; the client never sets it.
 	PrivateHosts []string
 
+	// Replay, when set, answers http.request from recordings and never touches a
+	// network (replay.go). Only `plugin test` sets it; the Surveyor never does.
+	Replay *Replay
+
 	// Log receives log.* and print; with PrintToStdout print goes to Stdout
 	// instead, without prefix. Nil discards.
 	Log, Stdout   io.Writer
@@ -178,6 +182,7 @@ func (p *Script) Invoke(ctx context.Context, spec CallSpec) (res any, err error)
 	}
 	cc.net = newNetState(cc, spec.Version, net)
 	cc.net.private = spec.PrivateHosts
+	cc.net.replay = spec.Replay
 	if spec.Ext != nil {
 		cc.Ext = spec.Ext(cc)
 	}

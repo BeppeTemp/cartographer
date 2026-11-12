@@ -226,7 +226,10 @@ type Request struct {
 	// may reach a private address for a host listed here and under the
 	// manifest's net_private, and for no other.
 	PrivateHosts []string
-	Log          io.Writer
+	// Replay answers http.request from recordings (starcore.Replay): `plugin
+	// test` only, the Surveyor never sets it.
+	Replay *starcore.Replay
+	Log    io.Writer
 
 	// Seams are the test seams of the runtime; only startest can build one.
 	Seams *seam.Seams
@@ -242,7 +245,7 @@ func (p *Program) Call(ctx context.Context, req Request) ([]byte, error) {
 	v, err := p.Invoke(ctx, starcore.CallSpec{
 		Kind: kind, Name: req.Recipe, Plugin: req.Plugin, Version: req.Version,
 		Perms: req.Permissions, Declared: req.Declared, Values: req.Values,
-		LookupEnv: req.LookupEnv, PrivateHosts: req.PrivateHosts, Log: req.Log,
+		LookupEnv: req.LookupEnv, PrivateHosts: req.PrivateHosts, Replay: req.Replay, Log: req.Log,
 		Timeout: starcore.RecipeTimeout, Steps: starcore.MaxCallStepsRecipe,
 		Arg: func(*starcore.Registration) (starlark.Tuple, error) {
 			dec := json.NewDecoder(bytes.NewReader(req.Body))

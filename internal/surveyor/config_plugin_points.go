@@ -14,6 +14,18 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/surveyor/recipe"
 )
 
+// PluginPoints builds the recipes and connectors of one plugin tree the way the
+// Surveyor builds a pinned one (same checks, same qualified names), reading its
+// files from root instead of the store. `plugin test` uses it so the code it
+// exercises is the code a Surveyor would run.
+func PluginPoints(p *core.Plugin, pin PluginPin, root string) (*Config, error) {
+	c := &Config{Plugins: []*core.Plugin{p}, PluginPins: map[string]PluginPin{p.Manifest.Name: pin}, opened: root}
+	if err := c.addPluginPoints(); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
 // addPluginPoints turns the recipes/ and connectors/ of every pinned plugin into
 // ExecRecipes and Connectors under their qualified names, so the registry, the
 // poll and the unit executor need no second code path. It runs after the trees
@@ -60,6 +72,9 @@ func (c *Config) addPluginPoints() error {
 			}
 		}
 		root := filepath.Join(c.PluginsDir, name, pin.Digest)
+		if c.opened != "" {
+			root = c.opened
+		}
 		mapped := func(names ...string) (map[string]string, error) {
 			out := map[string]string{}
 			for _, n := range names {

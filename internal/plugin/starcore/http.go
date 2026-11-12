@@ -32,6 +32,7 @@ type netState struct {
 	seams    seam.NetSeams
 	requests atomic.Int32
 	private  []string // CallSpec.PrivateHosts: the host's half of the private grant
+	replay   *Replay  // CallSpec.Replay: recorded answers instead of a network, for `plugin test`
 
 	mu         sync.Mutex
 	proxyAddrs map[string]bool // proxies the environment chose, which the dial check lets through
@@ -146,9 +147,15 @@ func httpRequest(thread *starlark.Thread, b *starlark.Builtin, args starlark.Tup
 		return nil, fmt.Errorf("http.request: headers must be a dict, not %s", headers.Type())
 	}
 
-	tr := n.transport()
-	defer tr.CloseIdleConnections()
-	hc := &http.Client{Transport: tr, CheckRedirect: n.checkRedirect}
+	// With a Replay the checks above and the redirect rules still run; only the
+	// network is replaced by the recording (replay.go).
+	var rt http.RoundTripper = n.replay
+	if n.replay == nil {
+		tr := n.transport()
+		defer tr.CloseIdleConnections()
+		rt = tr
+	}
+	hc := &http.Client{Transport: rt, CheckRedirect: n.checkRedirect}
 	resp, err := hc.Do(req)
 	if err != nil {
 		var de *deniedError
