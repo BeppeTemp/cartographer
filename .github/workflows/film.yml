@@ -35,7 +35,7 @@ jobs:
     outputs:
       render: ${{ steps.needed.outputs.render }}
       sha: ${{ steps.needed.outputs.sha }}
-    # 3600 frames at 1920x1080, software rendered one by one; the first run on main sets the real figure.
+    # 4920 frames at 1920x1080, software rendered one by one; the first run on main sets the real figure.
     timeout-minutes: 120
     steps:
       # No credential is left in .git/config: npm ci, Playwright, vite and record.mjs run the checked-out code.

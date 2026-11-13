@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-  <img alt="A one-minute film: four teammates, each with their own coding agents, share one Cartographer wiki. On Monday Alice's agent writes down why staging breaks; on Tuesday Marco's agent, on another laptop and another client, finds her note and answers; every day the others add to it, and a note with a broken link is refused." src="https://raw.githubusercontent.com/BeppeTemp/cartographer/readme-film/film.webp" width="100%">
+  <img alt="A film of about 80 seconds: four teammates, each with their own coding agents, share one Cartographer wiki. On Monday Alice's agent writes down why staging breaks; on Tuesday Marco's agent, on another laptop and another client, finds her note and answers; every day the others add to it. The film ends on the four components of the one binary: Meridian, Surveyor, Atlas and Compass." src="https://raw.githubusercontent.com/BeppeTemp/cartographer/readme-film/film.webp" width="100%">
 </p>
 
 <p align="center"><sub>Drawn by the Atlas's own graph engine. Pre-1.0: breaking changes bump the minor version and are called out in the <a href="CHANGELOG.md">changelog</a>.</sub></p>
