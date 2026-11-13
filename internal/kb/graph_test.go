@@ -704,3 +704,75 @@ func TestNeighborsWithinLargestDepthReturns(t *testing.T) {
 		t.Fatal("NeighborsWithin(largest depth) did not return")
 	}
 }
+
+// A concept whose read fails for a reason other than "gone" (load, a sharing
+// violation) must not silently leave the graph (#2016): the build fails, the
+// cache is not poisoned, and the next call sees the concept again. A concept
+// truly deleted is still dropped. The failure is injected by turning the file
+// into a directory just before ReadRaw opens it. Not parallel: the hook is
+// package-global.
+func TestGraphView_TransientReadErrorDoesNotDropConcept(t *testing.T) {
+	k := newTestKB(t)
+	write := func(name, body string) string {
+		p := filepath.Join(k.DataRoot(), name)
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	write("keep.md", "---\ntype: Note\n---\n[[victim]]\n")
+	victim := write("victim.md", "---\ntype: Note\n---\nbody\n")
+	gone := write("gone.md", "---\ntype: Note\n---\nbody\n")
+
+	nodes := func() int {
+		t.Helper()
+		s, err := k.GraphSnapshot(GraphSnapshotOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return s.TotalNodes
+	}
+	if n := nodes(); n != 3 {
+		t.Fatalf("baseline: %d nodes, want 3", n)
+	}
+
+	// Change the victim so the cache must re-read it, and make that read fail.
+	later := time.Now().Add(time.Hour)
+	if err := os.WriteFile(victim, []byte("---\ntype: Note\n---\nchanged body\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(victim, later, later); err != nil {
+		t.Fatal(err)
+	}
+	saved, _ := os.ReadFile(victim)
+	restore := SetReadRawHook(func(rel string) {
+		if rel == "victim.md" {
+			_ = os.Remove(victim)
+			_ = os.Mkdir(victim, 0o755)
+		}
+	})
+	_, err := k.GraphSnapshot(GraphSnapshotOptions{})
+	restore()
+	if err == nil {
+		t.Fatal("a transient read failure was swallowed: the graph was built without the concept")
+	}
+
+	// The failure was transient: the file is back, and nothing was lost.
+	if err := os.Remove(victim); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(victim, saved, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if n := nodes(); n != 3 {
+		t.Fatalf("after recovery: %d nodes, want 3", n)
+	}
+
+	// A concept truly gone is dropped, not an error.
+	if err := os.Remove(gone); err != nil {
+		t.Fatal(err)
+	}
+	if n := nodes(); n != 2 {
+		t.Fatalf("after delete: %d nodes, want 2", n)
+	}
+}

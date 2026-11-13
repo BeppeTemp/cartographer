@@ -1,6 +1,7 @@
 package kb
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -423,7 +424,15 @@ func (kb *KB) graphViewLocked(read map[string]string) (*graphView, error) {
 
 	for _, f := range files {
 		seen[f.rel] = struct{}{}
-		entry := kb.validateEntry(c, f, read)
+		entry, err := kb.validateEntry(c, f, read)
+		if err != nil {
+			// A read that failed for a reason other than the file being gone
+			// (load, a sharing violation) must not make the concept vanish
+			// from the graph: the build fails like an unlistable walk, and
+			// the next call retries against the untouched cache.
+			c.stale = true
+			return nil, err
+		}
 		if entry == nil {
 			// Unreadable: skipped, as the walk skips it.
 			if _, had := c.entries[f.rel]; had {
@@ -466,8 +475,9 @@ func generationAfter(v *graphView) uint64 {
 
 // validateEntry returns the cache entry for f, reusing the cached one when its
 // signature, its racy window and its asset probes all still hold, and
-// re-reading the file otherwise. It returns nil for a file that cannot be read.
-func (kb *KB) validateEntry(c *graphCache, f conceptFile, read map[string]string) *graphEntry {
+// re-reading the file otherwise. It returns a nil entry for a file that is
+// refused or gone, and an error for a read that failed transiently.
+func (kb *KB) validateEntry(c *graphCache, f conceptFile, read map[string]string) (*graphEntry, error) {
 	now := time.Now()
 	old := c.entries[f.rel]
 	// A symlinked concept (or one whose Info fails) is dropped, never read or
@@ -481,18 +491,24 @@ func (kb *KB) validateEntry(c *graphCache, f conceptFile, read map[string]string
 	}
 	if old != nil && !symlink && old.id == f.id && old.trusted(sig) && kb.probesHold(old.probes) {
 		c.stats.reused++
-		return old
+		return old, nil
 	}
 
 	if symlink {
 		// Refused like every concept path (D1025); lint's symlinked_path
 		// tells the operator why the concept is missing.
-		return nil
+		return nil, nil
 	}
 	content, err := kb.ReadRaw(f.rel)
 	c.stats.reads++
 	if err != nil {
-		return nil
+		var pe *fs.PathError
+		if errors.Is(err, okf.ErrNotFound) || errors.Is(err, fs.ErrPermission) || !errors.As(err, &pe) {
+			// Deleted since the walk, or refused for good (permissions, path
+			// validation): skipped, as every uncached reader skips it.
+			return nil, nil
+		}
+		return nil, err
 	}
 	c.stats.parsed++
 	if read != nil {
@@ -503,11 +519,11 @@ func (kb *KB) validateEntry(c *graphCache, f conceptFile, read map[string]string
 		// Same bytes: keep the parse, refresh what it was checked against.
 		refreshed := *old
 		refreshed.sig, refreshed.observed = sig, now
-		return &refreshed
+		return &refreshed, nil
 	}
 	entry := parseGraphEntry(kb, f, content, hash)
 	entry.sig, entry.observed = sig, now
-	return entry
+	return entry, nil
 }
 
 func parseGraphEntry(kb *KB, f conceptFile, content, hash string) *graphEntry {
