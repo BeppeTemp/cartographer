@@ -74,6 +74,8 @@ const (
 	// while the menu is open (the run loop is in the tracking mode) must still
 	// reach the main thread.
 	commonModes = "kCFRunLoopCommonModes"
+	// defaultMode is the value of NSDefaultRunLoopMode, where [NSApp run] waits.
+	defaultMode = "kCFRunLoopDefaultMode"
 )
 
 type nsSize struct{ W, H float64 }
@@ -219,10 +221,20 @@ func (u *macUI) feed(updates <-chan Snapshot) {
 	u.onMain(selStop)
 }
 
+// onMain runs sel on the main thread. A snapshot (selApply) goes in the common
+// run loop modes, so it arrives while a menu is open (#1871). selStop goes in
+// the default mode only: dispatched in the common modes it never ran stop() on
+// SIGTERM and [NSApp run] kept going (#2031, test/macos/tray.sh). The mode is
+// named explicitly because the plain performSelector...waitUntilDone: call,
+// tried first, did not deliver it either once a common-modes call had gone out.
 func (u *macUI) onMain(sel string) {
+	mode := commonModes
+	if sel == selStop {
+		mode = defaultMode
+	}
 	// Off the main thread: no run loop pool is active here, so bring our own.
 	pool(func() {
-		modes := class("NSArray").Send(s("arrayWithObject:"), nsString(commonModes))
+		modes := class("NSArray").Send(s("arrayWithObject:"), nsString(mode))
 		u.target.Send(s("performSelectorOnMainThread:withObject:waitUntilDone:modes:"), s(sel), objc.ID(0), false, modes)
 	})
 }
