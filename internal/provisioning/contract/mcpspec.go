@@ -17,6 +17,8 @@ import (
 	"path"
 	"regexp"
 	"strings"
+
+	"github.com/BeppeTemp/cartographer/internal/secretscan"
 )
 
 // MCPServerSpec is the on-disk format of mcp/<name>.json in a KB: provider-neutral,
@@ -28,6 +30,69 @@ type MCPServerSpec struct {
 	Args    []string          `json:"args,omitempty"`
 	Headers map[string]string `json:"headers,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
+	// EnvLiteral holds non-secret constants (NODE_OPTIONS=--use-system-ca): the
+	// value is written verbatim, so it is scanned for secrets and may not hold
+	// a "${" a client would expand. Its keys are disjoint from Env's.
+	EnvLiteral map[string]string `json:"env_literal,omitempty"`
+}
+
+// SecretRef is one "${secret:<concept-id>#NAME}" reference: NAME is a
+// secret_refs name of the concept, resolved at launch by `mcp exec`, never at
+// apply time and never written to a client file.
+type SecretRef struct {
+	Concept string
+	Name    string
+}
+
+// secretRefPattern spots every opening of a secret reference; each one must
+// then parse in full (parseSecretRefs), so a typo is an error, not a literal.
+var secretRefPattern = regexp.MustCompile(`\$\{secret:([^}]*)\}`)
+var conceptIDPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$`)
+
+// parseSecretRefs returns the references in value, or an error when a
+// "${secret:" does not parse as <concept-id>#NAME.
+func parseSecretRefs(value string) ([]SecretRef, error) {
+	var refs []SecretRef
+	for _, m := range secretRefPattern.FindAllStringSubmatch(value, -1) {
+		concept, name, ok := strings.Cut(m[1], "#")
+		valid := ok && conceptIDPattern.MatchString(concept) && envNamePattern.MatchString(name)
+		if valid {
+			for _, seg := range strings.Split(concept, "/") {
+				if seg == "." || seg == ".." {
+					valid = false
+				}
+			}
+		}
+		if !valid {
+			return nil, fmt.Errorf("malformed secret reference (want ${secret:<concept-id>#NAME})")
+		}
+		refs = append(refs, SecretRef{Concept: concept, Name: name})
+	}
+	// An opening the pattern did not consume (no closing brace) is malformed too.
+	if strings.Count(value, "${secret:") != len(refs) {
+		return nil, fmt.Errorf("malformed secret reference (want ${secret:<concept-id>#NAME})")
+	}
+	return refs, nil
+}
+
+// SecretRefs returns the secret references in value, in order. A malformed
+// one is not returned (ParseMCPServerSpec rejects it before this is reached).
+func SecretRefs(value string) []SecretRef {
+	refs, _ := parseSecretRefs(value)
+	return refs
+}
+
+// HasSecretRef reports whether any env or headers value holds a secret
+// reference: such a descriptor is started through the launcher.
+func (s MCPServerSpec) HasSecretRef() bool {
+	for _, m := range []map[string]string{s.Env, s.Headers} {
+		for _, v := range m {
+			if len(SecretRefs(v)) > 0 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // envRefPattern spots a "${VAR_NAME}" reference inside a header/env value —
@@ -87,6 +152,9 @@ func parseMCPServerSpec(name string, data []byte) (MCPServerSpec, error) {
 		return MCPServerSpec{}, fmt.Errorf("mcp %q: unsupported type %q", name, spec.Type)
 	}
 	if err := validateEnvRefs(name, "env", spec.Env); err != nil {
+		return MCPServerSpec{}, err
+	}
+	if err := validateEnvLiteral(name, spec); err != nil {
 		return MCPServerSpec{}, err
 	}
 	return spec, nil
@@ -187,10 +255,35 @@ func validateEnvRefs(serverName, field string, values map[string]string) error {
 		if field == "env" && !envNamePattern.MatchString(k) {
 			return fmt.Errorf("mcp %q: env key %q is not a portable variable name", serverName, k)
 		}
-		if !envRefPattern.MatchString(v) {
+		refs, err := parseSecretRefs(v)
+		if err != nil {
+			return fmt.Errorf("mcp %q: %s[%q]: %w", serverName, field, k, err)
+		}
+		if !envRefPattern.MatchString(v) && len(refs) == 0 {
 			return fmt.Errorf(
 				"mcp %q: %s[%q] does not reference an env var (\"${VAR}\"): literal value rejected for security",
 				serverName, field, k)
+		}
+	}
+	return nil
+}
+
+// validateEnvLiteral checks env_literal: portable names, disjoint from env, no
+// "${" (a client would expand it), no NUL or newline, and nothing the secret
+// scanner recognises. The error names the kind and the key, never the value.
+func validateEnvLiteral(serverName string, spec MCPServerSpec) error {
+	for k, v := range spec.EnvLiteral {
+		if !envNamePattern.MatchString(k) {
+			return fmt.Errorf("mcp %q: env_literal key %q is not a portable variable name", serverName, k)
+		}
+		if _, dup := spec.Env[k]; dup {
+			return fmt.Errorf("mcp %q: %q is in both env and env_literal", serverName, k)
+		}
+		if strings.Contains(v, "${") || strings.ContainsAny(v, "\x00\n\r") {
+			return fmt.Errorf("mcp %q: env_literal[%q] holds \"${\", a NUL or a newline", serverName, k)
+		}
+		if m := secretscan.Find(v); len(m) > 0 {
+			return fmt.Errorf("mcp %q: env_literal[%q] looks like a secret (%s): use a ${secret:...} reference", serverName, k, m[0].Kind)
 		}
 	}
 	return nil

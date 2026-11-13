@@ -1636,7 +1636,31 @@ hookLoop:
 				if specErr != nil {
 					return AppliedResult{}, fmt.Errorf("provisioning: mcp %s: %w", a.Name, specErr)
 				}
-				spec := configurator.ServerSpec{Type: kbSpec.Type, URL: kbSpec.URL, Command: kbSpec.Command, Args: kbSpec.Args, Headers: kbSpec.Headers, Env: kbSpec.Env}
+				if kbSpec.HasSecretRef() {
+					// A "${secret:...}" is resolved at launch by `mcp exec` and must
+					// never reach an emitter: it would be written into the client's
+					// config as text. Until the launcher entry is emitted, the
+					// descriptor is refused rather than installed half-working.
+					err := fmt.Errorf("%w: mcp %q holds ${secret:...} references, which this client cannot launch yet", ErrInvalidArtifactFile, a.Name)
+					if refuseArtifact(a, err) {
+						continue
+					}
+					return AppliedResult{}, err
+				}
+				// env_literal constants are plain values: they join env (the keys
+				// are disjoint, ParseMCPServerSpec enforces it) in a copy, so the
+				// parsed descriptor is not aliased.
+				env := make(map[string]string, len(kbSpec.Env)+len(kbSpec.EnvLiteral))
+				for k, v := range kbSpec.Env {
+					env[k] = v
+				}
+				for k, v := range kbSpec.EnvLiteral {
+					env[k] = v
+				}
+				if len(env) == 0 {
+					env = nil
+				}
+				spec := configurator.ServerSpec{Type: kbSpec.Type, URL: kbSpec.URL, Command: kbSpec.Command, Args: kbSpec.Args, Headers: kbSpec.Headers, Env: env}
 				if d, ok := configurator.Lookup(opts.Provider); ok && !d.SupportsMCPHeaders && len(kbSpec.Headers) > 0 {
 					// A provider whose emitter cannot represent auth headers
 					// (kiro, unchanged since D69) — warn instead of silently

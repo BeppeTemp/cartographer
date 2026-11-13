@@ -174,3 +174,60 @@ func TestCleanCommandPathIsHostIndependent(t *testing.T) {
 		}
 	}
 }
+
+func TestParseMCPServerSpec_SecretRefsAndEnvLiteral(t *testing.T) {
+	// A GitHub-token-shaped value, built at runtime so the file holds no token (D1202).
+	token := "gh" + "p_" + strings.Repeat("a1B2", 9)
+	const stdio = `{"type":"stdio","command":"srv",`
+	cases := []struct {
+		name, json, wantErr string
+	}{
+		{"secret in env", stdio + `"env":{"T":"${secret:services/svc#SVC_TOKEN}"}}`, ""},
+		{"secret in a longer header", `{"type":"http","url":"https://example.com/mcp","headers":{"Authorization":"Bearer ${secret:services/svc#TOKEN}"}}`, ""},
+		{"literal accepted", stdio + `"env_literal":{"NODE_OPTIONS":"--use-system-ca"}}`, ""},
+		{"empty literal accepted", stdio + `"env_literal":{"X":""}}`, ""},
+		{"no hash", stdio + `"env":{"T":"${secret:services/svc}"}}`, "malformed secret reference"},
+		{"dot dot", stdio + `"env":{"T":"${secret:services/../svc#TOKEN}"}}`, "malformed secret reference"},
+		{"leading slash", stdio + `"env":{"T":"${secret:/svc#TOKEN}"}}`, "malformed secret reference"},
+		{"empty segment", stdio + `"env":{"T":"${secret:a//b#TOKEN}"}}`, "malformed secret reference"},
+		{"bad name", stdio + `"env":{"T":"${secret:svc#1X}"}}`, "malformed secret reference"},
+		{"unclosed", stdio + `"env":{"T":"${secret:svc#TOKEN"}}`, "malformed secret reference"},
+		{"literal text in env", stdio + `"env":{"T":"plain"}}`, "does not reference"},
+		{"secret in env_literal", stdio + `"env_literal":{"T":"${secret:svc#TOKEN}"}}`, "${"},
+		{"var in env_literal", stdio + `"env_literal":{"T":"${HOME}"}}`, "${"},
+		{"newline in env_literal", stdio + `"env_literal":{"T":"a\nb"}}`, "newline"},
+		{"duplicate key", stdio + `"env":{"T":"${A}"},"env_literal":{"T":"x"}}`, "both env and env_literal"},
+		{"bad key", stdio + `"env_literal":{"A-B":"x"}}`, "portable variable name"},
+		{"token literal", stdio + `"env_literal":{"T":"` + token + `"}}`, "looks like a secret"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := parseMCPServerSpec("srv", []byte(c.json))
+			if c.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), c.wantErr) {
+				t.Fatalf("error = %v, want %q", err, c.wantErr)
+			}
+			if strings.Contains(err.Error(), token) {
+				t.Fatalf("error echoes the value: %v", err)
+			}
+		})
+	}
+}
+
+func TestSecretRefs(t *testing.T) {
+	refs := SecretRefs("a ${secret:services/svc#A} b ${secret:x#B_1}")
+	if len(refs) != 2 || refs[0] != (SecretRef{"services/svc", "A"}) || refs[1] != (SecretRef{"x", "B_1"}) {
+		t.Fatalf("refs = %+v", refs)
+	}
+	if !(MCPServerSpec{Env: map[string]string{"T": "${secret:x#B}"}}).HasSecretRef() {
+		t.Error("HasSecretRef = false for an env reference")
+	}
+	if (MCPServerSpec{Env: map[string]string{"T": "${B}"}}).HasSecretRef() {
+		t.Error("HasSecretRef = true for a plain ${VAR}")
+	}
+}
