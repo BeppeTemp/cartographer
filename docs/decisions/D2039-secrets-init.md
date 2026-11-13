@@ -8,6 +8,8 @@ topic: control-plane
 
 **Why.** No write path accepts a root hidden file, and the server's clone takes no git from a client, so enabling secrets meant a separate clone and a manual commit. The recipients are still the operator's decision: that is why the tool takes them as an argument only from an admin, never from an agent token.
 
+**The command.** `cartographer kb secrets init <kb> --recipient <age-pub> [--key-file <path>] [--force]` is local (D177): it calls `secrets_init` through the running server, then installs the key with `config.WriteCredential` (or `ReplaceCredential` under `--force`), mode 0600, never following a symlink. All no-write checks come first, so a refusal leaves nothing half-done; a failure after the rule is committed is fixed by running it again (idempotent).
+
 **Alternatives rejected.** Letting `artifact_write` accept `.sops.yaml` (opens every hidden root file). A tool that also writes the key (credentials from an MCP call).
 
 **Consequences.** A forced recipient change does not re-encrypt files already under `secrets/`; the result says to run `sops updatekeys`. D1191's rule that a tool writing under `secrets/` takes recipients from the rule holds: the file is not under `secrets/`.

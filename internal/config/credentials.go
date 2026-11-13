@@ -234,6 +234,43 @@ func WriteCredential(dir, name string, data []byte) (created bool, err error) {
 	return true, nil
 }
 
+// ReplaceCredential writes a file of the credentials directory with mode 0600,
+// replacing the one that is there: the data goes to a temporary file of dir and
+// is renamed over the target, so a reader sees the old file or the new one. A
+// target that is not a regular file (a symlink) is refused, never followed.
+func ReplaceCredential(dir, name string, data []byte) error {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	path := filepath.Join(dir, name)
+	if fi, err := os.Lstat(path); err == nil {
+		if !fi.Mode().IsRegular() {
+			return fmt.Errorf("%s is not a regular file", name)
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	tmp, err := os.CreateTemp(dir, ".tmp-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	_, err = tmp.Write(data)
+	if err == nil {
+		err = tmp.Chmod(0o600)
+	}
+	if err == nil {
+		err = tmp.Sync()
+	}
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
+}
+
 // linkCredential publishes data at path through a temporary file of dir. An
 // error other than fs.ErrExist from the link means the filesystem cannot link,
 // and the caller writes the file another way.

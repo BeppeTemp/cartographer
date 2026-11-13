@@ -482,7 +482,7 @@ accepted; `http://` only when the host is loopback (`localhost`, or an IP for
 which `net.ParseIP(host).IsLoopback()` holds: `127.0.0.0/8`, `::1`, IPv4-mapped
 `::ffff:127.0.0.1`; a name such as `127.0.0.1.example.com` is not); any other
 scheme is refused. The check is in the Compass transport, so `connect`, `sync`,
-`status`, `doctor`, `kb repair`, `kb reauthor`, `reindex`, the usage sync and the stdio bridge
+`status`, `doctor`, `kb repair`, `kb reauthor`, `kb secrets init`, `reindex`, the usage sync and the stdio bridge
 all obey it, and `connect` and `sync` fail before writing anything.
 
 The explicit opt-in is the `server.allow_insecure_http: true` key, set by
@@ -854,6 +854,12 @@ someone.
 Exit codes: `0` nothing left to do, `3` only judgement work or checks that are not safe to run unattended remain,
 `2` error. `--json` prints the report as an object (`checks`, `review_total`, `review_by_kind`,
 `remaining`). Not to be confused with `cartographer doctor`, which checks Compass's provisioning.
+
+### `cartographer kb secrets init <kb> --recipient <age-pub> [--key-file <path>] [--force]`
+
+Enables secrets on a KB with one command (#1911). The creation rule of the root `.sops.yaml` (`secrets/.*\.sops\.yaml$`, one age recipient) is written through the running server by the admin-only `secrets_init` tool and committed in the normal write flow; the key is installed here, on the server machine, as `<credentials_dir>/<kb>.age` with mode `0600`, because `--key-file` is a path of the operator's machine and no MCP call writes a credential (D2039). Like `kb reauthor` it is local (`--data`, `--config`, `--local`, D177) and needs a token that is an administrator's. **It needs no restart**: the server resolves the key on each read, so `kb_status` `capabilities.secrets` reads `enabled` on the next call.
+
+Everything that needs no write is checked first: the recipient has the shape of an age public key, `--key-file` is an age identity (size capped, never printed) that holds the recipient, and the target `<kb>.age` is a regular file. A different existing rule or key is refused without `--force`, before anything is written; the same rule or key is a no-op (`unchanged`). `--force` replaces the whole `.sops.yaml` and the key file but does **not** re-encrypt the files already under `secrets/`: the output says to run `sops updatekeys` on them. Without `--key-file` only the rule is written, and the output names the file still to add. The command is idempotent: if the key install fails after the rule is committed, run it again. Output is one line per effect (`rule: created|unchanged|replaced`, `key: installed|unchanged|replaced|not given`). Exit `0` done or unchanged, `1` refusal or failure, `2` usage.
 
 ### `cartographer kb reauthor <kb> [--apply] [--json]`
 

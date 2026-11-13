@@ -259,7 +259,7 @@ operator has already set up.
 | Step | Performed by |
 |---|---|
 | Generate the age key | operator (`age-keygen`) |
-| Write the root `.sops.yaml` creation rules | operator — Cartographer never writes this file |
+| Write the root `.sops.yaml` creation rules | operator, with `cartographer kb secrets init` (the admin-only `secrets_init` tool writes it) or by hand |
 | Create the **first** encrypted file and choose its recipients | operator (`sops` CLI) |
 | Rotate or add a pointer in an encrypted file, or create one under a creation rule | Cartographer (`secret_set`, D1191) |
 | Declare which values a concept uses | Cartographer (`concept_write`, `secret_refs`) |
