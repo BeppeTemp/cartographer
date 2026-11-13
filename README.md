@@ -7,7 +7,8 @@
 <p align="center">
   <b>Shared memory for your team's AI agents — one wiki they all read and grow, and none of them can break.</b><br>
   What a colleague's agent works out on Monday, yours already knows on Tuesday — even on another client.<br>
-  Claude Code, Codex, OpenCode and [any MCP client](docs/mcp-clients.md): one Go binary, git underneath.
+  Cartographer is the platform: <b>Meridian</b> (server), <b>Compass</b> (client), <b>Atlas</b> (web UI) and <b>Surveyor</b> (maintenance agent), one Go binary, git underneath.<br>
+  Claude Code, Codex, OpenCode and [any MCP client](docs/mcp-clients.md).
 </p>
 
 <p align="center">
@@ -71,6 +72,26 @@ next to the ones other people's agents left. Many agents, one wiki.
 <sub>Everything is read-only except guestbook messages, which are public, anonymous, moderated and rate-limited.
 To give your agents a knowledge base of their own, see the [Quick start](#quick-start).</sub>
 
+## The four components
+
+One binary, deployed as four components that you pick from:
+
+| Component | What it is | Command | Deploy it when |
+|---|---|---|---|
+| **Meridian** | The server: the only writer of a KB, MCP over HTTP (or stdio for one local client) | `cartographer serve` | Always: it holds the KBs |
+| **Compass** | The client next to the agent: configures every agent client, syncs, runs the local bridge, hosts client plugins | `cartographer connect`, `sync` | On every machine where an agent runs |
+| **Atlas** | The read-only web UI, served by Meridian | none (a switch of Meridian) | You want to see the graph, the changes and the findings |
+| **Surveyor** | A headless maintenance agent for one perimeter of KBs | `cartographer surveyor` | You want the wiki kept in order without a person asking |
+
+Three rules hold them together: components talk only through documented interfaces; each does only its
+job; you deploy only what you need. Details: [`docs/deployment.md`](docs/deployment.md#components).
+
+<p align="center">
+  <img alt="The deployment film: three deployment profiles, each lighting the components it runs on one diagram. A laptop runs Meridian, Atlas and Compass; a team VM adds a Surveyor and bearer tokens; a Kubernetes cluster runs Meridian with Atlas and one Surveyor per perimeter; a lone Compass is pointed at a remote Meridian, because the client does not belong in a cluster." src="https://raw.githubusercontent.com/BeppeTemp/cartographer/readme-film/deployment.webp" width="100%">
+</p>
+
+<p align="center"><sub>Three profiles: a laptop, a team VM and Kubernetes. See the <a href="docs/deployment.md#deployment-scenarios">deployment scenarios</a>.</sub></p>
+
 ## Why
 
 AI agents start every session from zero, and on a team every colleague's agent starts from its own
@@ -89,32 +110,53 @@ through MCP tools**, behind a server that enforces the rules, and the same knowl
 
 ## What you get
 
+### Meridian
+
 - 🧠 **Memory that compounds**<br>
   A wiki the agent builds over time ([Karpathy's LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) pattern): plain Markdown + YAML, one git repo per KB, readable in Obsidian or any editor. No lock-in.
 
 - 🛡️ **Guardrails, not good intentions**<br>
   Schema validation, link checks, lint, immutability gates, optimistic concurrency, one commit per write, a signed audit log. The agent cannot leave the KB in a broken state.
 
-- 🧩 **One KB configures every agent**<br>
-  Skills, subagents, hooks and standing instructions live in the KB and reach each client in its native format ([below](#one-kb-every-agent)). Edit once, every machine converges.
-
-- 🔌 **Extend it with plugins**<br>
-  A plugin is a git repository or a folder that adds clients, skills, subagents, hooks, commands and MCP tools, installed with one command, pinned to a commit and enabled only after you approve what it does.
-
 - 👥 **Built for teams**<br>
   Several KBs behind one server — a native user service, a container or a Kubernetes workload — per-KB and per-map access with bearer-token roles, git as the sync layer, conflicts turned into a guided workflow, Ed25519-signed artifacts.
-
-- 🗺️ **See it all in the Atlas**<br>
-  A read-only web UI in the same binary: a living 3D graph, search, what the agents changed, what the KB ships to them, and what needs fixing. No extra service, no CDN.
 
 - 🔑 **Secrets, done properly**<br>
   SOPS-encrypted values referenced by concepts and resolved on demand; plaintext is never stored.
 
+### Compass
+
+- 🧩 **One KB configures every agent**<br>
+  Skills, subagents, hooks and standing instructions live in the KB and reach each client in its native format ([below](#one-kb-every-agent)). Edit once, every machine converges.
+
+### Atlas
+
+- 🗺️ **See it all**<br>
+  A read-only web UI in the same binary: a living 3D graph, search, what the agents changed, what the KB ships to them, and what needs fixing. No extra service, no CDN.
+
 <p align="center">
-  <img alt="The embedded Atlas: a knowledge base drawn as a living 3D graph — searched, a concept opened with its links, recoloured by map, the skills it ships to agents and the findings that need attention." src="https://raw.githubusercontent.com/BeppeTemp/cartographer/readme-assets/hero.webp" width="100%">
+  <img alt="The embedded Atlas: a knowledge base drawn as a living 3D graph — searched, a concept opened with its links, recoloured by map, the skills it ships to agents, the findings that need attention and the Surveyor settings." src="https://raw.githubusercontent.com/BeppeTemp/cartographer/readme-assets/hero.webp" width="100%">
 </p>
 
-<p align="center"><sub>The Atlas, served by the same binary, on a generated demo KB.</sub></p>
+<p align="center"><sub>The Atlas, served by Meridian, on a generated demo KB.</sub></p>
+
+### Surveyor
+
+- 🔭 **Keeps the wiki in order while nobody is looking**<br>
+  Ingest from feeds, repair, review; it is a client of the public MCP contract, read-only to everything but the KB, with its own model profiles and budgets. Recipes: [`docs/surveyor-recipes.md`](docs/surveyor-recipes.md).
+
+<p align="center">
+  <img alt="The Surveyor at work in the Atlas: a source is declared in Settings, a Surveyor run starts, the Activity page shows the run, the graph gains the new concepts, and one source that fails raises an alarm in the Work panel." src="https://raw.githubusercontent.com/BeppeTemp/cartographer/readme-assets/surveyor.webp" width="100%">
+</p>
+
+### Extend it with plugins
+
+- 🔌 **Plugins**<br>
+  A plugin is a git repository or a folder that adds clients, skills, subagents, hooks, commands and MCP tools to Compass, and connectors to the Surveyor. It is installed with one command, pinned to a commit and enabled only after you approve what it does.
+
+<p align="center">
+  <img alt="The plugins film: a plugin is validated, installed, approved and run, and the same plugin stops when one byte of its script changes." src="https://raw.githubusercontent.com/BeppeTemp/cartographer/readme-film/plugins.webp" width="100%">
+</p>
 
 ## Quick start
 
@@ -189,6 +231,7 @@ map is [`docs/index.md`](docs/index.md).
 - [Overview](docs/overview.md) — vision, principles, architecture
 - [MCP tools](docs/control-plane.md) — the full tool API
 - [Deployment](docs/deployment.md) — components, deployment scenarios, configuration, backup
+- [Surveyor recipes](docs/surveyor-recipes.md) and [connectors](docs/surveyor-connectors.md) — feed the wiki from your sources
 - [Sync](docs/sync.md) — how artifacts reach each agent client
 - [Plugins](docs/plugins.md) — add clients, commands and MCP tools, approved per version
 
