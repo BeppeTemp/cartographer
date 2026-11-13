@@ -36,7 +36,7 @@ Protocol: JSON-RPC 2.0, stdio newline-delimited, HTTP POST /mcp, logs on stderr.
 Structural questions: targeted Grep/Explore, then read only the cited `file:line`.
 
 - the **why** lives in `docs/decisions/`, one file per decision (`ls docs/decisions/D47-*`), current behavior in `docs/` (map in `docs/index.md`);
-- mandates to a coding subagent include the `file:line` pointers already derived.
+- mandates to a coding subagent include the derived `file:line` pointers.
 
 ## Areas
 
@@ -81,6 +81,7 @@ internal/jsonorder                edits a JSON object without reformatting the r
 internal/kb                       implements the data plane of the OKF knowledge base
 internal/lint                     implements deterministic lint checks on a KB scope
 internal/mcpbridge                is the local stdio MCP server scoped to a folder's KBs (D737)
+internal/mcpexec                  resolves an approved MCP descriptor and its secrets
 internal/mcpserver                implements the control plane
 internal/okf                      parser/serializer for the YAML subset used in OKF frontmatter
 internal/openapi                  builds an OpenAPI document from Go types
@@ -146,6 +147,6 @@ Not duplicated here:
 - A change whose outcome is found by trying it (Atlas UI, UX, output to tune) needs no plan: it is a **live session** with the user that ends in one queued change (`cartographer-develop-live` skill).
 - A PR, or a change before `make ready`, is reviewed with the `cartographer-review-pr` skill: scripted triage then the `cartographer-contract-reviewer` subagent; the coordinator verifies only the lines its findings cite. Size cap: `CONTRIBUTING.md` §Pull requests.
 - Releases → maintainer-local tooling, not versioned here; on demand: `CONTRIBUTING.md` §Releases.
-- **Documentation is updated in the same session as the code — never afterward.** The "what changes → which file" table: `docs/index.md` §Documentation maintenance rules.
+- **Documentation is updated in the same session as the code**: which-file table in `docs/index.md`.
 - Conventions → `docs/conventions.md`. A decision is `docs/decisions/D<n>-<slug>.md`, `<n>` the PR's (D672) or, queued, `D-new-<slug>` numbered by the lander; never regenerate `docs/decisions.md` in a feature PR (D328).
 - **This file is stable imprinting**: no mutable state, versions, counts or changelog. Topic docs describe the **current state**; the history lives in `docs/decisions/` and the git log. Size is a gate — `internal/repodocs` fails the build past 120 hand-written lines (generated blocks aside) or 12.000 characters in all: past that a client drops instructions silently.
