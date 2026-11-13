@@ -75,12 +75,13 @@ done
 
 # Every release: the invariants that do not depend on the values.
 check_common() {
-  local label=$1 f
+  local label=$1 f lits
   [ -z "$(docs "$label" StatefulSet)$(docs "$label" HorizontalPodAutoscaler)" ] || fail "$label: a StatefulSet or an HPA"
   [ -z "$(docs "$label" Secret)" ] || fail "$label: the chart renders a Secret"
   # An environment entry named like a secret is a reference, never a literal.
   for f in "$work/$label"/doc-*.yaml; do
-    ! grep -B1 -hE '^ +value:' "$f" | grep -iqE 'name:.*(TOKEN|KEY|SECRET|PASSWORD)' || fail "$label: a literal secret value in an environment ($f)"
+    lits=$(grep -B1 -hE '^ +value:' "$f" || true)
+    ! grep -iqE 'name:.*(TOKEN|KEY|SECRET|PASSWORD)' <<<"$lits" || fail "$label: a literal secret value in an environment ($f)"
   done
   for f in $(docs "$label" Deployment) $(docs "$label" CronJob); do
     grep -qE 'component: surveyor-' "$f" || continue

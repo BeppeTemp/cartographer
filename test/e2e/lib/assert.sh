@@ -2,6 +2,12 @@
 # lib/assert.sh — assertion helpers for E2E tests.
 # The functions do NOT terminate the script: they accumulate failures in E2E_FAILURES (integer).
 # The caller decides the exit code based on the value of E2E_FAILURES.
+#
+# Trap (D214): never `echo "$body" | grep -q …` here or in a scenario. The scenarios
+# run under `set -o pipefail`; grep -q exits on the first match and echo, still
+# writing a body larger than the pipe, dies of SIGPIPE (141), so a passing check
+# reports "lacks" and a not-discloses check passes on a leak. Use a here-string
+# (`grep -qF -- "$needle" <<<"$body"`); lib/selftest.sh pins it with a 300 KB body.
 
 # Global failure counter (initialized to 0 by the runner).
 E2E_FAILURES="${E2E_FAILURES:-0}"
@@ -118,7 +124,7 @@ mcp_call() {
 #   Verifies a tools/call response succeeded (isError absent/false).
 assert_mcp_ok() {
     local desc="$1" body="$2"
-    if echo "$body" | grep -q '"isError":true'; then
+    if grep -qF -- '"isError":true' <<<"$body"; then
         _assert_fail "${desc} — expected success, got an application error: ${body}"
     else
         _assert_pass "$desc"
@@ -135,7 +141,7 @@ assert_mcp_error_text() {
     local desc="$1" body="$2" want="$3"
     local reasoned="\"text\":\"${want}\""
     [ "$want" = "forbidden" ] && reasoned="\"text\":\"forbidden: "
-    if echo "$body" | grep -q '"isError":true' && { echo "$body" | grep -qF "\"text\":\"${want}\"" || echo "$body" | grep -qF "$reasoned"; }; then
+    if grep -qF -- '"isError":true' <<<"$body" && { grep -qF -- "\"text\":\"${want}\"" <<<"$body" || grep -qF -- "$reasoned" <<<"$body"; }; then
         _assert_pass "$desc"
     else
         _assert_fail "${desc} — expected isError with text '${want}', got: ${body}"
@@ -147,7 +153,7 @@ assert_mcp_error_text() {
 #   hidden concept's id or title) — the D118 non-disclosure invariant.
 assert_mcp_not_discloses() {
     local desc="$1" body="$2" needle="$3"
-    if echo "$body" | grep -qF "$needle"; then
+    if grep -qF -- "$needle" <<<"$body"; then
         _assert_fail "${desc} — response unexpectedly discloses '${needle}': ${body}"
     else
         _assert_pass "$desc"
@@ -159,7 +165,7 @@ assert_mcp_not_discloses() {
 #   of assert_mcp_not_discloses.
 assert_mcp_contains() {
     local desc="$1" body="$2" needle="$3"
-    if echo "$body" | grep -qF -- "$needle"; then
+    if grep -qF -- "$needle" <<<"$body"; then
         _assert_pass "$desc"
     else
         _assert_fail "${desc} — response lacks '${needle}': ${body:0:400}"

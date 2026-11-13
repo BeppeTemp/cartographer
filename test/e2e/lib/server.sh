@@ -84,7 +84,7 @@ server_wait_health() {
         # being mounted, and every other path is 503 until then.
         local body
         body=$(curl -sf "$url" 2>/dev/null) || body=""
-        if printf '%s' "$body" | grep -q '"started_at"' && ! printf '%s' "$body" | grep -q '"bootstrapping"'; then
+        if grep -q -- '"started_at"' <<<"$body" && ! grep -q -- '"bootstrapping"' <<<"$body"; then
             echo "[server] /health OK (cartographer) after ${elapsed}s" >&2
             return 0
         fi

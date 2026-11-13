@@ -192,9 +192,9 @@ call() { # call TOOL ARGS [AUTHOR] -> the raw JSON-RPC response
 page() { # page NAME BODY [AUTHOR]: an Index page and the note it links (write gate, D907)
   call concept_batch "{\"operations\":[{\"op\":\"write\",\"id\":\"rules/$1\",\"index_entry\":true,\"frontmatter\":{\"type\":\"Index\",\"title\":\"$1\"},\"body\":\"# $1\\n\\nSee [[rules/$1/note]].\\n\"},{\"op\":\"write\",\"id\":\"rules/$1/note\",\"index_entry\":true,\"frontmatter\":{\"type\":\"note\",\"title\":\"$1 note\"},\"body\":\"$2\"}]}" "${3:-}"
 }
-contains() { printf '%s' "$1" | grep -q "$2"; }
+contains() { grep -q "$2" <<<"$1"; }
 head_is() { [ "$(remote_commit)" = "$1" ]; }
-no_warning() { ! printf '%s' "$1" | grep -q sync_state; }
+no_warning() { ! grep -q sync_state <<<"$1"; }
 
 call map_create '{"name":"rules","title":"Rules"}' "$ADA" >/dev/null
 

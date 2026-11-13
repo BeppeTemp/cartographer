@@ -68,7 +68,7 @@ wait_health() {
         # being mounted, and /mcp is 503 until then.
         local body
         body=$(curl -sf "http://127.0.0.1:${port}/health" 2>/dev/null) || body=""
-        if printf '%s' "$body" | grep -q '"started_at"' && ! printf '%s' "$body" | grep -q '"bootstrapping"'; then
+        if grep -q -- '"started_at"' <<<"$body" && ! grep -q -- '"bootstrapping"' <<<"$body"; then
             return 0
         fi
         sleep 1; elapsed=$((elapsed + 1))
@@ -157,7 +157,7 @@ assert_file_contains "$CONCEPT_A" "status: degraded"
 # --- Optional: verify via conflicts_list that the conflict is listed ---
 echo "[09] verifying conflicts_list via MCP"
 CONFLICTS_OUT="$(mcp_capture "$PORT_A" "kbA" '{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"conflicts_list","arguments":{}}}')"
-if echo "$CONFLICTS_OUT" | grep -q "shared/notes/c"; then
+if grep -q -- "shared/notes/c" <<<"$CONFLICTS_OUT"; then
     _assert_pass "conflicts_list lists shared/notes/c"
 else
     _assert_fail "conflicts_list does not list shared/notes/c (output: ${CONFLICTS_OUT})"

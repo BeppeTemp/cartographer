@@ -64,6 +64,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# The assertion helpers answer right before any scenario relies on them (D214).
+echo "[run] lib/assert.sh self-test..."
+bash "${E2E_DIR}/lib/selftest.sh" || { echo "[run] FAIL — lib/assert.sh self-test"; exit 1; }
+
 echo "[run] build..."
 make -C "$REPO_ROOT" build
 

@@ -354,7 +354,7 @@ last() { git -C "$KB_A" log -1 --format="$1"; }
 [[ "$(last %an)" == "docs-bot" && "$(last %cn)" == "docs-bot" ]] \
     && _assert_pass "E3 the commit is authored and committed by docs-bot" \
     || _assert_fail "E3 author=$(last %an) committer=$(last %cn), want docs-bot"
-if last %B | grep -q '^Cartographer-Token: docs-bot$'; then
+if grep -q '^Cartographer-Token: docs-bot$' <<<"$(last %B)"; then
     _assert_pass "E3 the message carries the Cartographer-Token trailer"
 else
     _assert_fail "E3 no Cartographer-Token trailer: $(last %B)"
@@ -364,7 +364,7 @@ assert_mcp_ok "E4 log_append with Cartographer-Author" "$E4"
 [[ "$(last '%an <%ae>')" == "$ADA" && "$(last '%cn <%ce>')" == "$ADA" ]] \
     && _assert_pass "E4 the commit is Ada's, as author and committer" \
     || _assert_fail "E4 author=$(last '%an <%ae>') committer=$(last '%cn <%ce>')"
-if last %B | grep -q '^Cartographer-Token: docs-bot$'; then
+if grep -q '^Cartographer-Token: docs-bot$' <<<"$(last %B)"; then
     _assert_pass "E4 the Cartographer-Token trailer is still docs-bot"
 else
     _assert_fail "E4 trailer lost: $(last %B)"
@@ -441,7 +441,7 @@ else
     _assert_fail "G2 the provisioned initialize lacks the entry paragraph or carries the guide: ${INS_P:0:300}"
 fi
 G2="$(tcall "$WRITER_TOKEN" "$P_QUERY" atlas_overview '{}')"
-if [[ "$(printf '%s' "$G2" | blocks)" -ge 2 ]] && printf '%s' "$G2" | texts | grep -qF "$NUDGE"; then
+if [[ "$(printf '%s' "$G2" | blocks)" -ge 2 ]] && grep -qF -- "$NUDGE" <<<"$(printf '%s' "$G2" | texts)"; then
     _assert_pass "G2 the provisioned connection receives the nudge (the debt was real; the gate is the marker)"
 else
     _assert_fail "G2 no nudge for the provisioned control: if G1 passed, the likely cause is that the generic calls consumed the shared window or the provisioned gate sits after the claim (doctornudge.go): ${G2:0:300}"
