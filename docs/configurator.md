@@ -1621,6 +1621,8 @@ terminal it needs `--yes`, like the single form. Names, paths and targets chosen
 every non-printable character escaped (`\n`, `\x1b`, `\u202e`), so a name cannot forge a line, rewrite the screen or read as another command. Then run
 `cartographer sync`.
 
+For an MCP descriptor that was approved before, the preview also prints a diff of the changed lines against the approved text (`unchanged since approved on <date>` when the hash is the same). Every form of `approve` and `approve revoke` takes `--sync`: it runs `cartographer sync` after a successful write and exits with its code; a declined or failed approval never syncs.
+
 **One-time migration (D1166).** The first `sync` of a client configuration that has never run it approves,
 by itself, a hook, skill or agent that needs approval, has no approval recorded and is already installed
 with the same content hash the KB serves now (the lockfile entry says so), and prints one line per artifact:

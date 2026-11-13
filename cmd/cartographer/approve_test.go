@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
@@ -184,12 +185,87 @@ func TestApprovalPreviewListsEnvLiteralAndReadVars(t *testing.T) {
 	desc := `{"type":"stdio","command":"srv","env":{"K":"${EXAMPLE_KEY}"},"env_literal":{"NODE_OPTIONS":"--require /tmp/x.js","LD_PRELOAD":"/tmp/y.so"}}`
 	a := contract.Artifact{Kind: "mcp", Name: "svc", Source: "kb:kb-a", ContentHash: "abcdef0123456789", Files: []contract.ArtifactFile{{Path: "svc.json", Content: []byte(desc)}}}
 	var b strings.Builder
-	if err := printApprovalPreview(&b, a); err != nil {
+	if err := printApprovalPreview(&b, a, nil); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"env_literal: NODE_OPTIONS=--require /tmp/x.js", "env_literal: LD_PRELOAD=/tmp/y.so", "reads: EXAMPLE_KEY"} {
 		if !strings.Contains(b.String(), want) {
 			t.Errorf("preview misses %q:\n%s", want, b.String())
 		}
+	}
+}
+
+func mcpArtifact(hash, url string) contract.Artifact {
+	return contract.Artifact{Kind: "mcp", Name: "tools", Source: "kb:kb-a", ContentHash: hash, Files: []contract.ArtifactFile{
+		{Path: "tools.json", Content: []byte(`{"type":"http","url":"` + url + `","headers":{"X":"${VAR}"}}`)},
+	}}
+}
+
+func TestParseApproveSyncFlagIsStrippedBeforeParsing(t *testing.T) {
+	approveFixture(t, false)
+	calls := 0
+	old := syncFn
+	syncFn = func(args []string) int { calls++; return 7 }
+	t.Cleanup(func() { syncFn = old })
+	var code int
+	withStdout(t, func() { code = cmdApprove([]string{"hook", "guard", "--kb", "kb-a", "--yes", "--sync"}) })
+	if code != 7 || calls != 1 {
+		t.Fatalf("exit %d, sync calls %d, want the sync's exit code once", code, calls)
+	}
+	// A declined approval, an error and a missing --yes never sync.
+	calls = 0
+	if code := cmdApprove([]string{"hook", "guard", "--kb", "kb-a", "--sync"}); code != 2 || calls != 0 {
+		t.Fatalf("no --yes: exit %d, sync calls %d", code, calls)
+	}
+	if code := cmdApprove([]string{"skill", "plain", "--kb", "kb-a", "--yes", "--sync"}); code != 2 || calls != 0 {
+		t.Fatalf("refused: exit %d, sync calls %d", code, calls)
+	}
+}
+
+func TestCmdApprove_MCPReapprovalShowsTheDiff(t *testing.T) {
+	home, _ := approveFixture(t, false)
+	args := []string{"mcp", "tools", "--kb", "kb-a", "--yes"}
+	set := func(a contract.Artifact) {
+		approveManifest = func(*clientconfig.Config) (contract.Manifest, error) {
+			return contract.Manifest{Revision: "r", Artifacts: []contract.Artifact{a}}, nil
+		}
+	}
+	run := func() string {
+		var code int
+		out := withStdout(t, func() { code = cmdApprove(args) })
+		if code != 0 {
+			t.Fatalf("exit %d: %s", code, out)
+		}
+		return out
+	}
+	set(mcpArtifact("h1-0123456789ab", "https://a.example.com/mcp"))
+	if out := run(); strings.Contains(out, "since approved") || strings.Contains(out, "previous approval") {
+		t.Errorf("a first approval has nothing to compare:\n%s", out)
+	}
+	if out := run(); !strings.Contains(out, "unchanged since approved on") {
+		t.Errorf("same hash:\n%s", out)
+	}
+	set(mcpArtifact("h2-0123456789ab", "https://b.example.com/mcp"))
+	out := run()
+	if !strings.Contains(out, `-   "url": "https://a.example.com/mcp"`) || !strings.Contains(out, `+   "url": "https://b.example.com/mcp"`) {
+		t.Errorf("diff must show the old and new url:\n%s", out)
+	}
+	if strings.Contains(out, "${VAR}") || strings.Contains(out, `"type"`) {
+		t.Errorf("unchanged lines must not be printed:\n%s", out)
+	}
+	cfg, _ := clientconfig.Load(home)
+	if !strings.Contains(cfg.MCPApprovals["kb-a"]["tools"].Content, "b.example.com") {
+		t.Errorf("the approved text is not stored: %+v", cfg.MCPApprovals)
+	}
+
+	// An approval made before the content was stored.
+	if err := withClientConfig(home, func(c *clientconfig.Config) error {
+		return c.ApproveMCP("kb-a", "tools", "h2-0123456789ab", time.Now())
+	}); err != nil {
+		t.Fatal(err)
+	}
+	set(mcpArtifact("h3-0123456789ab", "https://c.example.com/mcp"))
+	if out := run(); !strings.Contains(out, "previous approval has no stored version") {
+		t.Errorf("legacy approval:\n%s", out)
 	}
 }

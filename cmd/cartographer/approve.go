@@ -25,15 +25,27 @@ var (
 	approveInteractive = isInteractive
 )
 
-const approveUsage = "Usage: cartographer approve [revoke] <kind> <name> [--kb <kb>] [--yes]   (kind: mcp, hook, skill, agent)\n       cartographer approve --pending [--kb <kb>] [--yes]"
+const approveUsage = "Usage: cartographer approve [revoke] <kind> <name> [--kb <kb>] [--yes] [--sync]   (kind: mcp, hook, skill, agent)\n       cartographer approve --pending [--kb <kb>] [--yes] [--sync]\n  --sync runs cartographer sync right after the approval (or the revoke) is written"
 
 func cmdApprove(args []string) int {
 	if hasHelpFlag(args) {
 		fmt.Fprintln(os.Stdout, approveUsage)
 		return 0
 	}
+	// --sync is stripped here so both forms and revoke share it; a refused or
+	// declined approval returns before it is looked at.
+	runSync := false
+	if i := slices.Index(args, "--sync"); i >= 0 {
+		runSync, args = true, slices.Delete(slices.Clone(args), i, i+1)
+	}
+	then := func(code int) int {
+		if code == 0 && runSync {
+			return syncFn(nil)
+		}
+		return code
+	}
 	if i := slices.Index(args, "--pending"); i >= 0 {
-		return cmdApprovePending(slices.Delete(slices.Clone(args), i, i+1))
+		return then(cmdApprovePending(slices.Delete(slices.Clone(args), i, i+1)))
 	}
 	revoke := false
 	if len(args) > 0 && args[0] == "revoke" {
@@ -88,7 +100,7 @@ func cmdApprove(args []string) int {
 		} else {
 			fmt.Printf("revoked approval for %s %s from KB %s; what is already installed stays installed and registered (and keeps running) but is no longer refreshed: to remove it, delete its files and its registration in the client's settings by hand\n", kind, name, kbName)
 		}
-		return 0
+		return then(0)
 	}
 	m, err := approveManifest(cfg)
 	if err != nil {
@@ -115,7 +127,7 @@ func cmdApprove(args []string) int {
 		fmt.Fprintf(os.Stderr, "Error: %s %s is installed without approval\n", kind, name)
 		return 2
 	}
-	if err := printApprovalPreview(os.Stdout, a); err != nil {
+	if err := printApprovalPreview(os.Stdout, a, previousApproval(cfg, source, approvalEntryName(kind, name))); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
 	}
@@ -132,16 +144,17 @@ func cmdApprove(args []string) int {
 			return 0
 		}
 	}
+	content := approvalContent(a)
 	// Reloaded under the lock: the preview and the prompt above can take as
 	// long as the operator does, and a sync may have saved meanwhile (D172).
 	if err := withClientConfig(dir, func(c *clientconfig.Config) error {
-		return c.ApproveMCP(source, approvalEntryName(kind, name), a.ContentHash, time.Now())
+		return c.ApproveMCPContent(source, approvalEntryName(kind, name), a.ContentHash, content, time.Now())
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
 	}
 	fmt.Printf("approved %s %s from KB %s; run cartographer sync to materialize it\n", kind, escapeControl(name), escapeControl(source))
-	return 0
+	return then(0)
 }
 
 func parseApproveMCPArgs(args []string) (name, kb string, yes, ok bool) {
@@ -181,6 +194,27 @@ func approvalSources(cfg *clientconfig.Config, name string) []string {
 	return sources
 }
 
+// previousApproval is the stored approval of one source/name, nil when none.
+func previousApproval(cfg *clientconfig.Config, source, name string) *clientconfig.MCPApproval {
+	if p, ok := cfg.MCPApprovals[source][name]; ok {
+		return &p
+	}
+	return nil
+}
+
+// approvalContent is the text an approval stores for the next diff: the
+// descriptor of an MCP artifact, nothing for the kinds whose preview shows files.
+func approvalContent(a contract.Artifact) string {
+	if a.Kind != "mcp" {
+		return ""
+	}
+	files, err := contract.ReadArtifactFiles(a, nil, nil)
+	if err != nil || len(files) != 1 {
+		return ""
+	}
+	return string(files[0].Content)
+}
+
 func shortHash(hash string) string {
 	if len(hash) > 12 {
 		return hash[:12]
@@ -209,7 +243,7 @@ func approvalEntryName(kind, name string) string {
 // size and execute bit and the content of the files that decide what runs.
 // Everything the server chose (names, source, paths, target) goes through
 // escapeControl.
-func printApprovalPreview(w io.Writer, a contract.Artifact) error {
+func printApprovalPreview(w io.Writer, a contract.Artifact, prev *clientconfig.MCPApproval) error {
 	source := escapeControl(strings.TrimPrefix(a.Source, "kb:"))
 	name := escapeControl(a.Name)
 	files, err := contract.ReadArtifactFiles(a, nil, nil)
@@ -252,6 +286,7 @@ func printApprovalPreview(w io.Writer, a contract.Artifact) error {
 			slices.Sort(refs)
 			fmt.Fprintf(w, "secrets: %s\nlauncher: yes\n", escapeControl(strings.Join(refs, ", ")))
 		}
+		printApprovalDiff(w, prev, a.ContentHash, files[0].Content)
 		return nil
 	}
 	if err != nil {
@@ -374,7 +409,7 @@ func cmdApprovePending(args []string) int {
 	}
 	fmt.Printf("%d artifact(s) waiting for approval:\n\n", len(pending))
 	for _, a := range pending {
-		if err := printApprovalPreview(os.Stdout, a); err != nil {
+		if err := printApprovalPreview(os.Stdout, a, nil); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %s %s: %v\n", escapeControl(a.Kind), escapeControl(a.Name), err)
 			return 2
 		}

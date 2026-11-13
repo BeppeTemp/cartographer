@@ -204,6 +204,11 @@ type Config struct {
 type MCPApproval struct {
 	ContentHash string    `yaml:"content_hash" json:"content_hash"`
 	ApprovedAt  time.Time `yaml:"approved_at" json:"approved_at"`
+	// Content is the approved descriptor text of an MCP approval, kept so a
+	// re-approval can show the diff. Empty for approvals made without it (an
+	// older client, a hook or artifact approval): "no previous version".
+	// A descriptor holds ${VAR} references only, never a literal.
+	Content string `yaml:"content,omitempty" json:"content,omitempty"`
 }
 
 // ClientBinding is one provider's per-client declaration. An entry carrying an
@@ -833,6 +838,12 @@ func (c *Config) Assigned(keys ...string) {
 
 // ApproveMCP records the exact descriptor hash for one source/name pair.
 func (c *Config) ApproveMCP(sourceKB, name, hash string, at time.Time) error {
+	return c.ApproveMCPContent(sourceKB, name, hash, "", at)
+}
+
+// ApproveMCPContent is ApproveMCP that also stores the approved text, the
+// previous version the next approval diffs against.
+func (c *Config) ApproveMCPContent(sourceKB, name, hash, content string, at time.Time) error {
 	if sourceKB == "" || name == "" || hash == "" {
 		return fmt.Errorf("clientconfig: invalid MCP approval")
 	}
@@ -842,7 +853,7 @@ func (c *Config) ApproveMCP(sourceKB, name, hash string, at time.Time) error {
 	if c.MCPApprovals[sourceKB] == nil {
 		c.MCPApprovals[sourceKB] = make(map[string]MCPApproval)
 	}
-	c.MCPApprovals[sourceKB][name] = MCPApproval{ContentHash: hash, ApprovedAt: at.UTC()}
+	c.MCPApprovals[sourceKB][name] = MCPApproval{ContentHash: hash, ApprovedAt: at.UTC(), Content: content}
 	return nil
 }
 
