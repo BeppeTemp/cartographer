@@ -890,9 +890,16 @@ Playwright drives Chromium against **`bin/cartographer` serving its embedded
 bundle** — never Vite's dev server, which serves different bytes under
 different headers (no CSP, no SPA fallback, no auth chain), so a pass there
 would verify nothing that ships (D228). `web/e2e/run.sh` builds the binary,
-starts two servers on ephemeral loopback ports and runs the suite: `local`
+starts three servers on ephemeral loopback ports and runs the suite: `local`
 with auth off, `auth` with an admin token and one narrowed by a role to
-`Entity` concepts under `infra/` in one KB. Node runs the test driver only.
+`Entity` concepts under `infra/` in one KB, and `ext` with auth on and a
+pinned plugin (vendored by `plugin vendor` from a tree the script writes)
+whose atlas side declares a view and an app (its binary is a `dev` build, which
+meets any plugin floor and asks GitHub for nothing); the app lives on a fourth
+loopback port, served by `web/e2e/app-origin.mjs`, which records the headers
+it receives. Only `extension.spec.ts` reads those two URLs (`E2E_EXT_URL`,
+`E2E_APP_URL`), when a test asks for them, so `make hero` needs only the
+first two. Node runs the test driver only.
 
 The fixture is `web/e2e/fixture.mjs`, a pure function of itself: three KBs —
 `atlas` (two Maps and a Journal, `type` and `status` on every concept, a
@@ -921,6 +928,12 @@ What it holds, beyond the component tests:
   appears in no node, edge, count, finding, search result or API body, and
   requesting it directly yields the `404` state with the same body as a
   concept that never existed — never a `403`;
+- **Atlas extensions** (D1938, `extension.spec.ts`, `make e2e-web
+  E2E_WEB_ARGS=extension`): a plugin's view appears in the rail and draws its
+  route; its app link opens a tab on the app's own origin, and the app's
+  server received neither an `Authorization` nor a `Referer` header for that
+  navigation; the CSP of `/ui/` on the `ext` server is byte-for-byte the one
+  of `local`;
 - determinism: two fresh browser contexts compute byte-identical layouts;
 - accessibility: axe finds no `serious` or `critical` WCAG 2.2 A/AA violation
   on the shell, graph, inspector, navigation, Activity, Work, Health,
