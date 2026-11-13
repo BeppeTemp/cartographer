@@ -229,7 +229,7 @@ func TestUsageNamesTheComponentsAndKeepsEveryCommand(t *testing.T) {
 			t.Errorf("usage lacks %q:\n%s", want, out)
 		}
 	}
-	want := strings.Fields("help setup version update agents connect disconnect status sync reconnect approve config client workspace call feedback mcp plugin serve service upgrade-repair tray surveyor kb import resolve paths doctor reindex audit")
+	want := strings.Fields("help setup version update docs agents connect disconnect status sync reconnect approve config client workspace call feedback mcp plugin serve service upgrade-repair tray surveyor kb import resolve paths doctor reindex audit")
 	var got []string
 	for _, c := range subcommands {
 		got = append(got, c.name)

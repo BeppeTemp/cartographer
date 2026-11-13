@@ -17,7 +17,7 @@ import (
 // describeTools prints the description and input schema of the tools in spec,
 // a comma-separated list: one name prints one object, several print an array
 // in the order asked. Nothing is printed unless every name is listed.
-func describeTools(tools []toolInfo, spec string, fail func(string, ...any) int) int {
+func describeTools(tools []toolInfo, spec, listCmd string, fail func(string, ...any) int) int {
 	names := strings.Split(spec, ",")
 	byName := make(map[string]toolInfo, len(tools))
 	for _, t := range tools {
@@ -42,10 +42,10 @@ func describeTools(tools []toolInfo, spec string, fail func(string, ...any) int)
 		picked = append(picked, map[string]any{"name": t.Name, "description": t.Description, "inputSchema": t.InputSchema})
 	}
 	if len(unknown) == 1 {
-		return fail("unknown tool %s; run \"cartographer call --list\"", unknown[0])
+		return fail("unknown tool %s; run \"%s\"", unknown[0], listCmd)
 	}
 	if len(unknown) > 1 {
-		return fail("unknown tools %s; run \"cartographer call --list\"", strings.Join(unknown, ", "))
+		return fail("unknown tools %s; run \"%s\"", strings.Join(unknown, ", "), listCmd)
 	}
 	var v any = picked
 	if len(picked) == 1 && len(names) == 1 {
@@ -179,7 +179,7 @@ func (r *batchReader) next() (n int, text string, ok bool) {
 // the lines (1 the tool or its arguments, 2 anything else). The session is
 // started by start at the first request, so an empty input starts no bridge,
 // and closed here; the bridge log is returned.
-func runBatch(ctx context.Context, start func() *callSession, in io.Reader, out, errOut io.Writer, output string) (int, string) {
+func runBatch(ctx context.Context, start func() callTransport, in io.Reader, out, errOut io.Writer, output string) (int, string) {
 	enc := json.NewEncoder(out)
 	enc.SetEscapeHTML(false)
 	rd := newBatchReader(in)
@@ -188,7 +188,7 @@ func runBatch(ctx context.Context, start func() *callSession, in io.Reader, out,
 		fmt.Fprintln(errOut, "Error: --batch - read no request")
 		return 2, ""
 	}
-	var sess *callSession
+	var sess callTransport
 	if ok {
 		sess = start()
 	}

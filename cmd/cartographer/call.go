@@ -159,7 +159,7 @@ func cmdCall(args []string) int {
 	var blog string
 	code := func() int {
 		if *batch != "" {
-			c, log := runBatch(ctx, session, mcpStdin, os.Stdout, os.Stderr, *output)
+			c, log := runBatch(ctx, func() callTransport { return session() }, mcpStdin, os.Stdout, os.Stderr, *output)
 			sess = nil
 			blog = log
 			return c
@@ -182,7 +182,7 @@ func cmdCall(args []string) int {
 				}
 				return 0
 			}
-			return describeTools(tools, *describe, fail)
+			return describeTools(tools, *describe, "cartographer call --list", fail)
 		}
 		if len(rawPairs) > 0 {
 			// The schema types the key=value words (#1802). A bridge that
@@ -479,6 +479,14 @@ func schemaType(raw json.RawMessage) string {
 		return one
 	}
 	return ""
+}
+
+// callTransport is what a batch, a listing and a call need of a session: the
+// bridge's (callSession) or the in-process documentation runner's (docsSession).
+type callTransport interface {
+	Do(ctx context.Context, method string, params map[string]any) (json.RawMessage, error)
+	Close() string
+	stopped() (bool, error)
 }
 
 // callSession is one mcpbridge.Bridge serving the requests of one invocation:

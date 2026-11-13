@@ -139,6 +139,7 @@ func TestMain(m *testing.M) {
 	// ask to reindex; the dedicated import test overrides it.
 	reindexAfterImportFn = func(string) bool { return false }
 	code := m.Run()
+	closeSharedDocs()
 	os.RemoveAll(cache)
 	os.RemoveAll(home)
 	os.Exit(code)

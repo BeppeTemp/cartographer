@@ -88,6 +88,28 @@ func mount(dir string, files map[string][]byte, version string) (*Runner, error)
 // Do sends one JSON-RPC request (method, params) to the read-min endpoint and
 // returns its result. A JSON-RPC error is returned as an error.
 func (r *Runner) Do(ctx context.Context, method string, params map[string]any) (json.RawMessage, error) {
+	raw, err := r.Raw(ctx, method, params)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		Result json.RawMessage `json:"result"`
+		Error  *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("%s: %w", method, err)
+	}
+	if resp.Error != nil {
+		return nil, fmt.Errorf("%s: %s", method, resp.Error.Message)
+	}
+	return resp.Result, nil
+}
+
+// Raw is Do without reading the answer: the whole JSON-RPC response object,
+// error member included, for a caller that classifies it (cartographer docs).
+func (r *Runner) Raw(ctx context.Context, method string, params map[string]any) (json.RawMessage, error) {
 	id := r.id.Add(1)
 	body, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params})
 	if err != nil {
@@ -102,20 +124,7 @@ func (r *Runner) Do(ctx context.Context, method string, params map[string]any) (
 	if rr.Code != http.StatusOK {
 		return nil, fmt.Errorf("%s: HTTP %d: %s", method, rr.Code, strings.TrimSpace(rr.Body.String()))
 	}
-	var resp struct {
-		Result json.RawMessage `json:"result"`
-		Error  *struct {
-			Code    int    `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
-		return nil, fmt.Errorf("%s: %w", method, err)
-	}
-	if resp.Error != nil {
-		return nil, fmt.Errorf("%s: %s", method, resp.Error.Message)
-	}
-	return resp.Result, nil
+	return json.RawMessage(rr.Body.Bytes()), nil
 }
 
 // Close removes the runner's materialization.
