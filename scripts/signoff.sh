@@ -154,12 +154,24 @@ hosted() {
   echo "signoff: the build host is unavailable (exit 75): ci.yml runs the gate instead" >&2
   still_head
   push
-  local t0 id= c= i
+  local t0 id= c= i existing before
   t0=$(date +%s)
+  # Run ids only grow, and no clock is involved (createdAt is GitHub's, this host's may skew):
+  # the run to follow is the first one newer than the newest that already exists for this
+  # branch and sha. A retried signoff left a finished run there, whose verdict is not this
+  # attempt's (same approach as scripts/hosted-check.sh).
+  list_runs() {
+    gh run list -R "$slug" --workflow ci.yml --branch "$branch" --event workflow_dispatch --commit "$sha" \
+      --json databaseId --jq '.[].databaseId'
+  }
+  # Captured first: a failed list must stop here, not read as "no run yet" (which would
+  # reopen the stale-run case).
+  existing=$(list_runs 2>/dev/null) || die "cannot list the ci.yml runs of $branch: nothing posted"
+  before=$(printf '%s\n' "$existing" | sort -n | tail -n 1)
+  before=${before:-0}
   gh workflow run ci.yml -R "$slug" --ref "$branch" >/dev/null || die "cannot dispatch ci.yml on $branch: nothing posted"
   for i in $(seq 1 "${SIGNOFF_DISPATCH_TRIES:-30}"); do
-    id=$(gh run list -R "$slug" --workflow ci.yml --branch "$branch" --event workflow_dispatch --commit "$sha" \
-      --json databaseId --jq '.[0].databaseId // empty' 2>/dev/null || true)
+    id=$(list_runs 2>/dev/null | sort -n | awk -v b="$before" '$1 > b { print; exit }' || true)
     [ -z "$id" ] || break
     sleep "${SIGNOFF_POLL:-10}"
   done
