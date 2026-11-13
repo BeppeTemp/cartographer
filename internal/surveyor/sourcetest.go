@@ -101,6 +101,10 @@ var dryRunTools = map[string]bool{"concept_read": true, "concept_list": true, "a
 type readOnly struct{ t ToolCaller }
 
 func (r readOnly) ListTools() ([]client.ToolInfo, error) { return r.t.ListTools() }
+
+// unwrap names the caller under the read-only view, for NoteContract.
+func (r readOnly) unwrap() ToolCaller { return r.t }
+
 func (r readOnly) CallTool(name string, args any) (client.ToolOutput, error) {
 	if !dryRunTools[name] {
 		return client.ToolOutput{}, fmt.Errorf("source test: %s is not a read tool", name)
