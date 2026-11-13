@@ -1,5 +1,5 @@
-# The live MCP demo (D751, D800): Cloud Run behind a Cloudflare Worker. Read-only,
-# except for guestbook messages the Worker has moderated.
+# The live MCP demo (D751): Cloud Run behind a Cloudflare Worker. Read-only: two
+# KBs baked into the image (astronomy, cartographer-docs).
 
 locals {
   services = [
@@ -34,37 +34,11 @@ resource "google_artifact_registry_repository" "demo" {
 
 # --- the service -------------------------------------------------------------
 
-# One role, on one secret (below): the server calls nothing else in GCP.
+# No role at all: the server calls nothing in GCP.
 resource "google_service_account" "runtime" {
   account_id   = "demo-runtime"
   display_name = "Cartographer demo (runtime)"
   depends_on   = [google_project_service.enabled]
-}
-
-# The guestbook repository's access token, mounted as the file guestbook.token
-# under /etc/guestbook-git (GUESTBOOK_TOKEN_FILE in the image). The entrypoint
-# copies it into the server's credentials directory as guestbook.token (D905),
-# and git reads it from there when it asks for credentials, so it is never in an
-# env var, argv or .git/config.
-resource "google_secret_manager_secret" "guestbook_git_token" {
-  secret_id = "guestbook-git-token"
-
-  replication {
-    auto {}
-  }
-
-  depends_on = [google_project_service.enabled]
-}
-
-resource "google_secret_manager_secret_version" "guestbook_git_token" {
-  secret      = google_secret_manager_secret.guestbook_git_token.id
-  secret_data = var.guestbook_git_token
-}
-
-resource "google_secret_manager_secret_iam_member" "runtime_guestbook_git_token" {
-  secret_id = google_secret_manager_secret.guestbook_git_token.id
-  role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${google_service_account.runtime.email}"
 }
 
 resource "google_cloud_run_v2_service" "demo" {
@@ -82,17 +56,6 @@ resource "google_cloud_run_v2_service" "demo" {
       max_instance_count = 1
     }
 
-    volumes {
-      name = "guestbook-git"
-      secret {
-        secret = google_secret_manager_secret.guestbook_git_token.secret_id
-        items {
-          version = "latest"
-          path    = "guestbook.token"
-        }
-      }
-    }
-
     containers {
       image = var.image
 
@@ -107,24 +70,11 @@ resource "google_cloud_run_v2_service" "demo" {
         }
       }
 
-      # Two tokens (CARTOGRAPHER_TOKENS format: docs/deployment.md): the read
-      # token for all traffic, the write token only for the one write the
-      # Worker approves. Max 1 instance below means a single writer.
+      # One read-only token (CARTOGRAPHER_TOKENS format: docs/deployment.md)
+      # for all traffic: the Worker sets it on every request.
       env {
         name  = "CARTOGRAPHER_TOKENS"
-        value = "${var.demo_token}|kb:astronomy:r;kb:guestbook:r,${var.guestbook_token}|kb:guestbook:rw"
-      }
-
-      # The remote's basename is the KB name: the repository must be named
-      # "guestbook" (deploy/demo/entrypoint.sh).
-      env {
-        name  = "GUESTBOOK_REMOTE"
-        value = var.guestbook_remote
-      }
-
-      volume_mounts {
-        name       = "guestbook-git"
-        mount_path = "/etc/guestbook-git"
+        value = "${var.demo_token}|kb:astronomy:r;kb:cartographer-docs:r"
       }
 
       # /health, not /ready: once auth is on, /ready needs the token
@@ -157,8 +107,6 @@ resource "google_cloud_run_v2_service" "demo" {
 
   depends_on = [
     google_project_service.enabled,
-    google_secret_manager_secret_iam_member.runtime_guestbook_git_token,
-    google_secret_manager_secret_version.guestbook_git_token,
   ]
 }
 
@@ -262,27 +210,14 @@ resource "google_service_account_iam_member" "deployer_acts_as_runtime" {
 
 # --- Cloudflare: Worker in front, one rate-limit rule -------------------------
 
-# Rate-limit counters of the guestbook: expiring keys, two writes per message
-# attempt (the free plan allows 1,000 writes a day).
-resource "cloudflare_workers_kv_namespace" "guestbook_rl" {
-  account_id = var.cloudflare_account_id
-  title      = "cartographer-demo-guestbook-rl"
-}
-
 resource "cloudflare_workers_script" "proxy" {
   account_id  = var.cloudflare_account_id
   script_name = "cartographer-demo"
   content     = file("${path.module}/worker.js")
   main_module = "worker.js"
 
-  # Stores the console.log lines (the classifier's failure kind, worker.js).
-  observability = {
-    enabled = true
-  }
-
-  # DEMO_TOKEN is the read token; GUESTBOOK_TOKEN is attached only to a
-  # moderated concept_new (worker.js).
-  bindings = concat([{
+  # DEMO_TOKEN is the read token the Worker sets on every request (worker.js).
+  bindings = [{
     name = "UPSTREAM"
     type = "plain_text"
     text = google_cloud_run_v2_service.demo.uri
@@ -291,35 +226,10 @@ resource "cloudflare_workers_script" "proxy" {
     type = "secret_text"
     text = var.demo_token
     }, {
-    name = "GUESTBOOK_TOKEN"
-    type = "secret_text"
-    text = var.guestbook_token
-    }, {
-    name = "GUESTBOOK_OPEN"
-    type = "plain_text"
-    text = tostring(var.guestbook_open)
-    }, {
     name = "ATLAS_ORIGIN"
     type = "plain_text"
     text = var.atlas_origin
-    }, {
-    name         = "GUESTBOOK_RL"
-    type         = "kv_namespace"
-    namespace_id = cloudflare_workers_kv_namespace.guestbook_rl.id
-    }, {
-    name = "AI"
-    type = "ai"
-    }],
-    # An empty secret is not a binding: with no URL the Worker sends nothing.
-    var.notify_url == "" ? [] : [{
-      name = "NOTIFY_URL"
-      type = "secret_text"
-      text = var.notify_url
-      }, {
-      name = "NOTIFY_SECRET"
-      type = "secret_text"
-      text = var.notify_secret
-  }])
+  }]
 }
 
 resource "cloudflare_workers_custom_domain" "proxy" {

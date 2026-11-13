@@ -4,6 +4,8 @@ topic: deployment-release
 
 # D800 — The demo guestbook is a second KB, written only through an edge-moderated template
 
+> **Partly superseded by [D2053](D2053-docs-kb.md)**: the guestbook, its moderation and the write token are removed; the static Atlas's live source stands.
+
 **Decision.** The live MCP demo (D751, D789) mounts a second KB, `guestbook`, beside `astronomy`, behind the same
 URL. The only write the demo accepts is a `concept_new` from the `message` template on `guestbook`. The
 Cloudflare Worker is the only holder of the write token: it attaches it to that one call after moderation (shape
