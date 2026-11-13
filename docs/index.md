@@ -66,7 +66,7 @@ Mutable state does not live in narrative documentation:
 | Understand an architectural choice | `decisions.md` for the generated list, or `ls docs/decisions/D<n>-*` if you already have the number |
 | Connect a host with no Cartographer client side (Open WebUI, a gateway, an SDK agent loop) | `mcp-clients.md` |
 | Configure an LLM provider | `interoperability.md` |
-| Connect/disconnect an agent (`setup`/`connect`/`disconnect`/`reconnect`/`status`/`sync`/`call`/`doctor`) | `configurator.md` |
+| Connect/disconnect an agent (`setup`/`connect`/`disconnect`/`reconnect`/`status`/`sync`/`call`/`docs`/`doctor`) | `configurator.md` |
 | Keep a client aligned with the KB skills | `sync.md` |
 | Install, approve or write a plugin (a client, a command, an MCP tool, a sync handler) | `plugins.md` |
 | Extend the Atlas (a read-only view or an external-app entry declared by a plugin) | `plugins.md` §The Atlas side |
@@ -95,7 +95,7 @@ page that was not touched; the table and the file change together, and a test
 | Plugin manifest, contribution points or store (`internal/plugin`, `internal/plugin/core`) | `plugins.md` |
 | A hook point, its payload or the hook transport (`internal/hooks`, `internal/hooks/hooktest`) | `hooks.md` + its schema in `docs/schemas/hooks/` (`TestDocsHookExamplesValidate`, `TestRecordedRequestsValidate`) + `deployment.md` (the `hooks:` keys) |
 | Atlas branding plugin point: the branding folder, the accent derivation (`internal/branding`) | `plugins.md` §Atlas branding |
-| Client or service subcommands (`setup`/`agents`/`connect`/`disconnect`/`reconnect`/`status`/`sync`/`call`/`doctor`/`service`…) or server YAML config | `configurator.md` (Compass) / `deployment.md` (Meridian config) |
+| Client or service subcommands (`setup`/`agents`/`connect`/`disconnect`/`reconnect`/`status`/`sync`/`call`/`docs`/`doctor`/`service`…) or server YAML config | `configurator.md` (Compass) / `deployment.md` (Meridian config) |
 | Token/scope format or enforcement (`kb:<name>:r\|rw`), git identity (author, committer, `Cartographer-Token`) or SOPS | `transport-auth.md` (auth/scopes) + `deployment.md` (server config, `KBSpec`) |
 | New provisioning `kind` (beyond skill/agent/hook) or per-provider destination | `configurator.md` (client) + `sync.md` (manifest/diff) + its `KindInfo` in `contract.Kinds` (the Atlas lists it; a test fails without it, D864) |
 | A feature is **not** implemented (deferred, planned, "future work") | An `idea` issue while it is a proposal, `accepted` once triaged (`CONTRIBUTING.md` §Issues: bug, idea) — never prose in `docs/`. The page keeps only the current limit, with a link to the issue |

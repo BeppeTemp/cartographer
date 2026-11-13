@@ -31,6 +31,7 @@ var subcommands = []subcommand{
 	{"Get started", "setup", "Set up this machine: service, first KB, agents"},
 	{"Get started", "version", "Print the build version"},
 	{"Get started", "update", "Check whether a newer release exists"},
+	{"Get started", "docs", "Read this version's documentation: search it and read it by section"},
 	{"Compass", "agents", "List local agent clients"},
 	{"Compass", "connect", "Connect an agent client"},
 	{"Compass", "disconnect", "Disconnect an agent client"},
@@ -89,6 +90,7 @@ var (
 	workspaceFn     = cmdWorkspace
 	mcpFn           = cmdMCP
 	callFn          = cmdCall
+	docsFn          = cmdDocs
 	feedbackFn      = cmdFeedback
 	setupFn         = cmdSetup
 	updateFn        = cmdUpdate
@@ -188,6 +190,8 @@ func run(args []string) int {
 		return mcpFn(rest)
 	case "call":
 		return callFn(rest)
+	case "docs":
+		return docsFn(rest)
 	case "feedback":
 		return feedbackFn(rest)
 	default:

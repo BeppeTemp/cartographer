@@ -51,7 +51,7 @@ func TestCIFiltersTable(t *testing.T) {
 		macos      bool
 		helm       bool
 	}{
-		{"docs-only repodocs change", "feat/x", []string{"internal/repodocs/repodocs.go"}, false, false, false, false, false, false, false, false},
+		{"docs-only testkbs change", "feat/x", []string{"internal/testkbs/kbs.go"}, false, false, false, false, false, false, false, false},
 		{"kb source", "feat/x", []string{"internal/kb/x.go"}, true, true, false, false, false, false, false, false},
 		{"kb test", "feat/x", []string{"internal/kb/x_test.go"}, false, true, false, false, false, false, false, false},
 		{"non-Go embedded file", "feat/x", []string{"internal/skillbundle/bundled/a/SKILL.md"}, true, false, false, false, false, false, false, false},
