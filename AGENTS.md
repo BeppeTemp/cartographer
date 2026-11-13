@@ -15,10 +15,10 @@ make e2e             # HTTP/CLI end-to-end scenarios
 
 make ready MSG=<file>              # maintainer: queue the change, the lander lands it
 make decisions-new SLUG=my-choice TOPIC=control-plane   # D-new-<slug>, numbered on landing
-make decisions-index # regenerate docs/decisions.md locally (the release PR does it, D328)
+make decisions-index # regenerate docs/decisions.md (the release PR does it, D328)
 make worktree-add SLUG=my-change   # isolated worktree for a plan branch
-make worktree-rm  SLUG=my-change   # remove it (force: discards uncommitted work)
-make worktree-clean [DRY=1]        # remove worktrees of merged PRs and landed trains
+make worktree-rm  SLUG=my-change   # remove it (discards uncommitted work)
+make worktree-clean [DRY=1]        # drop worktrees of merged PRs and trains
 make dev [DATA=<data dir>]         # live instance: Go rebuilt on change, UI hot-reloaded
 ```
 
@@ -72,6 +72,7 @@ internal/componentproto           is the server-component wire contract
 internal/config                   is the server configuration of `cartographer serve`
 internal/configurator             generates the MCP configuration of each agent client
 internal/defaults                 holds the local endpoint defaults
+internal/docskb                   generates the documentation KB
 internal/execbit                  reports whether the filesystem has the POSIX execute bit
 internal/feedback                 redacts a bug report and builds its destination URL
 internal/gitx                     provides a git wrapper via os/exec for the Agentic Wiki
@@ -139,15 +140,15 @@ Not duplicated here:
 
 ## Working rules
 
-- All changes land via PR: `main` is protected (required `gate`, `pr-title`, `plan-gate`). A contributor's PR is squash-merged; a maintainer's change is queued (`make ready`) and lands in a train (`CONTRIBUTING.md` §Pull requests). Titles are conventional commits (release-please computes the semver bump).
+- All changes land via PR: `main` is protected (required `gate`, `pr-title`, `plan-gate`). A contributor's PR is squash-merged; a maintainer's change is queued (`make ready`) and lands in a train (`CONTRIBUTING.md` §Pull requests). Titles are conventional commits (release-please sets the bump).
 - **Route a maintainer's change before writing any code**: a bug → an `accepted` `bug` issue with the design in a comment, fixed by `cartographer-fix-implementer` (`CONTRIBUTING.md` §Fixes without a plan); a feature → a plan (`cartographer-propose-plan`, then `cartographer-implement-plan`); a change found by trying it → a live session (below). The coordinator writes no production code: it reviews and queues.
 - **This repository is public**: before any commit, doc, test, issue, PR or comment, replace what came from a real setup — KB names → `kb-a`/`work-kb`, hosts → `example.com`/`gitlab.example.com`, users → `user`, paths → `$HOME/…` — and drop employer, client and project names; in doubt, a name is private. The `privacy` workflow is a net (D259).
 - **Done** means: `make check` green; the docs named in `docs/index.md` §Documentation maintenance rules updated in the same session; every trap you hit fixed where it bites — a test if it can be checked, else a comment next to the code or one line in the area `AGENTS.md` or the procedure's skill (D214); one decision file per architectural or contract choice (D672).
 - Design and implementation run in separate sessions: the handoff is a **plan file** kept outside the repo (`CONTRIBUTING.md` §Plans); no agent implements a plan the maintainer did not give it in the session. A contributor opens an issue or a direct PR.
 - **Roles are GitHub permissions** (D955): `WRITE`/`MAINTAIN`/`ADMIN` on upstream is a maintainer, anyone else a contributor whose agent stops at an open PR (`CONTRIBUTING.md` §Working with an agent client).
-- A change whose outcome is found by trying it (Atlas UI, UX, output to tune) needs no plan: it is a **live session** ending in one queued change (`cartographer-develop-live` skill).
-- A PR, or a change before `make ready`, is reviewed with the `cartographer-review-pr` skill: scripted triage, then the `cartographer-contract-reviewer` subagent; the coordinator verifies only the lines it cites. Size cap: `CONTRIBUTING.md` §Pull requests.
-- Releases → maintainer-local tooling, not versioned here; on demand: `CONTRIBUTING.md` §Releases.
+- A change found by trying it (Atlas UI, UX, output to tune) needs no plan: it is a **live session** ending in one queued change (`cartographer-develop-live` skill).
+- A PR, or a change before `make ready`, is reviewed with the `cartographer-review-pr` skill: scripted triage, then the `cartographer-contract-reviewer` subagent; the coordinator verifies only cited lines. Size cap: `CONTRIBUTING.md` §Pull requests.
+- Releases → maintainer-local tooling, unversioned; on demand: `CONTRIBUTING.md` §Releases.
 - **Documentation is updated in the same session as the code**: which-file table in `docs/index.md`.
 - Conventions → `docs/conventions.md`. A decision is `docs/decisions/D<n>-<slug>.md`, `<n>` the PR's (D672) or, queued, `D-new-<slug>` numbered by the lander; never regenerate `docs/decisions.md` in a feature PR (D328).
 - **This file is stable imprinting**: no mutable state, versions, counts or changelog. Topic docs describe the **current state**; history lives in `docs/decisions/` and git. Size is a gate — `internal/repodocs` fails the build past 120 hand-written lines (generated blocks aside) or 12.000 characters in all: past that a client drops instructions.

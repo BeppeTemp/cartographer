@@ -357,7 +357,7 @@ func skipDir(rel, name string) bool {
 	// yields backslashes: compared raw, these two cases matched nothing there and
 	// the fixture KBs silently entered the corpus.
 	switch filepath.ToSlash(rel) {
-	case "test/e2e/fixtures", "test/install/fixtures":
+	case "test/e2e/fixtures", "test/install/fixtures", "internal/docskb/testdata/src":
 		return true
 	}
 	switch name {

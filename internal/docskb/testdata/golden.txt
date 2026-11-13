@@ -1,0 +1,635 @@
+=== data/decisions/_map.md ===
+---
+type: Map
+title: Decisions
+description: "One record per decision: why each choice was made."
+kind: map
+concept_types: [Decision]
+---
+
+# Decisions
+
+One record per decision: why each choice was made.
+
+=== data/decisions/d1-first-choice.md ===
+---
+type: Decision
+title: D1 — First choice
+description: Store everything as markdown.
+tags: [architecture]
+provenance: [docs/decisions/D1-first-choice.md]
+origin: external
+source_url: "https://github.com/BeppeTemp/cartographer/blob/v1.2.3/docs/decisions/D1-first-choice.md"
+---
+
+# D1 — First choice
+
+**Decision.** Store everything as markdown. The second sentence explains it.
+
+**Why.** Files are diffable.
+
+=== data/decisions/d2-second-choice.md ===
+---
+type: Decision
+title: "D2 — Second choice: the CLI"
+description: The CLI prints JSON when asked.
+tags: [client-configurator]
+provenance: [docs/decisions/D2-second-choice.md]
+origin: external
+source_url: "https://github.com/BeppeTemp/cartographer/blob/v1.2.3/docs/decisions/D2-second-choice.md"
+---
+
+# D2 — Second choice: the CLI
+
+**Decision.** The CLI prints JSON when asked.
+
+=== data/decisions/index.md ===
+---
+type: Index
+title: Decisions
+---
+
+# Decisions
+
+One record per decision: why each choice was made.
+
+### Cross-cutting architecture
+
+- [[decisions/d1-first-choice]] — D1 — First choice
+
+### CLI and providers
+
+- [[decisions/d2-second-choice]] — D2 — Second choice: the CLI
+
+=== data/index.md ===
+---
+type: Index
+title: Cartographer documentation
+---
+
+# Cartographer documentation
+
+The documentation of Cartographer v1.2.3 as a knowledge base.
+
+- [Using Cartographer](using-cartographer/index.md) — The pages of the documentation under "Using Cartographer".
+- [Internals & contributing](internals-contributing/index.md) — The pages of the documentation under "Internals & contributing".
+- [Decisions](decisions/index.md) — One record per decision: why each choice was made.
+
+=== data/internals-contributing/_map.md ===
+---
+type: Map
+title: Internals & contributing
+description: "The pages of the documentation under \"Internals & contributing\"."
+kind: map
+concept_types: [Doc, DocSection]
+---
+
+# Internals & contributing
+
+The pages of the documentation under "Internals & contributing".
+
+=== data/internals-contributing/arch/index.md ===
+---
+type: Doc
+title: Architecture
+description: How the parts fit together.
+tags: [arch, internals-contributing]
+provenance: [docs/arch.md]
+origin: external
+source_url: "https://github.com/BeppeTemp/cartographer/blob/v1.2.3/docs/arch.md"
+---
+
+# Architecture
+
+How the parts fit together.
+
+## Sections
+
+- [[internals-contributing/arch/layers|Architecture — Layers]] — The layers are described below, one per sub-section, and together they are larger than the lowered cap.
+  - [[internals-contributing/arch/layers-storage|Architecture — Layers — Storage]] — Storage keeps markdown files in a git repository.
+  - [[internals-contributing/arch/layers-transport|Architecture — Layers — Transport]] — Transport carries requests over stdio or HTTP.
+  - [[internals-contributing/arch/layers-indexing|Architecture — Layers — Indexing]] — Indexing builds an inverted keyword index in memory when the server starts.
+- [[internals-contributing/arch/long-prose|Architecture — Long prose (part 1)]] — The first paragraph of a section that has no sub-headings but is longer than the hard cap, so it is cut at blank lines.
+- [[internals-contributing/arch/long-prose-part-2|Architecture — Long prose (part 2)]] — The second paragraph keeps going with plain sentences about nothing in particular, only to take space in the part it lands in, and it ends here.
+- [[internals-contributing/arch/long-prose-part-3|Architecture — Long prose (part 3)]] — The third paragraph follows the table.
+- [[internals-contributing/arch/unsplittable|Architecture — Unsplittable]] — One single paragraph that no blank line can cut: it is the block the split leaves whole, and the size test names it.
+
+=== data/internals-contributing/arch/layers-indexing.md ===
+---
+type: DocSection
+title: Architecture — Layers — Indexing
+description: Indexing builds an inverted keyword index in memory when the server starts.
+tags: [arch, internals-contributing]
+provenance: [docs/arch.md]
+origin: external
+source_url: "https://github.com/BeppeTemp/cartographer/blob/v1.2.3/docs/arch.md#indexing"
+---
+
+# Architecture — Layers — Indexing
+
+Indexing builds an inverted keyword index in memory when the server starts. It is rebuilt after each write, which keeps search consistent with the files.
+
+Part of [[internals-contributing/arch|Architecture]].
+
+=== data/internals-contributing/arch/layers-storage.md ===
+---
+type: DocSection
+title: Architecture — Layers — Storage
+description: Storage keeps markdown files in a git repository.
+tags: [arch, internals-contributing]
+provenance: [docs/arch.md]
+origin: external
+source_url: "https://github.com/BeppeTemp/cartographer/blob/v1.2.3/docs/arch.md#storage"
+---
+
+# Architecture — Layers — Storage
+
+Storage keeps markdown files in a git repository. Every write is a commit, and every commit is revertible, so history is never lost. Readers never see a half-written file.
+
+Part of [[internals-contributing/arch|Architecture]].
+
+=== data/internals-contributing/arch/layers-transport.md ===
+---
+type: DocSection
+title: Architecture — Layers — Transport
+description: Transport carries requests over stdio or HTTP.
+tags: [arch, internals-contributing]
+provenance: [docs/arch.md]
+origin: external
+source_url: "https://github.com/BeppeTemp/cartographer/blob/v1.2.3/docs/arch.md#transport"
+---
+
+# Architecture — Layers — Transport
+
+Transport carries requests over stdio or HTTP. Both share one handler, so a request behaves the same on either. Authorization sits in front of the handler.
+
+Part of [[internals-contributing/arch|Architecture]].
+
+=== data/internals-contributing/arch/layers.md ===
+---
+type: DocSection
+title: Architecture — Layers
+description: "The layers are described below, one per sub-section, and together they are larger than the lowered cap."
+tags: [arch, internals-contributing]
+provenance: [docs/arch.md]
+origin: external
+source_url: "https://github.com/BeppeTemp/cartographer/blob/v1.2.3/docs/arch.md#layers"
+---
+
+# Architecture — Layers
+
+The layers are described below, one per sub-section, and together they are larger than the lowered cap.
+
+## Subsections
+
+- [[internals-contributing/arch/layers-storage|Architecture — Layers — Storage]] — Storage keeps markdown files in a git repository.
+- [[internals-contributing/arch/layers-transport|Architecture — Layers — Transport]] — Transport carries requests over stdio or HTTP.
+- [[internals-contributing/arch/layers-indexing|Architecture — Layers — Indexing]] — Indexing builds an inverted keyword index in memory when the server starts.
+
+Part of [[internals-contributing/arch|Architecture]].
+
+=== data/internals-contributing/arch/long-prose-part-2.md ===
+---
+type: DocSection
+title: Architecture — Long prose (part 2)
+description: "The second paragraph keeps going with plain sentences about nothing in particular, only to take space in the part it lands in, and it ends here."
+tags: [arch, internals-contributing]
+provenance: [docs/arch.md]
+origin: external
+source_url: "https://github.com/BeppeTemp/cartographer/blob/v1.2.3/docs/arch.md#long-prose"
+---
+
+# Architecture — Long prose (part 2)
+
+The second paragraph keeps going with plain sentences about nothing in particular, only to take space in the part it lands in, and it ends here. The sentence is padded so that this paragraph is a fair share of the section and the greedy grouping has something to place.
+
+| Column | Value |
+|---|---|
+| a | one |
+| b | two |
+| c | three |
+| d | four |
+
+Part of [[internals-contributing/arch|Architecture]]. Part 2 of 3. Previous: [[internals-contributing/arch/long-prose|Architecture — Long prose (part 1)]]. Next: [[internals-contributing/arch/long-prose-part-3|Architecture — Long prose (part 3)]].
+
+=== data/internals-contributing/arch/long-prose-part-3.md ===
+---
+type: DocSection
+title: Architecture — Long prose (part 3)
+description: The third paragraph follows the table.
+tags: [arch, internals-contributing]
+provenance: [docs/arch.md]
+origin: external
+source_url: "https://github.com/BeppeTemp/cartographer/blob/v1.2.3/docs/arch.md#long-prose"
+---
+
+# Architecture — Long prose (part 3)
+
+The third paragraph follows the table. A table is never cut in the middle, because a break before a table row is not a break.
+
+The fourth paragraph is the last one of this section and it closes the fixture with a few more words so that a third part exists. Another sentence follows only to add bytes to the last part of the section, which has to be long enough to stand next to the table on its own.
+
+Part of [[internals-contributing/arch|Architecture]]. Part 3 of 3. Previous: [[internals-contributing/arch/long-prose-part-2|Architecture — Long prose (part 2)]].
+
+=== data/internals-contributing/arch/long-prose.md ===
+---
+type: DocSection
+title: Architecture — Long prose (part 1)
+description: "The first paragraph of a section that has no sub-headings but is longer than the hard cap, so it is cut at blank lines."
+tags: [arch, internals-contributing]
+provenance: [docs/arch.md]
+origin: external
+source_url: "https://github.com/BeppeTemp/cartographer/blob/v1.2.3/docs/arch.md#long-prose"
+---
+
+# Architecture — Long prose (part 1)
+
+The first paragraph of a section that has no sub-headings but is longer than the hard cap, so it is cut at blank lines. It goes on for a while to take some room in the unit.
+
+Part of [[internals-contributing/arch|Architecture]]. Part 1 of 3. Next: [[internals-contributing/arch/long-prose-part-2|Architecture — Long prose (part 2)]].
+
+=== data/internals-contributing/arch/unsplittable.md ===
+---
+type: DocSection
+title: Architecture — Unsplittable
+description: "One single paragraph that no blank line can cut: it is the block the split leaves whole, and the size test names it."
+tags: [arch, internals-contributing]
+provenance: [docs/arch.md]
+origin: external
+source_url: "https://github.com/BeppeTemp/cartographer/blob/v1.2.3/docs/arch.md#unsplittable"
+---
+
+# Architecture — Unsplittable
+
+One single paragraph that no blank line can cut: it is the block the split leaves whole, and the size test names it. It is repeated to be long enough. It is repeated to be long enough. It is repeated to be long enough. It is repeated to be long enough. It is repeated to be long enough. It is repeated to be long enough. It is repeated to be long enough. It is repeated to be long enough. It is repeated to be long enough. It is repeated to be long enough. It is repeated to be long enough. It is repeated to be long enough. It is repeated to be long enough. It is repeated to be long enough. It is repeated to be long enough. It is repeated to be long enough. It is repeated to be long enough. It is repeated to be long enough. It is repeated to be long enough. It is repeated to be long enough. It is repeated to be long enough. It is repeated to be long enough. It is repeated to be long enough. It is repeated to be long enough. It is repeated to be long enough. It is repeated to be long enough. It is repeated to be long enough.
+
+Part of [[internals-contributing/arch|Architecture]].
+
+=== data/internals-contributing/brand-index/index.md ===
+---
+type: Doc
+title: Brand
+description: "Mark, palette and voice."
+tags: [brand-index, internals-contributing]
+provenance: [docs/brand/index.md]
+origin: external
+source_url: "https://github.com/BeppeTemp/cartographer/blob/v1.2.3/docs/brand/index.md"
+---
+
+# Brand
+
+Mark, palette and voice.
+
+## Sections
+
+- [[internals-contributing/brand-index/voice|Brand — Voice]] — Plain, direct and short.
+
+=== data/internals-contributing/brand-index/voice.md ===
+---
+type: DocSection
+title: Brand — Voice
+description: "Plain, direct and short."
+tags: [brand-index, internals-contributing]
+provenance: [docs/brand/index.md]
+origin: external
+source_url: "https://github.com/BeppeTemp/cartographer/blob/v1.2.3/docs/brand/index.md#voice"
+---
+
+# Brand — Voice
+
+Plain, direct and short.
+
+Part of [[internals-contributing/brand-index|Brand]].
+
+=== data/internals-contributing/contributing.md ===
+---
+type: Doc
+title: Contributing to Kb-a
+description: Open an issue first.
+tags: [contributing, internals-contributing]
+provenance: [CONTRIBUTING.md]
+origin: external
+source_url: "https://github.com/BeppeTemp/cartographer/blob/v1.2.3/CONTRIBUTING.md"
+---
+
+# Contributing to Kb-a
+
+Open an issue first. Changes land through pull requests.
+
+=== data/internals-contributing/decisions.md ===
+---
+type: Doc
+title: Decisions
+description: "How to refer to a decision: the bare D."
+tags: [decisions, internals-contributing]
+provenance: [docs/decisions.md]
+origin: external
+source_url: "https://github.com/BeppeTemp/cartographer/blob/v1.2.3/docs/decisions.md"
+---
+
+# Decisions
+
+How to refer to a decision: the bare `D<n>`.
+
+=== data/internals-contributing/docs-map/index.md ===
+---
+type: Doc
+title: Kb-a — documentation index
+description: Entry point for users and contributors.
+tags: [docs-map, internals-contributing]
+provenance: [docs/index.md]
+origin: external
+source_url: "https://github.com/BeppeTemp/cartographer/blob/v1.2.3/docs/index.md"
+---
+
+# Kb-a — documentation index
+
+Entry point for users and contributors.
+
+## Sections
+
+- [[internals-contributing/docs-map/using-cartographer|Kb-a — documentation index — Using Cartographer]] — The pages of this section are the map using-cartographer of this KB.
+- [[internals-contributing/docs-map/internals-contributing|Kb-a — documentation index — Internals & contributing]] — The pages of this section are the map internals-contributing of this KB.
+- [[internals-contributing/docs-map/reading-paths|Kb-a — documentation index — Reading paths]]
+
+=== data/internals-contributing/docs-map/internals-contributing.md ===
+---
+type: DocSection
+title: Kb-a — documentation index — Internals & contributing
+description: The pages of this section are the map internals-contributing of this KB.
+tags: [docs-map, internals-contributing]
+provenance: [docs/index.md]
+origin: external
+source_url: "https://github.com/BeppeTemp/cartographer/blob/v1.2.3/docs/index.md#internals--contributing"
+---
+
+# Kb-a — documentation index — Internals & contributing
+
+The pages of this section are the map `internals-contributing` of this KB.
+
+Part of [[internals-contributing/docs-map|Kb-a — documentation index]].
+
+=== data/internals-contributing/docs-map/reading-paths.md ===
+---
+type: DocSection
+title: Kb-a — documentation index — Reading paths
+tags: [docs-map, internals-contributing]
+provenance: [docs/index.md]
+origin: external
+source_url: "https://github.com/BeppeTemp/cartographer/blob/v1.2.3/docs/index.md#reading-paths"
+---
+
+# Kb-a — documentation index — Reading paths
+
+| Goal | Read |
+|---|---|
+| New user | `guide.md` |
+
+Part of [[internals-contributing/docs-map|Kb-a — documentation index]].
+
+=== data/internals-contributing/docs-map/using-cartographer.md ===
+---
+type: DocSection
+title: Kb-a — documentation index — Using Cartographer
+description: The pages of this section are the map using-cartographer of this KB.
+tags: [docs-map, internals-contributing]
+provenance: [docs/index.md]
+origin: external
+source_url: "https://github.com/BeppeTemp/cartographer/blob/v1.2.3/docs/index.md#using-cartographer"
+---
+
+# Kb-a — documentation index — Using Cartographer
+
+The pages of this section are the map `using-cartographer` of this KB.
+
+Part of [[internals-contributing/docs-map|Kb-a — documentation index]].
+
+=== data/internals-contributing/index.md ===
+---
+type: Index
+title: Internals & contributing
+---
+
+# Internals & contributing
+
+The pages of the documentation under "Internals & contributing".
+
+- [[internals-contributing/docs-map]] — The documentation map: reading paths and which page owns each kind of change
+- [[internals-contributing/arch]] — Architecture, with sections large enough to be split
+- [[internals-contributing/decisions]] — How to refer to a decision
+- [[internals-contributing/brand-index]] — The brand page, in a subfolder
+- [[internals-contributing/contributing]] — How to contribute: issues, pull requests, plans, releases and the working rules
+
+=== data/using-cartographer/_map.md ===
+---
+type: Map
+title: Using Cartographer
+description: "The pages of the documentation under \"Using Cartographer\"."
+kind: map
+concept_types: [Doc, DocSection]
+---
+
+# Using Cartographer
+
+The pages of the documentation under "Using Cartographer".
+
+=== data/using-cartographer/flat.md ===
+---
+type: Doc
+title: A flat page
+description: "This page has no second-level heading, so it stays one concept."
+tags: [flat, using-cartographer]
+provenance: [docs/flat.md]
+origin: external
+source_url: "https://github.com/BeppeTemp/cartographer/blob/v1.2.3/docs/flat.md"
+---
+
+# A flat page
+
+This page has no second-level heading, so it stays one concept.
+
+=== data/using-cartographer/guide/aux-section.md ===
+---
+type: DocSection
+title: The Kb-a guide — Aux
+description: A heading whose slug is a Windows device name.
+tags: [guide, using-cartographer]
+provenance: [docs/guide.md]
+origin: external
+source_url: "https://github.com/BeppeTemp/cartographer/blob/v1.2.3/docs/guide.md#aux"
+---
+
+# The Kb-a guide — Aux
+
+A heading whose slug is a Windows device name. See [the architecture](arch.md).
+
+Part of [[using-cartographer/guide|The Kb-a guide]].
+
+=== data/using-cartographer/guide/index.md ===
+---
+type: Doc
+title: The Kb-a guide
+description: Kb-a is a small tool.
+tags: [guide, using-cartographer]
+provenance: [docs/guide.md]
+origin: external
+source_url: "https://github.com/BeppeTemp/cartographer/blob/v1.2.3/docs/guide.md"
+---
+
+# The Kb-a guide
+
+Kb-a is a small tool. This lead is the text before the first H2.
+
+## Sections
+
+- [[using-cartographer/guide/install-v1|The Kb-a guide — Install (v1)]] — Run the installer.
+  - [[using-cartographer/guide/install-v1-usage|The Kb-a guide — Install (v1) — Usage]] — Run kb-a run.
+  - [[using-cartographer/guide/install-v1-usage-2|The Kb-a guide — Install (v1) — Usage]] — A second heading with the same text.
+- [[using-cartographer/guide/section-5|The Kb-a guide — ???]] — A heading with no letters or digits in its slug.
+- [[using-cartographer/guide/aux-section|The Kb-a guide — Aux]] — A heading whose slug is a Windows device name.
+
+=== data/using-cartographer/guide/install-v1-usage-2.md ===
+---
+type: DocSection
+title: The Kb-a guide — Install (v1) — Usage
+description: A second heading with the same text.
+tags: [guide, using-cartographer]
+provenance: [docs/guide.md]
+origin: external
+source_url: "https://github.com/BeppeTemp/cartographer/blob/v1.2.3/docs/guide.md#usage-1"
+---
+
+# The Kb-a guide — Install (v1) — Usage
+
+A second heading with the same text.
+
+## Flags
+
+| Flag | Meaning |
+|---|---|
+| `-v` | verbose |
+
+Part of [[using-cartographer/guide|The Kb-a guide]].
+
+=== data/using-cartographer/guide/install-v1-usage.md ===
+---
+type: DocSection
+title: The Kb-a guide — Install (v1) — Usage
+description: Run kb-a run.
+tags: [guide, using-cartographer]
+provenance: [docs/guide.md]
+origin: external
+source_url: "https://github.com/BeppeTemp/cartographer/blob/v1.2.3/docs/guide.md#usage"
+---
+
+# The Kb-a guide — Install (v1) — Usage
+
+Run `kb-a run`. Then read the output.
+
+Part of [[using-cartographer/guide|The Kb-a guide]].
+
+=== data/using-cartographer/guide/install-v1.md ===
+---
+type: DocSection
+title: The Kb-a guide — Install (v1)
+description: Run the installer.
+tags: [guide, using-cartographer]
+provenance: [docs/guide.md]
+origin: external
+source_url: "https://github.com/BeppeTemp/cartographer/blob/v1.2.3/docs/guide.md#install-v1"
+---
+
+# The Kb-a guide — Install (v1)
+
+Run the installer. It needs nothing else: no database, no daemon and no account. The installer writes one binary into a folder on the path, and it can be removed by deleting that file again.
+
+```sh
+# this is a comment in a fence, not a heading
+kb-a install
+```
+
+## Subsections
+
+- [[using-cartographer/guide/install-v1-usage|The Kb-a guide — Install (v1) — Usage]] — Run kb-a run.
+- [[using-cartographer/guide/install-v1-usage-2|The Kb-a guide — Install (v1) — Usage]] — A second heading with the same text.
+
+Part of [[using-cartographer/guide|The Kb-a guide]].
+
+=== data/using-cartographer/guide/section-5.md ===
+---
+type: DocSection
+title: The Kb-a guide — ???
+description: A heading with no letters or digits in its slug.
+tags: [guide, using-cartographer]
+provenance: [docs/guide.md]
+origin: external
+source_url: "https://github.com/BeppeTemp/cartographer/blob/v1.2.3/docs/guide.md"
+---
+
+# The Kb-a guide — ???
+
+A heading with no letters or digits in its slug.
+
+Part of [[using-cartographer/guide|The Kb-a guide]].
+
+=== data/using-cartographer/index.md ===
+---
+type: Index
+title: Using Cartographer
+---
+
+# Using Cartographer
+
+The pages of the documentation under "Using Cartographer".
+
+- [[using-cartographer/readme]] — The project's own presentation: what Cartographer is, its four components and the quick start
+- [[using-cartographer/guide]] — How to install and use it
+- [[using-cartographer/flat]] — A page with no second-level heading
+
+=== data/using-cartographer/readme/index.md ===
+---
+type: Doc
+title: Cartographer
+tags: [readme, using-cartographer]
+provenance: [README.md]
+origin: external
+source_url: "https://github.com/BeppeTemp/cartographer/blob/v1.2.3/README.md"
+---
+
+# Cartographer
+
+<p align="center">
+  <b>Kb-a is an example project: one wiki its agents read and grow.</b>
+</p>
+
+## Sections
+
+- [[using-cartographer/readme/what-it-is|Cartographer — What it is]] — Kb-a keeps knowledge in markdown.
+
+=== data/using-cartographer/readme/what-it-is.md ===
+---
+type: DocSection
+title: Cartographer — What it is
+description: Kb-a keeps knowledge in markdown.
+tags: [readme, using-cartographer]
+provenance: [README.md]
+origin: external
+source_url: "https://github.com/BeppeTemp/cartographer/blob/v1.2.3/README.md#what-it-is"
+---
+
+# Cartographer — What it is
+
+Kb-a keeps knowledge in markdown. See [the guide](docs/guide.md) to start.
+
+Part of [[using-cartographer/readme|Cartographer]].
+
+=== instructions.md ===
+---
+perimeter: docs
+---
+
+# How to use this KB
+
+This is the documentation of Cartographer v1.2.3, written as a knowledge base: ask it how Cartographer works and why.
+Search it, read the concepts it returns and cite the concept ids you answer from. A page is a concept and its sections are `<page>/<section>`; a decision is `decisions/d<n>-<slug>`.
+
