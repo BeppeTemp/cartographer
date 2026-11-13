@@ -125,6 +125,27 @@ func (s MCPServerSpec) EnvRefNames() []string {
 var envRefPattern = regexp.MustCompile(`\$\{[A-Za-z_][A-Za-z0-9_]*\}`)
 var envNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
+// MCPEnvRefs lists the names of the "${VAR}" references in the env and headers
+// values of spec, sorted and unique. Only those two maps are looked at, as the
+// validator does; a "${secret:...}" form is not a name envRefPattern matches, so
+// it is never listed: the launcher resolves it, the client's environment does not.
+func MCPEnvRefs(spec MCPServerSpec) []string {
+	seen := map[string]bool{}
+	for _, m := range []map[string]string{spec.Env, spec.Headers} {
+		for _, v := range m {
+			for _, ref := range envRefPattern.FindAllString(v, -1) {
+				seen[ref[2:len(ref)-1]] = true
+			}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for n := range seen {
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // ParseMCPServerSpec is the exported equivalent of parseMCPServerSpec, used
 // from outside the package to validate an mcp/<name>.json file before writing
 // it (artifact_write, D71) with the same rule as BuildManifest — no

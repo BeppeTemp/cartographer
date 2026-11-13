@@ -233,3 +233,19 @@ func TestSecretRefs(t *testing.T) {
 		t.Error("HasSecretRef = true for a plain ${VAR}")
 	}
 }
+
+func TestMCPEnvRefs(t *testing.T) {
+	spec := MCPServerSpec{
+		Type:    "http",
+		URL:     "https://example.com/${NOT_LISTED}",
+		Headers: map[string]string{"Authorization": "Bearer ${B_TOKEN}", "X": "${A_KEY}-${B_TOKEN}"},
+		Env:     map[string]string{"K": "${C_VAR}", "S": "${secret:svc#KEY}"},
+	}
+	got := strings.Join(MCPEnvRefs(spec), ",")
+	if got != "A_KEY,B_TOKEN,C_VAR" {
+		t.Errorf("MCPEnvRefs = %q, want A_KEY,B_TOKEN,C_VAR (sorted, unique, url and secret form excluded)", got)
+	}
+	if len(MCPEnvRefs(MCPServerSpec{Type: "stdio", Command: "x"})) != 0 {
+		t.Error("a descriptor with no reference lists none")
+	}
+}

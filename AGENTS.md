@@ -82,6 +82,7 @@ internal/kb                       implements the data plane of the OKF knowledge
 internal/lint                     implements deterministic lint checks on a KB scope
 internal/mcpbridge                is the local stdio MCP server scoped to a folder's KBs (D737)
 internal/mcpexec                  resolves an approved MCP descriptor and its secrets
+internal/mcpprobe                 checks an MCP descriptor without launching it
 internal/mcpserver                implements the control plane
 internal/okf                      parser/serializer for the YAML subset used in OKF frontmatter
 internal/openapi                  builds an OpenAPI document from Go types
@@ -139,14 +140,14 @@ Not duplicated here:
 ## Working rules
 
 - All changes land via PR: `main` is protected (required `gate`, `pr-title`, `plan-gate`). A contributor's PR is squash-merged; a maintainer's change is queued (`make ready`) and lands in a train (`CONTRIBUTING.md` §Pull requests). Titles are conventional commits (release-please computes the semver bump).
-- **Route a maintainer's change before writing any code**: a bug → an `accepted` `bug` issue with the design in a comment, fixed by `cartographer-fix-implementer` (`CONTRIBUTING.md` §Fixes without a plan); a feature → a plan (`cartographer-propose-plan`) implemented by `cartographer-implement-plan`; a change found by trying it → a live session (below). The coordinator writes no production code: it reviews and queues.
-- **This repository is public**: before any commit, doc, test, issue, PR or comment, replace what came from a real setup — KB names → `kb-a`/`work-kb`, hosts → `example.com`/`gitlab.example.com`, users → `user`, paths → `$HOME/…` — and drop employer, client and project names; in doubt, a name is private. The `privacy` workflow is a net, not the filter (D259).
+- **Route a maintainer's change before writing any code**: a bug → an `accepted` `bug` issue with the design in a comment, fixed by `cartographer-fix-implementer` (`CONTRIBUTING.md` §Fixes without a plan); a feature → a plan (`cartographer-propose-plan`, then `cartographer-implement-plan`); a change found by trying it → a live session (below). The coordinator writes no production code: it reviews and queues.
+- **This repository is public**: before any commit, doc, test, issue, PR or comment, replace what came from a real setup — KB names → `kb-a`/`work-kb`, hosts → `example.com`/`gitlab.example.com`, users → `user`, paths → `$HOME/…` — and drop employer, client and project names; in doubt, a name is private. The `privacy` workflow is a net (D259).
 - **Done** means: `make check` green; the docs named in `docs/index.md` §Documentation maintenance rules updated in the same session; every trap you hit fixed where it bites — a test if it can be checked, else a comment next to the code or one line in the area `AGENTS.md` or the procedure's skill (D214); one decision file per architectural or contract choice (D672).
-- Design and implementation often run in separate sessions: the handoff is a **plan file** kept outside the repository (`CONTRIBUTING.md` §Plans); no agent implements a plan the maintainer did not give it in the session. A contributor opens an issue or a direct PR.
+- Design and implementation run in separate sessions: the handoff is a **plan file** kept outside the repo (`CONTRIBUTING.md` §Plans); no agent implements a plan the maintainer did not give it in the session. A contributor opens an issue or a direct PR.
 - **Roles are GitHub permissions** (D955): `WRITE`/`MAINTAIN`/`ADMIN` on upstream is a maintainer, anyone else a contributor whose agent stops at an open PR (`CONTRIBUTING.md` §Working with an agent client).
-- A change whose outcome is found by trying it (Atlas UI, UX, output to tune) needs no plan: it is a **live session** with the user that ends in one queued change (`cartographer-develop-live` skill).
-- A PR, or a change before `make ready`, is reviewed with the `cartographer-review-pr` skill: scripted triage then the `cartographer-contract-reviewer` subagent; the coordinator verifies only the lines its findings cite. Size cap: `CONTRIBUTING.md` §Pull requests.
+- A change whose outcome is found by trying it (Atlas UI, UX, output to tune) needs no plan: it is a **live session** ending in one queued change (`cartographer-develop-live` skill).
+- A PR, or a change before `make ready`, is reviewed with the `cartographer-review-pr` skill: scripted triage, then the `cartographer-contract-reviewer` subagent; the coordinator verifies only the lines it cites. Size cap: `CONTRIBUTING.md` §Pull requests.
 - Releases → maintainer-local tooling, not versioned here; on demand: `CONTRIBUTING.md` §Releases.
 - **Documentation is updated in the same session as the code**: which-file table in `docs/index.md`.
 - Conventions → `docs/conventions.md`. A decision is `docs/decisions/D<n>-<slug>.md`, `<n>` the PR's (D672) or, queued, `D-new-<slug>` numbered by the lander; never regenerate `docs/decisions.md` in a feature PR (D328).
-- **This file is stable imprinting**: no mutable state, versions, counts or changelog. Topic docs describe the **current state**; the history lives in `docs/decisions/` and the git log. Size is a gate — `internal/repodocs` fails the build past 120 hand-written lines (generated blocks aside) or 12.000 characters in all: past that a client drops instructions silently.
+- **This file is stable imprinting**: no mutable state, versions, counts or changelog. Topic docs describe the **current state**; history lives in `docs/decisions/` and git. Size is a gate — `internal/repodocs` fails the build past 120 hand-written lines (generated blocks aside) or 12.000 characters in all: past that a client drops instructions.

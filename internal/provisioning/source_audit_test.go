@@ -26,6 +26,7 @@ var sourceSites = map[string]struct {
 	"cmd/cartographer/doctor.go":                     {2, "a plugin lock entry is a residue only when its plugin is no longer configured"},
 	"cmd/cartographer/doctor_shadow.go":              {3, "a KB artifact shadowed by a workspace file: a plugin artifact is not a KB's, so it is skipped"},
 	"cmd/cartographer/kbrename.go":                   {1, "rename prefix of a KB, unrelated"},
+	"cmd/cartographer/mcpprobe.go":                   {3, "probes an approved KB descriptor: a plugin artifact has no approval entry and is not a target"},
 	"cmd/cartographer/mcpreach.go":                   {1, "names the KB of a descriptor the client did not receive; a plugin's has none"},
 	"cmd/cartographer/plugins_local.go":              {3, "builds the plugin artifacts from approved trees; words a collision that names the bundle, a KB or a plugin"},
 	"cmd/cartographer/status_snapshot.go":            {3, "trust is `plugin`, never needs_approval; kbAgentIssuePrefix: only a KB's agent has a sync_pull issue to match, a bundle or plugin agent yields none"},

@@ -43,7 +43,7 @@ var subcommands = []subcommand{
 	{"Compass", "workspace", "Bind a repository to the KBs a client receives there"},
 	{"Compass", "call", "Call one MCP tool from the command line"},
 	{"Compass", "feedback", "Draft a bug or idea report with every real name removed"},
-	{"Compass", "mcp", "Stdio bridge; mcp exec starts an MCP descriptor"},
+	{"Compass", "mcp", "Stdio bridge; exec starts an MCP descriptor, probe checks one"},
 	{"Compass", "plugin", "Install, approve and manage plugins"},
 	{"Meridian", "serve", "Run Meridian, the MCP server"},
 	{"Meridian", "service", "Manage Meridian's native service"},

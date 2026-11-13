@@ -20,4 +20,14 @@ topic: control-plane
 
 **Consequences.** Nothing is written to a client. A client that receives the descriptor but not its headers is not listed: the writer's existing `warning:` says so. `connect` prints no such line.
 
-The later changes of this plan (the probe, the `requires` label) extend this file.
+## `mcp probe` diagnoses a descriptor in layers, with one exit code per layer
+
+**Decision.** `cartographer mcp probe <kb>/<slug>` takes an approved descriptor from the same manifest `approve` reads and checks, in this order and without sending MCP bytes: the `${VAR}` references unset or empty in the probing shell (`contract.MCPEnvRefs`), then for `http` a DNS + TCP + TLS dial classified into `dns`, `refused`, `timeout`, `tls_unknown_authority`, `tls_other` (`internal/mcpprobe`). Exit codes: `0` ok, `1` the server answered but is not usable, `2` usage, not found, ambiguous or not approved, `3` unresolved variable, `4` network, `5` TLS. The first fault in that order decides the code, and the report lists every finding.
+
+**Why.** "Connection closed" from a client hid three different faults with three different remedies: a variable unset in the shell the client was started from, a network that drops packets, a server that omits its intermediate certificate. A separate code each lets a script and a person tell them apart without reading a stack.
+
+**Alternatives rejected.** Launching the server to see what happens: it runs a descriptor's command before the person has seen the cause. Reading the client's own environment: not possible for a GUI client, so the report says what it cannot see.
+
+**Consequences.** The probe runs in the shell of the person, not of the client. `${secret:...}` references are the launcher's and are not variables. The dial ignores the system proxy. A descriptor that passes these checks exits `0` until the session part lands; `mcp probe` is not released between the two changes.
+
+The later changes of this plan (the session part of the probe, the `requires` label) extend this file.

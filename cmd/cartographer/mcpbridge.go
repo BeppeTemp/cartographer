@@ -20,17 +20,22 @@ var (
 
 const mcpUsage = `usage: cartographer mcp --provider <name> [--dir <path>]
        cartographer mcp exec <kb>/<slug>
+       cartographer mcp probe [--json] <kb>/<slug>
 
 Runs the local stdio MCP bridge a client starts for a provider with a workspace
 binding (D737). It serves the KBs bound to the folder it was started in and
 proxies the session to the server. The exec form starts one approved MCP descriptor with
-its secrets resolved into the child's environment. Not meant to be run by hand.`
+its secrets resolved into the child's environment; the probe form diagnoses one
+(cartographer mcp probe -h). The bridge is not meant to be run by hand.`
 
 // cmdMCP is `cartographer mcp`: the stdio bridge. Everything on stdout is
 // protocol; diagnostics go to stderr.
 func cmdMCP(args []string) int {
 	if len(args) > 0 && args[0] == "exec" {
 		return cmdMCPExec(args[1:])
+	}
+	if len(args) > 0 && args[0] == "probe" {
+		return cmdMCPProbe(args[1:])
 	}
 	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
