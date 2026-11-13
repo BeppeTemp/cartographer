@@ -186,6 +186,11 @@ func (e *execRecipe) runScript(ctx context.Context, fc string, body []byte, read
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+	// A select picks at random when both cases are ready: a cancelled context is
+	// never run, whatever the slot did.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if e.inproc != nil {
 		return e.runInProc(ctx, fc, body, read)
 	}
@@ -212,6 +217,11 @@ func (e *execRecipe) runScript(ctx context.Context, fc string, body []byte, read
 		return fail(fc, "cannot start: %v", err)
 	}
 	if err := cmd.Start(); err != nil {
+		// Start returns the context's error when it is already done: a cancel or an
+		// expired deadline, not a script that cannot start.
+		if ended := e.ended(ctx, runCtx, fc); ended != nil {
+			return ended
+		}
 		return fail(fc, "cannot start %s: %s", baseName(e.c.Command), e.redact(err.Error()))
 	}
 	// The script may leave grandchildren that outlive it (and hold the pipes).
@@ -267,17 +277,29 @@ func (e *execRecipe) runScript(ctx context.Context, fc string, body []byte, read
 			return perr
 		}
 	}
+	if ended := e.ended(ctx, runCtx, fc); ended != nil {
+		return ended
+	}
 	switch {
-	case ctx.Err() != nil:
-		return ctx.Err()
-	case runCtx.Err() != nil:
-		return fail(fc, "timeout after %s", e.c.Timeout)
 	case werr != nil:
 		var ee *exec.ExitError
 		if errors.As(werr, &ee) {
 			return fail(fc, "exit %d%s", ee.ExitCode(), e.excerpt(stderr.String()))
 		}
 		return fail(fc, "%s", e.redact(werr.Error()))
+	}
+	return nil
+}
+
+// ended says why the run stopped when a context did it: the caller's error for a
+// cancel or its own deadline, the recipe's timeout failure when only runCtx
+// expired, nil when neither is done.
+func (e *execRecipe) ended(ctx, runCtx context.Context, fc string) error {
+	switch {
+	case ctx.Err() != nil:
+		return ctx.Err()
+	case runCtx.Err() != nil:
+		return fail(fc, "timeout after %s", e.c.Timeout)
 	}
 	return nil
 }

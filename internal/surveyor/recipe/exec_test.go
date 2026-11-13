@@ -235,6 +235,35 @@ func TestExecCancelledContextReturnsItsError(t *testing.T) {
 	}
 }
 
+// A context already done never starts the script and never becomes a recipe
+// failure: os/exec's Start answers ctx.Err() itself, and the slot select picks at
+// random when both cases are ready, so the loop exercises both paths.
+func TestExecCancelledBeforeStartReturnsItsErrorOnEveryVerb(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := Request{ID: "s", MaxEntries: 3, MaxContentBytes: 1 << 10}
+	feed := helper(t, "ok")
+	sys := sysRecipe(t, filepath.Join(t.TempDir(), "verbs"), cleanCheck)
+	for i := 0; i < 50; i++ {
+		if _, err := feed.List(ctx, req); err != context.Canceled {
+			t.Fatalf("List #%d: err = %v, want context.Canceled", i, err)
+		}
+		if _, err := feed.(Fetcher).Fetch(ctx, req, []string{"a"}); err != context.Canceled {
+			t.Fatalf("Fetch #%d: err = %v, want context.Canceled", i, err)
+		}
+		if _, err := sys.Check(ctx, req); err != context.Canceled {
+			t.Fatalf("Check #%d: err = %v, want context.Canceled", i, err)
+		}
+	}
+}
+
+// A deadline of the recipe that expired before Start is the recipe's timeout, not
+// "cannot start", while the caller's context is alive.
+func TestExecExpiredTimeoutBeforeStartIsATimeoutFailure(t *testing.T) {
+	r := helperWith(t, func(c *ExecConfig) { c.Timeout = -1 }, "ok")
+	listErr(t, r, CodeListFailed, "timeout")
+}
+
 func TestExecOneScriptAtATimeAndABusySlotHonoursContext(t *testing.T) {
 	execSlot <- struct{}{}
 	defer func() { <-execSlot }()
