@@ -51,6 +51,14 @@ type syncProjection struct {
 	BundleOnly bool
 	// Scope is the destination matrix half this projection writes through.
 	Scope contract.Scope
+	// WorktreesUnlisted marks the projection of a `--worktrees` binding whose
+	// linked worktrees could not be listed this run: its worktrees' lock entries
+	// are not known to be gone, so the orphan prune leaves that provider's
+	// undeclared workspaces alone.
+	WorktreesUnlisted bool
+	// Worktree marks the projection into a linked worktree of a `--worktrees`
+	// binding; it is recorded on the lock entry (provisioning.Lock.Worktree).
+	Worktree bool
 	// Derived marks a projection whose binding comes from a KB's paths.yaml
 	// (D1019), not from `workspace bind`. It never edits a file git tracks:
 	// InstructionsRel redirects the instructions block to an untracked file,
@@ -100,6 +108,10 @@ func withholdLocalPaths(p syncProjection) bool {
 		InstructionsRel: p.InstructionsRel,
 	})
 }
+
+// linkedWorktrees lists a bound folder's linked git worktrees; a variable so a
+// test can make the listing fail.
+var linkedWorktrees = gitx.LinkedWorktrees
 
 // projectionsFor resolves every projection a provider currently has.
 //
@@ -174,6 +186,23 @@ func projectionsFor(cfg *clientconfig.Config, provider, clientBaseDir string) ([
 			sp.HookSettingsRel = derivedHookSettings(provider, sp.SkipKinds)
 		}
 		out = append(out, sp)
+		if w.Worktrees && !w.Derived {
+			// The same projection, one per linked worktree (same remote, KBs
+			// and scope; the remote guard is not re-checked: a linked worktree
+			// shares the repository's remote). A failed listing costs only the
+			// worktrees, never the main projection.
+			wts, err := linkedWorktrees(w.Path)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "warning: %s: linked worktrees of %s not listed: %v\n", provider, w.Path, err)
+				out[len(out)-1].WorktreesUnlisted = true
+			}
+			for _, wt := range wts {
+				wsp := sp
+				wsp.Workspace, wsp.BaseDir = wt, wt
+				wsp.Worktree = true
+				out = append(out, wsp)
+			}
+		}
 	}
 	return out, nil
 }
@@ -1263,6 +1292,20 @@ func workspaceStatuses(cfg *clientconfig.Config, provider, clientBaseDir string)
 			}
 		}
 		out = append(out, st)
+		if w.Worktrees && !w.Derived {
+			wts, err := linkedWorktrees(w.Path)
+			if err != nil {
+				// Not "no worktrees": say the listing is unknown.
+				note := "linked worktrees not listed: " + err.Error()
+				if d := out[len(out)-1].Detail; d != "" {
+					note = d + "; " + note
+				}
+				out[len(out)-1].Detail = note
+			}
+			for _, wt := range wts {
+				out = append(out, workspaceStatus{Path: wt, KBs: w.KBs, State: "ok", Source: "worktree of " + w.Path})
+			}
+		}
 	}
 	for _, u := range cfg.DerivedUnresolved(provider) {
 		out = append(out, workspaceStatus{Path: "repo:" + u.Key, KBs: []string{u.KB}, State: "unresolved", Detail: u.Reason, Derived: true, Source: "paths.yaml of " + u.KB})
@@ -1475,9 +1518,13 @@ func joinCapped(items []string, max int) string {
 func pruneOrphanProjections(st syncStreams, lockFile *provisioning.LockFile, declared []syncProjection, manifests map[string]contract.Manifest, clientBaseDir string) ([]string, error) {
 	wanted := map[string]bool{}
 	providersInPlay := map[string]bool{}
+	unlisted := map[string]bool{}
 	for _, p := range declared {
 		wanted[projectionKey(p)] = true
 		providersInPlay[p.Provider] = true
+		if p.WorktreesUnlisted {
+			unlisted[p.Provider] = true
+		}
 	}
 
 	var pruned []string
@@ -1489,6 +1536,22 @@ func pruneOrphanProjections(st syncStreams, lockFile *provisioning.LockFile, dec
 			continue
 		}
 		if wanted[projectionKey(syncProjection{Provider: key.Provider, Workspace: key.Workspace})] {
+			continue
+		}
+		if _, err := os.Stat(key.Workspace); os.IsNotExist(err) && lockFile.ForProjection(key).Worktree {
+			// A linked worktree of a --worktrees binding went with its files
+			// (`git worktree remove`): only the record is left. Silent, no
+			// prune and no exclude rewrite (there is nothing to write in).
+			// Any other undeclared key whose directory is missing (an
+			// unmounted volume, a moved clone) takes the ordinary path below:
+			// its files may still exist.
+			lockFile.RemoveProjection(key)
+			pruned = append(pruned, key.String()) // the caller rewrites the lockfile
+			continue
+		}
+		if unlisted[key.Provider] {
+			// A --worktrees listing failed: whether this workspace is still a
+			// worktree is unknown, so its files stay until a listing succeeds.
 			continue
 		}
 		lock := lockFile.ForProjection(key)

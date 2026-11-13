@@ -128,6 +128,12 @@ type Lock struct {
 	// report a correctly materialized workspace as missing, and leave real
 	// files behind on a prune.
 	ProjectScope bool `json:"project_scope,omitempty"`
+	// Worktree marks a workspace projection written into a linked worktree of
+	// a `--worktrees` binding (not into the bound folder). Only such a record
+	// is dropped silently when its directory is gone (pruneOrphanProjections);
+	// an undeclared record of any other workspace (an unmounted volume, a moved
+	// clone) is not, because its files may still exist. Absent means false.
+	Worktree bool `json:"worktree,omitempty"`
 
 	// The placeholder state of the last client-side Apply (D262), overwritten
 	// by every Apply — never merged, so a key that stopped being cited or got
