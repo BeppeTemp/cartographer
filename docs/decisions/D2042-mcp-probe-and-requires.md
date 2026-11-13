@@ -12,4 +12,12 @@ topic: control-plane
 
 **Consequences.** `MCPApproval` gains an optional `content` field. An older client rewrites the machine file from its own struct and drops it, so the diff degrades to "previous approval has no stored version" until the next approval. Only MCP approvals store text. A refused, declined or failed approval never syncs.
 
+## Sync and status say why a client got no descriptor
+
+**Decision.** `sync` prints `[<client>] mcp <name>: not written: <reason>` (`would not write` on `--dry-run`) and `status` lists the same reason (`mcp_not_received` in `--json`, additive) for every MCP descriptor a bound client does not receive. One reason by priority: no workspace destination for the client, a pending approval, a tracked MCP file a derived binding never edits, a Codex project that is not trusted. It is one function (`mcpNotReceivedReasons`) that sync and status share, and the tracked-file text is the one `workspace status` already printed.
+
+**Why.** A derived binding that skips a git-tracked `opencode.json` or `.codex/config.toml`, or an untrusted Codex project, left the client without the descriptor and `sync` silent, while `.mcp.json` clients got it (#1911). The projection stays as it is (D1019): the fix is to say it.
+
+**Consequences.** Nothing is written to a client. A client that receives the descriptor but not its headers is not listed: the writer's existing `warning:` says so. `connect` prints no such line.
+
 The later changes of this plan (the probe, the `requires` label) extend this file.

@@ -65,6 +65,9 @@ type providerStatus struct {
 	// managed key/block removed from a shared file. `cartographer sync`
 	// restores them.
 	Diverged []statusArtifact `json:"diverged,omitempty"`
+	// MCPNotReceived lists the MCP descriptors a bound KB ships that this
+	// provider does not receive, each with the reason and the fix (additive).
+	MCPNotReceived []mcpNotReceivedStatus `json:"mcp_not_received,omitempty"`
 	// ServerVersion is the server version this provider's state was
 	// materialized against, as recorded in the lockfile (D142). Empty when
 	// unknown (a lockfile written before D142). Shown next to the live
@@ -543,6 +546,7 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 			diffLock := statusLock(lockFile.ForProvider(p.Name), cfg, pm)
 			d = provisioning.ComputeDiffResolved(pm, diffLock, statusResolveOptions(cfg, p.Name, manifests[p.Name]))
 		}
+		p.MCPNotReceived = snapshotMCPNotReceived(provProjections[p.Name], manifests, cfg.ApprovedMCPHashes(), dir)
 		p.Revision = pm.Revision
 		p.LockRevision = lockFile.ForProvider(p.Name).AppliedRevision
 		if shadowing, _, ok := configurator.ShadowedInstructions(
@@ -1064,4 +1068,25 @@ func setupHint(s *statusSnapshot) string {
 // already dropped by HealthPush.Line, and the KB name is checked above.
 func pushLagLine(name string, p client.HealthPush) string {
 	return "KB " + name + ": " + p.Line()
+}
+
+// mcpNotReceivedStatus is one MCP descriptor a projection of the provider does
+// not receive. Workspace is empty for the global projection.
+type mcpNotReceivedStatus struct {
+	Workspace string `json:"workspace,omitempty"`
+	Name      string `json:"name"`
+	Reason    string `json:"reason"`
+}
+
+// snapshotMCPNotReceived is mcpNotReceivedReasons, the function sync prints
+// from, flattened for one provider.
+func snapshotMCPNotReceived(ps []syncProjection, manifests map[string]contract.Manifest, approvals map[string]string, dir string) []mcpNotReceivedStatus {
+	reasons := mcpNotReceivedReasons(ps, manifests, approvals, dir)
+	var out []mcpNotReceivedStatus
+	for _, sp := range ps {
+		for _, r := range reasons[projectionKey(sp)] {
+			out = append(out, mcpNotReceivedStatus{Workspace: sp.Workspace, Name: r.Name, Reason: r.Reason})
+		}
+	}
+	return out
 }
