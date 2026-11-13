@@ -365,9 +365,10 @@ func TestBlock_Budget(t *testing.T) {
 		}
 	}
 	// Every mode of feedback.destination is paid by some block: the cap is the
-	// same for all of them (the custom bullet is the longest).
-	for mode, measured := range map[string]int{"": 2427, "github": 2427, "custom": 2527, "off": 2146} {
-		budget("shared section (feedback "+mode+")", len(provisioning.SharedOperationalSection(mode)), measured, 2560)
+	// same for all of them (the custom bullet is the longest). The hard cap is
+	// 2800, raised from 2560 by the cartographer-docs bullet (D-new-docs-kb).
+	for mode, measured := range map[string]int{"": 2581, "github": 2581, "custom": 2681, "off": 2300} {
+		budget("shared section (feedback "+mode+")", len(provisioning.SharedOperationalSection(mode)), measured, 2800)
 	}
 	budget("brief section", len(section), 357, 512)
 }

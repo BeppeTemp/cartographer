@@ -216,7 +216,7 @@ tokens, one at 3k). Inside it each KB gets its own named, delimited region
 generated routing sentence (KB name, server, maps) and one line `Skills: a, b, …` with the **names**
 of the KB's valid skills, sorted and capped at 40 (`+<n> more (kb_guide)` after the 40th). Then, once per
 block, after the last region: the **shared operational section** (the "Operational instructions" bullets,
-written once, not per KB, plus the rule that procedures, runbooks and incidents are read whole with
+written once, not per KB, with a bullet that routes a question about how Cartographer itself works to the `cartographer-docs` skill, plus the rule that procedures, runbooks and incidents are read whole with
 `concept_read` and a bullet saying `kb_guide` returns the full guide, each KB's own directives and the
 skills with descriptions on demand), the D75 WP4 local-paths table and the subagent sentence below. The
 KB's own `instructions.md`, its scope sentence and the skill descriptions are **not** in the block: they

@@ -58,15 +58,17 @@ var fixedCostProfiles = []struct{ name, path string }{
 // 9-KB cells of TestBlock_Budget (D1182: 3377 and 6801 bytes), which rendered
 // the block for a non-routed connection; the routed rendering `sync` writes
 // adds the `kb` routing clause to every KB's sentence (105 bytes per KB since
-// #1246/D1246, 183 before). The 9-KB cell is capped at 8192 bytes (D1246).
+// #1246/D1246, 183 before). The 9-KB cell is capped at 8448 bytes (D1246, D-new-docs-kb).
 var fixedCostBlockBudget = map[int]int{
 	// Measured 3585 bytes after #1246 (3663 on v0.27.0, #1206, after #1182
 	// and #1207); measured plus 10 % rounded up.
-	1: 3944,
+	// Then 3972 with the cartographer-docs routing bullet (D-new-docs-kb).
+	1: 4096,
 	// Measured 7969 bytes after #1246 (8671 on v0.27.0, #1206, over the cap;
 	// 7024 for the same KBs rendered non-routed). Measured plus 10 % is 8766,
 	// so the 8192-byte cap of D1246 applies.
-	9: 8192,
+	// 8324 with the cartographer-docs routing bullet (D-new-docs-kb): the cap of D1246 is raised to 8448 deliberately.
+	9: 8448,
 }
 
 // fixedCostBlockPerKBBudget bounds what one more KB adds to the block,
