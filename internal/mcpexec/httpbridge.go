@@ -27,7 +27,8 @@ const (
 // every newline-delimited JSON-RPC message read from in is POSTed to l.URL with
 // the resolved Headers, and each message of the answer (JSON or an SSE stream)
 // is written to out as one line. It returns nil on EOF of in, after a
-// best-effort session DELETE. errw gets one-line diagnostics; neither it, out
+// best-effort session DELETE, and an error for a message longer than maxLine.
+// Messages are forwarded concurrently. errw gets one-line diagnostics; neither it, out
 // nor any error carries a header value.
 func (l *Launch) Bridge(ctx context.Context, in io.Reader, out, errw io.Writer) error {
 	if l.Spec.Type != "http" || l.URL == "" {
@@ -44,12 +45,14 @@ func (l *Launch) Bridge(ctx context.Context, in io.Reader, out, errw io.Writer) 
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}}
 	lines := make(chan []byte)
+	readErr := make(chan error, 1)
 	go func() {
 		defer close(lines)
 		r := bufio.NewReaderSize(in, 64<<10)
 		for {
-			line, err := r.ReadBytes('\n')
-			if len(line) > maxLine {
+			line, err := readLine(r)
+			if err != nil && !errors.Is(err, io.EOF) {
+				readErr <- err
 				return
 			}
 			if t := bytes.TrimSpace(line); len(t) > 0 {
@@ -64,18 +67,52 @@ func (l *Launch) Bridge(ctx context.Context, in io.Reader, out, errw io.Writer) 
 			}
 		}
 	}()
+	// Every message is forwarded on its own: a request waiting for its answer
+	// (or an SSE stream) must not hold back a notifications/cancelled or the
+	// client's reply to a request the server sent.
+	var wg sync.WaitGroup
+	defer func() { wg.Wait(); b.closeSession() }()
 	for {
 		select {
 		case <-ctx.Done():
-			b.closeSession()
 			return nil
 		case line, ok := <-lines:
 			if !ok {
-				b.closeSession()
+				select {
+				case err := <-readErr:
+					return err
+				default:
+				}
 				return nil
 			}
-			b.forward(line)
+			var head struct {
+				Method string `json:"method"`
+			}
+			if json.Unmarshal(line, &head) == nil && head.Method == "initialize" {
+				// Everything after it needs the session and protocol it opens.
+				b.forward(line)
+				continue
+			}
+			wg.Add(1)
+			go func() { defer wg.Done(); b.forward(line) }()
 		}
+	}
+}
+
+// readLine reads one newline-terminated message, refusing one past maxLine
+// without buffering the rest of it.
+func readLine(r *bufio.Reader) ([]byte, error) {
+	var line []byte
+	for {
+		chunk, err := r.ReadSlice('\n')
+		line = append(line, chunk...)
+		if len(line) > maxLine {
+			return nil, fmt.Errorf("a message from the client is longer than %d MiB", maxLine>>20)
+		}
+		if errors.Is(err, bufio.ErrBufferFull) {
+			continue
+		}
+		return line, err
 	}
 }
 
@@ -85,7 +122,8 @@ type bridge struct {
 	errw     io.Writer
 	ctx      context.Context
 	hc       *http.Client
-	mu       sync.Mutex
+	mu       sync.Mutex // out
+	smu      sync.Mutex // session, protocol
 	session  string
 	protocol string
 }
@@ -109,11 +147,14 @@ func (b *bridge) setHeaders(req *http.Request) {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
-	if b.session != "" {
-		req.Header.Set(headerSession, b.session)
+	b.smu.Lock()
+	session, protocol := b.session, b.protocol
+	b.smu.Unlock()
+	if session != "" {
+		req.Header.Set(headerSession, session)
 	}
-	if b.protocol != "" {
-		req.Header.Set(headerProtocol, b.protocol)
+	if protocol != "" {
+		req.Header.Set(headerProtocol, protocol)
 	}
 }
 
@@ -178,7 +219,9 @@ func (b *bridge) forward(line []byte) {
 	defer resp.Body.Close()
 	if head.Method == "initialize" {
 		if s := resp.Header.Get(headerSession); s != "" {
+			b.smu.Lock()
 			b.session = s
+			b.smu.Unlock()
 		}
 	}
 	switch {
@@ -204,7 +247,9 @@ func (b *bridge) forward(line []byte) {
 				} `json:"result"`
 			}
 			if json.Unmarshal(msg, &r) == nil && r.Result.ProtocolVersion != "" {
+				b.smu.Lock()
 				b.protocol = r.Result.ProtocolVersion
+				b.smu.Unlock()
 			}
 		}
 		got++
@@ -251,7 +296,10 @@ func readSSE(r io.Reader, emit func([]byte)) {
 
 // closeSession ends the server session, best effort, within two seconds.
 func (b *bridge) closeSession() {
-	if b.session == "" {
+	b.smu.Lock()
+	session := b.session
+	b.smu.Unlock()
+	if session == "" {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

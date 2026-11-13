@@ -132,3 +132,7 @@ func (d cliMCPExecDeps) Approved(kb, slug string) (string, bool) {
 }
 
 func (cliMCPExecDeps) Environ() []string { return os.Environ() }
+
+// TokenEnv is the variable carrying the bearer token: the launcher keeps it
+// for its own calls and hides it from the descriptor and the child.
+func (d cliMCPExecDeps) TokenEnv() string { return tokenEnvName(d.cfg) }

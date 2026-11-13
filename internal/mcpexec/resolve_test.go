@@ -24,6 +24,7 @@ type fakeDeps struct {
 	down      error
 	secretHit int
 	callErr   string
+	tokenEnv  string
 }
 
 func (f *fakeDeps) Call(_ context.Context, tool string, args map[string]any) (string, error) {
@@ -55,6 +56,7 @@ func (f *fakeDeps) Call(_ context.Context, tool string, args map[string]any) (st
 
 func (f *fakeDeps) Approved(string, string) (string, bool) { return f.approved, f.approved != "" }
 func (f *fakeDeps) Environ() []string                      { return f.env }
+func (f *fakeDeps) TokenEnv() string                       { return f.tokenEnv }
 
 func hashOf(slug, desc string) string {
 	return contract.HashArtifactFiles([]contract.ArtifactFile{{Path: slug + ".json", Content: []byte(desc)}})
@@ -194,5 +196,65 @@ func TestParseRef(t *testing.T) {
 	}
 	if kb, slug, err := ParseRef("kb-a/svc"); err != nil || kb != "kb-a" || slug != "svc" {
 		t.Fatal(kb, slug, err)
+	}
+}
+
+func TestResolveKeepsTheCartographerTokenFromTheChild(t *testing.T) {
+	d := newDeps(stdioDesc)
+	d.tokenEnv = "CARTOGRAPHER_TOKEN"
+	d.env = append(d.env, "CARTOGRAPHER_TOKEN="+planted)
+	l, err := Resolve(context.Background(), d, "kb-a/svc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := envOf(l, "CARTOGRAPHER_TOKEN"); ok {
+		t.Fatal("the child inherits the Cartographer token")
+	}
+	if v, _ := envOf(l, "HOME"); v != "/h" {
+		t.Fatal("the rest of the environment was lost")
+	}
+	for _, desc := range []string{
+		`{"type":"stdio","command":"srv","env":{"X":"${CARTOGRAPHER_TOKEN}"}}`,
+		`{"type":"http","url":"https://example.com/mcp","headers":{"Authorization":"Bearer ${CARTOGRAPHER_TOKEN}"}}`,
+	} {
+		d := newDeps(desc)
+		d.tokenEnv = "CARTOGRAPHER_TOKEN"
+		d.env = append(d.env, "CARTOGRAPHER_TOKEN="+planted)
+		_, err := Resolve(context.Background(), d, "kb-a/svc")
+		if err == nil || !strings.Contains(err.Error(), "CARTOGRAPHER_TOKEN") || strings.Contains(err.Error(), planted) {
+			t.Fatalf("want a refusal naming the variable only, got %v", err)
+		}
+	}
+}
+
+func TestResolveDropsInheritedKeysTheDescriptorSets(t *testing.T) {
+	d := newDeps(stdioDesc)
+	d.env = append(d.env, "API_TOKEN=stale", "NODE_OPTIONS=--inspect", "HOSTV=old")
+	l, err := Resolve(context.Background(), d, "kb-a/svc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := map[string]int{}
+	for _, e := range l.Env {
+		k, _, _ := strings.Cut(e, "=")
+		count[k]++
+	}
+	for _, k := range []string{"API_TOKEN", "NODE_OPTIONS", "HOSTV"} {
+		if count[k] != 1 {
+			t.Fatalf("%s appears %d times in the child env", k, count[k])
+		}
+	}
+	if v, _ := envOf(l, "API_TOKEN"); v != planted {
+		t.Fatalf("API_TOKEN = %q", v)
+	}
+	seen := map[string]int{}
+	for _, e := range l.Redacted().Env {
+		k, _, _ := strings.Cut(e, "=")
+		seen[k]++
+	}
+	for k, n := range seen {
+		if n != 1 {
+			t.Fatalf("Redacted lists %s %d times", k, n)
+		}
 	}
 }

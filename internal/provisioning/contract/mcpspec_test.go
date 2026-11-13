@@ -184,6 +184,8 @@ func TestParseMCPServerSpec_SecretRefsAndEnvLiteral(t *testing.T) {
 	}{
 		{"secret in env", stdio + `"env":{"T":"${secret:services/svc#SVC_TOKEN}"}}`, ""},
 		{"secret in a longer header", `{"type":"http","url":"https://example.com/mcp","headers":{"Authorization":"Bearer ${secret:services/svc#TOKEN}"}}`, ""},
+		{"secret in url", `{"type":"http","url":"https://example.com/${secret:svc#TOKEN}","headers":{"A":"${X}"}}`, "not in url"},
+		{"secret in args", stdio + `"args":["--k=${secret:svc#TOKEN}"],"env":{"T":"${A}"}}`, "not in args"},
 		{"literal accepted", stdio + `"env_literal":{"NODE_OPTIONS":"--use-system-ca"}}`, ""},
 		{"empty literal accepted", stdio + `"env_literal":{"X":""}}`, ""},
 		{"no hash", stdio + `"env":{"T":"${secret:services/svc}"}}`, "malformed secret reference"},

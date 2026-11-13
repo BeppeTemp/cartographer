@@ -158,27 +158,30 @@ func TestApply_ClineSymlinkedRulesDirIsRefused(t *testing.T) {
 }
 
 // Cline cannot be shown to expand ${VAR}: a KB mcp artifact's headers are
-// warned about and not written, so a literal credential never reaches the
-// settings file in clear text.
+// never written (a literal credential would reach the settings file in clear
+// text); the server is started through the launcher instead (bridge).
 func TestApply_ClineKBMCPHeadersAreNotWritten(t *testing.T) {
 	kbRoot := t.TempDir()
 	writeMCPFixture(t, kbRoot, "wiki-tools", `{"type":"http","url":"https://tools.example.com/mcp","headers":{"X-Api-Key":"${WIKI_KEY}"}}`)
 	mcp := findMCPArtifact(t, signedMCPManifest(t, kbRoot, "wiki-tools"), "wiki-tools")
 	mcp.Signed = true
 	home := t.TempDir()
+	launcher := filepath.Join(t.TempDir(), fakeExecName)
+	writeFakeExecutable(t, launcher, filepath.Join(t.TempDir(), "ran"))
 	res, err := provisioning.Apply(contract.Manifest{Revision: "r1", Artifacts: []contract.Artifact{mcp}},
-		provisioning.ApplyOptions{Provider: configurator.ProviderCline, BaseDir: home, KBRoots: map[string]string{"kb": kbRoot}, SkipLockWrite: true,
+		provisioning.ApplyOptions{Provider: configurator.ProviderCline, BaseDir: home, KBRoots: map[string]string{"kb": kbRoot}, SkipLockWrite: true, MCPLauncher: launcher,
 			ApprovedMCP: map[string]string{"kb:kb\x00wiki-tools": mcp.ContentHash}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	cfg, _ := os.ReadFile(filepath.Join(home, ".cline", "data", "settings", "cline_mcp_settings.json"))
-	if !strings.Contains(string(cfg), "wiki-tools") || strings.Contains(string(cfg), "X-Api-Key") || strings.Contains(string(cfg), "WIKI_KEY") {
-		t.Errorf("settings = %s, want the server without its headers", cfg)
+	if !strings.Contains(string(cfg), "wiki-tools") || strings.Contains(string(cfg), "X-Api-Key") || strings.Contains(string(cfg), "tools.example.com") ||
+		!strings.Contains(string(cfg), "kb/wiki-tools") {
+		t.Errorf("settings = %s, want the launcher entry without the descriptor's url or headers", cfg)
 	}
 	warned := false
 	for _, w := range res.Warnings {
-		warned = warned || strings.Contains(w, "does not support headers")
+		warned = warned || strings.Contains(w, "mcp exec")
 	}
 	if !warned {
 		t.Errorf("Warnings = %v, want the headers warning", res.Warnings)

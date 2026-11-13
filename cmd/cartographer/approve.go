@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -227,6 +228,16 @@ func printApprovalPreview(w io.Writer, a contract.Artifact) error {
 			return err
 		}
 		fmt.Fprintf(w, "Approve MCP %s from KB %s\ntransport: %s\ntarget: %s\nhash: %s\n", name, source, escapeControl(string(spec.Type)), escapeControl(target), shortHash(a.ContentHash))
+		// What the process starts with beyond the command line: the constants the
+		// descriptor sets (NODE_OPTIONS, LD_PRELOAD, PATH can change what runs, so
+		// names and values are shown) and the variables it reads from the
+		// environment of the client.
+		for _, k := range slices.Sorted(maps.Keys(spec.EnvLiteral)) {
+			fmt.Fprintf(w, "env_literal: %s=%s\n", escapeControl(k), escapeControl(spec.EnvLiteral[k]))
+		}
+		if names := spec.EnvRefNames(); len(names) > 0 {
+			fmt.Fprintf(w, "reads: %s\n", escapeControl(strings.Join(names, ", ")))
+		}
 		if spec.HasSecretRef() {
 			// Names only, never a value: the person approves knowing this
 			// descriptor is started through the launcher with KB secrets.

@@ -24,6 +24,10 @@ This is the part that traps people, so it comes before the procedure.
 
 `secret_set`, `secret_resolve` and `service_get` are in `tools/list`; the first two need `rw` scope.
 
+An MCP descriptor (`mcp/<slug>.json`) takes a secret in `env` or `headers` as `${secret:<concept-id>#NAME}`
+(`NAME` a `secret_refs` name of that concept; `env_literal` is for non-secret constants). Clients are given
+`cartographer mcp exec <kb>/<slug>`, which resolves it at each start (needs `rw`); the value is never written to a client file.
+
 `secret_set` refuses any path that is not a local `secrets/*.sops.yaml`. It creates a
 file that does not exist only when the root `.sops.yaml` has a creation rule matching
 the path and the server's age key is one of that rule's recipients; the recipients are

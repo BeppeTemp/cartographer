@@ -271,7 +271,7 @@ project hook.UserPromptSubmit verified 2026-11-05 codex-scratch-home
 - **Depends on**:
   - MCP tool hiding (D1724; read 2026-11-06, Kiro 3.x): tools are loaded on demand (tool search); no per-tool pin found. Cartographer writes nothing for it; the entry paragraph of `initialize.instructions` is the only hint. Upstream request to file; the Kiro 3.x matrix is a separate audit.
   - Stdio bridge (D737): spawned in the session's folder (probe 2026-10-17, Kiro CLI 2.32.0); `roots` not declared. Kiro IDE not probed: an IDE that spawns the server outside the workspace and declares no roots gets the provider's default set.
-  - Writer header (D904): none. Kiro documents `headers` for a remote server (<https://kiro.dev/docs/mcp/configuration/>), but the emitter writes no headers for Kiro, `Authorization` included (an older gap), so a write over a Kiro HTTP entry is authored by the token; the bridge names the writer.
+  - Writer header (D904): none. Kiro documents `headers` for a remote server (<https://kiro.dev/docs/mcp/configuration/>), but the emitter writes no headers for Kiro, `Authorization` included (an older gap), so a write over a Kiro HTTP entry is authored by the token; the bridge names the writer. A KB `http` descriptor with headers is therefore written as the `cartographer mcp exec` bridge entry (`SupportsMCPHeaders` false); setting it true later removes the bridge for Kiro.
   - `agent` as JSON (`name`/`description`/`prompt`) in `~/.kiro/agents/`,
     workspace `.kiro/agents/` wins over global (D195); native restriction keys
     believed to be `tools`/`allowedTools` (D291, not verified). The ledger names no
@@ -864,7 +864,7 @@ project hook.UserPromptSubmit absent
     `{type: "stdio", command, args, env}` or `{type: "streamableHttp", url, headers}` (`sse` exists in Cline, no
     KB descriptor carries it). The file is Cline's own (a `.bak` beside it): other servers and keys survive and
     it is never deleted. `${VAR}` expansion in `headers`/`env` was **not** verified, so `SupportsMCPHeaders` is
-    false and a KB `mcp` artifact with headers is materialised without them, with the warning; a stdio `env`
+    false and a KB `mcp` artifact with headers is written as the `cartographer mcp exec` bridge entry, never with the headers in the file; a stdio `env`
     value is written verbatim and unprobed. Cartographer's own entry is the bridge and carries no header.
   - Tool names: the model sees `<server>__<tool>` (bundle `pCn`), not a flat namespace; `mcp__<server>__<tool>`
     is the permission-rule syntax.

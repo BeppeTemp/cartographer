@@ -41,7 +41,7 @@ var sourceSites = map[string]struct {
 	"internal/provisioning/kbguide.go":               {1, "instructions are KB-only"},
 	"internal/provisioning/contract/provisioning.go": {16, "authorization, verification and merge: see source.go and source_test.go"},
 	"internal/provisioning/contract/resolver.go":     {1, "requires applies to everything not bundled, plugins included"},
-	"internal/provisioning/provisioning.go":          {26, "apply, authorization and warnings: see source.go and source_test.go"},
+	"internal/provisioning/provisioning.go":          {27, "apply, authorization and warnings: see source.go and source_test.go; launcherSpec: `mcp exec <kb>/<slug>` reads a KB descriptor, so a plugin descriptor gets no launcher and is skipped"},
 	"internal/provisioning/source.go":                {1, "DropPluginCollisions: a bundled artifact stays, a plugin never overrides anything"},
 	"internal/provisioning/stamp.go":                 {2, "plugin branch of the provenance stamp"},
 	"internal/provisioning/unplaced.go":              {2, "KB skills only"},

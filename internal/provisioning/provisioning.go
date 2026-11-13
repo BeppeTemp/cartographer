@@ -210,6 +210,14 @@ type ApplyOptions struct {
 	// It is authorization, not verification; Signed is never mutated by it.
 	ApprovedMCP map[string]string
 	Lock        Lock // current lockfile
+	// MCPLauncher is the absolute path of the cartographer command a client
+	// starts as `<launcher> mcp exec <kb>/<slug>` for a descriptor that holds a
+	// ${secret:...} reference or needs headers the client cannot carry; empty
+	// when none was found, and such a descriptor is then skipped. MCPLauncherEnv
+	// are the variables a client that filters its environment (Codex) passes on:
+	// the token variable of the client configuration.
+	MCPLauncher    string
+	MCPLauncherEnv []string
 	// Unplaced are the KB skills and agents this projection has no file for
 	// (UnplacedArtifacts, computed by the caller on the manifest before
 	// ProjectManifest drops them): the instructions block names them and how to
@@ -1634,18 +1642,13 @@ hookLoop:
 				}
 				kbSpec, specErr := contract.ParseMCPServerSpec(a.Name, content)
 				if specErr != nil {
-					return AppliedResult{}, fmt.Errorf("provisioning: mcp %s: %w", a.Name, specErr)
-				}
-				if kbSpec.HasSecretRef() {
-					// A "${secret:...}" is resolved at launch by `mcp exec` and must
-					// never reach an emitter: it would be written into the client's
-					// config as text. Until the launcher entry is emitted, the
-					// descriptor is refused rather than installed half-working.
-					err := fmt.Errorf("%w: mcp %q holds ${secret:...} references, which this client cannot launch yet", ErrInvalidArtifactFile, a.Name)
-					if refuseArtifact(a, err) {
+					// The file changed since the manifest was built (or the
+					// manifest is another's): this descriptor is refused, the
+					// others are still projected.
+					if refuseArtifact(a, fmt.Errorf("%w: mcp %s: %v", ErrInvalidArtifactFile, a.Name, specErr)) {
 						continue
 					}
-					return AppliedResult{}, err
+					return AppliedResult{}, fmt.Errorf("provisioning: mcp %s: %w", a.Name, specErr)
 				}
 				// env_literal constants are plain values: they join env (the keys
 				// are disjoint, ParseMCPServerSpec enforces it) in a copy, so the
@@ -1661,19 +1664,28 @@ hookLoop:
 					env = nil
 				}
 				spec := configurator.ServerSpec{Type: kbSpec.Type, URL: kbSpec.URL, Command: kbSpec.Command, Args: kbSpec.Args, Headers: kbSpec.Headers, Env: env}
-				if d, ok := configurator.Lookup(opts.Provider); ok && !d.SupportsMCPHeaders && len(kbSpec.Headers) > 0 {
-					// A provider whose emitter cannot represent auth headers
-					// (kiro, unchanged since D69) — warn instead of silently
-					// failing the authentication of the server distributed by
-					// the KB.
-					result.Warnings = append(result.Warnings, fmt.Sprintf(
-						"mcp %q: %s does not support headers for MCP servers, ignored", a.Name, d.Provider))
-					// Ignored means not written: an emitter that can carry the
-					// field (Cline) would otherwise put a KB header, possibly a
-					// literal credential, in the client's settings in clear text.
-					// Cartographer's own entry does not come through here and
-					// keeps its Authorization header.
-					spec.Headers = nil
+				d, known := configurator.Lookup(opts.Provider)
+				if needsLauncher(kbSpec, d, known) {
+					ls, ok := launcherSpec(a, kbSpec, opts)
+					if !ok {
+						// No launcher command: the descriptor is never emitted (a
+						// secret reference would be written as text, a header lost).
+						// An entry an earlier sync wrote stays as it is.
+						result.Warnings = append(result.Warnings, fmt.Sprintf(
+							"mcp %q: needs `cartographer mcp exec` and no launcher is available (no cartographer command on PATH, or not a KB descriptor), skipped", a.Name))
+						result.Unsupported = append(result.Unsupported, a)
+						for _, mf := range opts.Lock.Managed {
+							if mf.Kind == a.Kind && mf.Name == a.Name {
+								newManaged = append(newManaged, mf)
+							}
+						}
+						continue
+					}
+					spec = ls
+					if !kbSpec.HasSecretRef() {
+						result.Warnings = append(result.Warnings, fmt.Sprintf(
+							"mcp %q: %s has no headers for MCP servers, served through `cartographer mcp exec` (bridge)", a.Name, d.Provider))
+					}
 				}
 				rp, warnings, regErr := registerMCPServer(opts.BaseDir, a.Name, spec, opts.Provider, opts.Scope)
 				if regErr != nil {
@@ -3188,6 +3200,39 @@ func yamlNodeDeclaresCommands(n *yaml.Node, seen map[*yaml.Node]bool) bool {
 	return false
 }
 
+// needsLauncher says whether a descriptor is started through `mcp exec`: it
+// holds a secret reference, or it is http with headers the provider has no
+// field for (Kiro, Cline today).
+func needsLauncher(spec contract.MCPServerSpec, d configurator.Descriptor, known bool) bool {
+	if spec.HasSecretRef() {
+		return true
+	}
+	return known && !d.SupportsMCPHeaders && spec.Type == "http" && len(spec.Headers) > 0
+}
+
+// launcherSpec is the stdio entry of the launcher for artifact a. It carries no
+// header, no env value and no reference: the launcher reads the approved
+// descriptor itself and resolves the secrets at start. The entry form is not
+// part of the content hash, so a changed launcher path is written at the next
+// heal or descriptor change.
+func launcherSpec(a contract.Artifact, spec contract.MCPServerSpec, opts ApplyOptions) (configurator.ServerSpec, bool) {
+	kb, isKB := strings.CutPrefix(a.Source, "kb:")
+	if !isKB || !filepath.IsAbs(opts.MCPLauncher) {
+		return configurator.ServerSpec{}, false
+	}
+	pass := append([]string(nil), opts.MCPLauncherEnv...)
+	seen := map[string]bool{}
+	for _, n := range pass {
+		seen[n] = true
+	}
+	for _, n := range spec.EnvRefNames() {
+		if !seen[n] {
+			pass = append(pass, n)
+		}
+	}
+	return configurator.ServerSpec{Type: "stdio", Command: opts.MCPLauncher, Args: []string{"mcp", "exec", kb + "/" + a.Name}, PassEnv: pass}, true
+}
+
 // PreflightStdioMCP verifies locally runnable commands without executing them.
 // It intentionally keeps a bare command unmodified so provider configuration
 // retains the user's normal PATH semantics.
@@ -3202,28 +3247,46 @@ func PreflightStdioMCP(m contract.Manifest, opts ApplyOptions) error {
 		}
 		spec, err := contract.ParseMCPServerSpec(a.Name, content)
 		if err != nil {
-			return fmt.Errorf("provisioning: mcp %s preflight: %w", a.Name, err)
+			// Apply refuses this descriptor on its own; one that no longer
+			// parses is no reason to stop the others.
+			continue
+		}
+		d, known := configurator.Lookup(opts.Provider)
+		if opts.MCPLauncher != "" && needsLauncher(spec, d, known) {
+			if err := checkCommand(a.Name, opts.Provider, opts.MCPLauncher); err != nil {
+				return err
+			}
 		}
 		if spec.Type != "stdio" {
 			continue
 		}
-		path := spec.Command
-		if !filepath.IsAbs(path) {
-			path, err = exec.LookPath(path)
-			if err != nil {
-				return fmt.Errorf("provisioning: mcp %q for %s: command %q not found on PATH", a.Name, opts.Provider, spec.Command)
-			}
+		if err := checkCommand(a.Name, opts.Provider, spec.Command); err != nil {
+			return err
 		}
-		info, err := os.Stat(path)
+	}
+	return nil
+}
+
+// checkCommand verifies that command is an executable regular file, looked up
+// on PATH when it is not absolute.
+func checkCommand(name string, provider configurator.Provider, command string) error {
+	path := command
+	var err error
+	if !filepath.IsAbs(path) {
+		path, err = exec.LookPath(path)
 		if err != nil {
-			return fmt.Errorf("provisioning: mcp %q for %s: command %q unavailable: %w", a.Name, opts.Provider, spec.Command, err)
+			return fmt.Errorf("provisioning: mcp %q for %s: command %q not found on PATH", name, provider, command)
 		}
-		// Where the filesystem has no execute bit, being executable is decided
-		// by the extension (PATHEXT) and exec.LookPath above already applied
-		// it; asking the permissions would reject every command on Windows.
-		if !info.Mode().IsRegular() || (execbit.Supported && !execbit.IsExecutable(info.Mode())) {
-			return fmt.Errorf("provisioning: mcp %q for %s: command %q is not an executable regular file", a.Name, opts.Provider, spec.Command)
-		}
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("provisioning: mcp %q for %s: command %q unavailable: %w", name, provider, command, err)
+	}
+	// Where the filesystem has no execute bit, being executable is decided
+	// by the extension (PATHEXT) and exec.LookPath above already applied
+	// it; asking the permissions would reject every command on Windows.
+	if !info.Mode().IsRegular() || (execbit.Supported && !execbit.IsExecutable(info.Mode())) {
+		return fmt.Errorf("provisioning: mcp %q for %s: command %q is not an executable regular file", name, provider, command)
 	}
 	return nil
 }

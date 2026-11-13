@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func bridgeLaunch(t *testing.T, url string) *Launch {
@@ -88,10 +89,10 @@ func TestBridgeSessionHeadersSSEAndDelete(t *testing.T) {
 		if i > 0 && q.session != "sess-1" {
 			t.Fatalf("request %d lost the session id", i)
 		}
-		if i > 1 && q.proto != "2025-06-18" {
+		if i > 0 && q.proto != "2025-06-18" {
 			t.Fatalf("request %d lost the protocol version", i)
 		}
-		if i < 3 && !strings.Contains(q.accept, "text/event-stream") {
+		if i < 3 && q.method != http.MethodDelete && !strings.Contains(q.accept, "text/event-stream") {
 			t.Fatalf("request %d Accept %q", i, q.accept)
 		}
 	}
@@ -160,5 +161,52 @@ func TestBridgeRefusesPlainHTTPToARemoteHostAndStdio(t *testing.T) {
 	l.Spec.Type = "stdio"
 	if _, _, err := runBridge(t, l, ""); err == nil {
 		t.Fatal("a stdio descriptor was bridged")
+	}
+}
+
+// A request waiting on its answer does not hold back a notification or a
+// client reply: they reach the server while the first is still open.
+func TestBridgeForwardsWhileARequestIsInFlight(t *testing.T) {
+	release := make(chan struct{})
+	gotCancel := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, q *http.Request) {
+		b, _ := io.ReadAll(q.Body)
+		switch {
+		case q.Method == http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		case strings.Contains(string(b), "notifications/cancelled"):
+			close(gotCancel)
+			w.WriteHeader(http.StatusAccepted)
+		default:
+			<-release // the long tool call
+			io.WriteString(w, `{"jsonrpc":"2.0","id":5,"result":{}}`)
+		}
+	}))
+	defer srv.Close()
+	pr, pw := io.Pipe()
+	var out, errw bytes.Buffer
+	done := make(chan error, 1)
+	go func() { done <- bridgeLaunch(t, srv.URL).Bridge(context.Background(), pr, &out, &errw) }()
+	io.WriteString(pw, `{"jsonrpc":"2.0","id":5,"method":"tools/call"}`+"\n")
+	io.WriteString(pw, `{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":5}}`+"\n")
+	select {
+	case <-gotCancel:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the notification waited for the in-flight request")
+	}
+	close(release)
+	pw.Close()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBridgeOverLongLineIsAnError(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	defer srv.Close()
+	long := strings.Repeat("a", maxLine+10) + "\n"
+	_, _, err := runBridge(t, bridgeLaunch(t, srv.URL), long)
+	if err == nil || !strings.Contains(err.Error(), "longer than") {
+		t.Fatalf("err = %v", err)
 	}
 }
