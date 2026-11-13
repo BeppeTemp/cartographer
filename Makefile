@@ -135,7 +135,7 @@ else
 endif
 
 # Rewrites the terminal text the films show (film/transcripts/*.txt) from the real binary: run after a change of
-# CLI output that scenario 26_film_transcripts reports, then look at the film (film/README.md).
+# CLI output that scenario 31_film_transcripts reports, then look at the film (film/README.md).
 film-transcripts: build ## Regenerate film/transcripts/*.txt from bin/cartographer (e2e 26 checks them)
 	@for s in film/transcripts/*.sh; do bash "$$s" || exit 1; done
 

@@ -4,6 +4,8 @@ topic: project-governance
 
 # D790 — The README hero is re-recorded by CI on an orphan branch
 
+> **Amended by [D2041](D2041-readme-videos.md)**: a second Atlas recording, the Surveyor at work (`surveyor.webp`), is recorded on the same branch, with a size cap.
+
 **Decision.** This reopens the "outside CI" consequence of D330. The README's hero is no longer a file of `main`:
 the `hero` workflow (`hero.yml`, called by `release.yml`) records the Atlas of each release that changes `web/` and
 force-pushes it as `hero.webp`, the single commit of the orphan branch `readme-assets`; the README points at

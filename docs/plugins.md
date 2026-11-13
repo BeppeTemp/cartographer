@@ -9,7 +9,7 @@ reader, the store, the plugin commands, the script model and a worked example.
 
 ![The plugins film: validate, install, approve, run, and the plugin that stops when one byte of its script changes](https://raw.githubusercontent.com/BeppeTemp/cartographer/readme-film/plugins.webp)
 
-The code is two packages. `internal/plugin/core` holds what the server and the Surveyor link: the manifest, the
+The code is two packages. `internal/plugin/core` holds what Meridian and the Surveyor link: the manifest, the
 families and the point registry, `ReadTree` and its digest, the pinned store and the provider descriptor with its
 resolver. It imports none of `provisioning`, `plugin` and `mcpbridge`, and `TestServerNeverLinksTheApply` pins it.
 `internal/plugin` is the client's: the loaders and previews of the skill, agent, hook and provider points, which
@@ -223,7 +223,7 @@ A newer `installed` digest never affects it. Why: `D1727`.
 
 ### Pinned stores
 
-`core.LoadPinned(storeDir, pins, side, opts)` is what a headless component (the server, the Surveyor) calls: it
+`core.LoadPinned(storeDir, pins, side, opts)` is what a headless component (Meridian, the Surveyor) calls: it
 opens each enabled pin through a read-only store rooted at `storeDir`, runs `State` with the pin's digest as the
 approval, and returns the active plugins that have `side`, in name order. Every enabled pin that does not load is a
 `PinProblem` (`<name>: <status>`, `no <side> side`, or the side's unsupported reason) and the caller refuses to start;
@@ -249,7 +249,7 @@ approval is consulted and nothing is written into the store. Why: `D1936`.
 A server plugin contributes **data**, never code, and only what a pinned digest approved. Two families, because a KB's
 behaviour is carried by the KB and must not differ per server (D746, D906):
 
-- **Roles** are used by the server's own authorization. A role of a plugin is a template: the operator's `auth.roles`
+- **Roles** are used by Meridian's own authorization. A role of a plugin is a template: the operator's `auth.roles`
   entry takes it with `from: <plugin>/<role>` and `kbs: [...]` (the KBs it applies to) instead of `rules`; at start
   `config.ExpandPluginRoles` writes one copy of each rule per KB, and the same `ValidateAuthRoles` that judges a role
   the operator wrote judges the result. Tokens name the operator's role, never the plugin's, and a token gets the role
@@ -383,7 +383,7 @@ change that adds it.
 
 The atlas side has one family, `branding` (`components.atlas.sdk.branding: 1`): an operator's logo (light and dark), favicon and
 **one accent colour**, all data. The word "Cartographer" is code and no key renames or removes it; `company` is only the logo's alt text.
-The server derives the tokens from the accent, the plugin never ships CSS: for each theme `branding.Derive` keeps the hue and
+Meridian derives the tokens from the accent, the plugin never ships CSS: for each theme `branding.Derive` keeps the hue and
 saturation and moves the lightness (darker on light, lighter on dark) one point at a time until the accent holds the pairs
 `web/src/test/contrast.test.ts` audits: 4.5:1 on the three panel surfaces, 3:1 on surface-0, 4.5:1 for the text colour on
 the accent, and for that text on the hover shade `--primary-dim`. A shift of more than 45 points, or an accent that cannot pass, is refused with the nearest colour that does
@@ -393,7 +393,7 @@ A pale accent such as the shipped dark one (`#b5d6bd`) is darkened on the light 
 and `--graph-glow-a`; `Palette.CSS()` renders them as a deterministic stylesheet. `internal/branding/contrast.go` ports the
 contrast formula and `derive_test.go` fails when its surface constants drift from `web/src/styles/tokens.css`.
 
-The server loads the atlas side from the same `plugins` pins as the server side (`loadPinnedPlugins` opens each pin once
+Meridian loads the atlas side from the same `plugins` pins as the server side (`loadPinnedPlugins` opens each pin once
 per side, and a pin with neither side is a start error), so a branding-only plugin is an atlas pin. **Exactly one**
 active plugin may provide a branding: two is a start error naming both (`keep one or disable the other with enabled: false`), and a
 branding whose accent cannot be shown stops the start naming the plugin and the key. The start log says

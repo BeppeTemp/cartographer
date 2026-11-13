@@ -77,10 +77,10 @@ flowchart TB
     V --> G
 ```
 
-Plugins are the extension layer of Compass, not of Meridian: a plugin is a git repository or a folder that
+Plugins are the extension layer of Compass first, and of Meridian and the Surveyor through the families their side allows (`plugins.md`): a plugin is a git repository or a folder that
 contributes agent clients, skills, subagents, hooks, commands, MCP tools and sync handlers to one machine. It is
 installed from a source, pinned to a digest and enabled only after the user approves that exact version; a script
-in it (Starlark) can reach only what its manifest grants. A server never hosts or loads a plugin. See
+in it (Starlark) can reach only what its manifest grants. Meridian loads only the server families of an approved, pinned plugin (roles, presets, Atlas declarations) and never runs a client command. See
 [plugins](plugins.md).
 
 The Surveyor's model client, allowlist, loop and budgets live in `internal/surveyor` (see `internal/surveyor/AGENTS.md`), and `serve` never links that package. The model client (Anthropic Messages and OpenAI-compatible chat completions over `net/http`, token usage reported per call) is driven by a Surveyor, a headless MCP client of the public contract, with its own tool loop (D1257). The allowlist (`allow.go`: a hard deny set plus an explicit default list, enforced on what is offered and on every call) and the bounded loop (`loop.go`: step and token caps, tool errors fed back to the model, transport errors abort) run on top of it; `surveyortest` holds the scripted model and tool doubles.

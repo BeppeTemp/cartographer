@@ -11,7 +11,7 @@
 #          (the chart's own CI values, copied into the sandbox as they are);
 #   row 13 Compass alone, pointed at a remote Meridian: `connect --server-url --dry-run`, the lines that say what would be written.
 # The file is the same kind as plugins.txt: a command line is `$ <command>`, output is verbatim, a note is `>> <text>`
-# (the film draws it dimmed). The sandbox path is normalised to $HOME. The e2e scenario 26_film_transcripts regenerates
+# (the film draws it dimmed). The sandbox path is normalised to $HOME. The e2e scenario 31_film_transcripts regenerates
 # the file and fails on a difference; `make film-transcripts` rewrites the committed one.
 
 set -uo pipefail

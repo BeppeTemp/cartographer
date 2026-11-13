@@ -143,7 +143,7 @@ through MCP tools**, behind a server that enforces the rules, and the same knowl
 ### Surveyor
 
 - 🔭 **Keeps the wiki in order while nobody is looking**<br>
-  Ingest from feeds, repair, review; it is a client of the public MCP contract, read-only to everything but the KB, with its own model profiles and budgets. Recipes: [`docs/surveyor-recipes.md`](docs/surveyor-recipes.md).
+  Its tasks ingest from feeds and polled sources, repair and review the KB (`doctor`, `repair`), write syntheses and run your own prompts; it is a client of the public MCP contract, read-only to everything but the KB, with its own model profiles and budgets. Recipes: [`docs/surveyor-recipes.md`](docs/surveyor-recipes.md).
 
 <p align="center">
   <img alt="The Surveyor at work in the Atlas: a source is declared in Settings, a Surveyor run starts, the Activity page shows the run, the graph gains the new concepts, and one source that fails raises an alarm in the Work panel." src="https://raw.githubusercontent.com/BeppeTemp/cartographer/readme-assets/surveyor.webp" width="100%">

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scenarios/26_film_transcripts.sh — the terminal text of the films is the real binary's.
+# scenarios/31_film_transcripts.sh — the terminal text of the films is the real binary's.
 #
 # Each film that shows command lines has a script in film/transcripts/<film>.sh that runs the real
 # commands in a sandbox and writes film/transcripts/<film>.txt (the page imports it as text).
@@ -18,7 +18,7 @@ E2E_DIR="$(cd "${SCENARIO_DIR}/.." && pwd)"
 # shellcheck source=../lib/assert.sh
 source "${E2E_DIR}/lib/assert.sh"
 
-SCENARIO_NAME="26_film_transcripts"
+SCENARIO_NAME="31_film_transcripts"
 
 echo "=== Scenario ${SCENARIO_NAME} ==="
 

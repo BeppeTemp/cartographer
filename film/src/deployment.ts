@@ -2,7 +2,7 @@
 // docs/deployment.md that a team picks. Each scene lights the components that profile runs on one fixed diagram (the four
 // colours of scene G of the launch film), draws the edges between them, and types the real inputs of the profile into a
 // terminal card. Every command line and line of output comes from film/transcripts/deployment.txt, which
-// film/transcripts/deployment.sh wrote from the real binary and the real files, and the e2e scenario 26_film_transcripts
+// film/transcripts/deployment.sh wrote from the real binary and the real files, and the e2e scenario 31_film_transcripts
 // keeps equal to it. The page never edits a line. Like every film it is a pure function of time: frame(n) sets every
 // element from t = n / FPS.
 import "../film.css";

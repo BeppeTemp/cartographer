@@ -129,7 +129,7 @@ async function prepare([tmp, url, kb = "demo", map = "astronomy", link = "astron
           text: `Writing the page for ${n.title}.`,
           tool_calls: [{ name: "concept_write", input: { id: `${map}/${n.slug}`, frontmatter: { type: "Note", title: n.title }, body: `# ${n.title}\n\n${n.text}\n\nSee [[${link}]].\n`, index_entry: true } }],
         },
-        { text: `${n.title} is written and linked.` },
+        { when: n.title, text: `${n.title} is written and linked.` },
       ]),
     ],
   };

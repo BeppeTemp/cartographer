@@ -52,6 +52,7 @@ scenarios in the issue it files for a flaky gate (#1952).
 | `27_plugin_delivery` | an approved plugin's skill is materialized for a connected client by `sync`, recorded as `plugin:<name>`, and kept when the plugin cannot be read |
 | `28_plugin_scripts` | the example plugin's scripts with the binary: the command is refused before approval, runs after `plugin approve` and `plugin config`, `sync` fires its `sync.after` handler (not in `--dry-run`), its tool answers through `cartographer call`, and a modified stored script stops it |
 | `30_skipped_kb_at_start` | #1963 a KB with a missing path and one with an unreachable remote next to a healthy one: the server starts, logs one ERROR per skipped KB, `/health` lists `skipped_kbs`, `kb_status` on a skipped KB says it is not mounted and why, `status` names it |
+| `31_film_transcripts` | D2041 the terminal text of the films is the real binary's: each `film/transcripts/<film>.sh` reruns into a temp dir and must equal the committed `<film>.txt` (`make film-transcripts` regenerates) |
 | `26_upgrade_from_previous` (optional) | #1173 a client of the previous stable release, fully installed and approved, switched to this build: one sync asks no approval again, leaves no file under a retired name and no dangling local path, a second sync writes nothing and `status` is in sync, a revoked hook stays revoked |
 
 The numbering is stable, so the gaps are intentional: model behavior is
