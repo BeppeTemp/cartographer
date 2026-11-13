@@ -632,7 +632,7 @@ func TestStatusNamesTheHookSettingsFileSyncUses(t *testing.T) {
 			t.Errorf("%s: %q, want %q", tc.name, out, tc.want)
 		}
 		// The line sync prints names the same file.
-		synced, _ := hookRegistrationTarget("claude", "guard", "", tc.sp.HookSettingsRel)
+		synced, _ := hookRegistrationTargetScoped("claude", "guard", "", tc.sp.HookSettingsRel, contract.ScopeProject)
 		// sync prints the OS path (backslashes on Windows), status the slash form.
 		if !strings.Contains(out, filepath.ToSlash(synced)) {
 			t.Errorf("%s: status %q and sync %q disagree", tc.name, out, synced)
@@ -835,7 +835,11 @@ func TestPrintHookRegistrationHint_AntigravityProjectScope(t *testing.T) {
 		if !strings.Contains(out, tc.want) {
 			t.Errorf("project=%v: %q, want %q", tc.project, out, tc.want)
 		}
-		synced, _ := hookRegistrationTarget("antigravity", "guard", tc.managedPath, "")
+		scope := contract.ScopeGlobal
+		if tc.project {
+			scope = contract.ScopeProject
+		}
+		synced, _ := hookRegistrationTargetScoped("antigravity", "guard", tc.managedPath, "", scope)
 		if filepath.ToSlash(synced) != tc.want {
 			t.Errorf("project=%v: hookRegistrationTarget(%q) = %q, want %q", tc.project, tc.managedPath, synced, tc.want)
 		}

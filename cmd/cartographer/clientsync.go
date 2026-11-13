@@ -1127,8 +1127,10 @@ func printApplySummary(wr io.Writer, dir string, results map[string]provisioning
 		p := projectionLabel(key)
 		provider, workspace := splitProjectionKey(key)
 		projDir := dir
+		hookScope := contract.ScopeGlobal
 		if workspace != "" {
 			projDir = workspace
+			hookScope = contract.ScopeProject
 		}
 		// One line per file written, not per artifact: the instructions block is
 		// one physical write shared by every mounted KB, so reporting it once per
@@ -1147,7 +1149,7 @@ func printApplySummary(wr io.Writer, dir string, results map[string]provisioning
 			// The registration line reports a side effect on a shared file
 			// that a dry run does not perform either.
 			if !dryRun && hookRegistrationManagedFile(provider, w) {
-				printHookRegistered(wr, p, provider, projDir, w, r.HookSettings)
+				printHookRegistered(wr, p, provider, projDir, w, r.HookSettings, hookScope)
 			}
 		}
 		reportedPruned := map[string]bool{}
@@ -1311,28 +1313,20 @@ func hookRegistrationManagedFile(provider string, w provisioning.ManagedFile) bo
 // config.toml (D58), or its own generated plugin file (D59 — the plugin *is*
 // the registration, so its own path is printed instead of a separate shared
 // file).
-func printHookRegistered(wr io.Writer, label, provider, dir string, w provisioning.ManagedFile, settingsRel string) {
-	registeredIn, _ := hookRegistrationTarget(configurator.Provider(provider), w.Name, w.Path, settingsRel)
+func printHookRegistered(wr io.Writer, label, provider, dir string, w provisioning.ManagedFile, settingsRel string, scope contract.Scope) {
+	registeredIn, _ := hookRegistrationTargetScoped(configurator.Provider(provider), w.Name, w.Path, settingsRel, scope)
 	if registeredIn == "" {
 		return
 	}
 	fmt.Fprintf(wr, "[%s] hook %q registered in %s\n", label, w.Name, filepath.Join(dir, registeredIn))
 }
 
-// hookRegistrationTarget is the one resolution of where a hook is registered,
+// hookRegistrationTargetScoped is the one resolution of where a hook is registered,
 // relative to the scope's base directory, shared by what sync prints and what
 // status predicts (#1300): the generated plugin (plugin true: the file is the
 // registration itself, managedPath), else the untracked settings file of a
 // derived Claude Code binding (settingsRel, #1275), else the provider's own
 // file. Empty when the provider has no registration of its own.
-func hookRegistrationTarget(p configurator.Provider, hook, managedPath, settingsRel string) (rel string, plugin bool) {
-	scope := contract.ScopeGlobal
-	if strings.HasPrefix(filepath.ToSlash(managedPath), ".agents/") {
-		scope = contract.ScopeProject
-	}
-	return hookRegistrationTargetScoped(p, hook, managedPath, settingsRel, scope)
-}
-
 func hookRegistrationTargetScoped(p configurator.Provider, hook, managedPath, settingsRel string, scope contract.Scope) (rel string, plugin bool) {
 	switch {
 	case provisioning.HookPluginRelPath(p, hook, scope) != "":
