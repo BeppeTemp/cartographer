@@ -75,21 +75,42 @@ SCENARIOS_DIR="${E2E_DIR}/scenarios"
 TOTAL=0
 FAILED=0
 PASSED=0
+# The scenarios' output is kept in E2E_TMP_DIR/<scenario>.out while it streams, so the
+# report can name each failed scenario and show its [FAIL] lines at the end of the log,
+# where a tail of the gate log or a reader looking for the verdict finds them (#1952).
+# FAILED_LIST: "<scenario>: <first failing line>" per failed scenario; FAILED_NAMES: the names.
+FAILED_LIST=""
+FAILED_NAMES=""
 
 run_scenario() {
     local script="$1"
-    local name
+    local name out rc first
     name="$(basename "$script" .sh)"
+    out="${E2E_TMP_DIR}/${name}.out"
     TOTAL=$((TOTAL + 1))
     echo ""
     echo "======================================================"
     echo " Scenario: ${name}"
     echo "======================================================"
 
-    if bash "$script"; then
+    # Not "if bash ...": the pipe is the point, and PIPESTATUS is the scenario's own exit.
+    set +e
+    bash "$script" 2>&1 | tee "$out"
+    rc=${PIPESTATUS[0]}
+    set -e
+    if [[ "$rc" -eq 0 ]]; then
         PASSED=$((PASSED + 1))
     else
         FAILED=$((FAILED + 1))
+        FAILED_NAMES="${FAILED_NAMES}${name}"$'\n'
+        # The first failing assertion; a scenario that died without one (set -e, a crash)
+        # is named by its exit code and last line. One line, ANSI codes and CRs removed.
+        first="$(grep -m1 -F '[FAIL]' "$out" || true)"
+        if [[ -z "$first" ]]; then
+            first="no [FAIL] line, exit ${rc}: $(grep -v '^[[:space:]]*$' "$out" | tail -n 1 || true)"
+        fi
+        first="$(printf '%s' "$first" | tr -d '\r' | sed $'s/\033\\[[0-9;]*m//g' | cut -c1-200)"
+        FAILED_LIST="${FAILED_LIST}${name}: ${first}"$'\n'
     fi
 }
 
@@ -116,6 +137,20 @@ echo " Failed  : ${FAILED}"
 echo "======================================================"
 
 if [[ "$FAILED" -gt 0 ]]; then
+    # The shape scripts/land.sh failing() reads: E2E FAILED: <scenario>: <first [FAIL] line>.
+    # Then each failed scenario's [FAIL] lines (at most 20), or the end of its output when
+    # it has none: the gate log keeps what failed even when its middle is cut.
+    printf '%s' "$FAILED_LIST" | while IFS= read -r line; do
+        echo "E2E FAILED: ${line}"
+    done
+    printf '%s' "$FAILED_NAMES" | while IFS= read -r name; do
+        echo "------ ${name}"
+        if grep -qF '[FAIL]' "${E2E_TMP_DIR}/${name}.out"; then
+            grep -F '[FAIL]' "${E2E_TMP_DIR}/${name}.out" | head -n 20 || true
+        else
+            tail -n 20 "${E2E_TMP_DIR}/${name}.out" || true
+        fi
+    done
     echo "[run] FAIL — ${FAILED} scenario(s) failed"
     exit 1
 fi

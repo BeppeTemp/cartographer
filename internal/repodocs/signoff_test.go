@@ -21,6 +21,8 @@ type signoffEnv struct {
 	work, up, origin     string
 	makeLog, ghLog, runs string
 	winLog               string
+	// fd3 is the token the lander hands the signoff on file descriptor 3 (empty: none).
+	fd3 string
 }
 
 func newSignoffEnv(t *testing.T) *signoffEnv {
@@ -61,6 +63,13 @@ func newSignoffEnv(t *testing.T) *signoffEnv {
 	e.write(filepath.Join(bin, "fakemake"), `#!/bin/sh
 case "$*" in *signoff-platform*) echo "make: Entering directory"; echo "$FAKE_PLATFORM"; exit 0 ;; esac
 echo "$*" >> "$FAKE_MAKE_LOG"
+# SIGNOFF_PROBE_FILE must never reach a target; FAKE_FORGE_TO is a test that found the file anyway.
+[ -z "${SIGNOFF_PROBE_FILE:-}" ] || echo "INHERITED SIGNOFF_PROBE_FILE" >> "$FAKE_MAKE_LOG"
+# Nor file descriptor 3, which carries the token, nor the token itself.
+( : <&3 ) 2>/dev/null && echo "INHERITED FD3" >> "$FAKE_MAKE_LOG"
+[ -z "${FAKE_ENV_DUMP:-}" ] || env >> "$FAKE_ENV_DUMP"
+[ -z "${FAKE_FORGE_TO:-}" ] || { echo "linux forged/pkg -" > "$FAKE_FORGE_TO"; } 2>/dev/null || true
+[ -z "${FAKE_CHMOD:-}" ] || chmod 444 "$FAKE_FORGE_TO"
 case "$*" in test-rerun*) exit "${FAKE_RERUN_RC:-0}" ;; web-perf*) exit "${FAKE_WEBPERF_RC:-0}" ;; esac
 [ -z "${FAKE_MAKE_OUT:-}" ] || printf '%b' "$FAKE_MAKE_OUT"
 exit "${FAKE_MAKE_RC:-0}"
@@ -165,6 +174,18 @@ func (e *signoffEnv) signoffArgs(dir string, args []string, extra ...string) (st
 	e.t.Helper()
 	cmd := exec.Command("bash", append([]string{filepath.Join(dir, "scripts", "signoff.sh")}, args...)...)
 	cmd.Dir, cmd.Env = dir, append(append([]string{}, e.env...), extra...)
+	if e.fd3 != "" {
+		tokFile := filepath.Join(e.t.TempDir(), "token")
+		if err := os.WriteFile(tokFile, []byte(e.fd3+"\n"), 0o600); err != nil {
+			e.t.Fatal(err)
+		}
+		f, err := os.Open(tokFile)
+		if err != nil {
+			e.t.Fatal(err)
+		}
+		defer f.Close()
+		cmd.ExtraFiles = []*os.File{f} // file descriptor 3 of the child
+	}
 	out, err := cmd.CombinedOutput()
 	var ee *exec.ExitError
 	switch {
@@ -930,5 +951,91 @@ func TestSignoffHostedNeverPicksARunThatExistedBeforeTheDispatch(t *testing.T) {
 		if strings.Contains(log, "workflow run") || strings.Contains(log, "run view") || len(e.posts()) != 0 {
 			t.Errorf("nothing is dispatched, followed or posted:\n%s", log)
 		}
+	})
+}
+
+// The probe goes to the lander out of band (SIGNOFF_PROBE_FILE and a token on file descriptor 3):
+// the file holds `<token> <words>` when a retry confirmed a failure, and an empty line otherwise,
+// whatever a test wrote there while the targets ran; no target inherits the variable or the
+// descriptor (a test could not find the file, `make`, which runs the tests, never sees the path
+// and no token reaches any environment, argv or log). Without a token nothing is written, so a
+// file a test forged, or made unwritable for the trap, is never taken for the signoff's.
+func TestSignoffHandsTheProbeToTheLanderOutOfBand(t *testing.T) {
+	const token = "0123456789abcdef0123456789abcdef"
+	red := "--- FAIL: TestA (0.01s)\\nFAIL\\tgithub.com/x/p/internal/kb\\t0.2s\\nmake: *** [Makefile:23: test] Error 1\\n"
+	run := func(t *testing.T, tok string, args []string, extra ...string) (e *signoffEnv, out, file, envDump string) {
+		t.Helper()
+		e = newSignoffEnv(t)
+		e.fd3 = tok
+		e.branch(e.work, "feat/x", "x.txt")
+		dir := t.TempDir()
+		file, envDump = filepath.Join(dir, "probefile"), filepath.Join(dir, "env")
+		if err := os.WriteFile(file, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		out, _ = e.signoffArgs(e.work, args, append(extra, "SIGNOFF_PROBE_FILE="+file, "FAKE_FORGE_TO="+file, "FAKE_ENV_DUMP="+envDump)...)
+		return e, out, file, envDump
+	}
+	noLeak := func(t *testing.T, e *signoffEnv, out, envDump, tok string) {
+		t.Helper()
+		if strings.Contains(e.log(e.makeLog), "INHERITED") {
+			t.Errorf("a target inherited SIGNOFF_PROBE_FILE or file descriptor 3\n%s", e.log(e.makeLog))
+		}
+		dump := e.log(envDump)
+		if !strings.Contains(dump, "FAKE_ENV_DUMP=") {
+			t.Fatalf("the fake make dumped no environment: %q", dump)
+		}
+		if tok != "" && (strings.Contains(dump, tok) || strings.Contains(out, tok) || strings.Contains(e.log(e.makeLog), tok)) {
+			t.Errorf("the token reached a target's environment or the log\n%s\n%s", dump, out)
+		}
+		if strings.Contains(dump, "SIGNOFF_PROBE_FILE") {
+			t.Errorf("a target's environment holds SIGNOFF_PROBE_FILE\n%s", dump)
+		}
+	}
+	t.Run("a confirmed failure writes its token and words, not the forged ones", func(t *testing.T) {
+		e, out, file, envDump := run(t, token, nil, "FAKE_MAKE_RC=2", "FAKE_MAKE_OUT="+red, "FAKE_RERUN_RC=2")
+		if got, want := strings.TrimSpace(e.log(file)), token+" linux github.com/x/p/internal/kb -"; got != want {
+			t.Errorf("probe file = %q, want %q\n%s", got, want, out)
+		}
+		if !strings.Contains(out, "signoff: probe: linux github.com/x/p/internal/kb -\n") {
+			t.Errorf("the line is still printed, for humans\n%s", out)
+		}
+		noLeak(t, e, out, envDump, token)
+	})
+	t.Run("a red run nothing confirmed leaves the file empty", func(t *testing.T) {
+		e, out, file, envDump := run(t, token, nil, "FAKE_MAKE_RC=2", "FAKE_MAKE_OUT=panic: boom\\nFAIL\\tgithub.com/x/p/internal/kb\\t0.2s\\n")
+		if got := strings.TrimSpace(e.log(file)); got != "" {
+			t.Errorf("probe file = %q, want empty (a test wrote it)\n%s", got, out)
+		}
+		noLeak(t, e, out, envDump, token)
+	})
+	t.Run("a green run leaves it empty too", func(t *testing.T) {
+		e, out, file, _ := run(t, token, nil)
+		if got := strings.TrimSpace(e.log(file)); got != "" {
+			t.Errorf("probe file = %q, want empty\n%s", got, out)
+		}
+	})
+	t.Run("without a token nothing is written: a forged file stays what the test made it", func(t *testing.T) {
+		e, out, file, envDump := run(t, "", nil, "FAKE_MAKE_RC=2", "FAKE_MAKE_OUT="+red, "FAKE_RERUN_RC=2")
+		if got, want := strings.TrimSpace(e.log(file)), "linux forged/pkg -"; got != want {
+			t.Errorf("probe file = %q, want the test's own %q\n%s", got, want, out)
+		}
+		noLeak(t, e, out, envDump, "")
+	})
+	t.Run("a file the test made read-only is left as it is, silently", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("root writes through a read-only file")
+		}
+		e, out, file, _ := run(t, token, nil, "FAKE_MAKE_RC=2", "FAKE_MAKE_OUT="+red, "FAKE_RERUN_RC=2", "FAKE_CHMOD=1")
+		if got, want := strings.TrimSpace(e.log(file)), "linux forged/pkg -"; got != want {
+			t.Errorf("probe file = %q, want the test's own %q (no token: the lander ignores it)\n%s", got, want, out)
+		}
+		if strings.Contains(out, "Permission denied") {
+			t.Errorf("the failed write must be silent\n%s", out)
+		}
+	})
+	t.Run("--probe does not inherit them either", func(t *testing.T) {
+		e, out, _, envDump := run(t, token, []string{"--probe", "linux", "github.com/x/p/internal/kb", "-"})
+		noLeak(t, e, out, envDump, token)
 	})
 }

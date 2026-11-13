@@ -49,9 +49,32 @@
 #                 reported and skipped (test-windows on main stays the net), any other
 #                 exit is the wrapper's: `the Windows machine failed (exit N) before the
 #                 gate finished` (step 4d).
+#   SIGNOFF_PROBE_FILE  the lander's file for the probe of a confirmed failure, with a token
+#                 on file descriptor 3 (`3<<<"$token"`): the file gets `<token> <words>` when the
+#                 run ends, the words of the `signoff: probe:` line (step 4c), and an empty line
+#                 when nothing was confirmed; no token, nothing written. Both are taken before
+#                 any command runs: the variable is unset and descriptor 3 closed, so no target
+#                 sees the path or the token (scripts/land.sh probe_of accepts nothing without it).
 #
 # Plain bash 3.2 (the macOS default): no associative arrays, no GNU-only flags.
 set -euo pipefail
+
+# The lander's out-of-band channel for the probe (SIGNOFF_PROBE_FILE and file descriptor 3,
+# scripts/land.sh): the path of a file this run fills, once, with `<token> <words>` (the words of
+# its `signoff: probe:` line), the token being the line read from descriptor 3. The lander accepts
+# the file only with its token, which a test on its machine cannot know: it is in no environment,
+# no argv and no log, and descriptor 3 is closed here, before any command of this script runs.
+# The path is read into a plain variable and removed from the environment too, so no child (make,
+# the tests under test) inherits it; the file is written by the exit trap of step 4, after every
+# target is done, so what a test wrote there is gone. Without a token, nothing is written.
+probe_file=${SIGNOFF_PROBE_FILE:-} probe_token= probe_words=
+unset SIGNOFF_PROBE_FILE
+if [ -n "$probe_file" ]; then read -r -u 3 probe_token 2>/dev/null || probe_token=; fi
+exec 3<&-
+write_probe() {
+  [ -n "$probe_file" ] && [ -n "$probe_token" ] || return 0
+  if [ -n "$probe_words" ]; then printf '%s %s\n' "$probe_token" "$probe_words"; else echo; fi 2>/dev/null >"$probe_file" || true
+}
 
 # The targets a signoff runs; `web-gate` is added when the diff needs it. Only
 # test-install stays post-merge (it runs on push to main); a broken e2e scenario must
@@ -63,6 +86,7 @@ die() { echo "signoff: $*" >&2; exit 1; }
 
 here=$(cd "$(dirname "$0")" && pwd)
 cd "$(git rev-parse --show-toplevel)"
+
 
 # signoff.sh --probe <linux|windows> <packages> <race packages> (comma-separated, `-` for
 # none): the lander's bisection step (scripts/land.sh, D1878). It runs, on this
@@ -243,10 +267,46 @@ retry() { # $1 = linux|windows, $2 = the red log; 0 when the retry is green
     "$own") echo "signoff: confirmed on a targeted retry:$names" >&2
        # The lander bisects a red train with this command only (signoff.sh --probe).
        p0=${p0// /,} p1=${p1// /,}
-       echo "signoff: probe: $1 ${p0:--} ${p1:--}" >&2
+       probe_words="$1 ${p0:--} ${p1:--}"
+       echo "signoff: probe: $probe_words" >&2
        return 1 ;;
     *) hostrc=$rrc; echo "signoff: the targeted retry did not run to the end (exit $rrc)" >&2; return 2 ;;
   esac
+}
+
+# 4e. What a red Windows leg printed, package by package (#1952, #1870). The leg's log is
+# every package's `go test` output whole, one after the other (scripts/test-shard.sh): a
+# package ends on its `ok`, `?` or `FAIL<TAB><package>` line. The output of each package that
+# failed goes to the gate log from its first `--- FAIL`, `panic:`, `fatal error:` or data race
+# line (a build failure from its first line), cut to its first 45 and last 15 lines when longer
+# than 60 (a panic's header and the top of its trace are at the start, the verdict at the end),
+# and of the packages past the 8th only the verdict line. What follows the last verdict (the
+# wrapper's own words, a leg cut short) is printed as it is, its last 40 lines. A `tail` of the
+# whole log used to cut the `panic:` header and every package but the last.
+win_failures() { # $1 = the leg's log
+  tr -d '\r' <"$1" | awk -v max=60 -v head=45 -v pkgs=8 '
+    function flush(verdict,   i, start, n, from, label) {
+      if (nb == 0) return
+      if (verdict) { label = $2; shown++ }
+      else label = "the end of the log"
+      if (shown > pkgs && verdict) { print buf[nb]; nb = 0; return }
+      start = 1
+      if (verdict) for (i = 1; i <= nb; i++)
+        if (buf[i] ~ /^(--- FAIL|panic: |fatal error: |WARNING: DATA RACE)/) { start = i; break }
+      if (!verdict && nb > 40) start = nb - 39
+      n = nb - start + 1
+      if (n <= max) { for (i = start; i <= nb; i++) print buf[i] }
+      else {
+        for (i = start; i < start + head; i++) print buf[i]
+        print "signoff: (" (n - max) " lines of the output of " label " cut)"
+        for (i = nb - (max - head) + 1; i <= nb; i++) print buf[i]
+      }
+      nb = 0
+    }
+    /^(ok|\?)[ \t]/ { nb = 0; next }
+    /^FAIL[ \t]+[^ \t]/ { buf[++nb] = $0; flush(1); next }
+    { buf[++nb] = $0 }
+    END { flush(0) }'
 }
 
 # 4. Targets. First the platform probe, so a broken wrapper is found before the gate is spent.
@@ -279,7 +339,7 @@ if [ -n "$win_pkgs" ]; then
 fi
 # The leg's wrapper is a child of the subshell: stop it too, or it keeps the machine busy.
 mlog=$(mktemp "${TMPDIR:-/tmp}/signoff-make.XXXXXX")
-trap '[ -z "$win_pid" ] || { pkill -TERM -P "$win_pid" 2>/dev/null; kill "$win_pid" 2>/dev/null; } || true; [ -z "$win_log" ] || rm -f "$win_log" "$win_log.end"; rm -f "$mlog"' EXIT
+trap '[ -z "$win_pid" ] || { pkill -TERM -P "$win_pid" 2>/dev/null; kill "$win_pid" 2>/dev/null; } || true; [ -z "$win_log" ] || rm -f "$win_log" "$win_log.end"; rm -f "$mlog"; write_probe' EXIT
 # -k: a red run still runs every other target, so its log is the whole evidence (4c).
 # Only make's own failure (exit 2) is retried, and on Windows the shards' (exit 1): any
 # other exit is the wrapper's, and the log may then stop before the targets did.
@@ -307,7 +367,9 @@ if [ -n "$win_pid" ]; then
   case "$wrc" in
     0) windows="windows $(printf '%dm%02ds' $((wsecs / 60)) $((wsecs % 60)))" ;;
     75) windows="windows unavailable"; echo "signoff: warning: the Windows machine is unavailable, leg skipped" >&2 ;;
-    1) tail -n 40 "$win_log" >&2
+    1) echo "signoff: the Windows leg is red: the output of its failing package(s):" >&2
+       winout=$(win_failures "$win_log")
+       if [ -n "$winout" ]; then printf '%s\n' "$winout" >&2; else tail -n 40 "$win_log" >&2; fi
        lrc=0; retry windows "$win_log" || lrc=$?
        [ "$lrc" != 2 ] || host_die "the Windows machine" "$hostrc"
        [ "$lrc" = 0 ] || die "the Windows leg failed (exit $wrc): nothing pushed, nothing posted" ;;

@@ -1087,6 +1087,15 @@ log holds the tests' output too, so the script reads only lines in `go test`'s e
 a line that looks like one but is not gets no retry. Green, the tests are flaky:
 the signoff goes on, names them on a `signoff: flaky:` line and in the status (`<n> flaky
 retried`); red, it prints `signoff: confirmed on a targeted retry:` and fails (D1755).
+A red gate log names what failed (#1952, #1870). `test/e2e/run.sh` ends a red report with one
+`E2E FAILED: <scenario>: <first [FAIL] line>` line per failed scenario and that scenario's `[FAIL]`
+lines (it keeps each scenario's output while it streams, to say so). A red Windows leg prints, to
+the gate log and before any retry, the output of every package that failed, from its first
+`--- FAIL`, `panic:`, `fatal error:` or data race line (a build failure from its first line): the
+first 45 and last 15 lines of a package past 60, only the verdict line past the 8th package;
+what follows the last verdict is printed as it is (its last 40 lines), and passing packages are
+left out, so a panic's header and an earlier package's failure are in the log. A panic or an e2e failure is still no named Go test: `test-failures.sh` plans no
+retry for either (`internal/repodocs/gate_names_test.go`).
 
 A maintainer's queued changes (`make ready`, `CONTRIBUTING.md` §Pull requests) are gated by
 the lander as a **train**: `scripts/land.sh` runs `scripts/signoff.sh` once on `main` plus up
@@ -1094,11 +1103,36 @@ to 8 changes. A train whose signoff retried flaky tests lands on that gate, with
 issue naming them. A red train whose failure the signoff's targeted retry confirmed goes
 straight to bisection; any other red train is gated a second time on the same tree: green
 then is a flaky test, the train lands and a `bug` issue names the failing tests (Go, vitest
-and Playwright names read from the log); red again, the lander
+and Playwright names read from the log, the e2e scenarios as `e2e.<scenario>` with their first
+failing lines in the body, a Go panic or `fatal error:` as `pkg.Test (panic)` or `pkg (panic: <message>)`: the test is
+the `--- FAIL` line right before the `panic:`, else go test's `running tests:` entry, else the first `.TestX(` frame of the
+first goroutine; each name is cut to 60 characters, and listed once in the form it is printed in, so a test whose name a
+panic's entry cut is not named twice; the title is cut to 200 at a name boundary, `and N more`, since GitHub
+refuses one past 256). Every name, from the log or from a `signoff: flaky:` line, passes one filter (`safe_names` in
+`scripts/land.sh`) before it reaches a title, a body or a commit message, because the log holds the change's own
+output: only `[A-Za-z0-9_.-]` is kept (a `/` becomes `_`, and a panic's ` (panic: <message>)` suffix keeps its own
+`[A-Za-z0-9 _:-]`), so a name has no `@`, `#`, `[`, `!` or `/`, and `(` and `:` only in the panic suffix. The
+autolinks that charset can still form are defused by rewriting the name, the same text in the title, the body and the
+commit message of a rejection: `www.` becomes `www_`, `GH-<digit>` becomes `GH_<digit>`, and a run of 7 to 40 lowercase
+hex digits (a commit link) gets a `_` after it. The cut to 60 characters is part of that filter, never applied after it:
+a cut can leave a hex run with no `_` after it (a 60-character name ending `_deadbeef`), so the longest prefix that is
+inert once defused is kept. The lines copied from the log into the body (the first failing
+line of each e2e scenario) are printable ASCII without `@`, in an indented code block. Red again, the lander
 bisects over the train's prefixes (one signoff each) and rejects the first change whose
 prefix is red. When the signoff confirmed the failure on named Go tests, its `signoff: probe:`
-line names their packages and platform, and each bisection step runs only those
-(`scripts/signoff.sh --probe`, a minute or two instead of a full signoff, D1878);
+line names their packages and platform; the signoff also writes those words to the file the lander passes it in
+`SIGNOFF_PROBE_FILE` (a file of that gate, `gate-<id>.log.probefile`, made empty by the lander before the gate), and the
+lander reads the probe from that file only, never from the log: the log holds the change's own output, and a test can
+print a well-formed `signoff: probe:` line when the real signoff printed none (a panic, a build failure), which would send
+the bisection after the wrong change. The file is no safer than the log: it is listable in the state directory, and a test
+can write it, make it read-only so the signoff's write fails, or kill the signoff. So a line counts only if it starts with
+a token the lander draws at random for each gate and hands the signoff on file descriptor 3, never in the environment, an
+argument or the log: the signoff reads it, closes the descriptor and unsets `SIGNOFF_PROBE_FILE` before any target runs, then
+writes `<token> <words>` once, when its targets are done. The lander compares the token in the shell and keeps the file only
+if the signoff's own exit was the red one (1). The words are used only if they are `linux` or `windows` and two
+comma-separated lists of `[A-Za-z0-9_./-]` words, none starting with `-`, or `-`;
+no file, an empty one, one without the token or another shape is no probe and the bisection runs full gates. Each bisection step runs only those
+packages (`scripts/signoff.sh --probe`, a minute or two instead of a full signoff, D1878);
 the prefix before the rejected change then gets one full signoff before it lands (red: the
 train is composed again), and a probe whose machine is unavailable, or whose wrapper failed with an exit that is not the platform's
 own (make's 2, the Windows retry's 1: ssh's 255, a signal), reports 75 and falls back to full gates. A gate that fails for a reason that is not a test (the signoff stops before
