@@ -672,9 +672,9 @@ build (D800): the origin's answer picks live, a timeout, an error status or a bo
 snapshot, and the revision poll is 20 s only in a live session on a build with a live origin.
 
 The live demo's edge is tested without Cloudflare: `deploy/demo/worker.test.mjs` (`make demo-worker-test`, run
-by the `demo-edge` CI job) covers every moderation rule, the id format, the argument rewrite, the routing
-table, CORS and cache key, that every non-approved call goes with the read token, and the webhook signature
-against a vector computed with `openssl`. `make demo-smoke` runs the image, which holds two read-only KBs
+by the `demo-edge` CI job) covers the routing
+table, CORS and cache key, that every request (a write tool included) goes with the read token and the client's
+`Authorization` is replaced, and the 16 KB body cap. `make demo-smoke` runs the image, which holds two read-only KBs
 and needs no remote: the audit log is signed, a request without a token is a 401, the routed `tools/list`
 carries a required `kb` naming `astronomy` and `cartographer-docs`, a `search` for "workspace bind" on the
 documentation KB and one on astronomy answer, `concept_write` with the read token is refused on both, and
