@@ -336,8 +336,10 @@ entry with a warning; a client with `roots` in an unbound folder gets a handshak
 secret from Meridian (`secret_resolve` with `reveal`, so an `rw` token that allows secrets; every start is a
 reveal), refuses a descriptor that is not approved or changed since, and replaces itself with the command
 (Windows: a parent that forwards the interrupt and returns the exit code). Nothing is cached: an unreachable
-server stops with one line on stderr and starts nothing. stdout is the server's. An `http` descriptor is not
-served yet (exit 2). No sync emits this entry yet ([D2037](decisions/D2037-mcp-secret-launcher.md)).
+server stops with one line on stderr and starts nothing. stdout is the server's. An `http` descriptor is bridged: stdin/stdout stay the client's, each JSON-RPC line is POSTed to the
+URL with the resolved headers (session id and protocol version echoed, JSON or SSE answers one line each, DELETE on EOF), a
+transport error on a request becomes a JSON-RPC error (-32000) free of any header value, redirects and plain `http://` to a
+non-loopback host are refused. No sync emits this entry yet ([D2037](decisions/D2037-mcp-secret-launcher.md)).
 
 **`cartographer call` (no MCP).** For an agent that has a shell but cannot use MCP,
 `cartographer call --provider <p> <tool> [key=value…] [--json '<object>'|-]` sends one stateless

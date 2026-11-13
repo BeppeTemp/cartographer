@@ -87,7 +87,6 @@ func TestMCPExecRefusesWithoutStartingAnything(t *testing.T) {
 		"unreachable":  {execFake{desc: execDesc, approved: true, down: errors.New("dial: refused")}, []string{"kb-a/svc"}, 1, "the MCP server was not started"},
 		"bad ref":      {execFake{}, []string{"svc"}, 2, "not <kb>/<slug>"},
 		"no argument":  {execFake{}, nil, 2, "usage"},
-		"http":         {execFake{desc: `{"type":"http","url":"https://example.com/mcp"}`, approved: true}, []string{"kb-a/svc"}, 2, "not available"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -132,4 +131,23 @@ func TestMCPExecChild(t *testing.T) {
 	}
 	os.Stdout.WriteString("child sees " + os.Getenv("API_TOKEN") + "\n")
 	os.Exit(7)
+}
+
+// TestMCPExecBridgesHTTPDescriptor: an http descriptor goes to the bridge, not
+// to the process-replacing call, and a bridge failure is exit 1 on stderr.
+func TestMCPExecBridgesHTTPDescriptor(t *testing.T) {
+	desc := `{"type":"http","url":"https://example.com/mcp","headers":{"Authorization":"Bearer ${secret:svc#TOKEN}"}}`
+	old := mcpExecBridge
+	defer func() { mcpExecBridge = old }()
+	var got *mcpexec.Launch
+	mcpExecBridge = func(_ context.Context, l *mcpexec.Launch) error { got = l; return nil }
+	code, stderr, started := runMCPExec(t, execFake{desc: desc, approved: true}, "kb-a/svc")
+	if code != 0 || got == nil || started != nil || got.Headers["Authorization"] != "Bearer "+execPlanted {
+		t.Fatalf("code %d, bridged %v, exec'd %v, stderr %q", code, got != nil, started != nil, stderr)
+	}
+	mcpExecBridge = func(context.Context, *mcpexec.Launch) error { return errors.New("plain http refused") }
+	code, stderr, _ = runMCPExec(t, execFake{desc: desc, approved: true}, "kb-a/svc")
+	if code != 1 || !strings.Contains(stderr, "plain http refused") || strings.Contains(stderr, execPlanted) {
+		t.Fatalf("code %d, stderr %q", code, stderr)
+	}
 }
