@@ -32,6 +32,8 @@ import type {
   MaintenanceSummary,
   ComponentsResponse,
   Extensions,
+  ReportCandidateList,
+  ReportDraft,
 } from "./types";
 import {
   LIVE_ORIGIN,
@@ -308,6 +310,19 @@ export function fetchComponents(kb: string, signal?: AbortSignal): Promise<Compo
     setServerNow(res?.server?.now);
     return res;
   });
+}
+
+/**
+ * The Surveyors' report candidates the caller may see (D1925); `404 feedback_off`
+ * when the operator switched feedback off. Server-wide, not per KB.
+ */
+export function fetchFeedbackCandidates(signal?: AbortSignal): Promise<ReportCandidateList> {
+  return get<ReportCandidateList>("/feedback/candidates", signal);
+}
+
+/** A redacted draft of one candidate: a GET, pure computation on the server, nothing stored or sent. */
+export function fetchFeedbackDraft(id: string, signal?: AbortSignal): Promise<ReportDraft> {
+  return get<ReportDraft>(`/feedback/candidates/draft?id=${encodeURIComponent(id)}`, signal);
 }
 
 /** The Sources whose last poll failed, newest check first. */

@@ -331,12 +331,19 @@ const SOURCE_CAP = 500;
 export const retry = { baseMs: 5000, maxMs: 60_000 };
 
 /**
- * A KB-scoped optional read. Another KB shows nothing of the previous one. A
- * 404 (a narrowed principal, an older server) is "nothing"; any other failure
- * keeps the last good value and tries again with back-off, so a restart or a
- * blip never leaves the block empty for good.
+ * A KB-scoped optional read. Another KB shows nothing of the previous one. The
+ * failure `hides` names (by default any 404: a narrowed principal, an older
+ * server) is "nothing"; any other failure keeps the last good value and tries
+ * again with back-off, so a restart or a blip never leaves the block empty for
+ * good.
  */
-function useResilient<T>(kb: string | null, live: number, load: (kb: string, signal: AbortSignal) => Promise<T>): T | null {
+export function useResilient<T>(
+  kb: string | null,
+  live: number,
+  load: (kb: string, signal: AbortSignal) => Promise<T>,
+  /** The failure that means "nothing to show" (default: any 404); every other one is ridden out. */
+  hides: (err: ApiError) => boolean = (err) => err.status === 404,
+): T | null {
   const [value, setValue] = useState<T | null>(null);
   const [attempt, setAttempt] = useState(0);
   const fails = useRef(0);
@@ -358,7 +365,7 @@ function useResilient<T>(kb: string | null, live: number, load: (kb: string, sig
       })
       .catch((err: unknown) => {
         if (controller.signal.aborted || (err instanceof DOMException && err.name === "AbortError")) return;
-        if (err instanceof ApiError && err.status === 404) {
+        if (err instanceof ApiError && hides(err)) {
           setValue(null);
           return;
         }

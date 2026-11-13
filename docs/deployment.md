@@ -1654,6 +1654,23 @@ and the tokens, and a link that filters the timeline by the Surveyor's author; e
 because it is not per KB. Ages are worded against the server's clock (`server.now` of the read), not the browser's. With no run, or when the
 read fails, there is no section, no header and no empty state.
 
+Below it, **Report candidates** (D1925) lists what the Surveyors noticed that a person might report to the
+Cartographer project, per Surveyor: the kind in words (tool error, protocol mismatch, contract mismatch), the tool and the
+code, how many times it was seen and when it was last seen (the server's stamp, worded against the server's clock). It is
+read from `GET /api/ui/v1/feedback/candidates`, which is server-wide and already filtered by what the caller sees whole;
+the Atlas shows the candidates that name the picked KB or none, starts blank when the KB changes, and reads the
+list again every minute while the tab is visible (candidates live in the server's memory and change without a commit). The section stands on
+its own, not inside Surveyor runs: a protocol mismatch can be held with no run reported. Each row has a
+**Draft report** button: it asks `GET /api/ui/v1/feedback/candidates/draft?id=` (a `GET`, pure computation: the Atlas
+stays read-only and no model runs) and opens, under the row, the redacted title and body in read-only fields, the
+duplicate-search link first (GitHub destinations only), then **Open the report form**, a link that opens in a new tab
+(`target="_blank"`, `rel="noopener noreferrer"`; only an `http(s)` address is ever linked), and the sentence "Nothing has
+been sent: review the text, then submit it yourself." When the destination's URL carries the title only (the body is too
+long for a URL) the body has a **Copy the text** button. Nothing is opened or navigated on its own. The section is absent
+with no candidate, and when the operator set `feedback.destination: off` (the routes answer `404` `feedback_off`); any other
+failure of the read (a `5xx`, a `404` after a restart) keeps the last list and tries again with back-off, and a draft that fails says so and
+can be asked for again.
+
 The **Work** panel is where a person answers or decides (D302, D948). It is `work_list` for the reader:
 the concepts in an open phase, the concepts that are work by their `reason` (open contradictions, open gaps,
 pages past their `review_after`) and the unchecked items, to which it adds what has no page of its own, the
@@ -1677,6 +1694,8 @@ come the Surveyor alarms, one `error` row each with a one-line cause and the ser
 the alarms the `components` read carries for this KB or for none, in words (silent, degraded, protocol skew, and the ones a
 Surveyor reported; an alarm that names another KB is left out), and a replica whose budget is spent (once per replica). Nothing renders when all three
 are empty, and a failing or `404` route leaves the page as it was.
+When the Surveyors hold report candidates for the KB, a line under the strip counts them and points to Activity
+(nothing renders without one, or with feedback off).
 
 The **Components** panel (D1901) is the read-only answer to "what is deployed and healthy" for the active KB: a
 row for Meridian (version, start, the protocol it speaks and the range it serves), then one block per component of

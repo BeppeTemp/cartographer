@@ -59,6 +59,8 @@ await api("/kbs");
 await api("/settings");
 // Plugin views and apps (D1938): the demo has no plugin, and no app link is exported.
 await api("/extensions");
+// Report candidates (D1925, web/src/api/client.ts fetchFeedbackCandidates): none in the demo; the draft route is never reached.
+await api("/feedback/candidates");
 const overview = await api(`${k}/overview`);
 
 // The whole graph, and the graph scoped to each Map the rail offers.

@@ -504,6 +504,39 @@ export interface ComponentsResponse {
   components: ComponentRow[];
 }
 
+/**
+ * GET /feedback/candidates (D1925): what a Surveyor noticed that a person would
+ * report. A closed vocabulary (a kind, a tool name, a short code, counts), never
+ * a tool's text; `first_at`/`last_at` are the server's stamps.
+ */
+export interface ReportCandidate {
+  id: string;
+  kind: string;
+  surveyor: string;
+  kb?: string;
+  tool?: string;
+  code: string;
+  count: number;
+  first_at: string;
+  last_at: string;
+}
+export interface ReportCandidateList {
+  candidates: ReportCandidate[];
+  destination: string;
+}
+/** GET /feedback/candidates/draft?id=: a redacted draft and the URL that files it. Nothing is sent. */
+export interface ReportDraft {
+  title: string;
+  body: string;
+  kind: string;
+  url: string;
+  /** Empty unless the destination is GitHub. */
+  search_url?: string;
+  /** False: the URL carries the title only and the body is pasted by hand. */
+  body_in_url: boolean;
+  destination: string;
+}
+
 /** GET /kbs/{kb}/feeds: Sources whose last poll failed (any shape that writes `feed_error`). */
 export interface FeedRow {
   id: string;
