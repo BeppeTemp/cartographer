@@ -704,7 +704,9 @@ binding (`ResolveWorkspace`), so the MCP tools are scoped to the repository's KB
 files stop at the bound folder. The binding is per path, so it is also removed per path: a bound worktree
 that `git worktree remove` deleted is an error for that provider's `sync` until
 `cartographer workspace unbind <provider> <path>`. Projecting into a repository's linked worktrees
-without binding each one is proposed in [#1982](https://github.com/BeppeTemp/cartographer/issues/1982).
+without binding each one is proposed in [#1982](https://github.com/BeppeTemp/cartographer/issues/1982):
+`workspace bind <provider> <repo> --kb <name>… --worktrees` already records the opt-in on the binding
+(`worktrees: true`; a rebind without the flag turns it off), but `sync` does not project into the worktrees yet.
 
 **Shared paths.** `.agents/skills/` is Codex's project skill directory too, and `AGENTS.md` is shared
 by Codex, OpenCode, Antigravity, Copilot and Pi. Two providers bound to one workspace write such a path

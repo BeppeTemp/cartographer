@@ -268,3 +268,25 @@ func TestDoctorFlagsSymlinkedWorkspaceProjectionRoot(t *testing.T) {
 		t.Errorf("no symlink finding naming %s", link)
 	}
 }
+
+func TestWorkspaceBindWorktreesFlagIsStoredAndListed(t *testing.T) {
+	home, ws := trustHome(t)
+	var code int
+	out := withStdout(t, func() { code = cmdWorkspaceBind([]string{"codex", ws, "--kb", "kb-a", "--worktrees"}) })
+	if code != 0 || !strings.Contains(out, "(and its linked worktrees)") {
+		t.Fatalf("code=%d out=%q", code, out)
+	}
+	cfg, _ := clientconfig.Load(home)
+	if b := cfg.WorkspaceBindings("codex"); len(b) != 1 || !b[0].Worktrees {
+		t.Fatalf("binding: %+v", b)
+	}
+	out = withStdout(t, func() { cmdWorkspaceList([]string{"codex"}) })
+	if !strings.Contains(out, "[worktrees]") {
+		t.Errorf("list does not show the flag: %q", out)
+	}
+	out = withStdout(t, func() { code = cmdWorkspaceBind([]string{"codex", ws, "--kb", "kb-a"}) })
+	cfg, _ = clientconfig.Load(home)
+	if b := cfg.WorkspaceBindings("codex"); len(b) != 1 || b[0].Worktrees || strings.Contains(out, "worktrees") {
+		t.Fatalf("rebind without the flag: %+v out=%q", b, out)
+	}
+}

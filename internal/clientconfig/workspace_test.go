@@ -394,3 +394,45 @@ func TestGitRemoteOrigin_IgnoresInheritedRepoPins(t *testing.T) {
 		t.Errorf("gitRemoteOrigin = %q, want the workspace's own remote", got)
 	}
 }
+
+// TestWorktreesOption: the opt-in is stored, omitted from the YAML when off,
+// and a rebind without it turns it off (the binding is replaced whole).
+func TestWorktreesOption(t *testing.T) {
+	dir := t.TempDir()
+	ws := filepath.Join(dir, "repo")
+	if err := os.MkdirAll(ws, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	withFakeRemote(t, map[string]string{})
+	cfg := Default()
+	if err := cfg.BindWorkspaceWith("claude", ws, []string{"kb-a"}, BindOptions{Worktrees: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, FileName))
+	if !strings.Contains(string(raw), "worktrees: true") {
+		t.Fatalf("worktrees: true not written:\n%s", raw)
+	}
+	reloaded, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := reloaded.WorkspaceBindings("claude"); len(b) != 1 || !b[0].Worktrees {
+		t.Fatalf("flag lost on reload: %+v", b)
+	}
+	if err := reloaded.BindWorkspace("claude", ws, []string{"kb-a"}); err != nil {
+		t.Fatal(err)
+	}
+	if b := reloaded.WorkspaceBindings("claude"); len(b) != 1 || b[0].Worktrees {
+		t.Fatalf("rebind without the flag kept it: %+v", b)
+	}
+	if err := Save(dir, reloaded); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ = os.ReadFile(filepath.Join(dir, FileName))
+	if strings.Contains(string(raw), "worktrees") {
+		t.Fatalf("key written while off:\n%s", raw)
+	}
+}
