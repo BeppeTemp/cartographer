@@ -813,6 +813,9 @@ type portabilityOptions struct {
 	// HeldPlugins are the plugins that cannot be read this run: their lock
 	// entries are carried forward unchanged instead of pruned (heldPlugins).
 	HeldPlugins map[string]bool
+	// MCPTokenEnv is the token variable of the client configuration, passed on
+	// to a launcher entry (Codex filters the environment).
+	MCPTokenEnv string
 }
 
 // kbOrder, keyed by provider, is the KB names in that provider's explicit
@@ -829,6 +832,17 @@ func materializeForProviders(manifests map[string]contract.Manifest, projections
 		fmt.Fprintf(portability.Streams.err(), "warning: %s\n", droppedEntryMessage(d))
 	}
 
+	// The launcher a client starts for a descriptor with a secret reference or a
+	// header it cannot carry. Without one such a descriptor is skipped, never
+	// emitted half-working.
+	mcpLauncher, launcherErr := bridgeCommand()
+	if launcherErr != nil || !filepath.IsAbs(mcpLauncher) {
+		mcpLauncher = ""
+	}
+	var mcpLauncherEnv []string
+	if portability.MCPTokenEnv != "" {
+		mcpLauncherEnv = []string{portability.MCPTokenEnv}
+	}
 	results := make(map[string]provisioning.AppliedResult, len(projections))
 	var approvedMCP map[string]string
 	if len(approvalHashes) > 0 {
@@ -845,7 +859,7 @@ func materializeForProviders(manifests map[string]contract.Manifest, projections
 		// Preflight the projection's OWN view: validating the whole candidate
 		// set would fail a sync over a local command belonging to a KB this
 		// projection is not even bound to (D170).
-		if err := provisioning.PreflightStdioMCP(manifests[projectionKey(p)], provisioning.ApplyOptions{Provider: configurator.Provider(p.Provider), BaseDir: p.BaseDir, Scope: p.Scope, ApprovedMCP: approvedMCP}); err != nil {
+		if err := provisioning.PreflightStdioMCP(manifests[projectionKey(p)], provisioning.ApplyOptions{Provider: configurator.Provider(p.Provider), BaseDir: p.BaseDir, Scope: p.Scope, ApprovedMCP: approvedMCP, MCPLauncher: mcpLauncher}); err != nil {
 			return nil, err
 		}
 		if err := prepareWorkspace(portability.Streams, p, workspaceProviders(lockFile, projections, p.Workspace), dryRun, workspaceOwnership(&lockFile, projections, manifests, p.Workspace), derivedLocalFiles(projections, p.Workspace)...); err != nil {
@@ -903,6 +917,8 @@ func materializeForProviders(manifests map[string]contract.Manifest, projections
 			DryRun:             dryRun,
 			NoHeal:             noHeal,
 			ApprovedMCP:        approvedMCP,
+			MCPLauncher:        mcpLauncher,
+			MCPLauncherEnv:     mcpLauncherEnv,
 			Lock:               previous,
 			CoOwnedPaths:       lockFile.CoOwnedPaths(p.Key()),
 			SkipLockWrite:      true,

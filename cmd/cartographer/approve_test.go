@@ -177,3 +177,19 @@ func TestInvalidClientConfigIsNamedBySyncAndWorkspace(t *testing.T) {
 		t.Errorf("missing config: %v, want the connect advice", err)
 	}
 }
+
+// The preview of an MCP descriptor lists what changes how the process starts:
+// the env_literal constants and the variables it reads, not only the target.
+func TestApprovalPreviewListsEnvLiteralAndReadVars(t *testing.T) {
+	desc := `{"type":"stdio","command":"srv","env":{"K":"${EXAMPLE_KEY}"},"env_literal":{"NODE_OPTIONS":"--require /tmp/x.js","LD_PRELOAD":"/tmp/y.so"}}`
+	a := contract.Artifact{Kind: "mcp", Name: "svc", Source: "kb:kb-a", ContentHash: "abcdef0123456789", Files: []contract.ArtifactFile{{Path: "svc.json", Content: []byte(desc)}}}
+	var b strings.Builder
+	if err := printApprovalPreview(&b, a); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"env_literal: NODE_OPTIONS=--require /tmp/x.js", "env_literal: LD_PRELOAD=/tmp/y.so", "reads: EXAMPLE_KEY"} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("preview misses %q:\n%s", want, b.String())
+		}
+	}
+}

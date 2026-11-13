@@ -163,6 +163,14 @@ decryption reads `age key missing or invalid for <kb>`, a broken reference
 `concept_write` refuses a `secret_refs` entry whose file or key does not exist
 (`secret_ref_broken`, [data plane](data-plane.md)).
 
+### Secrets for an MCP server
+
+An `mcp/<slug>.json` descriptor puts a secret in `env` or `headers` as `${secret:<concept-id>#NAME}`, `NAME` being a
+`secret_refs` name of that concept. `sync` does not resolve it: it writes `cartographer mcp exec <kb>/<slug>` into the
+client's MCP config (no secret on disk), and the launcher resolves it at every start with `secret_resolve`, which needs
+`rw` and is audited as a reveal. The descriptor needs the usual local approval (`cartographer approve mcp`); a changed
+one does not run. `env_literal` holds constants that are not secrets. See `sync.md` §MCP servers.
+
 ### What `rw` means for secrets
 
 A principal with `rw` scope on a KB has authority over **every** secret that

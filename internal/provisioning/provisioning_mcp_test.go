@@ -323,6 +323,8 @@ func TestApply_MCP_AllProviders(t *testing.T) {
 				KBRoots:  map[string]string{"kb": kbRoot},
 				Provider: tc.provider,
 				BaseDir:  dir,
+				// Kiro has no header field: it gets the launcher entry.
+				MCPLauncher: launcherFixture(t),
 			})
 			if err != nil {
 				t.Fatalf("Apply: %v", err)
@@ -780,13 +782,81 @@ func TestApply_MCP_SignedStillNeedsApproval(t *testing.T) {
 	}
 }
 
+// launcherFixture is an executable stand-in for the cartographer command.
+func launcherFixture(t *testing.T) string {
+	t.Helper()
+	launcher := filepath.Join(t.TempDir(), fakeExecName)
+	writeFakeExecutable(t, launcher, filepath.Join(t.TempDir(), "ran"))
+	return launcher
+}
+
+func readClientFiles(t *testing.T, base string) string {
+	t.Helper()
+	var all []byte
+	_ = filepath.WalkDir(base, func(p string, d os.DirEntry, err error) error {
+		if err == nil && d.Type().IsRegular() {
+			b, _ := os.ReadFile(p)
+			all = append(all, b...)
+		}
+		return nil
+	})
+	return string(all)
+}
+
 // env_literal constants join the emitted env; a descriptor with a secret
-// reference is refused until the launcher is emitted, and nothing is written.
-func TestApply_MCP_EnvLiteralIsEmittedAndSecretRefIsNotWritten(t *testing.T) {
+// reference is written as the launcher entry (`mcp exec <kb>/<slug>`), and no
+// reference text reaches any file the client owns.
+func TestApply_MCP_EnvLiteralIsEmittedAndSecretRefGetsTheLauncher(t *testing.T) {
 	kbRoot := t.TempDir()
-	script := filepath.Join(t.TempDir(), fakeExecName)
-	writeFakeExecutable(t, script, filepath.Join(t.TempDir(), "ran"))
+	script := launcherFixture(t)
 	writeMCPFixture(t, kbRoot, "lit", fmt.Sprintf(`{"type":"stdio","command":%q,"env":{"K":"${EXAMPLE_KEY}"},"env_literal":{"NODE_OPTIONS":"--use-system-ca"}}`, script))
+	writeMCPFixture(t, kbRoot, "sec", fmt.Sprintf(`{"type":"stdio","command":%q,"env":{"K":"${secret:services/svc#SVC_TOKEN}","E":"${OTHER_VAR}"}}`, script))
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	approved := map[string]string{
+		"kb:kb\x00lit": findMCPArtifact(t, m, "lit").ContentHash,
+		"kb:kb\x00sec": findMCPArtifact(t, m, "sec").ContentHash,
+	}
+	launcher := launcherFixture(t)
+	for _, p := range []configurator.Provider{configurator.ProviderClaudeCode, configurator.ProviderCodex} {
+		base := t.TempDir()
+		res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+			KBRoots: map[string]string{"kb": kbRoot}, Provider: p, BaseDir: base, ApprovedMCP: approved,
+			MCPLauncher: launcher, MCPLauncherEnv: []string{"CARTOGRAPHER_TOKEN"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(res.Refused) != 0 {
+			t.Fatalf("%s: refused = %+v", p, res.Refused)
+		}
+		cfg := readClientFiles(t, base)
+		if !strings.Contains(cfg, "--use-system-ca") || !strings.Contains(cfg, "NODE_OPTIONS") {
+			t.Fatalf("%s: env_literal not emitted: %s", p, cfg)
+		}
+		// The client files escape a backslash (JSON and TOML strings), so a
+		// Windows path is looked up in its escaped form too.
+		launcherDir := launcher[:len(launcher)-len(fakeExecName)-1]
+		if !strings.Contains(cfg, "kb/sec") || !strings.Contains(cfg, "exec") ||
+			(!strings.Contains(cfg, launcherDir) && !strings.Contains(cfg, strings.ReplaceAll(launcherDir, `\`, `\\`))) {
+			t.Fatalf("%s: no launcher entry for sec: %s", p, cfg)
+		}
+		if strings.Contains(cfg, "${secret:") || strings.Contains(cfg, "SVC_TOKEN") {
+			t.Fatalf("%s: a secret reference reached the client config: %s", p, cfg)
+		}
+		if p == configurator.ProviderCodex && (!strings.Contains(cfg, `env_vars = ["CARTOGRAPHER_TOKEN", "OTHER_VAR"]`)) {
+			t.Fatalf("codex entry does not pass the token and ${VAR} names on: %s", cfg)
+		}
+	}
+}
+
+// Without a launcher command a descriptor that needs one is skipped with a
+// warning: never emitted with a reference or without its headers.
+func TestApply_MCP_NeedingALauncherIsSkippedWithoutOne(t *testing.T) {
+	kbRoot := t.TempDir()
+	script := launcherFixture(t)
 	writeMCPFixture(t, kbRoot, "sec", fmt.Sprintf(`{"type":"stdio","command":%q,"env":{"K":"${secret:services/svc#SVC_TOKEN}"}}`, script))
 	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
 	if err != nil {
@@ -795,27 +865,66 @@ func TestApply_MCP_EnvLiteralIsEmittedAndSecretRefIsNotWritten(t *testing.T) {
 	base := t.TempDir()
 	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
 		KBRoots: map[string]string{"kb": kbRoot}, Provider: configurator.ProviderClaudeCode, BaseDir: base,
-		ApprovedMCP: map[string]string{
-			"kb:kb\x00lit": findMCPArtifact(t, m, "lit").ContentHash,
-			"kb:kb\x00sec": findMCPArtifact(t, m, "sec").ContentHash,
-		},
+		ApprovedMCP: map[string]string{"kb:kb\x00sec": findMCPArtifact(t, m, "sec").ContentHash},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Refused) != 1 || res.Refused[0].Name != "sec" {
-		t.Fatalf("refused = %+v", res.Refused)
+	if len(res.Warnings) == 0 || strings.Contains(readClientFiles(t, base), "mcp_servers.sec") || strings.Contains(readClientFiles(t, base), `"sec"`) {
+		t.Fatalf("warnings = %v, files = %s", res.Warnings, readClientFiles(t, base))
 	}
-	var cfg []byte
-	for _, name := range []string{".claude.json", ".claude/settings.json"} {
-		if b, err := os.ReadFile(filepath.Join(base, name)); err == nil {
-			cfg = append(cfg, b...)
+}
+
+// Kiro has no header field: an http descriptor with headers is served through
+// the launcher (bridge); Claude keeps the native entry with its ${VAR} header.
+func TestApply_MCP_HeaderlessClientGetsTheBridgeLauncher(t *testing.T) {
+	kbRoot := t.TempDir()
+	writeMCPFixture(t, kbRoot, "wiki", `{"type":"http","url":"https://tools.example.com/mcp","headers":{"X-Api-Key":"${WIKI_KEY}"}}`)
+	m := signedMCPManifest(t, kbRoot, "wiki")
+	approved := map[string]string{"kb:kb\x00wiki": findMCPArtifact(t, m, "wiki").ContentHash}
+	launcher := launcherFixture(t)
+	for p, wantNative := range map[configurator.Provider]bool{configurator.ProviderKiro: false, configurator.ProviderClaudeCode: true} {
+		base := t.TempDir()
+		if _, err := provisioning.Apply(m, provisioning.ApplyOptions{KBRoots: map[string]string{"kb": kbRoot}, Provider: p, BaseDir: base, ApprovedMCP: approved, MCPLauncher: launcher}); err != nil {
+			t.Fatal(err)
+		}
+		cfg := readClientFiles(t, base)
+		if native := strings.Contains(cfg, "tools.example.com"); native != wantNative {
+			t.Errorf("%s: native entry = %v, want %v: %s", p, native, wantNative, cfg)
+		}
+		if launched := strings.Contains(cfg, "kb/wiki"); launched == wantNative {
+			t.Errorf("%s: launcher entry = %v: %s", p, launched, cfg)
 		}
 	}
-	if !strings.Contains(string(cfg), "--use-system-ca") || !strings.Contains(string(cfg), "NODE_OPTIONS") {
-		t.Fatalf("env_literal not emitted: %s", cfg)
+}
+
+// A descriptor that holds a ${secret:...} outside env and headers is refused on
+// its own: the others of the same pass are still projected.
+func TestApply_MCP_SecretRefInURLOrArgsIsRefusedNotFatal(t *testing.T) {
+	kbRoot := t.TempDir()
+	script := launcherFixture(t)
+	writeMCPFixture(t, kbRoot, "good", fmt.Sprintf(`{"type":"stdio","command":%q,"env":{"K":"${EXAMPLE_KEY}"}}`, script))
+	writeMCPFixture(t, kbRoot, "bad", fmt.Sprintf(`{"type":"stdio","command":%q,"env":{"K":"${EXAMPLE_KEY}"}}`, script))
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if strings.Contains(string(cfg), "${secret:") {
-		t.Fatalf("a secret reference reached the client config: %s", cfg)
+	approved := approveMCP(m)
+	// The file changes after the manifest was built.
+	writeMCPFixture(t, kbRoot, "bad", fmt.Sprintf(`{"type":"stdio","command":%q,"args":["${secret:services/svc#TOKEN}"],"env":{"K":"${EXAMPLE_KEY}"}}`, script))
+	base := t.TempDir()
+	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+		KBRoots: map[string]string{"kb": kbRoot}, Provider: configurator.ProviderClaudeCode, BaseDir: base,
+		ApprovedMCP: approved, MCPLauncher: launcherFixture(t),
+	})
+	if err != nil {
+		t.Fatalf("one bad descriptor aborted the projection: %v", err)
+	}
+	if len(res.Refused) != 1 || !strings.Contains(res.Refused[0].Name, "bad") {
+		t.Fatalf("refused = %+v", res.Refused)
+	}
+	cfg := readClientFiles(t, base)
+	if !strings.Contains(cfg, "good") || strings.Contains(cfg, "${secret:") {
+		t.Fatalf("good not projected or reference leaked: %s", cfg)
 	}
 }

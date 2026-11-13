@@ -446,7 +446,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	if !opts.DryRun && len(cfg.Plugins) > 0 {
 		lockedBefore = lockedKeys(dir)
 	}
-	results, err := materializeForProviders(manifests, projections, dir, facts.Version, opts.DryRun, opts.NoHeal, portabilityOptions{SearchRoots: cfg.ScanRoots(), Paths: cfg.Paths, Streams: opts.Streams, HeldPlugins: heldPlugins(cfg)}, kbOrderForProviders(cfg, targets), approvals)
+	results, err := materializeForProviders(manifests, projections, dir, facts.Version, opts.DryRun, opts.NoHeal, portabilityOptions{SearchRoots: cfg.ScanRoots(), Paths: cfg.Paths, Streams: opts.Streams, HeldPlugins: heldPlugins(cfg), MCPTokenEnv: tokenEnvName(cfg)}, kbOrderForProviders(cfg, targets), approvals)
 	if err != nil {
 		return syncResult{}, err
 	}

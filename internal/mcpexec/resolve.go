@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -30,6 +31,22 @@ type Deps interface {
 	Approved(kb, slug string) (hash string, ok bool)
 	// Environ is the environment the launcher inherited (os.Environ).
 	Environ() []string
+}
+
+// TokenEnver is implemented by a Deps that knows the variable carrying the
+// Cartographer bearer token. The launcher needs it for its own calls to the
+// server and no descriptor may read it or inherit it: the token would reach a
+// third-party process or host.
+type TokenEnver interface {
+	TokenEnv() string
+}
+
+// sameEnvKey compares variable names the way the OS does.
+func sameEnvKey(a, b string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
 }
 
 // Launch is a descriptor ready to run.
@@ -71,13 +88,18 @@ func (l Launch) Redacted() Redacted {
 		}
 		r.Headers[k] = v
 	}
+	listed := map[string]bool{}
 	for _, e := range l.Env {
 		k, v, _ := strings.Cut(e, "=")
+		if listed[k] {
+			continue
+		}
 		if _, own := l.Spec.Env[k]; own {
 			v = redactedText
 		} else if _, lit := l.Spec.EnvLiteral[k]; !lit {
 			continue
 		}
+		listed[k] = true
 		r.Env = append(r.Env, k+"="+v)
 	}
 	return r
@@ -123,7 +145,35 @@ func Resolve(ctx context.Context, d Deps, ref string) (*Launch, error) {
 	}
 	l := &Launch{Spec: spec, Command: spec.Command, Args: spec.Args, URL: spec.URL, ref: ref,
 		redactKey: map[string]bool{}, redactHdr: map[string]bool{}, Headers: map[string]string{}}
-	env := append([]string(nil), d.Environ()...)
+	if te, ok := d.(TokenEnver); ok {
+		res.tokenEnv = te.TokenEnv()
+	}
+	// A key the descriptor sets replaces the inherited one (the child would see
+	// both, and getenv takes the first); the token variable never reaches it.
+	set := map[string]bool{}
+	for k := range spec.Env {
+		set[k] = true
+	}
+	for k := range spec.EnvLiteral {
+		set[k] = true
+	}
+	var env []string
+	for _, e := range d.Environ() {
+		k, _, _ := strings.Cut(e, "=")
+		if res.tokenEnv != "" && sameEnvKey(k, res.tokenEnv) {
+			continue
+		}
+		own := false
+		for sk := range set {
+			if sameEnvKey(k, sk) {
+				own = true
+				break
+			}
+		}
+		if !own {
+			env = append(env, e)
+		}
+	}
 	for _, k := range sortedKeys(spec.EnvLiteral) {
 		env = append(env, k+"="+spec.EnvLiteral[k])
 	}
@@ -151,6 +201,8 @@ type resolver struct {
 	d       Deps
 	kb      string
 	secrets []string
+	// tokenEnv is the Cartographer token variable, which expand refuses.
+	tokenEnv string
 }
 
 // call runs a tool and scrubs the values resolved so far from its error.
@@ -213,6 +265,9 @@ func (r *resolver) expand(ctx context.Context, v string) (string, error) {
 			}
 			b.WriteString(val)
 			continue
+		}
+		if r.tokenEnv != "" && sameEnvKey(tok, r.tokenEnv) {
+			return "", fmt.Errorf("${%s} is the Cartographer token variable: a descriptor may not read it", tok)
 		}
 		val, ok := environValue(r.d.Environ(), tok)
 		if !ok {

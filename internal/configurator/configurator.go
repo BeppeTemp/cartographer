@@ -188,6 +188,11 @@ func validateServerSpec(name string, spec ServerSpec) error {
 	if !serverNamePattern.MatchString(name) {
 		return fmt.Errorf("mcp %q: the server name must be letters, digits, '_' or '-': it is an entry key, a tool prefix and a URL part, and a space, quote or dot breaks the TOML and JSON entries", name)
 	}
+	if specHoldsSecretRef(spec) {
+		// A reference is resolved at start by `cartographer mcp exec`; a client
+		// file holding one would carry text the client expands to nothing.
+		return fmt.Errorf("mcp %q: a ${secret:...} reference never reaches a client entry: it is resolved by `cartographer mcp exec`", name)
+	}
 	switch spec.Type {
 	case "http":
 		if spec.Command != "" || len(spec.Args) != 0 {
@@ -204,6 +209,21 @@ func validateServerSpec(name string, spec ServerSpec) error {
 		return fmt.Errorf("mcp %q: unsupported transport %q", name, spec.Type)
 	}
 	return nil
+}
+
+func specHoldsSecretRef(spec ServerSpec) bool {
+	values := append([]string{spec.URL}, spec.Args...)
+	for _, m := range []map[string]string{spec.Headers, spec.Env} {
+		for _, v := range m {
+			values = append(values, v)
+		}
+	}
+	for _, v := range values {
+		if strings.Contains(v, "${secret:") {
+			return true
+		}
+	}
+	return false
 }
 
 // EmitAll generates the configuration for all providers.

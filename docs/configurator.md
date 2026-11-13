@@ -335,11 +335,23 @@ entry with a warning; a client with `roots` in an unbound folder gets a handshak
 `${secret:<concept>#NAME}` references resolved into the child's environment: it reads the descriptor and each
 secret from Meridian (`secret_resolve` with `reveal`, so an `rw` token that allows secrets; every start is a
 reveal), refuses a descriptor that is not approved or changed since, and replaces itself with the command
-(Windows: a parent that forwards the interrupt and returns the exit code). Nothing is cached: an unreachable
+(Windows: a parent that kills the child on interrupt, ends it with the launcher through a job object, and returns its exit code). Nothing is cached: an unreachable
 server stops with one line on stderr and starts nothing. stdout is the server's. An `http` descriptor is bridged: stdin/stdout stay the client's, each JSON-RPC line is POSTed to the
 URL with the resolved headers (session id and protocol version echoed, JSON or SSE answers one line each, DELETE on EOF), a
 transport error on a request becomes a JSON-RPC error (-32000) free of any header value, redirects and plain `http://` to a
-non-loopback host are refused. No sync emits this entry yet ([D2037](decisions/D2037-mcp-secret-launcher.md)).
+non-loopback host are refused. Exit codes: 2 for a usage error or a ref that is not `<kb>/<slug>`, 1 for everything else (not approved, server unreachable, secret refused, cannot start). The launcher keeps the Cartographer token variable for its own calls: the child does not inherit it and a `${...}` naming it is refused; a variable the descriptor sets replaces the inherited one. `sync` writes this entry as below ([D2037](decisions/D2037-mcp-secret-launcher.md)).
+
+**What a client gets for a KB `mcp` descriptor.** "native" is the client's own entry with its `${VAR}` syntax,
+"launcher" is `<absolute cartographer> mcp exec <kb>/<slug>` as a stdio entry (no secret, header or URL in the file),
+"bridge" the same entry for an `http` descriptor the client cannot give headers to. `${secret:}` always uses the launcher.
+
+| Client | http + `${VAR}` header | http + secret | stdio + `${VAR}` | stdio + secret |
+|---|---|---|---|---|
+| Claude Code, OpenCode, Antigravity, Crush, Copilot, Pi | native | launcher (bridge) | native | launcher |
+| Codex | native (`Authorization: Bearer` only, others dropped with a warning) | launcher (bridge) | native | launcher (`env_vars` lists the token and `${VAR}` names) |
+| Kiro, Cline (`SupportsMCPHeaders` false) | bridge | bridge | native | launcher |
+
+Without a `cartographer` command on `PATH` a descriptor that needs the launcher is skipped with a warning, and so is a descriptor of a plugin (a non-KB source) that needs it: the launcher reads `mcp/<slug>.json` of a KB, which a plugin has none of.
 
 **`cartographer call` (no MCP).** For an agent that has a shell but cannot use MCP,
 `cartographer call --provider <p> <tool> [key=value…] [--json '<object>'|-]` sends one stateless

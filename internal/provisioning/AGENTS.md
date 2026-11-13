@@ -95,6 +95,8 @@ modifies files a user did not ask about.
   file needs the same answer for a derived binding.
 - **An instructions block that goes into a file git tracks carries none of this machine's paths** (#1897). `ApplyOptions.WithholdLocalPaths` (set by the client from `InstructionsDestTracked`, for `Apply` and the status diff alike) empties the "Local paths" table and leaves the KB's own placeholders unexpanded: the instructions text goes through `expandInstructionsText`, never `expandPlaceholders`, and a new client-written text in the block that names a path of this machine needs the same answer. A git command here names its repository with `-C` and runs with `gitx.Env()` (a sync from a git hook inherits `GIT_DIR`).
 
+- **A secret reference never reaches `EmitServer`, and the launcher entry is not in the content hash.** A descriptor with `${secret:` (or http headers for a client with `SupportsMCPHeaders` false) is replaced by `launcherSpec` (`mcp exec <kb>/<slug>`, an absolute path from `ApplyOptions.MCPLauncher`) before the emitter; without a launcher it is skipped, never emitted, and `validateServerSpec` refuses a reference as the last net. The entry form changes with the launcher path or the provider's header support, not with the hash: it is written at the next heal or descriptor change.
+
 ## Scope note
 
 The repository's own `.claude/skills` and `.claude/agents` are real directories (D992). Because of D148 this package will refuse to materialize

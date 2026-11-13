@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"path"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/secretscan"
@@ -95,6 +96,26 @@ func (s MCPServerSpec) HasSecretRef() bool {
 	return false
 }
 
+// EnvRefNames returns the sorted names of the "${VAR}" references in the env
+// and headers values: the variables a launcher reads from the environment its
+// client gives it (Codex filters that environment, so they are passed on).
+func (s MCPServerSpec) EnvRefNames() []string {
+	seen := map[string]bool{}
+	for _, m := range []map[string]string{s.Env, s.Headers} {
+		for _, v := range m {
+			for _, r := range envRefPattern.FindAllString(v, -1) {
+				seen[r[2:len(r)-1]] = true
+			}
+		}
+	}
+	names := make([]string, 0, len(seen))
+	for n := range seen {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names
+}
+
 // envRefPattern spots a "${VAR_NAME}" reference inside a header/env value —
 // the only allowed form (WP1): the client resolves it against its own
 // environment at apply time (see configurator.EmitServer), so no secret ever
@@ -125,6 +146,16 @@ func parseMCPServerSpec(name string, data []byte) (MCPServerSpec, error) {
 	}
 	if err := dec.Decode(&struct{}{}); err != io.EOF {
 		return MCPServerSpec{}, fmt.Errorf("mcp %q: invalid json: multiple values", name)
+	}
+	// A reference is resolved by the launcher in env and headers only: in the
+	// url or the args it would reach a client entry (or the server) as text.
+	if strings.Contains(spec.URL, "${secret:") {
+		return MCPServerSpec{}, fmt.Errorf("mcp %q: a ${secret:...} reference is allowed in env and headers only, not in url", name)
+	}
+	for _, a := range spec.Args {
+		if strings.Contains(a, "${secret:") {
+			return MCPServerSpec{}, fmt.Errorf("mcp %q: a ${secret:...} reference is allowed in env and headers only, not in args", name)
+		}
 	}
 	switch spec.Type {
 	case "http":
