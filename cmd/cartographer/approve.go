@@ -227,6 +227,20 @@ func printApprovalPreview(w io.Writer, a contract.Artifact) error {
 			return err
 		}
 		fmt.Fprintf(w, "Approve MCP %s from KB %s\ntransport: %s\ntarget: %s\nhash: %s\n", name, source, escapeControl(string(spec.Type)), escapeControl(target), shortHash(a.ContentHash))
+		if spec.HasSecretRef() {
+			// Names only, never a value: the person approves knowing this
+			// descriptor is started through the launcher with KB secrets.
+			var refs []string
+			for _, m := range []map[string]string{spec.Env, spec.Headers} {
+				for _, v := range m {
+					for _, r := range contract.SecretRefs(v) {
+						refs = append(refs, r.Concept+"#"+r.Name)
+					}
+				}
+			}
+			slices.Sort(refs)
+			fmt.Fprintf(w, "secrets: %s\nlauncher: yes\n", escapeControl(strings.Join(refs, ", ")))
+		}
 		return nil
 	}
 	if err != nil {

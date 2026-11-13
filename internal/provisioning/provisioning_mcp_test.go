@@ -779,3 +779,43 @@ func TestApply_MCP_SignedStillNeedsApproval(t *testing.T) {
 		t.Fatal("the signed descriptor is not reported as needing approval")
 	}
 }
+
+// env_literal constants join the emitted env; a descriptor with a secret
+// reference is refused until the launcher is emitted, and nothing is written.
+func TestApply_MCP_EnvLiteralIsEmittedAndSecretRefIsNotWritten(t *testing.T) {
+	kbRoot := t.TempDir()
+	script := filepath.Join(t.TempDir(), fakeExecName)
+	writeFakeExecutable(t, script, filepath.Join(t.TempDir(), "ran"))
+	writeMCPFixture(t, kbRoot, "lit", fmt.Sprintf(`{"type":"stdio","command":%q,"env":{"K":"${EXAMPLE_KEY}"},"env_literal":{"NODE_OPTIONS":"--use-system-ca"}}`, script))
+	writeMCPFixture(t, kbRoot, "sec", fmt.Sprintf(`{"type":"stdio","command":%q,"env":{"K":"${secret:services/svc#SVC_TOKEN}"}}`, script))
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := t.TempDir()
+	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+		KBRoots: map[string]string{"kb": kbRoot}, Provider: configurator.ProviderClaudeCode, BaseDir: base,
+		ApprovedMCP: map[string]string{
+			"kb:kb\x00lit": findMCPArtifact(t, m, "lit").ContentHash,
+			"kb:kb\x00sec": findMCPArtifact(t, m, "sec").ContentHash,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Refused) != 1 || res.Refused[0].Name != "sec" {
+		t.Fatalf("refused = %+v", res.Refused)
+	}
+	var cfg []byte
+	for _, name := range []string{".claude.json", ".claude/settings.json"} {
+		if b, err := os.ReadFile(filepath.Join(base, name)); err == nil {
+			cfg = append(cfg, b...)
+		}
+	}
+	if !strings.Contains(string(cfg), "--use-system-ca") || !strings.Contains(string(cfg), "NODE_OPTIONS") {
+		t.Fatalf("env_literal not emitted: %s", cfg)
+	}
+	if strings.Contains(string(cfg), "${secret:") {
+		t.Fatalf("a secret reference reached the client config: %s", cfg)
+	}
+}
