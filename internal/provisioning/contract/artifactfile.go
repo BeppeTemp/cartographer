@@ -101,6 +101,9 @@ func ValidateAgentFile(slug string, data []byte) error {
 	if err := ValidateAgentProviders(fm); err != nil {
 		return err
 	}
+	if err := ValidateAgentClients(fm); err != nil {
+		return err
+	}
 	return ValidateFrontmatterRequires("agent", slug, fm)
 }
 

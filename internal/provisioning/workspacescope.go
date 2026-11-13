@@ -495,7 +495,7 @@ func FilterForProviderScoped(m contract.Manifest, provider configurator.Provider
 	}
 	var out contract.Manifest
 	for _, a := range m.Artifacts {
-		if contract.DestDirScoped(a.Kind, a.Name, provider, scope) != "" && !contract.StrictAgentSkipped(a, provider) {
+		if contract.DestDirScoped(a.Kind, a.Name, provider, scope) != "" && !contract.AgentSkipped(a, provider) {
 			out.Artifacts = append(out.Artifacts, a)
 		}
 	}

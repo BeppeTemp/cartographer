@@ -83,7 +83,9 @@ func ClientModes(arts []Artifact, opts ProjectOptions) map[string][]ClientMode {
 				if len(UnverifiedFor(a, d.Provider, scope, opts.BundleFS, opts.KBRoots)) > 0 {
 					m.Mode = ModeUnverified
 				}
-			case StrictAgentSkipped(a, d.Provider) && AgentMode(d.Provider, scope) == AgentDegraded && DestDirScoped("skill", a.Name, d.Provider, scope) != "":
+			case AgentSkipReason(a, d.Provider) == "clients":
+				m.Mode, m.Reason = ModeSkipped, "clients"
+			case AgentSkipped(a, d.Provider) && AgentMode(d.Provider, scope) == AgentDegraded && DestDirScoped("skill", a.Name, d.Provider, scope) != "":
 				m.Mode, m.Reason = ModeSkipped, "strict_tools"
 			default:
 				continue

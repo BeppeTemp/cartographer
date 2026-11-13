@@ -296,3 +296,22 @@ func TestProjectReportsHookWithoutWorkspaceDestination(t *testing.T) {
 		t.Errorf("claude has a project hook cell: %+v", notes)
 	}
 }
+
+func TestProjectOne_ClientsAllowList(t *testing.T) {
+	src := "---\nname: only\ndescription: Kiro only\nclients: [kiro]\n---\nb\n"
+	a := agentArt("only", src)
+	a.Clients = contract.AgentClientsOf([]byte(src))
+	m := manifestOf(a)
+	// A native client not listed drops it.
+	if pm, _ := ProjectManifest(m, configurator.ProviderClaudeCode, contract.ScopeGlobal, contract.ProjectOptions{}); len(pm.Artifacts) != 0 {
+		t.Errorf("claude kept the agent: %v", projectedNames(pm))
+	}
+	// A degrading client not listed drops it too, never as a skill.
+	if pm, notes := ProjectManifest(m, configurator.ProviderCrush, contract.ScopeGlobal, contract.ProjectOptions{}); len(pm.Artifacts) != 0 || len(notes) != 0 {
+		t.Errorf("crush: %v %v", projectedNames(pm), notes)
+	}
+	// The listed client keeps it.
+	if pm, _ := ProjectManifest(m, configurator.ProviderKiro, contract.ScopeGlobal, contract.ProjectOptions{}); len(pm.Artifacts) != 1 {
+		t.Errorf("kiro dropped the agent: %v", projectedNames(pm))
+	}
+}

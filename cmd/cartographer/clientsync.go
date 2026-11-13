@@ -731,6 +731,7 @@ func pullTarget(c *client.MCPClient, target kbTarget) pullResult {
 			// Derived here rather than sent (D283): a restriction the target
 			// client cannot express is a client-side fact.
 			art.Restriction = contract.ParseAgentRestriction(files[0].Content)
+			art.Clients = contract.AgentClientsOf(files[0].Content)
 		}
 		arts = append(arts, art)
 	}
