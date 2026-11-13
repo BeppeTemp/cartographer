@@ -1583,3 +1583,156 @@ func TestAttributionFieldsKeepOldHashes(t *testing.T) {
 		t.Fatal("tampered via still verifies")
 	}
 }
+
+// TestRotationCheckpointSurvivesAClockStepBack: wall-clock timestamps can go
+// backwards between two appends of one segment (NTP step, a resumed VM). The
+// checkpoint then records the segment's earliest and latest timestamp, not the
+// first and last entry's, so the writer never produces a checkpoint its own
+// verifier refuses (#1878). Signed and unsigned logs alike.
+func TestRotationCheckpointSurvivesAClockStepBack(t *testing.T) {
+	for _, signed := range []bool{false, true} {
+		name := "unsigned"
+		if signed {
+			name = "signed"
+		}
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "audit.jsonl")
+			archive := filepath.Join(dir, "archive")
+			var kp KeyPair
+			var pub ed25519.PublicKey
+			if signed {
+				var err error
+				if kp, err = GenerateKeyPair(); err != nil {
+					t.Fatal(err)
+				}
+				pub = kp.Public
+			}
+			open := func(o Options) *Log {
+				t.Helper()
+				o.ArchiveDir = archive
+				var l *Log
+				var err error
+				if signed {
+					l, err = OpenWithKeyAndOptions(path, kp, o)
+				} else {
+					l, err = OpenWithOptions(path, o)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				return l
+			}
+
+			// One segment of one call (attempt + completion) plus a second one,
+			// stamped 10s, 0s, 5s, 3s: first > last, and the earliest and the
+			// latest are neither of them.
+			base := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+			stamps := []time.Time{base.Add(10 * time.Second), base, base.Add(5 * time.Second), base.Add(3 * time.Second)}
+			l := open(Options{})
+			for i, ts := range stamps {
+				e := Entry{RequestID: fmt.Sprintf("r%d", i/2), Phase: PhaseAttempt, Tool: "concept_read", Timestamp: ts}
+				if i%2 == 1 {
+					e.Phase, e.Outcome = PhaseCompletion, OutcomeSuccess
+				}
+				got, err := l.AppendEvent(e)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !got.Timestamp.Equal(ts) {
+					t.Fatalf("entry %d timestamp = %v, want the caller's %v", i, got.Timestamp, ts)
+				}
+			}
+			if err := l.Close(); err != nil {
+				t.Fatal(err)
+			}
+			// Reopening with a size cap rotates that segment before the next append.
+			l = open(Options{MaxBytes: 1})
+			appendCall(t, l, "after")
+			if err := l.Close(); err != nil {
+				t.Fatal(err)
+			}
+
+			idx, err := loadCheckpointIndex(checkpointPath(path, archive))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(idx.Segments) == 0 {
+				t.Fatal("no segment was rotated")
+			}
+			cp := idx.Segments[0]
+			if cp.Count != len(stamps) {
+				t.Fatalf("checkpoint count = %d, want %d", cp.Count, len(stamps))
+			}
+			if cp.End.Before(cp.Start) {
+				t.Errorf("checkpoint end %v before start %v", cp.End, cp.Start)
+			}
+			if !cp.Start.Equal(base) || !cp.End.Equal(base.Add(10*time.Second)) {
+				t.Errorf("checkpoint range = %v..%v, want %v..%v", cp.Start, cp.End, base, base.Add(10*time.Second))
+			}
+			if _, err := VerifyAudit(path, archive, pub, VerifyOptions{}); err != nil {
+				t.Fatalf("VerifyAudit after a clock step back: %v", err)
+			}
+		})
+	}
+}
+
+// TestVerifyAuditNamesTheCheckpointConditionThatFailed: the verifier's error
+// keeps the `invalid checkpoint "<name>"` prefix and says which condition of
+// the shape check failed, so a flake in a gate is diagnosable from its log
+// alone (#1878).
+func TestVerifyAuditNamesTheCheckpointConditionThatFailed(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(*Checkpoint)
+		want   string
+	}{
+		{"no name", func(cp *Checkpoint) { cp.Name = "" }, "no segment name"},
+		{"count", func(cp *Checkpoint) { cp.Count = 0 }, "count 0 is not positive"},
+		{"chain", func(cp *Checkpoint) { cp.PrevHash = "other" }, "chain broken"},
+		{"first hash", func(cp *Checkpoint) { cp.FirstHash = "" }, "no first hash"},
+		{"last hash", func(cp *Checkpoint) { cp.LastHash = "" }, "no last hash"},
+		{"clock", func(cp *Checkpoint) { cp.End = cp.Start.Add(-time.Second) }, "end "},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "audit.jsonl")
+			archive := filepath.Join(dir, "archive")
+			l, err := OpenWithOptions(path, Options{MaxBytes: 1, ArchiveDir: archive})
+			if err != nil {
+				t.Fatal(err)
+			}
+			appendCall(t, l, "one")
+			appendCall(t, l, "two") // rotates the first call's segment
+			if err := l.Close(); err != nil {
+				t.Fatal(err)
+			}
+			cpPath := checkpointPath(path, archive)
+			idx, err := loadCheckpointIndex(cpPath)
+			if err != nil || len(idx.Segments) == 0 {
+				t.Fatalf("no rotated segment: %v", err)
+			}
+			name := idx.Segments[0].Name
+			tc.mutate(&idx.Segments[0])
+			b, err := json.Marshal(idx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(cpPath, b, 0o640); err != nil {
+				t.Fatal(err)
+			}
+			_, err = VerifyAudit(path, archive, nil, VerifyOptions{})
+			if err == nil {
+				t.Fatal("a broken checkpoint verified")
+			}
+			prefix := fmt.Sprintf("audit: invalid checkpoint %q: ", name)
+			if tc.name == "no name" {
+				prefix = `audit: invalid checkpoint "": `
+			}
+			if !strings.HasPrefix(err.Error(), prefix) || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %q, want prefix %q and %q", err, prefix, tc.want)
+			}
+		})
+	}
+}
