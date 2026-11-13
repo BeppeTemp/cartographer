@@ -53,6 +53,11 @@ type WorkspaceBinding struct {
 	Remote string   `yaml:"remote,omitempty"`
 	KBs    []string `yaml:"kbs"`
 
+	// Worktrees opts the binding in to the repository's linked git worktrees
+	// (`workspace bind --worktrees`): they receive the same projection as Path.
+	// Off when absent, and turned off by a rebind without the flag.
+	Worktrees bool `yaml:"worktrees,omitempty"`
+
 	// Derived and Sources are never stored here: a binding with Derived set
 	// comes from the paths.yaml of the KBs named in Sources (D1019), not from
 	// the user's `workspaces:` table.
@@ -203,6 +208,18 @@ func (c *Config) WorkspaceBindings(provider string) []WorkspaceBinding {
 // later sync that finds a different remote at the same path refuses rather than
 // projecting one perimeter's artifacts into another's checkout.
 func (c *Config) BindWorkspace(provider, dir string, kbs []string) error {
+	return c.BindWorkspaceWith(provider, dir, kbs, BindOptions{})
+}
+
+// BindOptions are the optional properties of a workspace binding. The binding
+// is replaced whole, so an option left at its zero value is turned off.
+type BindOptions struct {
+	// Worktrees records the opt-in to the repository's linked worktrees.
+	Worktrees bool
+}
+
+// BindWorkspaceWith is BindWorkspace with the binding's options.
+func (c *Config) BindWorkspaceWith(provider, dir string, kbs []string, opts BindOptions) error {
 	if provider == "" || provider != strings.TrimSpace(provider) {
 		return fmt.Errorf("clientconfig: invalid provider name %q", provider)
 	}
@@ -226,6 +243,8 @@ func (c *Config) BindWorkspace(provider, dir string, kbs []string) error {
 		Path:   path,
 		Remote: gitRemoteFn(path),
 		KBs:    append([]string{}, kbs...),
+
+		Worktrees: opts.Worktrees,
 	}
 	list := c.Workspaces[provider]
 	for i := range list {

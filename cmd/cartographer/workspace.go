@@ -252,6 +252,7 @@ func cmdWorkspace(args []string) int {
 const workspaceUsage = `usage: cartographer workspace bind <provider> <path> --kb <name>[,<name>...]
        cartographer workspace bind codex <path> --kb <name>[,<name>...] [--trust]
        cartographer workspace bind <provider> <path> --no-kb
+       cartographer workspace bind <provider> <path> --kb <name>[,<name>...] --worktrees
        cartographer workspace unbind <provider> <path>
        cartographer workspace unbind <provider> --all
        cartographer workspace list [provider]
@@ -293,7 +294,7 @@ func loadWorkspaceConfigLocked() (string, *clientconfig.Config, func(), error) {
 func cmdWorkspaceBind(args []string) int {
 	var provider, path string
 	var kbs []string
-	noKB, trust := false, false
+	noKB, trust, worktrees := false, false, false
 	positional := make([]string, 0, 2)
 	for i := 0; i < len(args); i++ {
 		switch {
@@ -301,6 +302,8 @@ func cmdWorkspaceBind(args []string) int {
 			noKB = true
 		case args[i] == "--trust":
 			trust = true
+		case args[i] == "--worktrees":
+			worktrees = true
 		case args[i] == "--kb" && i+1 < len(args):
 			i++
 			kbs = append(kbs, splitCommaList([]string{args[i]})...)
@@ -372,7 +375,7 @@ func cmdWorkspaceBind(args []string) int {
 			fmt.Fprintf(os.Stderr, "warning: the server does not list its KBs; could not check that it mounts %s\n", strings.Join(kbs, ", "))
 		}
 	}
-	if err := cfg.BindWorkspace(provider, path, kbs); err != nil {
+	if err := cfg.BindWorkspaceWith(provider, path, kbs, clientconfig.BindOptions{Worktrees: worktrees}); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
 	}
@@ -393,10 +396,14 @@ func cmdWorkspaceBind(args []string) int {
 		warnNoWorkspaceDestination(os.Stderr, provider)
 	}
 	warnBindsHome(os.Stderr, provider, canonical)
+	suffix := ""
+	if worktrees {
+		suffix = " (and its linked worktrees)"
+	}
 	if len(kbs) == 0 {
-		fmt.Printf("bound %s in %s to no KBs\n", provider, canonical)
+		fmt.Printf("bound %s in %s to no KBs%s\n", provider, canonical, suffix)
 	} else {
-		fmt.Printf("bound %s in %s to %s\n", provider, canonical, strings.Join(kbs, ", "))
+		fmt.Printf("bound %s in %s to %s%s\n", provider, canonical, strings.Join(kbs, ", "), suffix)
 	}
 	if switched {
 		fmt.Printf("%s switched to workspace scope: its KB artifacts now live in each bound workspace, not in your home.\n", provider)
@@ -624,6 +631,9 @@ func cmdWorkspaceList(args []string) int {
 			}
 			if src := sourcesLabel(w); src != "" {
 				state += "  [derived: " + src + "]"
+			}
+			if w.Worktrees {
+				kbs += "  [worktrees]"
 			}
 			fmt.Printf("  %s  →  %s%s\n", w.Path, kbs, state)
 			if w.Remote != "" {
