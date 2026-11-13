@@ -37,6 +37,7 @@ test or a decision record: none of them is a preference.
 - **The `?access=read-min` listing (`readMinTools`, `readprofile.go`, D1184) stays inside
   `readOnlyToolNames`**: `TestReadMinToolsAreReadOnly` enforces it, and a write is refused
   at the routed authorizer with `read_only_profile`, never left to the target KB.
+- **The docs runner (`internal/docskb/runner.go`) runs the routed read-min mount in-process** (no socket): a change to `readMinTools` changes what it exposes.
 - **A JSON tool result is built with `jsonResult` (`protocol.go`), compact.** `MarshalIndent` in
   a non-test file is refused by `TestNoIndentedMarshalInToolResults`, and `TestToolResultGolden`
   proves a result is its `testdata/results` golden up to whitespace (D1185).
