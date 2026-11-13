@@ -267,8 +267,11 @@ func TestSink_AwaitIsBoundedWhileTheTailerDelivers(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go func() { _, _ = sk.drain(ctx, "") }() // the tailer, with 6 s of backlog
+	// The tailer writes its cursor under dir: it must have returned before
+	// t.TempDir's cleanup, or Windows refuses to remove a file still open.
+	done := make(chan struct{})
+	defer func() { cancel(); <-done }()
+	go func() { defer close(done); _, _ = sk.drain(ctx, "") }() // the tailer, with 6 s of backlog
 	time.Sleep(50 * time.Millisecond)
 	start := time.Now()
 	err = sk.Await(context.Background(), last[0].Hash)
