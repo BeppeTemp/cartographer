@@ -613,7 +613,8 @@ unchanged.
   `status`/`doctor` say so, naming the file and the explicit-bind alternative; Claude Code instead
   gets its block in `CLAUDE.local.md` and Antigravity in `.agents/rules/cartographer.md` (with
   `trigger: always_on` YAML frontmatter), both read beside tracked instructions, owned whole and
-  excluded in `.git/info/exclude`. Skills, agents and hooks are paths Cartographer owns and excludes, so
+  excluded in `.git/info/exclude` (an existing `.agents/rules/cartographer.md` whose frontmatter lacks
+  `trigger: always_on` is refused and reported as drift, never rewritten, D2051). Skills, agents and hooks are paths Cartographer owns and excludes, so
   they are projected as for an explicit bind. Claude Code registers a derived projection's hooks
   in `.claude/settings.local.json`, the settings layer it reads beside `.claude/settings.json` and
   that a repository does not version, excluded like `CLAUDE.local.md` (both in the first sync's exclude block, whichever other client is projected into the same repository); the confirmation line names that file; never in `.claude/settings.json`

@@ -2607,6 +2607,65 @@ func instructionsFileHeader(provider configurator.Provider, destRel string) stri
 	return ""
 }
 
+// ErrForeignFrontmatter is the refusal for a rules file that already opens
+// with YAML frontmatter lacking what the client needs (Antigravity loads a
+// rule only with `trigger: always_on`). The user's frontmatter is never
+// rewritten (a hand-curated file is not ours): the file is left untouched and
+// reported, and the next sync retries.
+var ErrForeignFrontmatter = errors.New("rules file has frontmatter without the required header")
+
+type frontmatterKind int
+
+const (
+	frontmatterNone    frontmatterKind = iota // the file does not open with frontmatter
+	frontmatterOK                             // it does and carries every key of the header
+	frontmatterForeign                        // it does, without (or with another value for) a key of the header
+)
+
+// frontmatterFields returns the key/value pairs of the YAML frontmatter that
+// opens content (flat "key: value" lines only), and whether content opens
+// with a closed frontmatter block.
+func frontmatterFields(content string) (map[string]string, bool) {
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	if !strings.HasPrefix(content, "---\n") {
+		return nil, false
+	}
+	fields := map[string]string{}
+	for _, line := range strings.Split(content[len("---\n"):], "\n") {
+		if strings.TrimRight(line, " \t") == "---" {
+			return fields, true
+		}
+		k, v, ok := strings.Cut(line, ":")
+		if !ok {
+			continue
+		}
+		if i := strings.Index(v, " #"); i >= 0 {
+			v = v[:i]
+		}
+		fields[strings.TrimSpace(k)] = strings.Trim(strings.TrimSpace(v), `"'`)
+	}
+	return nil, false // opened, never closed
+}
+
+// frontmatterState compares the frontmatter at the head of content with the
+// one header would add.
+func frontmatterState(content, header string) frontmatterKind {
+	if !strings.HasPrefix(strings.ReplaceAll(content, "\r\n", "\n"), "---\n") {
+		return frontmatterNone
+	}
+	have, closed := frontmatterFields(content)
+	if !closed {
+		return frontmatterForeign
+	}
+	want, _ := frontmatterFields(header)
+	for k, v := range want {
+		if have[k] != v {
+			return frontmatterForeign
+		}
+	}
+	return frontmatterOK
+}
+
 // blockBodyIs is blockBodyMatchesHeader with no required file header.
 func blockBodyIs(path, body string) bool {
 	return blockBodyMatchesHeader(path, body, "")
@@ -2614,7 +2673,7 @@ func blockBodyIs(path, body string) bool {
 
 // blockBodyMatchesHeader reports whether the managed block already in path
 // holds exactly body and, when header is non-empty, whether the file already
-// begins with YAML frontmatter ("---"): the same comparison
+// begins with the frontmatter header requires: the same comparison
 // writeInstructionsBlockWithHeaderChanged ends with, without writing.
 func blockBodyMatchesHeader(path, body, header string) bool {
 	data, err := os.ReadFile(path)
@@ -2622,7 +2681,7 @@ func blockBodyMatchesHeader(path, body, header string) bool {
 		return false
 	}
 	content := string(data)
-	if header != "" && !strings.HasPrefix(content, "---\n") {
+	if header != "" && frontmatterState(content, header) != frontmatterOK {
 		return false
 	}
 	next, outcome := replaceBetweenMarkers(content, instructionsBlockBegin+"\n"+body+"\n"+instructionsBlockEnd+"\n")
@@ -3267,8 +3326,13 @@ func writeInstructionsBlockWithHeaderChanged(baseDir, path, body, header string)
 	}
 	content := string(data)
 	base := content
-	if header != "" && !strings.HasPrefix(base, "---\n") {
-		base = header + base
+	if header != "" {
+		switch frontmatterState(content, header) {
+		case frontmatterForeign:
+			return false, fmt.Errorf("%s: %w; left untouched, add `trigger: always_on` to its frontmatter or remove the file", path, ErrForeignFrontmatter)
+		case frontmatterNone:
+			base = header + base
+		}
 	}
 	next, outcome := replaceBetweenMarkers(base, block)
 	switch outcome {
@@ -3340,7 +3404,7 @@ var ErrCorruptedBlock = blocktext.ErrCorruptedBlock
 // (a symlinked destination, D148, or a corrupted marker block) rather than a
 // failure that stops it.
 func IsRefusal(err error) bool {
-	return errors.Is(err, ErrSymlinkDestination) || errors.Is(err, ErrCorruptedBlock) || errors.Is(err, ErrInvalidArtifactFile)
+	return errors.Is(err, ErrSymlinkDestination) || errors.Is(err, ErrCorruptedBlock) || errors.Is(err, ErrInvalidArtifactFile) || errors.Is(err, ErrForeignFrontmatter)
 }
 
 // replaceBlock is replaceBetweenMarkers over an arbitrary marker pair: the
