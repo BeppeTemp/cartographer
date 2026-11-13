@@ -43,7 +43,7 @@ func TestPrintApplySummary_NeverPrintsAControlCharacterRaw(t *testing.T) {
 		Warnings:      []string{"agent " + bad.Name + " not installed"},
 	}}
 	var buf bytes.Buffer
-	printApplySummary(&buf, t.TempDir(), results, false)
+	printApplySummary(&buf, t.TempDir(), results, false, nil)
 	out := buf.String()
 	if strings.ContainsAny(out, "\x1b\x07") || strings.Contains(out, "\nforged") {
 		t.Fatalf("raw control character in the output: %q", out)
@@ -106,7 +106,7 @@ func TestServerChosenTextNeverReachesTheTerminalRaw(t *testing.T) {
 		Warnings:      []string{evil},
 	}}
 	var buf bytes.Buffer
-	printApplySummary(&buf, t.TempDir(), results, false)
+	printApplySummary(&buf, t.TempDir(), results, false, nil)
 	outputs := map[string]string{
 		"printApplySummary": buf.String(),
 		"partialSyncError":  partialSyncError{Failures: []kbPullFailure{{KB: evil, Err: errors.New("x")}}}.Error(),

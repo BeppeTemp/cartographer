@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -64,5 +65,33 @@ func TestCheckMCPVariables(t *testing.T) {
 	checkMCPVariables(&clientconfig.Config{}, func(*clientconfig.Config) (contract.Manifest, error) { called = true; return contract.Manifest{}, nil })
 	if called {
 		t.Error("no approval: the manifest must not be fetched")
+	}
+}
+
+func TestCheckMCPVariables_NeedsNetwork(t *testing.T) {
+	cfg := &clientconfig.Config{}
+	for _, n := range []string{"up", "down"} {
+		if err := cfg.ApproveMCP("kb-a", n, "h1", time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk := func(name, host string) contract.Artifact {
+		return mcpVarsArtifact(name, "h1", `{"type":"http","url":"https://`+host+`/mcp","headers":{"A":"${DOC_TEST_A}"},"requires":"vpn"}`)
+	}
+	fetch := func(*clientconfig.Config) (contract.Manifest, error) {
+		return contract.Manifest{Artifacts: []contract.Artifact{mk("up", "up.example.com"), mk("down", "down.example.com")}}, nil
+	}
+	oldL, oldD := doctorLookupEnv, doctorDial
+	t.Cleanup(func() { doctorLookupEnv, doctorDial = oldL, oldD })
+	doctorLookupEnv = func(string) (string, bool) { return "v", true }
+	doctorDial = func(_ context.Context, u string, _ time.Duration) error {
+		if strings.Contains(u, "down.") {
+			return context.DeadlineExceeded
+		}
+		return nil
+	}
+	f := checkMCPVariables(cfg, fetch)
+	if len(f) != 1 || f[0].Severity != doctorInfo || !strings.Contains(f[0].Message, "kb-a/down needs vpn: unreachable now") {
+		t.Fatalf("findings = %+v, want one info for kb-a/down", f)
 	}
 }

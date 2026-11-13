@@ -229,7 +229,7 @@ func TestPrintApplySummary_WorkspaceDryRunHasNoNUL(t *testing.T) {
 	if len(results) == 0 {
 		t.Fatal("no result")
 	}
-	out := withStdout(t, func() { printApplySummary(os.Stdout, t.TempDir(), results, true) })
+	out := withStdout(t, func() { printApplySummary(os.Stdout, t.TempDir(), results, true, nil) })
 	if out == "" || strings.ContainsRune(out, 0) {
 		t.Fatalf("dry-run output empty or holds a NUL byte: %q", out)
 	}

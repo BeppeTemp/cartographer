@@ -1128,7 +1128,11 @@ func ensureBootstrapRefusals(providers []string, targetDir string, dryRun bool) 
 // when it changes nothing, so reporting those lines in the past tense describes
 // a pass that never happened — precisely when the reader asked to see the plan
 // before committing to it (D147).
-func printApplySummary(wr io.Writer, dir string, results map[string]provisioning.AppliedResult, dryRun bool, notReceived ...map[string][]mcpNotReceived) {
+//
+// notReceived is explicit, not variadic: a caller that has the reasons of the
+// descriptors a client does not receive must pass them, and one that has none
+// says nil, so they cannot be dropped by omission.
+func printApplySummary(wr io.Writer, dir string, results map[string]provisioning.AppliedResult, dryRun bool, notReceived map[string][]mcpNotReceived) {
 	needsMCPApproval := false
 	// "wrote" / "would write", chosen once so every line of the pass agrees.
 	verb := func(done, planned string) string {
@@ -1139,9 +1143,7 @@ func printApplySummary(wr io.Writer, dir string, results map[string]provisioning
 	}
 	printLeftOutCells(wr)
 	// An MCP descriptor a bound client does not receive says why (mcpreach.go).
-	for _, nr := range notReceived {
-		printMCPNotReceived(wr, nr, dryRun)
-	}
+	printMCPNotReceived(wr, notReceived, dryRun)
 	for _, key := range sortedKeys(results) {
 		r := results[key]
 		p := projectionLabel(key)

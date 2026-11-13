@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/url"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -56,9 +57,10 @@ func Classify(err error) Kind {
 	if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &ne) && ne.Timeout()) {
 		return KindTimeout
 	}
-	// The text is the fallback for Windows, where the errno of a refused connection
-	// is not syscall.ECONNREFUSED.
-	if errors.Is(err, syscall.ECONNREFUSED) || strings.Contains(err.Error(), "refused") {
+	// Windows reports WSAECONNREFUSED (10061), not syscall.ECONNREFUSED, and its
+	// text is localized, so the number is what is compared there.
+	var errno syscall.Errno
+	if errors.Is(err, syscall.ECONNREFUSED) || (errors.As(err, &errno) && errno == 10061) {
 		return KindRefused
 	}
 	if strings.HasPrefix(err.Error(), "tls:") || strings.Contains(err.Error(), "tls: ") {
@@ -115,4 +117,40 @@ func Dial(ctx context.Context, rawURL string, timeout time.Duration) error {
 	}
 	tc := tls.Client(conn, &tls.Config{ServerName: u.Hostname(), MinVersion: tls.VersionTLS12})
 	return tc.HandshakeContext(ctx)
+}
+
+// Blocked reports whether err means the host did not answer: DNS, refused or a
+// silent drop. It is the case a `requires` label words as "needs <network>"; a
+// TLS fault is the server's, not the network's.
+func Blocked(err error) bool {
+	switch Classify(err) {
+	case KindDNS, KindRefused, KindTimeout:
+		return true
+	}
+	return false
+}
+
+// ReachTimeout is the total bound of the quick check doctor and status make for
+// the descriptors that declare a network: all dials run in parallel, so a
+// network that is down costs this once, never 15 s per descriptor.
+const ReachTimeout = 2 * time.Second
+
+// BlockedAll dials every URL in parallel within timeout (0 means ReachTimeout)
+// and reports for each whether the host did not answer. dial is Dial in
+// production.
+func BlockedAll(ctx context.Context, urls []string, timeout time.Duration, dial func(context.Context, string, time.Duration) error) []bool {
+	if timeout <= 0 {
+		timeout = ReachTimeout
+	}
+	out := make([]bool, len(urls))
+	var wg sync.WaitGroup
+	for i, u := range urls {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			out[i] = Blocked(dial(ctx, u, timeout))
+		}()
+	}
+	wg.Wait()
+	return out
 }

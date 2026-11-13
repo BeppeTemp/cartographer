@@ -258,3 +258,18 @@ func TestResolveDropsInheritedKeysTheDescriptorSets(t *testing.T) {
 		}
 	}
 }
+
+// Pieces lists each substituted value alone, so a caller can scrub the bare
+// token of "Bearer <token>" and not only the composed header.
+func TestLaunchPiecesAreTheBareSubstitutions(t *testing.T) {
+	desc := `{"type":"http","url":"https://svc.example.com/mcp","headers":{"Authorization":"Bearer ${secret:services/svc#TOKEN}","X":"${HOST_VAR}"}}`
+	d := newDeps(desc)
+	l, err := Resolve(context.Background(), d, "kb-a/svc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(l.Pieces(), ",")
+	if !strings.Contains(got, planted) || !strings.Contains(got, "hv") || strings.Contains(got, "Bearer") {
+		t.Errorf("Pieces = %q, want the bare secret and the bare variable value", got)
+	}
+}

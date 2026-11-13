@@ -249,3 +249,27 @@ func TestMCPEnvRefs(t *testing.T) {
 		t.Error("a descriptor with no reference lists none")
 	}
 }
+
+func TestParseMCPServerSpec_Requires(t *testing.T) {
+	const http = `{"type":"http","url":"https://example.com/mcp","headers":{"A":"${X}"},"requires":`
+	for _, c := range []struct{ name, json, wantErr string }{
+		{"label", http + `"vpn"}`, ""},
+		{"label with dots", http + `"office-lan.1"}`, ""},
+		{"space", http + `"my vpn"}`, "short label"},
+		{"leading dash", http + `"-vpn"}`, "short label"},
+		{"stdio", `{"type":"stdio","command":"srv","requires":"vpn"}`, "no host to reach"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			spec, err := parseMCPServerSpec("srv", []byte(c.json))
+			if c.wantErr == "" {
+				if err != nil || spec.Requires == "" {
+					t.Fatalf("spec %+v, err %v", spec, err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), c.wantErr) {
+				t.Fatalf("error = %v, want %q", err, c.wantErr)
+			}
+		})
+	}
+}

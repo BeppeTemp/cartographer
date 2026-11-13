@@ -207,6 +207,9 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 			if a.HeldReason != "" {
 				fmt.Printf("    held for approval: %s\n", escapeControl(a.HeldReason))
 			}
+			if a.Reach == "needs_network" {
+				fmt.Printf("    needs %s: unreachable now\n", escapeControl(a.Needs))
+			}
 			if a.Kind == "hook" {
 				printHookRegistrationHint(p.Name, a, "new hook")
 			}
@@ -219,6 +222,9 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 			}
 			if a.HeldReason != "" {
 				fmt.Printf("    held for approval: %s\n", escapeControl(a.HeldReason))
+			}
+			if a.Reach == "needs_network" {
+				fmt.Printf("    needs %s: unreachable now\n", escapeControl(a.Needs))
 			}
 			if a.Kind == "hook" {
 				printHookRegistrationHint(p.Name, a, "hook updated")

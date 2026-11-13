@@ -525,7 +525,7 @@ func TestPrintApplySummary_DryRunSpeaksInTheConditional(t *testing.T) {
 		},
 	}
 
-	dry := withStdout(t, func() { printApplySummary(os.Stdout, t.TempDir(), results, true) })
+	dry := withStdout(t, func() { printApplySummary(os.Stdout, t.TempDir(), results, true, nil) })
 	for _, want := range []string{"would write", "would prune", "would restore"} {
 		if !strings.Contains(dry, want) {
 			t.Errorf("dry run output = %q, want it to contain %q", dry, want)
@@ -537,7 +537,7 @@ func TestPrintApplySummary_DryRunSpeaksInTheConditional(t *testing.T) {
 		}
 	}
 
-	real := withStdout(t, func() { printApplySummary(os.Stdout, t.TempDir(), results, false) })
+	real := withStdout(t, func() { printApplySummary(os.Stdout, t.TempDir(), results, false, nil) })
 	for _, want := range []string{"] wrote ", "] pruned ", "] restored "} {
 		if !strings.Contains(real, want) {
 			t.Errorf("real run output = %q, want it to contain %q", real, want)
@@ -1563,7 +1563,7 @@ func TestPrintApplySummary_DegradedSkippedUnverified(t *testing.T) {
 		},
 		"claude": {Written: []provisioning.ManagedFile{{Kind: "skill", Name: "a", Path: ".claude/skills/a/SKILL.md"}}},
 	}
-	real := withStdout(t, func() { printApplySummary(os.Stdout, t.TempDir(), results, false) })
+	real := withStdout(t, func() { printApplySummary(os.Stdout, t.TempDir(), results, false, nil) })
 	for _, want := range []string{
 		"[crush] degraded: agent/x -> skill/x\n",
 		"[crush] skipped: skill/y requires agent/x (skipped: strict_tools)\n",
@@ -1576,7 +1576,7 @@ func TestPrintApplySummary_DegradedSkippedUnverified(t *testing.T) {
 	if strings.Contains(real, "[claude] degraded") || strings.Contains(real, "[claude] skipped") || strings.Contains(real, "[claude] unverified") {
 		t.Errorf("a client with nothing to report prints no such line: %q", real)
 	}
-	dry := withStdout(t, func() { printApplySummary(os.Stdout, t.TempDir(), results, true) })
+	dry := withStdout(t, func() { printApplySummary(os.Stdout, t.TempDir(), results, true, nil) })
 	for _, want := range []string{"[crush] would degrade: agent/x -> skill/x", "[crush] would skip: skill/y requires"} {
 		if !strings.Contains(dry, want) {
 			t.Errorf("dry run output = %q, want %q", dry, want)
@@ -1594,7 +1594,7 @@ func TestPrintApplySummary_ReportLinesAreSanitised(t *testing.T) {
 			Skipped:  []provisioning.SkippedNote{{Artifact: "skill/y", Reason: "requires unreadable: " + long}},
 		},
 	}
-	out := withStdout(t, func() { printApplySummary(os.Stdout, t.TempDir(), results, false) })
+	out := withStdout(t, func() { printApplySummary(os.Stdout, t.TempDir(), results, false, nil) })
 	if strings.ContainsAny(out, "\x1b\x07") {
 		t.Errorf("control runes reached the output: %q", out)
 	}
@@ -1643,7 +1643,7 @@ func TestPrintApplySummary_UnresolvedPlaceholderWarningKeepsItsLines(t *testing.
 			}},
 		},
 	}
-	out := withStdout(t, func() { printApplySummary(os.Stdout, t.TempDir(), results, false) })
+	out := withStdout(t, func() { printApplySummary(os.Stdout, t.TempDir(), results, false, nil) })
 	if strings.Contains(out, `\n`) {
 		t.Errorf("output = %q, want no literal \\n", out)
 	}

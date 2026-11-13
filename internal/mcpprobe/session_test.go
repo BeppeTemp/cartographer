@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -21,6 +24,19 @@ func TestMain(m *testing.M) {
 		if err := fakeServer().Run(context.Background(), &mcp.StdioTransport{}); err != nil {
 			os.Exit(1)
 		}
+		os.Exit(0)
+	case "spawn":
+		// A server that starts a grandchild (npx starts node) and never answers.
+		gc := exec.Command(os.Args[0])
+		gc.Env = append(os.Environ(), "PROBE_HELPER=sleep")
+		if err := gc.Start(); err != nil {
+			os.Exit(1)
+		}
+		_ = os.WriteFile(os.Getenv("PROBE_PIDFILE"), []byte(strconv.Itoa(gc.Process.Pid)), 0o600)
+		time.Sleep(5 * time.Minute)
+		os.Exit(0)
+	case "sleep":
+		time.Sleep(5 * time.Minute)
 		os.Exit(0)
 	case "die":
 		os.Stderr.WriteString("starting\nboom: token=sekrit-value rejected\n")
@@ -95,5 +111,28 @@ func TestTailBufferKeepsTheLastLines(t *testing.T) {
 	b.Write([]byte("a\nb\nc\npart"))
 	if got := b.String(); got != "b\nc\npart" {
 		t.Errorf("tail = %q", got)
+	}
+}
+
+// A timeout takes the grandchild down with the child: it holds the secrets in
+// its environment and must not outlive the probe.
+func TestRunTimeoutKillsTheGrandchild(t *testing.T) {
+	exe, _ := os.Executable()
+	pidFile := filepath.Join(t.TempDir(), "pid")
+	_, err := Run(context.Background(), Target{Command: exe, Env: append(os.Environ(), "PROBE_HELPER=spawn", "PROBE_PIDFILE="+pidFile)}, 1500*time.Millisecond, nil)
+	if err == nil {
+		t.Fatal("a server that never answers must time out")
+	}
+	b, rerr := os.ReadFile(pidFile)
+	if rerr != nil {
+		t.Fatalf("the helper did not start its grandchild: %v", rerr)
+	}
+	pid, _ := strconv.Atoi(string(b))
+	deadline := time.Now().Add(5 * time.Second)
+	for processAlive(pid) {
+		if time.Now().After(deadline) {
+			t.Fatalf("grandchild %d is still running after the probe returned", pid)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }

@@ -68,6 +68,10 @@ connects with a direct URL (this page) sees only Meridian's tools, with or witho
 
 An entry written by `cartographer connect` or `sync` carries `provisioned=1`: that client has the managed instructions block, so it receives no guide in `initialize`. A URL copied from such an entry into a generic host loses the guide. See [transport-auth.md](transport-auth.md) and [sync.md](sync.md).
 
+## Diagnose a descriptor with `mcp probe`
+
+For an MCP server provisioned from a KB (`mcp/<slug>.json`), `cartographer mcp probe <kb>/<slug>` answers "Connection closed" without a client: the `${VAR}` references unset in the shell that runs it, then DNS, TCP and TLS for an `http` descriptor, then one MCP session (`initialize`, `tools/list`) started the way `mcp exec` starts it. It sees the environment of its own process, not the client's: a client started from the dock or another shell may see other variables, and the report says so. A `${secret:...}` is the launcher's, never listed as an unresolved variable. A descriptor with `requires: <label>` whose host does not answer reads `needs <label>`. Exit codes: `0` ok, `1` the server answered but is not usable, `2` usage, not found, ambiguous or not approved, `3` unresolved `${VAR}`, `4` network (DNS, refused, timeout), `5` TLS. Values are never printed; a timeout kills the child and every process below it. Details: [configurator.md](configurator.md), why: [D2042](decisions/D2042-mcp-probe-and-requires.md).
+
 ## Check it with `curl`
 
 ```bash

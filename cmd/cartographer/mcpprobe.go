@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/signal"
 	"sort"
@@ -151,6 +152,9 @@ func cmdMCPProbe(args []string) int {
 	if len(res.Unresolved) == 0 && res.Net == "" {
 		probeRunSession(&res, kb, a.Name, timeout)
 	}
+	if spec.Requires != "" && (res.Net == mcpprobe.KindDNS || res.Net == mcpprobe.KindRefused || res.Net == mcpprobe.KindTimeout) {
+		res.Needs = spec.Requires
+	}
 	code := mcpprobe.ExitCode(res)
 	if asJSON {
 		out, _ := json.Marshal(res)
@@ -167,6 +171,9 @@ func printProbe(w io.Writer, kb, name string, r mcpprobe.Result) {
 	fmt.Fprintf(w, "probe %s/%s\ntransport: %s\ntarget: %s\n", escapeControl(kb), escapeControl(name), escapeControl(r.Transport), escapeControl(r.Target))
 	if len(r.Unresolved) > 0 {
 		fmt.Fprintf(w, "unresolved: %s (unset in this shell; a client started from another shell or the dock may differ)\n", escapeControl(strings.Join(r.Unresolved, ", ")))
+	}
+	if r.Needs != "" {
+		fmt.Fprintf(w, "needs %s: %s did not answer (%s)\n", escapeControl(r.Needs), escapeControl(hostOf(r.Target)), r.Net)
 	}
 	if r.Net != "" {
 		fmt.Fprintf(w, "network: %s: %s\n", r.Net, escapeControl(r.Detail))
@@ -202,26 +209,23 @@ func probeRunSession(r *mcpprobe.Result, kb, slug string, timeout time.Duration)
 	}
 	t := mcpprobe.Target{Command: l.Command, Args: l.Args, Env: l.Env, URL: l.URL, Headers: l.Headers}
 	r.Via = "cartographer mcp exec resolution (in process)"
-	// Scrub every value the launch resolved from the text of an error.
-	var secrets []string
+	// Scrub every value the launch resolved: each substituted piece alone (the
+	// bare token of "Bearer <token>" shows up in a child's stderr or a response
+	// body) and the composed env and header values.
+	secrets := l.Pieces()
 	for k := range l.Spec.Env {
 		for _, e := range l.Env {
-			if n, v, ok := strings.Cut(e, "="); ok && n == k && v != "" {
+			if n, v, ok := strings.Cut(e, "="); ok && n == k {
 				secrets = append(secrets, v)
 			}
 		}
 	}
 	for k, v := range l.Headers {
-		if v != "" && strings.Contains(l.Spec.Headers[k], "${") {
+		if strings.Contains(l.Spec.Headers[k], "${") {
 			secrets = append(secrets, v)
 		}
 	}
-	scrub := func(s string) string {
-		for _, v := range secrets {
-			s = strings.ReplaceAll(s, v, "<redacted>")
-		}
-		return s
-	}
+	scrub := mcpprobe.NewScrub(secrets)
 	info, err := probeSession(ctx, t, timeout, scrub)
 	if err != nil {
 		if k := mcpprobe.SessionKind(err); k == mcpprobe.KindDNS || k == mcpprobe.KindRefused || k == mcpprobe.KindTimeout || k == mcpprobe.KindTLSUnknownAuthority || k == mcpprobe.KindTLSOther {
@@ -237,4 +241,12 @@ func probeRunSession(r *mcpprobe.Result, kb, slug string, timeout time.Duration)
 		r.Server += " " + info.Version
 	}
 	r.ToolNames = info.Tools[:min(len(info.Tools), mcpprobe.MaxToolNames)]
+}
+
+// hostOf is the host of an approved endpoint, for a line that names it.
+func hostOf(target string) string {
+	if u, err := url.Parse(target); err == nil && u.Host != "" {
+		return u.Host
+	}
+	return target
 }

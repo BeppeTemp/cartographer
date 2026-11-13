@@ -310,7 +310,7 @@ func TestRegisterPluginProvidersSaysTheCellItLeftOut(t *testing.T) {
 	results := map[string]provisioning.AppliedResult{
 		"claude": {Written: []provisioning.ManagedFile{{Kind: "skill", Name: "runbooks", Path: ".claude/skills/runbooks/SKILL.md"}}},
 	}
-	out := withStdout(t, func() { printApplySummary(os.Stdout, home, results, false) })
+	out := withStdout(t, func() { printApplySummary(os.Stdout, home, results, false, nil) })
 	if n := strings.Count(out, "[fork-cli] warning: cell left out: paths.global.skill.dir"); n != 1 || !strings.Contains(out, "[claude] wrote") {
 		t.Errorf("sync warning printed %d times, or the summary is missing:\n%s", n, out)
 	}
