@@ -74,7 +74,7 @@ func TestMCPRegisterAndRemove_RefuseALinkedDirectoryAndNoOpIsNotARefusal(t *test
 		t.Run(string(provider), func(t *testing.T) {
 			// A scratch home holding our entry is the link target.
 			target := t.TempDir()
-			rel, _, err := registerMCPServer(target, "wiki", spec, provider, contract.ScopeGlobal)
+			rel, _, err := registerMCPServer(target, "wiki", spec, provider, contract.ScopeGlobal, 0)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -92,7 +92,7 @@ func TestMCPRegisterAndRemove_RefuseALinkedDirectoryAndNoOpIsNotARefusal(t *test
 			linkFirstComponent(t, base, rel, filepath.Join(elsewhere, first))
 			before := treeOf(t, elsewhere)
 
-			if _, _, err := registerMCPServer(base, "other", spec, provider, contract.ScopeGlobal); !errors.Is(err, ErrSymlinkDestination) {
+			if _, _, err := registerMCPServer(base, "other", spec, provider, contract.ScopeGlobal, 0); !errors.Is(err, ErrSymlinkDestination) {
 				t.Errorf("registerMCPServer = %v, want ErrSymlinkDestination", err)
 			}
 			if err := removeMCPServer(base, "wiki", provider, filepath.ToSlash(rel)); !errors.Is(err, ErrSymlinkDestination) {

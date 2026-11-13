@@ -1343,7 +1343,7 @@ name (and its bindings) in memory, `sync`/`connect`/`status`/`doctor` print once
 | Claude Code | `.claude.json` (also `<dir>/.claude.json` for each `providers.claude.config_dirs`, D755) | `mcpServers` (JSON) |
 | Codex CLI | `.codex/config.toml` | managed block `[mcp_servers.cartographer]` (TOML, marker `cartographer:mcp:*`) |
 | Kiro | `.kiro/settings/mcp.json` | `mcpServers` (JSON) |
-| OpenCode | `.config/opencode/opencode.json` (an entry left in `opencode.json` by an earlier version is moved, #1172) | `mcp` (JSON) |
+| OpenCode | `.config/opencode/opencode.json` (an entry left in `opencode.json` by an earlier version is moved, #1172) | `mcp.servers.<name>` (2.x; the V1 `mcp.<name>` on 1.x) |
 | Google Antigravity | `.gemini/config/mcp_config.json` | `mcpServers` (JSON) |
 | Crush | `.config/crush/crush.json` | `mcp` (JSON) |
 | GitHub Copilot (CLI, VS Code) | `.copilot/mcp-config.json` | `mcpServers` (JSON) |
@@ -1352,7 +1352,8 @@ name (and its bindings) in memory, `sync`/`connect`/`status`/`doctor` print once
 
 KB-provided stdio descriptors (D116) share these same files with per-name ownership. Claude Code,
 Codex and Kiro receive native `command`, `args` and `env` fields (Kiro also keeps `autoApprove: []`);
-OpenCode uses `type: "local"`, an ordered command array and `environment` with `{env:VAR}` references;
+OpenCode uses `type: "local"`, an ordered command array and `environment` with `{env:VAR}` references,
+under `mcp.servers` (D2056);
 Crush uses `type: "stdio"` with a string `command` plus a separate `args` array.
 Copilot (CLI and VS Code) uses `type: "stdio"` with `command`, `args` and `env`, and every entry carries `"tools": ["*"]`.
 Pi has no `type` key (it infers the transport); Cartographer's own entry carries `toolExposure` for the entry tools and no `exposure` (below).
@@ -1426,34 +1427,42 @@ the next `blocktext.Write` cannot destroy it; each relocation is reported as its
 }
 ```
 
-**OpenCode** (schema: https://opencode.ai/config.json):
+**OpenCode** (schema: https://opencode.ai/config.json) — 2.x, the shape `opencode mcp add`
+writes and the client reads natively (D2056):
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
-    "cartographer": {
-      "type": "remote",
-      "url": "http://127.0.0.1:39273/mcp",
-      "enabled": true
+    "servers": {
+      "cartographer": {
+        "type": "remote",
+        "url": "http://127.0.0.1:39273/mcp"
+      }
     }
   }
 }
 ```
 
-**OpenCode** — with auth (OpenCode's native `{env:VAR}` syntax):
+**OpenCode** — with auth (OpenCode's native `{env:VAR}` syntax; the header disables OAuth):
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
-    "cartographer": {
-      "type": "remote",
-      "url": "http://127.0.0.1:39273/mcp",
-      "enabled": true,
-      "headers": { "Authorization": "Bearer {env:CARTOGRAPHER_TOKENS}" }
+    "servers": {
+      "cartographer": {
+        "type": "remote",
+        "url": "http://127.0.0.1:39273/mcp",
+        "headers": { "Authorization": "Bearer {env:CARTOGRAPHER_TOKENS}" },
+        "oauth": false
+      }
     }
   }
 }
 ```
+
+**OpenCode 1.x** gets the V1 flat map instead, `mcp.<name>` with `"enabled": true`; 2.x still
+normalizes it on load, so a file an older Cartographer wrote keeps working until the next `sync`
+converges it on the native shape above.
 
 > **Known risk**: OpenCode is SSE-first and support for custom headers on a remote MCP
 > may require `mcp-remote`/`mcp-auth.json`.
@@ -1592,7 +1601,7 @@ The formats above are generated from the same provider-neutral core,
 thin wrapper around `EmitServer(cfg.Name, cfg.toSpec(), provider)`. The same `EmitServer` is
 reused by `internal/provisioning` to materialize the third-party MCP servers a KB
 distributes (`mcp/<name>.json`, kind `mcp`) — not Cartographer's own entry, but any
-server, with per-name ownership in the same file (`mcpServers.<name>`/`mcp.<name>`/block
+server, with per-name ownership in the same file (`mcpServers.<name>`/`mcp.servers.<name>`/block
 `[mcp_servers.<name>]` marked `# cartographer:mcp:<name>:begin/end`). Details →
 `docs/sync.md` §MCP servers.
 

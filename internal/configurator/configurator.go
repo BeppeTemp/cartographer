@@ -153,12 +153,43 @@ type EmitResult struct {
 	viaGlob bool
 }
 
+// EmitOptions carries the client facts the provider-neutral ServerSpec cannot:
+// today only the installed OpenCode's major version, because its two majors read
+// a different shape of the same MCP section (D2056).
+type EmitOptions struct {
+	// OpenCodeMajor is the installed OpenCode's major version, 0 when it could
+	// not be read: 2 and later read the native "mcp"."servers", 1.x the V1 flat
+	// "mcp". Unknown writes the newest shape, as D719 does for the hook plugin.
+	OpenCodeMajor int
+}
+
+// EmitOption sets one field of EmitOptions. The variadic form keeps every caller
+// that knows nothing about the client at the native shape, the one a current
+// client reads.
+type EmitOption func(*EmitOptions)
+
+// ForOpenCodeMajor records the installed OpenCode's major version.
+func ForOpenCodeMajor(major int) EmitOption {
+	return func(o *EmitOptions) { o.OpenCodeMajor = major }
+}
+
+// emitOptions folds the options of one call; none means the native shapes.
+func emitOptions(opts []EmitOption) EmitOptions {
+	var o EmitOptions
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&o)
+		}
+	}
+	return o
+}
+
 // Emit generates the configuration for Cartographer's own MCP entry (cfg) for
 // the specified provider — a thin wrapper over EmitServer (see ServerSpec/
 // toSpec above), kept so `cartographer connect` and configurator's own
 // Apply/Remove don't need to know about ServerSpec at all.
-func Emit(cfg *ServerConfig, provider Provider) (*EmitResult, error) {
-	return EmitServer(cfg.Name, cfg.toSpec(), provider)
+func Emit(cfg *ServerConfig, provider Provider, opts ...EmitOption) (*EmitResult, error) {
+	return EmitServer(cfg.Name, cfg.toSpec(), provider, opts...)
 }
 
 // EmitServer generates the config file contents that materialize an MCP server
@@ -166,7 +197,7 @@ func Emit(cfg *ServerConfig, provider Provider) (*EmitResult, error) {
 // Emit (Cartographer's own entry) and internal/provisioning's "mcp" artifact
 // kind (D69, third-party servers distributed by a KB — see
 // internal/provisioning/mcpsettings.go, registerMCPServer/removeMCPServer).
-func EmitServer(name string, spec ServerSpec, provider Provider) (*EmitResult, error) {
+func EmitServer(name string, spec ServerSpec, provider Provider, opts ...EmitOption) (*EmitResult, error) {
 	if err := validateServerSpec(name, spec); err != nil {
 		return nil, err
 	}
@@ -174,7 +205,7 @@ func EmitServer(name string, spec ServerSpec, provider Provider) (*EmitResult, e
 	if !ok {
 		return nil, fmt.Errorf("unknown provider: %s", provider)
 	}
-	return d.emit(name, spec)
+	return d.emit(name, spec, emitOptions(opts))
 }
 
 // serverNamePattern is what a server name may be, so that the JSON and TOML
@@ -345,14 +376,14 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 		// Non-JSON files (e.g. SKILL.md) are always overwritten.
 		if filepath.Ext(fullPath) == ".json" {
 			if existing, err := os.ReadFile(fullPath); err == nil {
-				merged, mergeErr := mergeJSON(existing, r.Content)
+				merged, mergeErr := mergeJSON(existing, r.Content, r.Provider)
 				if mergeErr != nil {
 					return written, fmt.Errorf("existing file %s is not valid JSON: %w — fix or delete it manually", fullPath, mergeErr)
 				}
 				content = merged
 				var cur map[string]any
 				if json.Unmarshal(existing, &cur) == nil {
-					names := ServerNamesIn(cur)
+					names := ServerNamesIn(cur, r.Provider)
 					if err := ReconcileCreated(absoluteBaseDir, r.FilePath, func(o string) bool { return names[o] }); err != nil {
 						return written, fmt.Errorf("record %s: %w", fullPath, err)
 					}
@@ -396,7 +427,7 @@ func noteEmitted(baseDir string, r *EmitResult, created bool) error {
 	if json.Unmarshal(r.Content, &root) != nil {
 		return nil
 	}
-	for name := range ServerNamesIn(root) {
+	for name := range ServerNamesIn(root, r.Provider) {
 		if err := NoteOwner(baseDir, r.FilePath, name, created); err != nil {
 			return err
 		}
@@ -416,12 +447,7 @@ func migrateLegacyOpenCode(r *EmitResult, baseDir string, dryRun bool) {
 	if json.Unmarshal(r.Content, &root) != nil {
 		return
 	}
-	servers, _ := root["mcp"].(map[string]any)
-	names := make([]string, 0, len(servers))
-	for name := range servers {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := MCPServerNames(root, ProviderOpenCode)
 	for _, name := range names {
 		removed, err := removeLegacyOpenCodeEntry(name, baseDir, dryRun)
 		switch {
@@ -455,11 +481,7 @@ func removeLegacyOpenCodeEntry(name, baseDir string, dryRun bool) (bool, error) 
 	if err := json.Unmarshal(data, &root); err != nil {
 		return false, nil
 	}
-	servers, ok := root["mcp"].(map[string]any)
-	if !ok {
-		return false, nil
-	}
-	if _, ok := servers[name]; !ok {
+	if _, found := MCPServerEntry(root, ProviderOpenCode, name); !found {
 		return false, nil
 	}
 	if err := safewrite.CheckPath(baseDir, legacyPath); err != nil {
@@ -468,10 +490,7 @@ func removeLegacyOpenCodeEntry(name, baseDir string, dryRun bool) (bool, error) 
 	if dryRun {
 		return true, nil
 	}
-	delete(servers, name)
-	if len(servers) == 0 {
-		delete(root, "mcp")
-	}
+	RemoveMCPServer(root, ProviderOpenCode, name)
 	if isEmptyProviderShell(root) {
 		return true, safewrite.Remove(baseDir, legacyPath)
 	}
@@ -484,12 +503,6 @@ func removeLegacyOpenCodeEntry(name, baseDir string, dryRun bool) (bool, error) 
 	}
 	return true, nil
 }
-
-// mcpServerKeys are the top-level JSON keys used by provider config files to hold
-// the map of MCP server entries: "mcpServers" (claude/codex/kiro) or "mcp"
-// (opencode). Kept as a lookup list (checked both ways) rather than a
-// provider-specific switch so Remove doesn't need to special-case OpenCode.
-var mcpServerKeys = []string{"mcpServers", "mcp"}
 
 // Remove deletes the MCP server entry named cfg.Name from provider's config file
 // in baseDir — the inverse of Apply's non-destructive merge: it reads the
@@ -579,30 +592,11 @@ func removeEntryAt(cfg *ServerConfig, provider Provider, baseDir, relPath string
 		return false, fmt.Errorf("existing file %s is not valid JSON: %w — fix or delete it manually", fullPath, err)
 	}
 
-	found := false
-	for _, key := range mcpServerKeys {
-		servers, ok := root[key].(map[string]any)
-		if !ok {
-			continue
-		}
-		if _, ok := servers[cfg.Name]; !ok {
-			continue
-		}
-		found = true
-		if !dryRun {
-			delete(servers, cfg.Name)
-			// Drop the (now empty) server-map key entirely rather than leave
-			// an empty "mcpServers": {}/"mcp": {} shell — mirrors Apply's own
-			// non-destructive-merge spirit in reverse: for claude.json this is
-			// as far as file-level cleanup ever goes (see the ProviderClaudeCode
-			// guard below); for kiro/opencode it also feeds isEmptyProviderShell.
-			if len(servers) == 0 {
-				delete(root, key)
-			} else {
-				root[key] = servers
-			}
-		}
-	}
+	// The entry may sit in any shape the provider reads (OpenCode's native
+	// "mcp"."servers" and, for a file an older Cartographer wrote, the V1 flat
+	// "mcp"): removing it from one and leaving the other would keep the server
+	// connected (D2056).
+	found := RemoveMCPServer(root, provider, cfg.Name)
 	if !found {
 		return false, nil
 	}
@@ -733,7 +727,7 @@ func removeLegacyCodexJSON(name, baseDir string, dryRun bool) (bool, error) {
 // mergeJSON deep-merges incoming JSON into existing JSON at the top map level.
 // Returns an error if existing is malformed JSON (user must fix or delete the file).
 // If incoming cannot be parsed, incoming bytes are returned as-is.
-func mergeJSON(existing, incoming []byte) ([]byte, error) {
+func mergeJSON(existing, incoming []byte, provider Provider) ([]byte, error) {
 	// Ordered, in the file's own layout (#1502): key order, indent, CRLF, the
 	// final newline and number digits survive the merge.
 	existMap, layout, err := jsonorder.Parse(existing)
@@ -746,17 +740,17 @@ func mergeJSON(existing, incoming []byte) ([]byte, error) {
 	}
 	// A server entry is replaced whole: merging into the old one would keep a
 	// removed header, command/args after a transport change, and would unite
-	// the old and new args. The merge stays at the level of the server map.
-	for _, key := range mcpServerKeys {
-		src, srcOK := incomMap[key].(map[string]any)
-		dst, dstOK := existMap[key].(map[string]any)
-		if !srcOK || !dstOK {
-			continue
+	// the old and new args. MergeMCPEmission merges at the level of the server
+	// map, in every shape the provider reads, and removes an older shape of the
+	// same name so it cannot shadow what was just written (D2056).
+	MergeMCPEmission(existMap, incomMap, provider)
+	// The server maps are consumed: drop them from the incoming object so the
+	// deep merge below does not reintroduce a sibling shape.
+	for _, path := range mcpServerPaths(provider) {
+		if parent := mapAt(incomMap, path[:len(path)-1]); parent != nil {
+			delete(parent, path[len(path)-1])
+			pruneEmptyMaps(incomMap, path)
 		}
-		for name, entry := range src {
-			dst[name] = entry
-		}
-		delete(incomMap, key)
 	}
 	jsonDeepMerge(existMap, incomMap)
 	return jsonorder.Marshal(existMap, layout)
@@ -804,7 +798,7 @@ func jsonDeepMerge(dst, src map[string]any) {
 // emitClaudeCodeServer generates the .claude.json entry for name/spec (Claude
 // Code format). Header values are passed through verbatim: Claude Code natively
 // resolves "${VAR}" against its own environment.
-func emitClaudeCodeServer(name string, spec ServerSpec) (*EmitResult, error) {
+func emitClaudeCodeServer(name string, spec ServerSpec, _ EmitOptions) (*EmitResult, error) {
 	entry := map[string]any{}
 	switch spec.Type {
 	case "http":
@@ -846,7 +840,7 @@ func emitClaudeCodeServer(name string, spec ServerSpec) (*EmitResult, error) {
 // Copilot expands "${VAR}" in a header value from its own environment, like
 // Claude Code. "tools":["*"] is not optional: without it a non-interactive
 // session is offered no tool of the server.
-func emitCopilotServer(name string, spec ServerSpec) (*EmitResult, error) {
+func emitCopilotServer(name string, spec ServerSpec, _ EmitOptions) (*EmitResult, error) {
 	entry := map[string]any{}
 	switch spec.Type {
 	case "http":
@@ -920,7 +914,7 @@ var bearerEnvPattern = regexp.MustCompile(`^Bearer \$\{([A-Za-z_][A-Za-z0-9_]*)\
 //
 // Before D58, this wrote .codex/config.json with a "mcpServers" key — a format
 // Codex CLI never actually reads (it only reads config.toml); see D58.
-func emitCodexServer(name string, spec ServerSpec) (*EmitResult, error) {
+func emitCodexServer(name string, spec ServerSpec, _ EmitOptions) (*EmitResult, error) {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "[mcp_servers.%s]\n", name)
 	if spec.Type == "stdio" {
@@ -1044,7 +1038,7 @@ func QuoteTOMLMultiline(s string) string {
 // D69's note on internal/provisioning surfacing a Warning for
 // KB-sourced servers that need it, since Cartographer's own entry never has
 // relied on Kiro auth headers either).
-func emitKiroServer(name string, spec ServerSpec) (*EmitResult, error) {
+func emitKiroServer(name string, spec ServerSpec, _ EmitOptions) (*EmitResult, error) {
 	entry := map[string]any{"autoApprove": []string{}}
 	switch spec.Type {
 	case "http":
@@ -1096,17 +1090,31 @@ const (
 	openCodeLegacyConfigPath = "opencode.json"
 )
 
-// emitOpenCodeServer generates the opencode.json entry for name/spec (OpenCode
-// v1.17.10 format, schema: https://opencode.ai/config.json).
+// emitOpenCodeServer generates the opencode.json entry for name/spec (schema:
+// https://opencode.ai/config.json), in the shape the installed major reads
+// (D2056):
+//
+//   - 2.x and an unreadable version (the newest shape, D719): the native
+//     "mcp"."servers" object, with no "enabled" (2.x uses the inverse
+//     "disabled", and an enabled entry is the default). An entry carrying a
+//     header credential also sets "oauth": false, so the client does not start
+//     an authorization flow the server cannot serve.
+//   - 1.x: the V1 flat "mcp"."<name>" object, with "enabled": true.
+//
+// OpenCode 2.x still reads the V1 shape by normalizing it in memory, which is
+// why a file an older Cartographer wrote keeps working; the native shape is what
+// OpenCode writes itself, and a file holding both must converge on it
+// (MergeMCPEmission).
 //
 // Note: OpenCode uses the {env:VAR} syntax for environment variables (unlike the
-// ${VAR} of the other providers) — every "${VAR}" reference in spec.Headers
-// values is translated here.
+// ${VAR} of the other providers) — every "${VAR}" reference in spec.Headers and
+// spec.Env values is translated here.
 // Known risk: OpenCode is SSE-first and custom-header support on remote MCP may
 // require mcp-remote/mcp-auth.json; see docs/interoperability.md §Known
 // configurator risks.
-func emitOpenCodeServer(name string, spec ServerSpec) (*EmitResult, error) {
-	entry := map[string]any{"enabled": true}
+func emitOpenCodeServer(name string, spec ServerSpec, opts EmitOptions) (*EmitResult, error) {
+	legacy := opts.OpenCodeMajor == 1
+	entry := map[string]any{}
 	switch spec.Type {
 	case "http":
 		entry["type"] = "remote"
@@ -1130,13 +1138,17 @@ func emitOpenCodeServer(name string, spec ServerSpec) (*EmitResult, error) {
 			headers[k] = envRefPattern.ReplaceAllString(v, "{env:$1}")
 		}
 		entry["headers"] = headers
+		if !legacy {
+			entry["oauth"] = false
+		}
 	}
 
-	root := map[string]any{
-		"$schema": "https://opencode.ai/config.json",
-		"mcp": map[string]any{
-			name: entry,
-		},
+	root := map[string]any{"$schema": "https://opencode.ai/config.json"}
+	if legacy {
+		entry["enabled"] = true
+		root["mcp"] = map[string]any{name: entry}
+	} else {
+		root["mcp"] = map[string]any{"servers": map[string]any{name: entry}}
 	}
 	content, err := json.MarshalIndent(root, "", "  ")
 	if err != nil {
@@ -1152,7 +1164,7 @@ func emitOpenCodeServer(name string, spec ServerSpec) (*EmitResult, error) {
 // emitAntigravityServer generates the .gemini/config/mcp_config.json entry for
 // name/spec (Google Antigravity format). Header values are passed through
 // verbatim: Antigravity natively resolves "${VAR}" against its own environment.
-func emitAntigravityServer(name string, spec ServerSpec) (*EmitResult, error) {
+func emitAntigravityServer(name string, spec ServerSpec, _ EmitOptions) (*EmitResult, error) {
 	entry := map[string]any{}
 	switch spec.Type {
 	case "http":

@@ -82,10 +82,13 @@ func TestEmitServer_OpenCode_TranslatesEnvSyntax(t *testing.T) {
 	if err := json.Unmarshal(r.Content, &root); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	entry := root["mcp"].(map[string]any)["kb-server"].(map[string]any)
+	entry := root["mcp"].(map[string]any)["servers"].(map[string]any)["kb-server"].(map[string]any)
 	headers := entry["headers"].(map[string]any)
 	if headers["Authorization"] != "Bearer {env:KB_TOKEN}" {
 		t.Errorf("Authorization header = %v, want Bearer {env:KB_TOKEN} (opencode native syntax)", headers["Authorization"])
+	}
+	if entry["oauth"] != false {
+		t.Errorf("oauth = %v, want false beside a header credential", entry["oauth"])
 	}
 }
 
@@ -290,7 +293,7 @@ func TestEmitServer_Stdio(t *testing.T) {
 		configurator.ProviderClaudeCode:  "{\n  \"mcpServers\": {\n    \"local\": {\n      \"args\": [\n        \"serve\",\n        \"--port\",\n        \"39273\"\n      ],\n      \"command\": \"local-tool\",\n      \"env\": {\n        \"TOKEN\": \"${LOCAL_TOKEN}\"\n      }\n    }\n  }\n}",
 		configurator.ProviderCodex:       "[mcp_servers.local]\ncommand = \"local-tool\"\nargs = [\"serve\", \"--port\", \"39273\"]\n[mcp_servers.local.env]\n\"TOKEN\" = \"${LOCAL_TOKEN}\"\n",
 		configurator.ProviderKiro:        "{\n  \"mcpServers\": {\n    \"local\": {\n      \"args\": [\n        \"serve\",\n        \"--port\",\n        \"39273\"\n      ],\n      \"autoApprove\": [],\n      \"command\": \"local-tool\",\n      \"env\": {\n        \"TOKEN\": \"${LOCAL_TOKEN}\"\n      }\n    }\n  }\n}",
-		configurator.ProviderOpenCode:    "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"mcp\": {\n    \"local\": {\n      \"command\": [\n        \"local-tool\",\n        \"serve\",\n        \"--port\",\n        \"39273\"\n      ],\n      \"enabled\": true,\n      \"environment\": {\n        \"TOKEN\": \"{env:LOCAL_TOKEN}\"\n      },\n      \"type\": \"local\"\n    }\n  }\n}",
+		configurator.ProviderOpenCode:    "{\n  \"$schema\": \"https://opencode.ai/config.json\",\n  \"mcp\": {\n    \"servers\": {\n      \"local\": {\n        \"command\": [\n          \"local-tool\",\n          \"serve\",\n          \"--port\",\n          \"39273\"\n        ],\n        \"environment\": {\n          \"TOKEN\": \"{env:LOCAL_TOKEN}\"\n        },\n        \"type\": \"local\"\n      }\n    }\n  }\n}",
 		configurator.ProviderCrush:       "{\n  \"$schema\": \"https://charm.land/crush.json\",\n  \"mcp\": {\n    \"local\": {\n      \"args\": [\n        \"serve\",\n        \"--port\",\n        \"39273\"\n      ],\n      \"command\": \"local-tool\",\n      \"env\": {\n        \"TOKEN\": \"$LOCAL_TOKEN\"\n      },\n      \"type\": \"stdio\"\n    }\n  }\n}",
 		configurator.ProviderCopilot:     "{\n  \"mcpServers\": {\n    \"local\": {\n      \"args\": [\n        \"serve\",\n        \"--port\",\n        \"39273\"\n      ],\n      \"command\": \"local-tool\",\n      \"env\": {\n        \"TOKEN\": \"${LOCAL_TOKEN}\"\n      },\n      \"tools\": [\n        \"*\"\n      ],\n      \"type\": \"stdio\"\n    }\n  }\n}",
 		configurator.ProviderPi:          "{\n  \"mcpServers\": {\n    \"local\": {\n      \"args\": [\n        \"serve\",\n        \"--port\",\n        \"39273\"\n      ],\n      \"command\": \"local-tool\",\n      \"env\": {\n        \"TOKEN\": \"${LOCAL_TOKEN}\"\n      },\n      \"exposure\": \"direct\"\n    }\n  }\n}",

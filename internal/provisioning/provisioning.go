@@ -218,6 +218,13 @@ type ApplyOptions struct {
 	// the token variable of the client configuration.
 	MCPLauncher    string
 	MCPLauncherEnv []string
+	// OpenCodeMajor is the installed OpenCode's major version, 0 when the caller
+	// did not read it (D2056). The MCP section a KB descriptor is written in
+	// depends on it: 2 and later read the native "mcp"."servers", 1.x the V1
+	// flat "mcp", and 0 writes the newest shape. Only the client
+	// (cmd/cartographer) sets it; an internal caller keeps the native shape.
+	OpenCodeMajor int
+
 	// Unplaced are the KB skills and agents this projection has no file for
 	// (UnplacedArtifacts, computed by the caller on the manifest before
 	// ProjectManifest drops them): the instructions block names them and how to
@@ -1687,7 +1694,7 @@ hookLoop:
 							"mcp %q: %s has no headers for MCP servers, served through `cartographer mcp exec` (bridge)", a.Name, d.Provider))
 					}
 				}
-				rp, warnings, regErr := registerMCPServer(opts.BaseDir, a.Name, spec, opts.Provider, opts.Scope)
+				rp, warnings, regErr := registerMCPServer(opts.BaseDir, a.Name, spec, opts.Provider, opts.Scope, opts.OpenCodeMajor)
 				if regErr != nil {
 					if refuseArtifact(a, regErr) {
 						continue

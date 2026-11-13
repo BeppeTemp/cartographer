@@ -128,9 +128,13 @@ func TestEmitOpenCode_HTTP_NoAuth(t *testing.T) {
 	if !ok {
 		t.Fatalf("missing or wrong type for mcp")
 	}
-	entry, ok := mcp["wiki"].(map[string]any)
+	servers, ok := mcp["servers"].(map[string]any)
 	if !ok {
-		t.Fatalf("missing wiki entry in mcp")
+		t.Fatalf("missing or wrong type for mcp.servers (the native V2 shape)")
+	}
+	entry, ok := servers["wiki"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing wiki entry in mcp.servers")
 	}
 	if entry["type"] != "remote" {
 		t.Errorf("type = %v, want remote", entry["type"])
@@ -138,11 +142,14 @@ func TestEmitOpenCode_HTTP_NoAuth(t *testing.T) {
 	if entry["url"] != "https://mcp.example.test/mcp" {
 		t.Errorf("url = %v, want https://mcp.example.test/mcp", entry["url"])
 	}
-	if entry["enabled"] != true {
-		t.Errorf("enabled = %v, want true", entry["enabled"])
+	if _, has := entry["enabled"]; has {
+		t.Error("2.x uses the inverse disabled; an enabled entry is the default")
 	}
 	if _, hasHeaders := entry["headers"]; hasHeaders {
 		t.Error("headers should not be present when auth is disabled")
+	}
+	if _, hasOAuth := entry["oauth"]; hasOAuth {
+		t.Error("oauth: false is for a header credential, not for an anonymous entry")
 	}
 }
 
@@ -163,7 +170,7 @@ func TestEmitOpenCode_HTTP_Auth(t *testing.T) {
 		t.Fatalf("invalid JSON: %v", err)
 	}
 	mcp := root["mcp"].(map[string]any)
-	entry := mcp["wiki"].(map[string]any)
+	entry := mcp["servers"].(map[string]any)["wiki"].(map[string]any)
 	headers, ok := entry["headers"].(map[string]any)
 	if !ok {
 		t.Fatalf("headers missing or wrong type when auth enabled")
@@ -172,6 +179,11 @@ func TestEmitOpenCode_HTTP_Auth(t *testing.T) {
 	// OpenCode usa {env:VAR} — non ${VAR}.
 	if authHeader != "Bearer {env:CARTOGRAPHER_TOKENS}" {
 		t.Errorf("Authorization header = %q, want Bearer {env:CARTOGRAPHER_TOKENS}", authHeader)
+	}
+	// A header credential, not OAuth: the client must not start a flow the
+	// server cannot serve.
+	if entry["oauth"] != false {
+		t.Errorf("oauth = %v, want false beside a header credential", entry["oauth"])
 	}
 }
 
@@ -717,12 +729,24 @@ func serverEntry(t *testing.T, content []byte, name string) map[string]any {
 	if err := json.Unmarshal(content, &root); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
-	for _, v := range root {
-		if servers, ok := v.(map[string]any); ok {
-			if entry, ok := servers[name].(map[string]any); ok {
-				return entry
+	// The entry sits one or two objects down (OpenCode's native shape nests it
+	// under "mcp"."servers"); any provider's config is a tree of maps.
+	var find func(m map[string]any) map[string]any
+	find = func(m map[string]any) map[string]any {
+		if entry, ok := m[name].(map[string]any); ok {
+			return entry
+		}
+		for _, v := range m {
+			if child, ok := v.(map[string]any); ok {
+				if entry := find(child); entry != nil {
+					return entry
+				}
 			}
 		}
+		return nil
+	}
+	if entry := find(root); entry != nil {
+		return entry
 	}
 	t.Fatalf("no entry %q in %s", name, content)
 	return nil
@@ -800,7 +824,10 @@ func readServers(t *testing.T, path string) map[string]any {
 	if err := json.Unmarshal(data, &root); err != nil {
 		t.Fatal(err)
 	}
-	servers, _ := root["mcp"].(map[string]any)
+	servers := map[string]any{}
+	for _, name := range configurator.MCPServerNames(root, configurator.ProviderOpenCode) {
+		servers[name], _ = configurator.MCPServerEntry(root, configurator.ProviderOpenCode, name)
+	}
 	return servers
 }
 

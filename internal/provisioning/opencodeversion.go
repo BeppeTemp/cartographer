@@ -84,6 +84,10 @@ func parseOpenCodeMajor(out string) int {
 // shape (openCodeLatestShape, D719) because OpenCode 2.x rejects a 1.x plugin
 // silently; write-findings does NOT follow that fallback: it stays gated on a
 // version actually read as >= 2 (SupportsWriteFindingsHook, D362).
+//
+// The MCP emitter takes it through ApplyOptions.OpenCodeMajor instead of calling
+// it here (D2056): one answer per run, and a test that states a shape does
+// not depend on the client installed on the machine.
 func openCodeMajor() int {
 	out, err := openCodeVersionProbe()
 	if err != nil {

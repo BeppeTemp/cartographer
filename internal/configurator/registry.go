@@ -144,7 +144,7 @@ type Descriptor struct {
 
 	// emit renders one MCP server entry for this provider. The provider output
 	// formats genuinely differ, so this stays a function, not data.
-	emit func(name string, spec ServerSpec) (*EmitResult, error)
+	emit func(name string, spec ServerSpec, opts EmitOptions) (*EmitResult, error)
 }
 
 // EnvAnchoredDir is one configuration directory expressed as an environment

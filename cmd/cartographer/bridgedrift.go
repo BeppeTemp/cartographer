@@ -96,7 +96,8 @@ func bridgeCommandOnDisk(d configurator.Descriptor, data []byte, name, provider 
 		if json.Unmarshal(data, &existing) != nil {
 			return "", false
 		}
-		server, _ := extractMCPServer(existing, name).(map[string]any)
+		entry, _ := configurator.MCPServerEntry(existing, d.Provider, name)
+		server, _ := entry.(map[string]any)
 		if server == nil {
 			return "", false
 		}

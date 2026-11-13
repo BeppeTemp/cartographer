@@ -283,7 +283,7 @@ func TestApply_MCP_AllProviders(t *testing.T) {
 			if err := json.Unmarshal(data, &root); err != nil {
 				t.Fatalf("invalid JSON: %v", err)
 			}
-			entry := root["mcp"].(map[string]any)["wiki-tools"].(map[string]any)
+			entry := root["mcp"].(map[string]any)["servers"].(map[string]any)["wiki-tools"].(map[string]any)
 			headers := entry["headers"].(map[string]any)
 			if headers["Authorization"] != "Bearer {env:WIKI_TOOLS_TOKEN}" {
 				t.Errorf("Authorization = %v, want opencode {env:VAR} syntax", headers["Authorization"])
@@ -395,7 +395,7 @@ func TestApply_MCP_Stdio_AllProviders(t *testing.T) {
 			if err := json.Unmarshal(data, &root); err != nil {
 				t.Fatalf("invalid JSON: %v", err)
 			}
-			entry := root["mcp"].(map[string]any)["local-tools"].(map[string]any)
+			entry := root["mcp"].(map[string]any)["servers"].(map[string]any)["local-tools"].(map[string]any)
 			if entry["type"] != "local" {
 				t.Errorf("unexpected entry: %+v", entry)
 			}

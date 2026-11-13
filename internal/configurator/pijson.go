@@ -40,7 +40,7 @@ const PiConfigPath = ".pi/agent/mcp.json"
 var piServerNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 // emitPiServer generates the ~/.pi/agent/mcp.json entry for name/spec.
-func emitPiServer(name string, spec ServerSpec) (*EmitResult, error) {
+func emitPiServer(name string, spec ServerSpec, _ EmitOptions) (*EmitResult, error) {
 	if !piServerNamePattern.MatchString(name) {
 		return nil, fmt.Errorf("mcp %q: pi accepts only letters, digits, '_' and '-' in a server name and would skip this entry", name)
 	}

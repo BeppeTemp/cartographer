@@ -213,8 +213,8 @@ func TestApply_RelocatesOpenCodeMCPEntryToGlobalConfig(t *testing.T) {
 	if len(res.Relocated) == 0 {
 		t.Errorf("Relocated is empty, want the mcp entry reported as moved")
 	}
-	if servers, _ := readJSONFile(t, global)["mcp"].(map[string]any); servers["tools"] == nil {
-		t.Errorf("%s has no tools entry: %v", configurator.OpenCodeConfigPath, servers)
+	if _, ok := configurator.MCPServerEntry(readJSONFile(t, global), configurator.ProviderOpenCode, "tools"); !ok {
+		t.Errorf("%s has no tools entry", configurator.OpenCodeConfigPath)
 	}
 	servers, _ := readJSONFile(t, old)["mcp"].(map[string]any)
 	if servers["tools"] != nil || servers["mine"] == nil {

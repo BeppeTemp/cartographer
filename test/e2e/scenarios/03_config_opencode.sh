@@ -64,8 +64,20 @@ assert_file_exists "$OPENCODE_JSON"
 # 2. It must contain $schema (official opencode config format)
 assert_file_contains "$OPENCODE_JSON" '"$schema"'
 
-# 3. It must contain "enabled": true in the MCP entry
-assert_file_contains "$OPENCODE_JSON" '"enabled": true'
+# 3. The entry sits where the installed OpenCode reads it: under "mcp"."servers"
+#    on 2.x, and when no version can be read (the runner has no client) the
+#    newest shape is written; 1.x gets the V1 flat map with "enabled": true
+#    (D2056).
+if grep -q '"servers"' "$OPENCODE_JSON"; then
+    _assert_pass "opencode.json holds the native mcp.servers shape"
+    if grep -q '"enabled": true' "$OPENCODE_JSON"; then
+        _assert_fail "the native shape carries the V1 enabled key"
+    else
+        _assert_pass "the native shape carries no V1 enabled key"
+    fi
+else
+    assert_file_contains "$OPENCODE_JSON" '"enabled": true'
+fi
 
 # 4. It must contain "type": "remote"
 assert_file_contains "$OPENCODE_JSON" '"type": "remote"'

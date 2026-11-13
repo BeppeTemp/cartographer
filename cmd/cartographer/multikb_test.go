@@ -963,6 +963,74 @@ func TestSetEntryAuthorsNeedsEveryReachedKBToAgree(t *testing.T) {
 // and sync still write every other provider, and report the refusal.
 // openCodeConfig is OpenCode's global config file under dir, its parent
 // directory created so a test can put a link in its place.
+// #2055: when OpenCode 2.x left a native mcp.servers entry for the same name, it
+// wins over the flat one, so a sync that wrote only the flat entry never reached
+// the client. The apply converges on the native shape.
+func TestApplyMCPEntries_OpenCodeNativeEntryIsReplacedNotShadowed(t *testing.T) {
+	dir := t.TempDir()
+	path := openCodeConfig(t, dir)
+	const stale = `{"mcp":{"servers":{"cartographer":{"type":"remote","url":"https://stale.example.com/mcp"}}}}`
+	if err := os.WriteFile(path, []byte(stale), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	entries := map[string][]mcpEntry{"opencode": {{Name: "cartographer", URL: "https://new.example.com/mcp"}}}
+	if _, _, err := applyMCPEntries(entries, []string{"opencode"}, dir, nil, false, "", false); err != nil {
+		t.Fatalf("applyMCPEntries: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var root map[string]any
+	if err := json.Unmarshal(data, &root); err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	entry, ok := configurator.MCPServerEntry(root, configurator.ProviderOpenCode, "cartographer")
+	if !ok {
+		t.Fatalf("no cartographer entry after apply: %s", data)
+	}
+	if got := entry.(map[string]any)["url"]; got != "https://new.example.com/mcp" {
+		t.Errorf("url = %v, want the freshly emitted one: %s", got, data)
+	}
+	if _, flat := root["mcp"].(map[string]any)["cartographer"]; flat {
+		t.Errorf("a flat entry was written beside the native one: %s", data)
+	}
+}
+
+func TestApplyMCPEntries_OpenCode1WritesTheV1Shape(t *testing.T) {
+	restore := openCodeMajorForEmit
+	openCodeMajorForEmit = func() int { return 1 }
+	t.Cleanup(func() { openCodeMajorForEmit = restore })
+
+	dir := t.TempDir()
+	path := openCodeConfig(t, dir)
+	entries := map[string][]mcpEntry{"opencode": {{Name: "cartographer", URL: "https://mcp.example.com/mcp"}}}
+	if _, _, err := applyMCPEntries(entries, []string{"opencode"}, dir, nil, true, "CARTOGRAPHER_TOKENS", false); err != nil {
+		t.Fatalf("applyMCPEntries: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var root map[string]any
+	if err := json.Unmarshal(data, &root); err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	mcp := root["mcp"].(map[string]any)
+	if _, has := mcp["servers"]; has {
+		t.Errorf("1.x must not get mcp.servers: %s", data)
+	}
+	entry, ok := mcp["cartographer"].(map[string]any)
+	if !ok {
+		t.Fatalf("no flat cartographer entry: %s", data)
+	}
+	if entry["enabled"] != true {
+		t.Errorf("enabled = %v, want true (V1)", entry["enabled"])
+	}
+}
+
 func openCodeConfig(t *testing.T, dir string) string {
 	t.Helper()
 	p := filepath.Join(dir, filepath.FromSlash(configurator.OpenCodeConfigPath))
