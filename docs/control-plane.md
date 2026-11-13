@@ -629,7 +629,9 @@ construction and passes through `feedback.Redact` with every served KB name and 
 are the destination's (the duplicate-search link is empty unless the destination is GitHub). Visibility is the components view's: a
 candidate of a KB is for whoever sees that KB whole, one that names no KB for whoever sees every mounted KB whole;
 a candidate the caller cannot see answers the `404` of an unknown id, and no count reveals others. With
-`feedback.destination: off` both routes answer `404` with code `feedback_off`.
+`feedback.destination: off` both routes answer `404` with code `feedback_off`. The Atlas is their consumer (`deployment.md`, Activity's *Report candidates* and the Work panel's count): it only
+reads them, links the form URL in a new tab and never follows it, and treats a `404` whose code is not `feedback_off`
+as a failure to retry, not as a switch.
 
 ### Surveyor settings reports (`POST /api/component/v1/settings`, D1259)
 

@@ -2750,6 +2750,37 @@ button.row {
   cursor: pointer;
 }
 
+/* Report candidates (D1925): the draft opens under its row, on the full width. */
+.surveyors__link:disabled {
+  cursor: progress;
+  text-decoration: none;
+  color: var(--text-muted);
+}
+
+.candidates__draft {
+  display: grid;
+  flex-basis: 100%;
+  gap: var(--space-2);
+  padding-block: var(--space-2);
+}
+
+.candidates__title,
+.candidates__body {
+  box-sizing: border-box;
+  inline-size: 100%;
+  padding: var(--space-2);
+  font: inherit;
+  color: var(--text-primary);
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+}
+
+.candidates__body {
+  font-family: var(--font-mono, monospace);
+  resize: vertical;
+}
+
 /* An expected Surveyor that is silent: a notice beside the lede, not a finding. */
 .health__notice {
   color: var(--sev-error);

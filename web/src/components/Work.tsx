@@ -4,6 +4,7 @@ import type { CollectionSummary, KBStatus, ReviewItem, SourceEntry, WorkEntry, W
 import { reviewInfo } from "../lib/review";
 import { collectionVar } from "../lib/palette";
 import { ErrorState } from "./States";
+import { ReportCandidatesBadge } from "./Candidates";
 import { SurveyorsStrip } from "./Surveyors";
 import type { ComponentRow } from "../api/types";
 import { Icon } from "./Icon";
@@ -212,6 +213,7 @@ export function Work({
       />
 
       <SurveyorsStrip kb={kb} live={live ?? 0} components={components} onOpen={onOpen} />
+      <ReportCandidatesBadge kb={kb} live={live ?? 0} />
 
       {data && !empty && (
         <Hero label="Summary and filters">

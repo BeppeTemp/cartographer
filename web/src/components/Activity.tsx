@@ -21,6 +21,7 @@ import {
 } from "../lib/activity";
 import { collectionVar } from "../lib/palette";
 import { ErrorState } from "./States";
+import { ReportCandidatesSection } from "./Candidates";
 import { SurveyorRunsSection } from "./Surveyors";
 import { Icon } from "./Icon";
 import {
@@ -426,6 +427,7 @@ export function Activity({
           <p className="page-note">Showing the {all.length} most recent changes: narrow the window to see the rest.</p>
         )}
         <SurveyorRunsSection kb={kb} components={components} authors={authors.map(([a]) => a)} onAuthor={setAuthor} />
+        <ReportCandidatesSection kb={kb} live={live} />
         {journal !== null && (data !== null || error !== null) && (
           <PageSection title="Journal" id="activity-journal">
             {journal.trim() === "" ? (
