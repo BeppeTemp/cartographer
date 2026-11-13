@@ -169,6 +169,7 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 				fmt.Printf("  %s\n", escapeControl(p.Kinds))
 			}
 			printShadowedInstructionsLine(p)
+			printPromptFileLines(p)
 			printInstructionsSizeLines(p)
 			continue
 		}
@@ -186,6 +187,7 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 			fmt.Printf("  %s\n", escapeControl(p.Kinds))
 		}
 		printShadowedInstructionsLine(p)
+		printPromptFileLines(p)
 		printInstructionsSizeLines(p)
 		for _, d := range p.Diverged {
 			fmt.Printf("  diverged on disk (%s): %s/%s at %s\n", escapeControl(d.Trust), escapeControl(d.Kind), escapeControl(d.Name), escapeControl(d.Path))
@@ -329,6 +331,14 @@ func printBindingLine(p providerStatus) {
 		parts = append(parts, fmt.Sprintf("%s %d", source, p.KBCounts[source]))
 	}
 	fmt.Printf("  from %s\n", strings.Join(parts, " · "))
+}
+
+// printPromptFileLines prints the agents held for their `prompt_file` and the
+// files it names that do not exist, as sync reports them.
+func printPromptFileLines(p providerStatus) {
+	for _, l := range p.PromptFileIssues {
+		fmt.Printf("  %s\n", escapeControl(l))
+	}
 }
 
 // printShadowedInstructionsLine reports an instructions block that was written

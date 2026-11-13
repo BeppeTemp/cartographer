@@ -112,6 +112,8 @@ Kiro is the exception: it drops `tools` too, but an agent without a tools list h
 so each `sync` warns instead per agent that has no `providers.kiro` block (#1826).
 
 An agent can name the clients it is for with `clients: [claude, kiro]` in its frontmatter (default: every client; names are `claude` and the clients with a `providers:` entry, lower case; `artifact_write` refuses an unknown name, a scalar or an empty list). A client not listed does not receive the agent, prunes it if an earlier sync wrote it, and the agent does not claim the path of a tracked file there (a repository that tracks `.claude/agents/x.md` can mirror it to Kiro with a Kiro-only KB agent `x`).
+
+A Kiro agent can reference a file of the bound workspace instead of carrying a copy of the instructions: `providers.kiro.prompt_file: .claude/agents/x.md` renders `"prompt": "file://../../.claude/agents/x.md"`. The key needs a project-scope (workspace) binding, must name a path inside the workspace, and is ignored by every other client, which keeps the body (see [sync.md](sync.md) §Agents and hooks).
 An agent can instead carry each client's own restriction in a `providers:` frontmatter
 block (`opencode`, `codex`, `kiro`, `antigravity`, `copilot`), copied **verbatim** into that client's native
 agent file; a client with an entry is not widened, so it is neither warned about nor skipped
