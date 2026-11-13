@@ -1,41 +1,42 @@
-# The live MCP demo (D751, D800): the released server image plus the
-# demo/astronomy KB, baked in with its replayed history (read-only), and the
-# guestbook KB, cloned from its private remote at start (entrypoint.sh).
+# The live MCP demo (D751, D2053): the released server image plus two
+# read-only KBs baked in. astronomy is demo/astronomy with its replayed history;
+# cartographer-docs is the documentation of the very binary in the image, which
+# `cartographer docs export` writes at build time and a single commit seals. Both
+# are in the image, so nothing external (a remote, a token) can expire.
 #
 # Build context: the repository root.
 #   docker build -f deploy/demo/Dockerfile --build-arg BASE=<server image> .
+# BASE must carry `cartographer docs export` (a release from 0.29 on).
 ARG BASE=ghcr.io/beppetemp/cartographer:latest
+
+# COPY --from takes no variable, so the base gets a stage name.
+FROM ${BASE} AS base
 
 FROM alpine:3.24@sha256:71e9b7bae160ba167fa17414401b94cbcdaf3c32feeab9298bd794a2a0614c35 AS kb
 RUN apk add --no-cache bash git
 COPY demo/astronomy /src/demo/astronomy
 COPY demo/replay.sh /src/demo/replay.sh
+# The binary is static (CGO_ENABLED=0), so it runs on this stage's libc.
+COPY --from=base /usr/local/bin/cartographer /usr/local/bin/cartographer
 RUN /src/demo/replay.sh /kb/astronomy && mkdir /kb/data
+RUN cartographer docs export /kb/cartographer-docs \
+    && cd /kb/cartographer-docs \
+    && git init -q -b main \
+    && git add -A \
+    && git -c user.name=demo -c user.email=demo@example.com commit -qm "The documentation of this release"
 
 FROM ${BASE}
 COPY --from=kb --chown=cartographer:cartographer /kb/astronomy /home/cartographer/astronomy
-# The guestbook clone lands in the (empty) data directory, where the server
-# discovers it beside the explicit astronomy KB.
+COPY --from=kb --chown=cartographer:cartographer /kb/cartographer-docs /home/cartographer/cartographer-docs
+# An empty, writable data directory: the server keeps its credentials directory
+# in it (<data>/credentials) and generates there the key that signs its audit log.
 COPY --from=kb --chown=cartographer:cartographer /kb/data /home/cartographer/data
-COPY deploy/demo/entrypoint.sh /usr/local/bin/demo-entrypoint.sh
 # 8080 is Cloud Run's default port, so the server needs no PORT handling. The
 # token is not baked in: CARTOGRAPHER_TOKENS comes from the Cloud Run service,
 # so rotating it is a deploy, not a rebuild. Auth stays on: `off` would give admin.
-# The push after a guestbook write is made before the response returns: Cloud
-# Run throttles the CPU between requests, which would strand a pending push. The
-# server knows it runs on Cloud Run from K_SERVICE, which the platform sets, and
-# pushes inline there (D903): no setting is needed.
-# GUESTBOOK_REMOTE and the git token file come from the Cloud Run service. A
-# guestbook commit is authored by the Worker's Cartographer-Author header and
-# committed by the server (D904): no git identity is set here.
-# GUESTBOOK_TOKEN_FILE is where the service mounts the token; the entrypoint
-# copies it into the server's credentials directory (D905), which stays the
-# default <data>/credentials so the server can write its audit key there.
-ENV CARTOGRAPHER_KB=/home/cartographer/astronomy \
+ENV CARTOGRAPHER_KB=/home/cartographer/astronomy,/home/cartographer/cartographer-docs \
     CARTOGRAPHER_DATA=/home/cartographer/data \
     CARTOGRAPHER_HTTP=:8080 \
     CARTOGRAPHER_AUTH=on \
-    CARTOGRAPHER_UPDATE_CHECK=false \
-    GUESTBOOK_TOKEN_FILE=/etc/guestbook-git/guestbook.token
-ENTRYPOINT ["demo-entrypoint.sh"]
+    CARTOGRAPHER_UPDATE_CHECK=false
 CMD ["serve"]

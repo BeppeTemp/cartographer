@@ -158,10 +158,10 @@ DEMO_BASE ?= ghcr.io/beppetemp/cartographer:latest
 demo-image: ## Build the live-demo image (D751) on the released server image
 	docker build -f deploy/demo/Dockerfile --build-arg BASE=$(DEMO_BASE) -t $(DEMO_IMAGE) .
 
-demo-smoke: demo-image ## Run the demo image: read ok, write refused, guestbook write lands in its remote, no token 401
+demo-smoke: demo-image ## Run the demo image: read ok, write refused on both KBs, docs search answers, no token 401
 	deploy/demo/smoke.sh $(DEMO_IMAGE)
 
-demo-worker-test: ## Test the demo Worker's moderation logic (D800), Node only
+demo-worker-test: ## Test the demo Worker's routing and cache logic, Node only
 	node --test deploy/demo/worker.test.mjs
 
 demo-tf-check: ## terraform fmt + validate of deploy/demo (no credentials)

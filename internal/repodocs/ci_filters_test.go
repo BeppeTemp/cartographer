@@ -66,7 +66,6 @@ func TestCIFiltersTable(t *testing.T) {
 		{"filter script only", "feat/x", []string{"scripts/ci-filters.sh"}, true, true, true, false, true, true, true, true},
 		{"dockerfile", "feat/x", []string{"Dockerfile"}, false, false, false, false, true, false, false, false},
 		{"go.mod", "feat/x", []string{"go.mod"}, true, true, false, false, true, false, false, false},
-		{"demo guestbook seed", "feat/x", []string{"demo/guestbook/index.md"}, false, false, false, false, true, false, false, false},
 		{"image smoke script", "feat/x", []string{"test/smoke/image.sh"}, false, false, false, false, true, false, false, false},
 		{"surveyor image smoke script", "feat/x", []string{"test/smoke/surveyor-image.sh"}, false, false, false, false, true, false, false, false},
 		{"forge hook", "feat/x", []string{"test/forge/pre-receive.sh"}, false, true, false, false, false, true, false, false},
