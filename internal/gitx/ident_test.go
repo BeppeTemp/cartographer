@@ -250,9 +250,9 @@ func TestGlobalIdentBudgetIsPerCommand(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	script := "#!/bin/sh\nsleep 0.3\ncase \"$*\" in\n" +
+	script := "#!/bin/sh\nsleep 0.5\ncase \"$*\" in\n" +
 		"*--show-origin*) cat '" + dir + "/origin';;\n" +
-		"*--file*) exit 1;;\n" +
+		"*'(user|author'*) exit 1;;\n" + // an included file: no identity in it
 		"*--get-regexp*) cat '" + dir + "/keys';;\n" +
 		"*user.name*) echo Home Person;;\n" +
 		"*user.email*) echo home@example.test;;\n" +
@@ -265,11 +265,19 @@ func TestGlobalIdentBudgetIsPerCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	// 4 includes take 8 commands of 0.3s (keys, origin, 4 files, name, email):
-	// about 2.4s in all, more than the budget below if it is shared, while each
-	// command alone stays far under it even when a fresh exec is slow under load.
+	// One global file, so one scope, found by its path whatever the fake git says.
+	t.Setenv("HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "none"))
+	t.Setenv("GIT_CONFIG_GLOBAL", "")
+	os.Unsetenv("GIT_CONFIG_GLOBAL")
+	if err := os.WriteFile(filepath.Join(dir, ".gitconfig"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// 4 includes take 8 commands of 0.5s (keys, origin, 4 files, name, email):
+	// about 4s in all, more than the budget below if it is shared, while each
+	// command alone leaves 2.5s of slack for a slow fresh exec on a loaded host.
 	old := globalIdentCallTimeout
-	globalIdentCallTimeout = 2 * time.Second
+	globalIdentCallTimeout = 3 * time.Second
 	t.Cleanup(func() { globalIdentCallTimeout = old })
 	if got, perFolder := GlobalIdent(); got != "Home Person <home@example.test>" || perFolder {
 		t.Errorf("GlobalIdent() = %q, %v, want the global identity", got, perFolder)
