@@ -178,6 +178,7 @@ func readConcept(tools ToolCaller, id string) (conceptOut, error) {
 	}
 	c.raw = out.Text
 	if err := json.Unmarshal([]byte(out.Text), &c); err != nil {
+		NoteContract(tools, "concept_read")
 		return c, fmt.Errorf("concept_read %s: %w", id, err)
 	}
 	return c, nil

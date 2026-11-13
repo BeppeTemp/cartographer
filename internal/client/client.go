@@ -921,6 +921,12 @@ type ToolOutput struct {
 	IsError bool
 }
 
+// InternalErrorPrefix opens the text of a tool's internal-error result (a
+// recovered panic, a handler's Go error, D1516): the server writes it and the
+// Surveyor recognises it as a report candidate (D1925), so the words are one
+// constant.
+const InternalErrorPrefix = "internal error"
+
 // CallTool invokes a tool like Call, but returns the result text and the
 // tool's own isError flag so a caller can hand a tool-level refusal back to a
 // model. Transport and JSON-RPC failures remain *RemoteError.

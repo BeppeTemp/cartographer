@@ -170,6 +170,7 @@ func conceptList(tools ToolCaller, args map[string]any) (listOut, error) {
 		}
 		l = listOut{}
 		if err := json.Unmarshal([]byte(text), &l); err != nil {
+			NoteContract(tools, "concept_list")
 			return l, fmt.Errorf("concept_list: %w", err)
 		}
 		if !l.Truncated || l.Total <= 0 {
