@@ -928,3 +928,39 @@ func TestApply_MCP_SecretRefInURLOrArgsIsRefusedNotFatal(t *testing.T) {
 		t.Fatalf("good not projected or reference leaked: %s", cfg)
 	}
 }
+
+// A KB descriptor named like OpenCode's own section key ("servers", "timeout")
+// cannot be written in the 1.x shape without replacing that section, so the one
+// artifact is skipped with a warning and the sync succeeds (D2056).
+func TestApply_MCP_OpenCodeV1SkipsASectionName(t *testing.T) {
+	kbRoot := t.TempDir()
+	writeMCPFixture(t, kbRoot, "servers", `{"type":"http","url":"https://tools.example.com/mcp"}`)
+	m := signedMCPManifest(t, kbRoot, "servers")
+	dir := t.TempDir()
+	res, err := provisioning.Apply(m, provisioning.ApplyOptions{
+		ApprovedMCP:   approveMCP(m),
+		KBRoots:       map[string]string{"kb": kbRoot},
+		Provider:      configurator.ProviderOpenCode,
+		BaseDir:       dir,
+		OpenCodeMajor: 1,
+	})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	warned := false
+	for _, w := range res.Warnings {
+		if strings.Contains(w, `mcp "servers" skipped`) {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Errorf("warnings = %v, want one naming the skipped artifact", res.Warnings)
+	}
+	if data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(configurator.OpenCodeConfigPath))); err == nil {
+		var root map[string]any
+		_ = json.Unmarshal(data, &root)
+		if section, ok := root["mcp"].(map[string]any)["servers"].(map[string]any); ok && section["url"] != nil {
+			t.Errorf("the entry was written over the section key: %s", data)
+		}
+	}
+}

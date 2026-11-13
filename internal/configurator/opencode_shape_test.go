@@ -2,8 +2,10 @@ package configurator_test
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
@@ -209,44 +211,44 @@ func TestRemove_OpenCodeA_ServerNamedServersKeepsTheSection(t *testing.T) {
 	}
 }
 
-// A V1 flat map may legally hold a server named "servers" or "timeout": at that
-// path they are servers, not the native section or the V2 timeout defaults. The
-// emitter's own path (EmitResult.MCPServerPath) keeps the merge from reading
-// one as the other.
-func TestApply_OpenCode1WritesAServerNamedServers(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, filepath.FromSlash(configurator.OpenCodeConfigPath))
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatal(err)
+// On the V1 flat map a name like "servers" would be the native section itself,
+// so 1.x refuses it; 2.x carries it inside mcp.servers, where it is an ordinary
+// (and removable) entry.
+func TestEmitOpenCode_SectionNamesOnlyOnTheNativeShape(t *testing.T) {
+	for _, name := range []string{"servers", "timeout"} {
+		if _, err := configurator.Emit(&configurator.ServerConfig{Name: name, URL: "https://mcp.example.com/mcp"},
+			configurator.ProviderOpenCode, configurator.ForOpenCodeMajor(1)); !errors.Is(err, configurator.ErrMCPNameUnrepresentable) {
+			t.Errorf("%s on 1.x: err = %v, want ErrMCPNameUnrepresentable", name, err)
+		}
+		r, err := configurator.Emit(&configurator.ServerConfig{Name: name, URL: "https://mcp.example.com/mcp"},
+			configurator.ProviderOpenCode, configurator.ForOpenCodeMajor(2))
+		if err != nil {
+			t.Fatalf("%s on 2.x: %v", name, err)
+		}
+		if entry, ok := openCodeServers(t, r.Content)[name]; !ok || entry == nil {
+			t.Errorf("%s on 2.x: not written under mcp.servers", name)
+		}
 	}
-	const before = `{"mcp":{"mine":{"type":"remote","url":"https://example.com/mcp"}}}`
-	if err := os.WriteFile(path, []byte(before), 0o644); err != nil {
-		t.Fatal(err)
-	}
+}
 
-	cfg := &configurator.ServerConfig{Name: "servers", URL: "https://servers.example.com/mcp"}
-	r, err := configurator.Emit(cfg, configurator.ProviderOpenCode, configurator.ForOpenCodeMajor(1))
+// Every OpenCode emission states the path it wrote under: the merge never
+// infers a shape again, so an emitter that forgot the path would write nothing
+// (the safe failure) rather than corrupt the file.
+func TestEmitOpenCode_ReportsThePathItWrote(t *testing.T) {
+	cfg := &configurator.ServerConfig{Name: "wiki", URL: "https://mcp.example.com/mcp"}
+	native, err := configurator.Emit(cfg, configurator.ProviderOpenCode)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := configurator.Apply([]*configurator.EmitResult{r}, dir, false); err != nil {
-		t.Fatalf("Apply: %v", err)
+	if got := strings.Join(native.MCPServerPath, "."); got != "mcp.servers" {
+		t.Errorf("native path = %q, want mcp.servers", got)
 	}
-	data, err := os.ReadFile(path)
+	legacy, err := configurator.Emit(cfg, configurator.ProviderOpenCode, configurator.ForOpenCodeMajor(1))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var root map[string]any
-	if err := json.Unmarshal(data, &root); err != nil {
-		t.Fatalf("invalid JSON: %v\n%s", err, data)
-	}
-	mcp := root["mcp"].(map[string]any)
-	entry, ok := mcp["servers"].(map[string]any)
-	if !ok || entry["url"] != cfg.URL {
-		t.Fatalf("the entry named servers was not written: %s", data)
-	}
-	if _, kept := mcp["mine"]; !kept {
-		t.Error("another server of the user was dropped")
+	if got := strings.Join(legacy.MCPServerPath, "."); got != "mcp" {
+		t.Errorf("V1 path = %q, want mcp", got)
 	}
 }
 

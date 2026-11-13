@@ -146,8 +146,10 @@ func MCPServerEntry(root map[string]any, p Provider, name string) (any, bool) {
 //
 // at is the path the emitter wrote under (EmitResult.MCPServerPath), so a shape
 // is never inferred from the content: a V1 entry legitimately named "servers"
-// is a server map member, not the native section. An empty at means the
-// provider's single shape.
+// is a server map member, not the native section. An empty at is the
+// single-shape provider's only path; a provider with two shapes must pass its
+// own, and writes nothing when it does not — guessing a shape is how the merge
+// once wrote an entry's fields as server names.
 func MergeMCPEmission(root, emitted map[string]any, p Provider, at []string) {
 	paths := mcpServerPaths(p)
 	if len(paths) == 0 {

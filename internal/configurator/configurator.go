@@ -161,6 +161,14 @@ type EmitResult struct {
 	viaGlob bool
 }
 
+// ErrMCPNameUnrepresentable marks an emitter refusing a server name the client
+// cannot carry without ambiguity: OpenCode 1.x reads "mcp"."servers" and
+// "mcp"."timeout" as its own section, so a server by those names has no V1
+// shape that a reader could tell from the section (D2056). A caller may turn it
+// into a warning and skip the entry (a KB descriptor) or fail loudly (the
+// user's own entry).
+var ErrMCPNameUnrepresentable = errors.New("the client cannot represent this MCP server name")
+
 // EmitOptions carries the client facts the provider-neutral ServerSpec cannot:
 // today only the installed OpenCode's major version, because its two majors read
 // a different shape of the same MCP section (D2056).
@@ -1155,6 +1163,9 @@ func emitOpenCodeServer(name string, spec ServerSpec, opts EmitOptions) (*EmitRe
 	root := map[string]any{"$schema": "https://opencode.ai/config.json"}
 	serverPath := []string{"mcp", "servers"}
 	if legacy {
+		if openCodeMCPMeta[name] {
+			return nil, fmt.Errorf("mcp %q: %w: OpenCode 1.x reads mcp.%s as its own MCP section, so it cannot also be a server name; rename the server", name, ErrMCPNameUnrepresentable, name)
+		}
 		entry["enabled"] = true
 		serverPath = []string{"mcp"}
 		root["mcp"] = map[string]any{name: entry}
