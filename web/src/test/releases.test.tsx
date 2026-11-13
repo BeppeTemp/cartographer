@@ -4,8 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import { staticReleases } from "../api/static";
 import type { ReleaseEntry, ReleasesView } from "../api/types";
-import { withoutTitleLine } from "../components/Releases";
-import { json, openPanels, stubApi } from "./fixtures";
+import { Releases, withoutTitleLine } from "../components/Releases";
+import { bootedVersionButton, json, openPanels, stubApi } from "./fixtures";
 
 const entry = (version: string, over: Partial<ReleaseEntry> = {}): ReleaseEntry => ({
   version,
@@ -35,11 +35,33 @@ function stub(view: ReleasesView | (() => Response) = VIEW) {
   });
 }
 
+/*
+ * Two ways in. The content tests (everything whose logic is in
+ * components/Releases.tsx) mount the sheet alone: no KB list, no rail, no
+ * graph, so what they wait for is the one fetch the sheet makes. Only the
+ * three tests of the wiring -- the rail's version opens it, nothing is fetched
+ * before the click, Escape gives the focus back -- boot the whole <App />.
+ * That boot is heavy and its role queries compute styles (css: true), so on a
+ * loaded gate it can outlast Testing Library's 1000 ms; the waits there are a
+ * label lookup (no role, no styles) and the dialog is read synchronously after
+ * the click. The boot wait alone has its own budget (bootedVersionButton, in
+ * fixtures.ts) and those three tests their own per-test timeout (10 s, above
+ * vitest's default 5 s that the boot budget plus the rest would not fit); the
+ * content tests do not boot the App and keep the defaults.
+ */
+const VERSION_BUTTON = /Meridian version v1\.2\.3/;
+
+function openSheet() {
+  render(<Releases onClose={vi.fn()} />);
+  return { user: userEvent.setup(), sheet: screen.getByRole("dialog", { name: "Releases" }) };
+}
+
 async function openFromRail() {
   const user = userEvent.setup();
   render(<App />);
-  await user.click(await screen.findByRole("button", { name: /Meridian version v1\.2\.3/ }));
-  return { user, sheet: await screen.findByRole("dialog", { name: "Releases" }) };
+  // The version button is the rail's own, drawn after its /health answer.
+  await user.click(await bootedVersionButton(VERSION_BUTTON));
+  return { user, sheet: screen.getByRole("dialog", { name: "Releases" }) };
 }
 
 describe("the release history sheet", () => {
@@ -51,7 +73,7 @@ describe("the release history sheet", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("opens from the version in the rail's foot and lists every release, newest first", async () => {
+  it("opens from the version in the rail's foot and lists every release, newest first", { timeout: 10_000 }, async () => {
     const fetchMock = stub();
     const { sheet } = await openFromRail();
     expect(sheet).toHaveAttribute("aria-modal", "true");
@@ -64,16 +86,16 @@ describe("the release history sheet", () => {
     expect(fetchMock.mock.calls.filter(([u]) => String(u).includes("/releases"))).toHaveLength(1);
   });
 
-  it("does not fetch the history before the version is clicked", async () => {
+  it("does not fetch the history before the version is clicked", { timeout: 10_000 }, async () => {
     const fetchMock = stub();
     render(<App />);
-    await screen.findByRole("button", { name: /Meridian version v1\.2\.3/ });
+    await bootedVersionButton(VERSION_BUTTON);
     expect(fetchMock.mock.calls.some(([u]) => String(u).includes("/releases"))).toBe(false);
   });
 
   it("marks the release the server runs, and only that one", async () => {
     stub();
-    const { sheet } = await openFromRail();
+    const { sheet } = openSheet();
     await within(sheet).findByRole("list", { name: "Releases, newest first" });
     expect(within(sheet).getAllByText("Current")).toHaveLength(1);
     const current = within(sheet).getByRole("heading", { name: "v1.2.3" }).closest("section")!;
@@ -88,7 +110,7 @@ describe("the release history sheet", () => {
     Element.prototype.scrollIntoView = scroll;
     try {
       stub();
-      const first = await openFromRail();
+      const first = openSheet();
       await within(first.sheet).findByRole("list", { name: "Releases, newest first" });
       await waitFor(() => expect(scroll).toHaveBeenCalledTimes(1));
       expect(scroll.mock.contexts[0]).toBe(within(first.sheet).getByRole("heading", { name: "v1.2.3" }).closest("section"));
@@ -107,7 +129,7 @@ describe("the release history sheet", () => {
         releases: [entry("1.2.3", { current: true }), entry("1.2.2")],
         releases_url: "https://example.com/releases",
       });
-      const { sheet } = await openFromRail();
+      const { sheet } = openSheet();
       await within(sheet).findByRole("list", { name: "Releases, newest first" });
       expect(scroll).not.toHaveBeenCalled();
     } finally {
@@ -117,7 +139,7 @@ describe("the release history sheet", () => {
 
   it("shows the upgrade block only when the server names a command", async () => {
     stub();
-    const first = await openFromRail();
+    const first = openSheet();
     const upgrade = await within(first.sheet).findByRole("region", { name: "Upgrade" });
     expect(within(upgrade).getByText("v1.3.0 is available")).toBeInTheDocument();
     expect(within(upgrade).getByText("brew upgrade --cask example/tap/cartographer")).toBeInTheDocument();
@@ -126,14 +148,14 @@ describe("the release history sheet", () => {
 
   it("has no upgrade block without a command, even with a newer release known", async () => {
     stub({ ...VIEW, upgrade_command: undefined, channel: undefined });
-    const { sheet } = await openFromRail();
+    const { sheet } = openSheet();
     await within(sheet).findByRole("list", { name: "Releases, newest first" });
     expect(within(sheet).queryByRole("region", { name: "Upgrade" })).toBeNull();
   });
 
   it("says why there is no history, and links to GitHub, when the update check is off", async () => {
     stub({ current: "1.2.3", releases: [], unavailable: "disabled", releases_url: "https://example.com/releases" });
-    const { sheet } = await openFromRail();
+    const { sheet } = openSheet();
     expect(await within(sheet).findByText(/update check is off on this Meridian/)).toBeInTheDocument();
     expect(within(sheet).queryByRole("list", { name: "Releases, newest first" })?.children.length ?? 0).toBe(0);
     const link = within(sheet).getByRole("link", { name: /All releases on GitHub/ });
@@ -143,21 +165,21 @@ describe("the release history sheet", () => {
 
   it("says GitHub could not be reached when there is nothing to show", async () => {
     stub({ current: "1.2.3", releases: [], unavailable: "unreachable", releases_url: "https://example.com/releases" });
-    const { sheet } = await openFromRail();
+    const { sheet } = openSheet();
     expect(await within(sheet).findByText(/GitHub could not be reached/)).toBeInTheDocument();
     expect(within(sheet).getByRole("link", { name: /All releases on GitHub/ })).toBeInTheDocument();
   });
 
   it("serves the last list with a notice when a refresh failed", async () => {
     stub({ ...VIEW, stale: true });
-    const { sheet } = await openFromRail();
+    const { sheet } = openSheet();
     expect(await within(sheet).findByText(/this is the last list fetched/)).toBeInTheDocument();
     expect(within(sheet).getByRole("heading", { name: "v1.3.0" })).toBeInTheDocument();
   });
 
   it("points a cut changelog at GitHub", async () => {
     stub({ ...VIEW, releases: [entry("1.2.3", { current: true, truncated: true }), entry("1.2.2")] });
-    const { sheet } = await openFromRail();
+    const { sheet } = openSheet();
     const link = await within(sheet).findByRole("link", { name: /read it on GitHub/ });
     expect(link).toHaveAttribute("href", "https://example.com/releases/v1.2.3");
     expect(within(sheet).getAllByText(/Truncated/)).toHaveLength(1);
@@ -169,19 +191,19 @@ describe("the release history sheet", () => {
       calls += 1;
       return calls === 1 ? json({ error: { code: "internal", message: "internal error" } }, 500) : json(VIEW);
     });
-    const { user, sheet } = await openFromRail();
+    const { user, sheet } = openSheet();
     await within(sheet).findByRole("alert");
     await user.click(within(sheet).getByRole("button", { name: "Try again" }));
     expect(await within(sheet).findByRole("heading", { name: "v1.3.0" })).toBeInTheDocument();
   });
 
-  it("closes with Escape and returns focus to the version", async () => {
+  it("closes with Escape and returns focus to the version", { timeout: 10_000 }, async () => {
     stub();
     const { user, sheet } = await openFromRail();
     await within(sheet).findByRole("list", { name: "Releases, newest first" });
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog", { name: "Releases" })).toBeNull();
-    expect(screen.getByRole("button", { name: /Meridian version v1\.2\.3/ })).toHaveFocus();
+    expect(screen.getByLabelText(VERSION_BUTTON)).toHaveFocus();
   });
 
   it("is dropped when it only restates the version and the date", () => {
