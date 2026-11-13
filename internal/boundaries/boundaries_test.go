@@ -18,7 +18,7 @@ const modPath = "github.com/BeppeTemp/cartographer/"
 // the data plane, however far down the import chain.
 var client = []string{
 	"agents", "artifactsig", "blocktext", "client", "clientconfig", "componentproto", "configurator",
-	"defaults", "execbit", "feedback", "gitx", "jsonorder", "mcpbridge", "mcpexec", "okf", "plugin", "plugin/core", "plugin/starcore",
+	"defaults", "execbit", "feedback", "gitx", "jsonorder", "mcpbridge", "mcpexec", "mcpprobe", "okf", "plugin", "plugin/core", "plugin/starcore",
 	"procattr", "provisioning", "provisioning/contract", "repoindex", "safewrite", "secretscan", "settingschema", "skill",
 	"skillbundle", "updatecheck", "wsl",
 }

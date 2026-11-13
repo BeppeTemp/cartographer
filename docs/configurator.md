@@ -353,6 +353,8 @@ non-loopback host are refused. Exit codes: 2 for a usage error or a ref that is 
 
 Without a `cartographer` command on `PATH` a descriptor that needs the launcher is skipped with a warning, and so is a descriptor of a plugin (a non-KB source) that needs it: the launcher reads `mcp/<slug>.json` of a KB, which a plugin has none of.
 
+**`cartographer mcp probe [--json] <kb>/<slug>` (diagnose an MCP descriptor).** For an approved MCP descriptor it reports, without a client, the transport and target, the `${VAR}` references unset or empty in the shell that runs it (a client started from another shell or the dock may see another environment; `${secret:...}` is the launcher's, never listed) and, for an `http` descriptor, a DNS + TCP + TLS dial with a 15 s limit that classifies the failure (`dns`, `refused`, `timeout`, `tls_unknown_authority` with the hint to serve the full chain or set `NODE_EXTRA_CA_CERTS`, `tls_other`). A bare `<slug>` works when one KB ships it. Values are never printed. Exit codes: `0` ok, `1` the server answered but is not usable (reserved for the session part), `2` usage error, descriptor not found, ambiguous or not approved, `3` unresolved `${VAR}`, `4` network (DNS, refused, timeout), `5` TLS. `--json` prints one stable object. Why: [D2042](decisions/D2042-mcp-probe-and-requires.md).
+
 **`cartographer call` (no MCP).** For an agent that has a shell but cannot use MCP,
 `cartographer call --provider <p> <tool> [key=value…] [--json '<object>'|-]` sends one stateless
 `tools/call` and exits; `--list` prints `name<TAB>first sentence` per tool, `--describe <tool>` the
