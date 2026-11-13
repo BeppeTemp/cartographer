@@ -215,7 +215,7 @@ func stageAll(dir string, env []string) error {
 		args = append(append(args, "--", "."), inspected...)
 	}
 	if out, err := runGitEnv(dir, env, args...); err != nil {
-		return fmt.Errorf("git add -A: %w: %s", err, out)
+		return fmt.Errorf("git add -A: %w: %s%s", err, out, indexLockHint(dir, out))
 	}
 	paths, err := newGitlinks(dir, env)
 	if err != nil {

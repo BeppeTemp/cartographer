@@ -73,6 +73,19 @@ The kernel lock is the only authority:
 - **contention waits, a failure does not.** Only "someone else holds it" is polled until the timeout;
   any other error from the lock call comes back immediately, naming itself, instead of costing a full
   wait and then reporting a holder that does not exist.
+- **a leftover `.git/index.lock` is cleared once, at server start.** A git killed with the server
+  (crash, power loss, `kill -9`) cannot remove its own `index.lock`, and every later commit would fail
+  on it. Right after the start-up sweep of temp files, and only when the server can take the lock
+  without waiting (`KB.ClearStaleIndexLock`), nothing of this server runs git in the clone, so a lock
+  found there is a leftover: it is removed and logged with its path and age. The path comes from
+  `git rev-parse --git-path index.lock`, so a linked worktree or a `.git` file resolves to its own git
+  dir, and a folder that is not the root of its own repository (git's top level is not the folder
+  itself, as with an empty `.git` inside a larger repository) is left alone. When another process holds
+  the KB nothing is removed and one line on stderr says a lock exists and the check was skipped. A lock
+  that appears **later** is never removed by a write (it may be the operator's own git): the write fails
+  and its error names the file and says to remove it if no git process runs in that clone, whichever git
+  command met it, the sync's rebase included (git words that one "could not detach HEAD", which is not a
+  conflict). A commit killed by its 60 s timeout still removes its own lock (`clearKilledCommitLock`).
 
 The exclusive lock is `flock(2)` on Unix and `LockFileEx` on Windows
 (`internal/kb/lockfile_unix.go`, `internal/kb/lockfile_windows.go`). Windows byte-range locks are
