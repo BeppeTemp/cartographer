@@ -171,6 +171,7 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 			printShadowedInstructionsLine(p)
 			printPromptFileLines(p)
 			printInstructionsSizeLines(p)
+			printMCPNotReceivedLines(p)
 			continue
 		}
 		if p.State != "drift" {
@@ -189,6 +190,7 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 		printShadowedInstructionsLine(p)
 		printPromptFileLines(p)
 		printInstructionsSizeLines(p)
+		printMCPNotReceivedLines(p)
 		for _, d := range p.Diverged {
 			fmt.Printf("  diverged on disk (%s): %s/%s at %s\n", escapeControl(d.Trust), escapeControl(d.Kind), escapeControl(d.Name), escapeControl(d.Path))
 			if d.Detail != "" {
@@ -338,6 +340,17 @@ func printBindingLine(p providerStatus) {
 func printPromptFileLines(p providerStatus) {
 	for _, l := range p.PromptFileIssues {
 		fmt.Printf("  %s\n", escapeControl(l))
+	}
+}
+
+// printMCPNotReceivedLines says why a bound client got no MCP descriptor.
+func printMCPNotReceivedLines(p providerStatus) {
+	for _, r := range p.MCPNotReceived {
+		where := ""
+		if r.Workspace != "" {
+			where = " in " + escapeControl(r.Workspace)
+		}
+		fmt.Printf("  mcp %s not written%s: %s\n", escapeControl(r.Name), where, escapeControl(r.Reason))
 	}
 }
 
