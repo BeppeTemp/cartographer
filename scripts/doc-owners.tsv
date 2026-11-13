@@ -35,3 +35,5 @@ Makefile	docs/testing.md	New test level or pre-release checklist change
 scripts/*	docs/testing.md	New test level or pre-release checklist change
 internal/plugin/*.go	docs/plugins.md	Plugin manifest, contribution points or store
 internal/branding/*.go	docs/plugins.md	Atlas branding plugin point
+docsfs.go	docs/configurator.md	Client subcommands (the embedded docs behind cartographer docs)
+internal/docskb/*.go	docs/configurator.md	Client subcommands (the embedded docs behind cartographer docs)
