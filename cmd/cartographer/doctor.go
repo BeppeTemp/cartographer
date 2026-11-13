@@ -236,6 +236,9 @@ func runDoctor(dir, only string) doctorReport {
 		// below may send it the bearer token or believe its /health.
 		foreignAddr, foreign := foreignServer(cfg.ServerURL, facts, healthErr)
 		findings = append(findings, checkServerAt(dir, cfg, providers, facts, healthErr, foreignAddr, foreign)...)
+		if !foreign && healthErr == nil {
+			findings = append(findings, checkMCPVariables(cfg, approveManifest)...)
+		}
 		findings = append(findings, checkWSL()...)
 		findings = append(findings, checkPathBinaries()...)
 		findings = append(findings, checkUnknownKeys(dir)...)
