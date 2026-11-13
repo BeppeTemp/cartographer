@@ -21,16 +21,34 @@
 #                 syncs the clean tree to a build host and runs make there); it
 #                 must exit with make's code (2 for failed targets, which alone are
 #                 retried: step 4c), and exit 75 (EX_TEMPFAIL) when the machine is
-#                 unavailable: the gate then runs in CI instead (step 4b). It gets
-#                 plain words: `-k` and the targets, `test-rerun RERUN_PKGS=<a,b>`.
+#                 unavailable: the gate then runs in CI instead (step 4b). Any other
+#                 exit (255 when ssh or rsync dropped) is the wrapper's, not a test's:
+#                 the signoff ends with `the build host failed (exit N) before the gate
+#                 finished` and the lander gates the train again, no flake (step 4d); so
+#                 does a 75 from a targeted retry or the deferred web-perf, which run after
+#                 the gate started: CI cannot take over mid-gate. It
+#                 gets plain words: `-k` and the targets, `test-rerun RERUN_PKGS=<a,b>`.
+#                 The first call, `signoff-platform`, goes through the same rule: only
+#                 126 and 127 (the wrapper is missing or not executable) are a
+#                 configuration error, "check SIGNOFF_MAKE".
+#
+# Exits: 0 signed off; 1 refused or red (a `failed (exit N): nothing pushed` line);
+# 69 (EX_UNAVAILABLE) the wrapper failed in the middle of the gate, no test failed. The code
+# is the signal scripts/land.sh reads: the log carries the change's own test output, so a
+# line in it proves nothing. It is not 75 (EX_TEMPFAIL), which only SIGNOFF_MAKE and
+# SIGNOFF_WINDOWS use, to say "the machine is unavailable, run the gate in CI": here the
+# machine broke mid-gate, and the answer is to gate the same tree again. No make, go, ssh
+# (255) or signal (128+n) exit is 69, and every command of this script is checked or ends in die.
 #   SIGNOFF_WINDOWS a command that runs its arguments natively on Windows from the
 #                 same tree (empty: no Windows leg). It gets scripts/test-shard.sh, every
 #                 shard at once (SIGNOFF_WINDOWS_SHARDS, default 4), over the packages a
 #                 code change of the branch can break (scripts/affected-pkgs.sh --code:
 #                 a change of documents or scripts has no Windows leg), in parallel with
 #                 the targets, and `go test -count=1 -timeout 20m <packages>` for the
-#                 retry; a failure fails the signoff, an exit 75 is reported and
-#                 skipped (test-windows on main stays the net).
+#                 retry; a failure (exit 1, the shards') fails the signoff, an exit 75 is
+#                 reported and skipped (test-windows on main stays the net), any other
+#                 exit is the wrapper's: `the Windows machine failed (exit N) before the
+#                 gate finished` (step 4d).
 #
 # Plain bash 3.2 (the macOS default): no associative arrays, no GNU-only flags.
 set -euo pipefail
@@ -50,21 +68,26 @@ cd "$(git rev-parse --show-toplevel)"
 # none): the lander's bisection step (scripts/land.sh, D1878). It runs, on this
 # tree, only the command the targeted retry below ran when it confirmed a red run (its
 # `signoff: probe:` line): no refusal, no push, no status. Exit 0 green, 75 the machine is
-# unavailable, anything else red.
+# unavailable, the platform's own failure code red (make's 2 on linux, `go test`'s 1 on
+# windows): any other exit (ssh's 255, a signal, a missing wrapper) is the wrapper's, not the
+# tests', and is reported as 75 too: the lander then bisects with full gates, whose infra
+# handling is aware of a lost host, instead of rejecting a change no test condemned.
 if [ "${1:-}" = --probe ]; then
   plat=${2:?--probe <linux|windows> <packages> <race packages>} p0=${3:--} p1=${4:--}
   [ "$p0" != - ] || p0=
   [ "$p1" != - ] || p1=
   read -r -a mk <<<"${SIGNOFF_MAKE:-make}"
-  rc=0
+  rc=0 own=2
   # shellcheck disable=SC2086  # the package lists are word lists on purpose
   if [ "$plat" = windows ]; then
+    own=1
     read -r -a wmk <<<"${SIGNOFF_WINDOWS:?the probe of a Windows failure needs SIGNOFF_WINDOWS}"
     [ -z "$p0" ] || "${wmk[@]}" go test -count=1 -timeout 20m ${p0//,/ } || rc=$?
   else
     [ -z "$p0" ] || "${mk[@]}" test-rerun RERUN_PKGS="$p0" || rc=$?
     [ "$rc" != 0 ] || [ -z "$p1" ] || "${mk[@]}" test-rerun RERUN_PKGS="$p1" RERUN_RACE=1 || rc=$?
   fi
+  case "$rc" in 0 | 75 | "$own") ;; *) echo "signoff: the probe's machine failed (exit $rc): not a verdict" >&2; rc=75 ;; esac
   exit "$rc"
 fi
 
@@ -155,6 +178,18 @@ hosted() {
   exit 0
 }
 
+# 4d. A wrapper failure (#1843). Make fails with exit 2, the Windows shards
+# with exit 1, an unavailable machine says 75: any other exit is the wrapper's (ssh and rsync
+# exit 255 when the connection drops), the log may stop before the targets did and no test
+# failed. The exit code, 69 (see Exits above), is what scripts/land.sh gate_once() reads, never a
+# line of the log, which holds the change's own output: it gates the train again, bounded, and
+# files no flaky issue. A wrapper that dies like this is not red. The line is for people.
+hostrc=
+host_die() { # $1 = what failed, $2 = its exit code
+  echo "signoff: $1 failed (exit $2) before the gate finished: nothing pushed, nothing posted" >&2
+  exit 69
+}
+
 # 4c. The targeted retry (D1755). When every failure of a red log is a
 # named Go test (scripts/test-failures.sh: not a build, vet, smoke, e2e or web failure,
 # a timeout, a panic or a data race), the packages of those tests run once more, whole
@@ -162,13 +197,18 @@ hosted() {
 # the tests are flaky, named on a `signoff: flaky:` line the lander files as a bug, and
 # the signoff goes on, as the rest of the run (make -k) was green. Red: a `signoff:
 # confirmed on a targeted retry:` line, which the lander reads as no flake. A retry
-# that cannot run (exit 75) fails the signoff like a red one, but without that line:
-# the lander then gates the train again. Only plain words reach the wrappers: the
-# packages joined by commas (RERUN_PKGS), never a regular expression.
+# that fails with an exit that is not the tests' own (make's 2, the Windows retry's 1) is a
+# wrapper failure (4d): return 2, the exit in $hostrc. That includes 75: a retry that cannot
+# run (the machine was lost between the gate and the retry) says nothing about the tests, and
+# a signoff ending in the red line without a "confirmed" line made the lander re-run and, with
+# the host still down, bisect; it exits 69 and the lander gates the same tree again (amends
+# D1755: "a retry that cannot run fails the signoff like a red one"). Only plain words reach
+# the wrappers: the packages joined by commas (RERUN_PKGS), never a regular expression.
 uniq_words() { printf '%s\n' "$@" | sort -u | paste -sd ' ' -; }
 flaky=
 retry() { # $1 = linux|windows, $2 = the red log; 0 when the retry is green
-  local plan prc=0 names= p0= p1= race pkg name rrc=0
+  local plan prc=0 names= p0= p1= race pkg name rrc=0 own=2
+  [ "$1" != windows ] || own=1
   plan=$("$here/test-failures.sh" "$2") || prc=$?
   [ "$prc" = 0 ] && [ -n "$plan" ] || return 1
   while read -r race pkg name; do
@@ -187,12 +227,13 @@ retry() { # $1 = linux|windows, $2 = the red log; 0 when the retry is green
   fi
   case "$rrc" in
     0) echo "signoff: flaky:$names failed and passed on a targeted retry" >&2; flaky="$flaky$names"; return 0 ;;
-    75) echo "signoff: the targeted retry could not run (machine unavailable)" >&2; return 1 ;;
-    *) echo "signoff: confirmed on a targeted retry:$names" >&2
+    75) hostrc=75; echo "signoff: the targeted retry could not run (machine unavailable)" >&2; return 2 ;;
+    "$own") echo "signoff: confirmed on a targeted retry:$names" >&2
        # The lander bisects a red train with this command only (signoff.sh --probe).
        p0=${p0// /,} p1=${p1// /,}
        echo "signoff: probe: $1 ${p0:--} ${p1:--}" >&2
        return 1 ;;
+    *) hostrc=$rrc; echo "signoff: the targeted retry did not run to the end (exit $rrc)" >&2; return 2 ;;
   esac
 }
 
@@ -201,7 +242,13 @@ read -r -a mk <<<"${SIGNOFF_MAKE:-make}"
 prc=0
 probe=$("${mk[@]}" -s --no-print-directory signoff-platform) || prc=$?
 [ "$prc" != 75 ] || hosted
-[ "$prc" = 0 ] || die "the platform probe failed: check SIGNOFF_MAKE"
+# 126/127: the wrapper is not executable or not found, a configuration error. Any other exit
+# is the host failing at its first call (an ssh drop is the likeliest moment): gated again.
+case "$prc" in
+  0) ;;
+  126 | 127) die "the platform probe failed (exit $prc): check SIGNOFF_MAKE" ;;
+  *) host_die "the build host" "$prc" ;;
+esac
 platform=$(printf '%s\n' "$probe" | awk 'NF { l = $0 } END { print l }')
 [ -n "$platform" ] || die "the platform probe printed nothing"
 echo "signoff: running make $targets on $platform" >&2
@@ -231,7 +278,13 @@ rc=${PIPESTATUS[0]}
 set -e
 secs=$(( $(date +%s) - start ))
 [ "$rc" != 75 ] || hosted
-[ "$rc" = 0 ] || { [ "$rc" = 2 ] && retry linux "$mlog"; } || die "make $targets failed (exit $rc): nothing pushed, nothing posted"
+case "$rc" in
+  0) ;;
+  2) lrc=0; retry linux "$mlog" || lrc=$?
+     [ "$lrc" != 2 ] || host_die "the build host" "$hostrc"
+     [ "$lrc" = 0 ] || die "make $targets failed (exit $rc): nothing pushed, nothing posted" ;;
+  *) host_die "the build host" "$rc" ;;
+esac
 duration=$(printf '%dm%02ds' $((secs / 60)) $((secs % 60)))
 windows="windows not run"
 if [ -n "$win_pid" ]; then
@@ -242,15 +295,23 @@ if [ -n "$win_pid" ]; then
   case "$wrc" in
     0) windows="windows $(printf '%dm%02ds' $((wsecs / 60)) $((wsecs % 60)))" ;;
     75) windows="windows unavailable"; echo "signoff: warning: the Windows machine is unavailable, leg skipped" >&2 ;;
-    *) tail -n 40 "$win_log" >&2
-       { [ "$wrc" = 1 ] && retry windows "$win_log"; } || die "the Windows leg failed (exit $wrc): nothing pushed, nothing posted" ;;
+    1) tail -n 40 "$win_log" >&2
+       lrc=0; retry windows "$win_log" || lrc=$?
+       [ "$lrc" != 2 ] || host_die "the Windows machine" "$hostrc"
+       [ "$lrc" = 0 ] || die "the Windows leg failed (exit $wrc): nothing pushed, nothing posted" ;;
+    *) tail -n 40 "$win_log" >&2; host_die "the Windows machine" "$wrc" ;;
   esac
 fi
 
 # The deferred web budget test, now that nothing else is running.
 if [ -n "$defer" ]; then
   echo "signoff: web-perf, alone" >&2
-  "${mk[@]}" web-perf NPM_CI= || die "make web-perf failed: nothing pushed, nothing posted"
+  wprc=0; "${mk[@]}" web-perf NPM_CI= || wprc=$?
+  case "$wprc" in
+    0) ;;
+    2) die "make web-perf failed (exit $wprc): nothing pushed, nothing posted" ;;
+    *) host_die "the build host" "$wprc" ;;
+  esac
 fi
 
 # 5. Still the same commit (the tree may differ: a web build rewrites tracked bundle files).

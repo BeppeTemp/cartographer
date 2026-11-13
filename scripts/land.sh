@@ -24,10 +24,14 @@
 # `signoff` status: one gate for the whole train). The signoff itself retries once the
 # Go tests a red run names (its step 4c): green, the train lands on that gate and a `bug`
 # issue names them; red, the failure is confirmed and bisection starts without a re-run.
-# Any other red: one re-run of the same tree; green then means a flaky test, so the train
-# lands and a `bug` issue names the tests. Red twice: bisection over the train's prefixes
-# finds the first failing change, which is rejected, and the green prefix before it lands;
-# when the signoff confirmed the failure on named Go tests, each prefix runs only those
+# A signoff that exits 69 (ssh or rsync dropped, so no test failed: #1843; its line `the build
+# host failed (exit N) before the gate finished` is for people: the log holds the change's own
+# output, so the code decides) is not red: the same tree is gated again, no flaky
+# issue, up to LAND_INFRA_TRIES gates in a row; a host that stays down stops the lander with
+# the queue untouched. Any other red: one re-run of the same tree; green then means a flaky
+# test, so the train lands and a `bug` issue names the tests. Red twice: bisection over the
+# train's prefixes finds the first failing change, which is rejected, and the green prefix
+# before it lands; when the signoff confirmed the failure on named Go tests, each prefix runs only those
 # tests' packages (`signoff.sh --probe`, D1878) and the green prefix then gets
 # one full gate before it lands. Green: one PR, title
 # `chore(dev): train <id>, <k> changes`, rebase-merged so every change stays its own
@@ -59,6 +63,7 @@
 # built on an older main is closed and its changes composed again; a fork's, or one whose
 # head it cannot match, is waited on for LAND_OPEN_TRIES polls, then the lander stops.
 #
+#   LAND_INFRA_TRIES (3)  LAND_INFRA_WAIT (120 s)
 #   LAND_MAX (8)  LAND_POLL (30 s)  LAND_MERGE_TRIES (90 polls)  LAND_OPEN_TRIES (120 polls)  LAND_STATE (state dir)
 #   LAND_PRECHECK_START (300 s)  LAND_PRECHECK_WAIT (1200 s), from the queued commit's time
 #   SIGNOFF_* are passed to signoff.sh unchanged.
@@ -356,7 +361,14 @@ number_decisions() {
   done <<<"$touched" | head -n 1 || true) # grep finds nothing: pipefail would end the lander
 }
 
-gate() { # $1 = log file; signoff.sh on the train branch: exit 0 green, 1 red, 2 infrastructure
+# The signoff's exit code for a wrapper that failed (ssh or rsync dropped: exit 255, or any exit
+# that is not make's 2, the Windows shards' 1 or 75): no test failed, so it is neither red nor
+# a flake (signoff.sh step 4d). EX_UNAVAILABLE, not 75 (EX_TEMPFAIL, the wrapper's "run the gate
+# in CI"). An out-of-band signal: the gate log holds the change's own test output, so a line in
+# it, which a test can print, must never decide that the gate was not red. Tests pin both scripts.
+host_rc=69
+infra_line='^signoff: the (build host|Windows machine) failed \(exit [0-9]+\) before the gate finished: nothing pushed, nothing posted$'
+gate_once() { # $1 = log file; signoff.sh on the train branch: exit 0 green, 1 red, 2 not a test, 3 the build host failed
   local rc
   # Streamed to the lander's log as it runs (a gate takes minutes), and kept in $1.
   set +e
@@ -364,8 +376,34 @@ gate() { # $1 = log file; signoff.sh on the train branch: exit 0 green, 1 red, 2
   rc=${PIPESTATUS[0]}
   set -e
   [ "$rc" = 0 ] && return 0
+  [ "$rc" != "$host_rc" ] || return 3
+  # Known follow-up: these greps read the log, so a test that prints such a line can make a
+  # signoff that failed for another reason read as red. That costs a re-run, and at worst a
+  # bisection of a train that failed anyway; it cannot make a red gate read as infrastructure.
   if grep -qE 'failed \(exit [0-9]+\): nothing pushed, nothing posted|of ci.yml run [0-9]+ is ' "$1"; then return 1; fi
   return 2
+}
+
+# One gate; when the build host fails before it finishes (rc 3) the same tree is gated again,
+# at most LAND_INFRA_TRIES (3) gates in a row with LAND_INFRA_WAIT (120 s) between them: no
+# test failed, so no re-run of a red, no bisection and no flaky issue. A host that stays down
+# stops the lander with the queue untouched, naming the failure. Each failed attempt's log is
+# kept as $1.host<n>; $1 holds the last attempt, which is the one the caller reads.
+gate() { # $1 = log file; exit 0 green, 1 red, 2 not a test (the caller dies)
+  local rc n=1 max=${LAND_INFRA_TRIES:-3} why
+  while :; do
+    rc=0; gate_once "$1" || rc=$?
+    [ "$rc" != 3 ] && return "$rc"
+    # The words only (the exit code decided): the signoff prints its line last.
+    why=$(grep -E "$infra_line" "$1" | tail -n 1 | sed 's/^signoff: //; s/: nothing pushed, nothing posted$//' || true)
+    [ -n "$why" ] || why="the build host failed before the gate finished"
+    [ "$n" -lt "$max" ] ||
+      die "infrastructure, not a test: $why, in $n gates of $branch in a row (see $1): the queue is untouched"
+    log "$why: gating $branch again ($n/$max done, in ${LAND_INFRA_WAIT:-120} s)"
+    mv "$1" "$1.host$n"
+    n=$((n + 1))
+    sleep "${LAND_INFRA_WAIT:-120}"
+  done
 }
 
 # The tests a red gate log names: the ones a signoff retry confirmed (the Windows leg's output

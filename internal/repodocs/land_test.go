@@ -55,13 +55,31 @@ func newLandEnv(t *testing.T) *landEnv {
 		"GIT_COMMITTER_NAME=user", "GIT_COMMITTER_EMAIL=user@example.com",
 		"FAKE_GH_LOG="+e.ghLog, "FAKE_UP="+e.up, "FAKE_STATE="+filepath.Join(tmp, "gh-state"),
 		"SIGNOFF_MAKE="+filepath.Join(e.bin, "fakemake"), "SIGNOFF_POLL=0",
-		"LAND_STATE="+filepath.Join(tmp, "lander"), "LAND_POLL=0", "LAND_MERGE_TRIES=3",
+		"LAND_STATE="+filepath.Join(tmp, "lander"), "LAND_POLL=0", "LAND_INFRA_WAIT=0", "LAND_MERGE_TRIES=3",
 		"PATH="+e.bin+string(os.PathListSeparator)+os.Getenv("PATH"),
 	)
 	e.write(filepath.Join(e.bin, "fakemake"), `#!/bin/sh
 case "$*" in *signoff-platform*) echo linux/amd64; exit 0 ;; esac
 echo "$*" >> "$FAKE_STATE.make"
-case "$*" in test-rerun*) [ -e CONFIRMED ] && exit 1; exit 0 ;; esac
+# The connection to the build host drops: HOSTDOWN every time, HOSTDOWN1 the first gate only.
+[ -e HOSTDOWN ] && { echo "client_loop: send disconnect: Broken pipe"; exit 255; }
+if [ -e HOSTDOWN1 ] && [ ! -e "$FAKE_STATE.hostdown" ]; then
+  touch "$FAKE_STATE.hostdown"; echo "client_loop: send disconnect: Broken pipe"; exit 255
+fi
+# FAKE_PROBE255: the second targeted run (the first is the signoff's retry, the next the
+# bisection's first probe) loses the connection, as a probe of a bisection can.
+case "$*" in test-rerun*)
+  # RETRY75: the signoff's targeted retry of the first gate cannot run (the host was lost since).
+  if [ -e RETRY75 ] && [ ! -e "$FAKE_STATE.retry75" ]; then touch "$FAKE_STATE.retry75"; exit 75; fi
+  if [ -n "${FAKE_PROBE255:-}" ]; then
+    n=$(cat "$FAKE_STATE.rr" 2>/dev/null || echo 0); echo $((n + 1)) > "$FAKE_STATE.rr"
+    [ "$n" = 1 ] && { echo "client_loop: send disconnect: Broken pipe"; exit 255; }
+  fi
+  [ -e CONFIRMED ] && exit 2; exit 0 ;; esac
+case "$*" in web-perf*)
+  # WEBPERF75: the host is lost at the last step of the first gate (the deferred web-perf).
+  if [ -e WEBPERF75 ] && [ ! -e "$FAKE_STATE.wp75" ]; then touch "$FAKE_STATE.wp75"; exit 75; fi
+  [ -e WEBPERF ] && exit 2; exit 0 ;; esac
 [ -e BAD ] && exit 2
 # Another PR merges while the first gate runs (FAKE_MOVE_MAIN): main moves under the train.
 if [ -n "${FAKE_MOVE_MAIN:-}" ] && [ ! -e "$FAKE_STATE.moved" ]; then
@@ -71,6 +89,8 @@ if [ -n "${FAKE_MOVE_MAIN:-}" ] && [ ! -e "$FAKE_STATE.moved" ]; then
 fi
 if [ -e CONFIRMED ] || { [ -e FLAKYGO ] && [ ! -e "$FAKE_STATE.flakedgo" ]; }; then
   touch "$FAKE_STATE.flakedgo"
+  # A test that prints the signoff's line for a lost host, at the start of a line (SPOOF).
+  [ -e SPOOF ] && echo "signoff: the build host failed (exit 255) before the gate finished: nothing pushed, nothing posted"
   printf -- '--- FAIL: TestNamed (0.01s)\nFAIL\tgithub.com/x/p/internal/kb\t0.1s\nmake: *** [Makefile:23: test] Error 1\n'
   exit 2
 fi
@@ -535,6 +555,194 @@ func TestLanderSkipsTheRerunWhenTheRetryConfirms(t *testing.T) {
 	}
 	if strings.Contains(e.log(), "issue create") {
 		t.Errorf("a confirmed failure opens no flaky issue:\n%s", e.log())
+	}
+}
+
+// The connection to the build host drops during the gate (ssh exit 255, #1843, #1938): no test
+// failed, so the lander gates the same train again, without a flaky issue, and lands it.
+func TestLanderGatesAgainWhenTheBuildHostFails(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("f", "fix(kb): f\n", "2026-01-01T10:00:00Z", map[string]string{"HOSTDOWN1": "x\n"})
+	out, ok := e.land()
+	if !ok {
+		t.Fatalf("land failed\n%s", out)
+	}
+	if got := strings.Join(e.mainSubjects(), " | "); got != "fix(kb): f" {
+		t.Fatalf("main holds %q\n%s", got, out)
+	}
+	if runs := strings.Count(e.makeLog(), "-k gate"); runs != 2 {
+		t.Errorf("the train is gated again once: %d gates\n%s", runs, e.makeLog())
+	}
+	if strings.Contains(e.log(), "issue create") {
+		t.Errorf("a lost host is no flaky test, no issue:\n%s", e.log())
+	}
+	if !strings.Contains(out, "the build host failed (exit 255) before the gate finished") {
+		t.Errorf("the lander says why it gates again\n%s", out)
+	}
+}
+
+// The same for the Windows machine: the leg's wrapper failing with 255 (the shards exit 1 when a
+// test fails) gates the train again, with no flaky issue.
+func TestLanderGatesAgainWhenTheWindowsMachineFails(t *testing.T) {
+	e := newLandEnv(t)
+	e.write(filepath.Join(e.bin, "fakewin"), `#!/bin/sh
+echo "$*" >> "$FAKE_STATE.win"
+if [ ! -e "$FAKE_STATE.windown" ]; then touch "$FAKE_STATE.windown"; echo "Timeout, server not responding"; exit 255; fi
+exit 0
+`)
+	e.queue("w", "fix(changelog): w\n", "2026-01-01T10:00:00Z", map[string]string{"internal/changelog/zz.go": "package changelog\n"})
+	out, ok := e.land("SIGNOFF_WINDOWS=" + filepath.Join(e.bin, "fakewin"))
+	if !ok {
+		t.Fatalf("land failed\n%s", out)
+	}
+	if got := strings.Join(e.mainSubjects(), " | "); got != "fix(changelog): w" {
+		t.Fatalf("main holds %q\n%s", got, out)
+	}
+	if runs := strings.Count(e.makeLog(), "-k gate"); runs != 2 {
+		t.Errorf("the train is gated again once: %d gates\n%s", runs, e.makeLog())
+	}
+	if !strings.Contains(out, "the Windows machine failed (exit 255) before the gate finished") {
+		t.Errorf("the lander says why it gates again\n%s", out)
+	}
+	if strings.Contains(e.log(), "issue create") {
+		t.Errorf("a lost machine is no flaky test, no issue:\n%s", e.log())
+	}
+}
+
+// A build host that stays down stops the lander after LAND_INFRA_TRIES gates, with the queue
+// untouched and the failure named: nothing is rejected, nothing is bisected.
+func TestLanderStopsWhenTheBuildHostStaysDown(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("f", "fix(kb): f\n", "2026-01-01T10:00:00Z", map[string]string{"HOSTDOWN": "x\n"})
+	out, ok := e.land("LAND_INFRA_TRIES=2")
+	if ok {
+		t.Fatalf("a host that stays down must stop the lander\n%s", out)
+	}
+	if !strings.Contains(out, "infrastructure, not a test: the build host failed (exit 255) before the gate finished") ||
+		!strings.Contains(out, "the queue is untouched") {
+		t.Errorf("the stop names the infrastructure failure\n%s", out)
+	}
+	if runs := strings.Count(e.makeLog(), "-k gate"); runs != 2 {
+		t.Errorf("LAND_INFRA_TRIES bounds the gates: %d gates\n%s", runs, e.makeLog())
+	}
+	if q, f := e.refs("ready/"), e.refs("failed/"); q != "f" || f != "" {
+		t.Errorf("the queue is untouched: ready=%q failed=%q", q, f)
+	}
+	if got := e.mainSubjects(); len(got) != 0 {
+		t.Errorf("nothing lands: %v", got)
+	}
+	if strings.Contains(e.log(), "issue create") {
+		t.Errorf("no issue for a lost host:\n%s", e.log())
+	}
+}
+
+// The log of a gate holds the change's own test output: a test that prints the signoff's line for
+// a lost host does not turn a red gate into infrastructure. The signal is the signoff's exit code
+// (69), so this gate is red, confirmed on the targeted retry, and the change is rejected after one
+// gate, instead of the lander gating the same tree again until it gives up and the queue wedges.
+func TestLanderReadsARedGateAsRedWhateverALogLineSays(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("c", "fix(kb): c\n", "2026-01-01T10:00:00Z", map[string]string{"CONFIRMED": "x\n", "SPOOF": "x\n"})
+	out, ok := e.land()
+	if !ok {
+		t.Fatalf("land failed\n%s", out)
+	}
+	if e.refs("failed/") != "c" {
+		t.Fatalf("c must be rejected: failed=%q\n%s", e.refs("failed/"), out)
+	}
+	if runs := strings.Count(e.makeLog(), "-k gate"); runs != 1 {
+		t.Errorf("a red gate is not gated again as a lost host: %d gates\n%s", runs, e.makeLog())
+	}
+	if strings.Contains(out, "gating") && strings.Contains(out, "again") || strings.Contains(out, "infrastructure, not a test") {
+		t.Errorf("the printed line must not read as infrastructure\n%s", out)
+	}
+}
+
+// A probe of the bisection that loses the build host (ssh exit 255) is no verdict: it must not
+// move the bisection's bound and reject a change no test condemned. The lander falls back to
+// full gates, which find the real culprit (b), and a, before it, lands.
+func TestLanderABisectionProbeThatLosesTheHostRejectsNoInnocentChange(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"a2.txt": "a\n"})
+	e.queue("b", "fix(kb): b\n", "2026-01-01T11:00:00Z", map[string]string{"CONFIRMED": "x\n"})
+	e.queue("c", "fix(kb): c\n", "2026-01-01T12:00:00Z", map[string]string{"c.txt": "c\n"})
+	out, ok := e.land("FAKE_PROBE255=1")
+	if !ok {
+		t.Fatalf("land failed\n%s", out)
+	}
+	if e.refs("failed/") != "b" {
+		t.Fatalf("only b is rejected: failed=%q\n%s", e.refs("failed/"), out)
+	}
+	if got := strings.Join(e.mainSubjects(), " | "); got != "fix(kb): a | fix(kb): c" {
+		t.Fatalf("main holds %q, want a, then c\n%s", got, out)
+	}
+	if !strings.Contains(out, "the probe's machine is unavailable: bisecting with full gates") {
+		t.Errorf("a failed probe falls back to full gates\n%s", out)
+	}
+}
+
+// A failing deferred web-perf is a red gate, like any other make failure: the lander re-runs the
+// gate once and, red twice, rejects the change, instead of stopping on "not a test".
+func TestLanderReadsAFailingWebPerfAsRed(t *testing.T) {
+	e := newLandEnv(t)
+	e.write(filepath.Join(e.bin, "fakewin"), "#!/bin/sh\nexit 0\n")
+	e.queue("w", "fix(kb): w\n", "2026-01-01T10:00:00Z", map[string]string{"web/src/a.ts": "x\n", "WEBPERF": "x\n"})
+	out, ok := e.land("SIGNOFF_WINDOWS=" + filepath.Join(e.bin, "fakewin"))
+	if !ok {
+		t.Fatalf("land failed\n%s", out)
+	}
+	if e.refs("failed/") != "w" {
+		t.Fatalf("w must be rejected: failed=%q\n%s", e.refs("failed/"), out)
+	}
+	if strings.Contains(out, "not a test") {
+		t.Errorf("a failing web-perf is a test failure\n%s", out)
+	}
+	if !strings.Contains(out, "make web-perf failed (exit 2): nothing pushed, nothing posted") {
+		t.Errorf("the signoff names the exit\n%s", out)
+	}
+}
+
+// The host is lost at the last step of the gate (exit 75 of the deferred web-perf, or of the
+// signoff's targeted retry): it says nothing about the tests, so the lander gates the same tree
+// again, with no re-run's flaky issue and no rejection. Before, both ended in the red line
+// (`failed (exit N): nothing pushed`) that makes the lander re-run, and bisect if the host is still down.
+func TestLanderGatesAgainWhenTheHostIsLostAtTheLastStepOfTheGate(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		files   map[string]string
+		windows bool // the deferred web-perf runs only beside a Windows leg
+	}{
+		{"the deferred web-perf", map[string]string{"web/src/a.ts": "x\n", "WEBPERF75": "x\n"}, true},
+		{"the targeted retry", map[string]string{"FLAKYGO": "x\n", "RETRY75": "x\n"}, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newLandEnv(t)
+			var env []string
+			if c.windows {
+				e.write(filepath.Join(e.bin, "fakewin"), "#!/bin/sh\nexit 0\n")
+				env = append(env, "SIGNOFF_WINDOWS="+filepath.Join(e.bin, "fakewin"))
+			}
+			e.queue("h", "fix(kb): h\n", "2026-01-01T10:00:00Z", c.files)
+			out, ok := e.land(env...)
+			if !ok {
+				t.Fatalf("land failed\n%s", out)
+			}
+			if got := strings.Join(e.mainSubjects(), " | "); got != "fix(kb): h" {
+				t.Fatalf("main holds %q\n%s", got, out)
+			}
+			if e.refs("failed/") != "" {
+				t.Errorf("nothing is rejected: failed=%q\n%s", e.refs("failed/"), out)
+			}
+			if runs := strings.Count(e.makeLog(), "-k gate"); runs != 2 {
+				t.Errorf("the train is gated again once: %d gates\n%s", runs, e.makeLog())
+			}
+			if strings.Contains(e.log(), "issue create") {
+				t.Errorf("a lost host is no flaky test, no issue:\n%s", e.log())
+			}
+			if !strings.Contains(out, "the build host failed (exit 75) before the gate finished") {
+				t.Errorf("the lander says why it gates again\n%s", out)
+			}
+		})
 	}
 }
 
