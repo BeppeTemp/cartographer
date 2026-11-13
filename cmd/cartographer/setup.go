@@ -166,6 +166,10 @@ var errSetupNoServiceManager = errors.New("this machine has no service manager")
 // server address: setup would otherwise connect the agents to it.
 var errSetupForeignListener = errors.New("something else is listening on the server address")
 
+// errSetupInterrupted is gatherSetupFacts' answer when Ctrl-C cancelled the push
+// probe: no finding about the remote, and nothing was changed.
+var errSetupInterrupted = errors.New("push check interrupted")
+
 // errSetupNeedsKBChoice is planSetup's answer when the server will mount two or
 // more KBs and the agents have no binding yet (D190).
 var errSetupNeedsKBChoice = errors.New("choose the KBs the agents receive")
@@ -565,8 +569,20 @@ func gatherSetupFacts(o setupOptions) (setupFacts, error) {
 		}
 		// Reading is not writing: the server pushes every write, so a credential
 		// that cannot push is reported now, not at the first write.
+		// Only a real refusal stops setup (classifyPushError, the verdict `kb clone`
+		// and `doctor` share): a remote that stopped answering, or a failure that
+		// says nothing about the credential, is a note, and the first write finds out.
 		if err := setupProbePush(ctx, o.Remote); err != nil {
-			return f, fmt.Errorf("this machine's git credentials can read %s but cannot push to it — nothing was changed:\n  %v", gitx.RedactRemoteURL(o.Remote), err)
+			switch classifyPushError(err) {
+			case pushInterrupted:
+				return f, errSetupInterrupted
+			case pushRefused:
+				return f, fmt.Errorf("this machine's git credentials can read %s but cannot push to it — nothing was changed:\n  %v", gitx.RedactRemoteURL(o.Remote), err)
+			case pushOffline:
+				fmt.Fprintf(os.Stderr, "Note: push access of %s was not checked, the remote did not answer (%s)\n", gitx.RedactRemoteURL(o.Remote), pushCause(err, o.Remote))
+			default:
+				fmt.Fprintf(os.Stderr, "Note: push access of %s could not be checked (%s)\n", gitx.RedactRemoteURL(o.Remote), pushCause(err, o.Remote))
+			}
 		}
 		f.RemoteProbed, f.RemoteHasRefs, f.RemoteForgeInit = true, probe.HasRefs, probe.ForgeInit
 	}
@@ -703,6 +719,9 @@ func runSetup(o setupOptions, interactive, yes, dryRun bool, ask setupPrompter) 
 			fmt.Fprintln(os.Stderr, "  cartographer setup --remote <url>          an empty repository (created) or one holding a KB (mounted)")
 			fmt.Fprintln(os.Stderr, "  cartographer setup --no-remote [--name n]  a local-only KB, not backed up and never synced")
 			return 2
+		case errors.Is(err, errSetupInterrupted):
+			fmt.Fprintln(os.Stderr, "push check interrupted — nothing was changed")
+			return 1
 		case errors.Is(err, errSetupForeignListener):
 			fmt.Fprintf(os.Stderr, "Error: something that is not a Cartographer server answers on %s - nothing was changed.\n  Free that address, or point the server elsewhere with `cartographer service install --http <addr>`, then rerun `cartographer setup`.\n", serviceAddrOrDefault(facts.Service))
 			return 2

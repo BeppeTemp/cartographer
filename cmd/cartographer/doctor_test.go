@@ -31,10 +31,14 @@ import (
 // happens to be installed on the machine running the tests.
 func doctorStubs(t *testing.T, installed []string, timerInstalled bool) {
 	t.Helper()
-	origDetect, origTimer, origPath, origSvc, origSrvCfg := doctorDetectFn, syncTimerStatusFn, pathBinariesFn, serviceBinaryFn, serverConfigPathFn
+	origDetect, origTimer, origPath, origSvc, origSrvCfg, origDirs := doctorDetectFn, syncTimerStatusFn, pathBinariesFn, serviceBinaryFn, serverConfigPathFn, doctorServerDirsFn
 	pathBinariesFn = func() []string { return nil }
 	serviceBinaryFn = func() string { return "" }
 	serverConfigPathFn = func() string { return "" }
+	// push-access reads the local server's data and credentials directories:
+	// empty ones here, never this machine's.
+	emptyData, emptyCreds := t.TempDir(), t.TempDir()
+	doctorServerDirsFn = func() (string, string) { return emptyData, emptyCreds }
 	set := map[string]bool{}
 	for _, p := range installed {
 		set[p] = true
@@ -50,7 +54,7 @@ func doctorStubs(t *testing.T, installed []string, timerInstalled bool) {
 		return service.SyncTimerStatus{Installed: timerInstalled, Path: filepath.Join(os.TempDir(), "cartographer-sync.timer")}, nil
 	}
 	t.Cleanup(func() {
-		doctorDetectFn, syncTimerStatusFn, pathBinariesFn, serviceBinaryFn, serverConfigPathFn = origDetect, origTimer, origPath, origSvc, origSrvCfg
+		doctorDetectFn, syncTimerStatusFn, pathBinariesFn, serviceBinaryFn, serverConfigPathFn, doctorServerDirsFn = origDetect, origTimer, origPath, origSvc, origSrvCfg, origDirs
 	})
 }
 

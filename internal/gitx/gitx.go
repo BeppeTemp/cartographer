@@ -2436,6 +2436,16 @@ func RemoteURL(dir, remote string) (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
+// RemotePushURL is the URL a push to the named remote goes to: its
+// remote.<name>.pushurl when set (and url.<base>.pushInsteadOf), else its URL.
+func RemotePushURL(dir, remote string) (string, error) {
+	out, err := runGit(dir, "remote", "get-url", "--push", "--", remote)
+	if err != nil {
+		return "", fmt.Errorf("git remote get-url --push %s: %w: %s", remote, err, out)
+	}
+	return strings.TrimSpace(out), nil
+}
+
 // AddRemote adds a remote with the given name and URL.
 func AddRemote(dir, name, url string) error {
 	if err := ValidateRemote(url); err != nil {
