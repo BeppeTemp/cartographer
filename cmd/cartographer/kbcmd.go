@@ -866,12 +866,15 @@ func cmdKBClone(args []string) int {
 		if teamBranch != "" && teamBranch != branch {
 			fmt.Printf("note: the KB's own settings.yaml names branch %s; the server override wins, and the KB's setting is not read here\n", teamBranch)
 		}
+		warnIfCannotPush(name, path, configPath, dataDir)
 		printPostCreateGuidanceFn(*configFlag, *restartFlag)
 		return 0
 	}
 
 	cloned = true
 	fmt.Printf("KB %q mounted at %s\n", name, path)
+	cfgPath, _ := serverConfigFile(*configFlag)
+	warnIfCannotPush(name, path, cfgPath, dataDir)
 	printPostCreateGuidanceFn(*configFlag, *restartFlag)
 	return 0
 }

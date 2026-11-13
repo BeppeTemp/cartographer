@@ -14,6 +14,9 @@ package main
 // operator cannot act on is noise, and a doctor that silently fixes things is a
 // doctor nobody can predict — the repair paths already exist and are
 // individually reviewable.
+//
+// The one check that touches the network is push-access (#1999): a push dry run
+// from a temporary repository, so the KB's clone is left as it was.
 
 import (
 	"encoding/json"
@@ -242,6 +245,7 @@ func runDoctor(dir, only string) doctorReport {
 			findings = append(findings, checkCapabilities(dir, cfg, facts, healthErr)...)
 			findings = append(findings, checkSkippedKBs(dir, facts, healthErr)...)
 			findings = append(findings, checkPushLag(dir, facts, healthErr)...)
+			findings = append(findings, checkPushAccess(cfg, facts, healthErr)...)
 			// facts.health is set whenever /health answered, even when the listing
 			// is malformed (enumerateKBs then returns facts with an error).
 			if cands, ok := doctorKBCandidates(cfg, providers, facts); ok {

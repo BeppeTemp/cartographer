@@ -239,7 +239,7 @@ below are constants, not settings: a 30s freshness window and a 3s push debounce
    and safe in the clone, and the response carries the same warning.
    The other refusals no retry changes fail the same way, after one attempt, with a one-line remedy quoting the
    remote's line (`ErrPushRefused`, `gitx.PermanentPushRejection`): a credential without write access (HTTP 403,
-   `Permission to … denied`, a read-only deploy key), a credential the remote rejects (`Authentication failed`,
+   `Permission to … denied`, a read-only deploy key, GitLab's `not allowed to push code to this project`, Gitea's `permission denied for writing`), a credential the remote rejects (`Authentication failed`,
    HTTP 401; check the token or credential helper for this forge) or that git has none of to offer (`could not read
    Username`; configure a token or credential helper, or use an ssh remote), a repository rule or required signature (GitHub `GH013`,
    `repository rule violations`; Cartographer does not sign commits), a file over the size limit (`GH001`) and a server-side hook that declined. A bare HTTP 403 (it can be a rate limit), a `[remote rejected]` for a

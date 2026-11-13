@@ -64,13 +64,18 @@ simpler and you should use it.
 ## Why does the sync say the remote refused the push, and why is it not retried?
 
 Some refusals are the remote's decision and retrying only repeats them: a token without write access (HTTP 403,
-`Permission to … denied`, a read-only deploy key), a repository rule such as GitHub's `GH013` (required signatures,
+`Permission to … denied`, a read-only deploy key, GitLab's `not allowed to push code to this project`, Gitea's `permission denied for writing`), a repository rule such as GitHub's `GH013` (required signatures,
 pull-request-only branches), a file over the size limit (`GH001`), a credential the remote rejects (`Authentication
 failed`, HTTP 401: check the token or credential helper for this forge) or that git has none of to offer (`could not
 read Username`: configure a token or credential helper, or use an ssh remote). A bare HTTP 403 is still retried, it can be a rate limit. The KB is `failed` after one attempt and
 `sync_status` quotes the remote's own line with the way out; the change stays committed in the local clone and is
 pushed by the next write once the cause is fixed. `cartographer setup` checks push access with a dry run before it
-creates anything.
+creates anything, `cartographer kb clone` runs the same dry run after the clone and warns (it does not fail: you may
+clone to read), and `cartographer doctor` runs it for every KB of the local server (`push-access`). Only the remote's
+own verdict on the credential (no write access, a rejected or missing login) is reported as refused; a remote that does
+not answer, or a failure that says nothing about the credential (an untrusted TLS certificate, an unknown host key, a
+429 or a 5xx), is skipped with a note ("could not check"), and the exit code does not change. The probe uses the
+server's credentials for the KB and the shell's environment. The server start does not probe.
 
 Cartographer does not sign commits, and it ignores your global `commit.gpgsign` and `core.hooksPath` when it commits
 (a background service cannot answer a pinentry prompt or run a hook written for your own commits). A remote that

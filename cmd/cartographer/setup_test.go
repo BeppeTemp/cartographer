@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"reflect"
@@ -256,13 +257,70 @@ func TestRunSetup_UnreachableRemoteChangesNothing(t *testing.T) {
 func TestRunSetup_ReadOnlyCredentialStopsBeforeChangingAnything(t *testing.T) {
 	calls := stubSetup(t, setupFacts{})
 	setupProbePush = func(context.Context, string) error {
-		return errors.New("this credential cannot push to the remote")
+		return errors.New("git push --dry-run https://git.example.com/me/wiki.git: fatal: Authentication failed for 'https://git.example.com/me/wiki.git/'")
 	}
-	if code := runSetup(setupOptions{Remote: "https://git.example.com/me/wiki.git"}, false, true, false, noPrompt()); code != 2 {
+	var code int
+	out := stderrOf(t, func() {
+		code = runSetup(setupOptions{Remote: "https://git.example.com/me/wiki.git"}, false, true, false, noPrompt())
+	})
+	if code != 2 {
 		t.Fatalf("runSetup = %d, want 2", code)
+	}
+	if !strings.Contains(out, "cannot push to it") {
+		t.Errorf("stderr does not say the credential cannot push:\n%s", out)
 	}
 	if len(*calls) != 1 || !strings.HasPrefix((*calls)[0], "probe ") {
 		t.Errorf("calls = %q: a remote that cannot be pushed to must stop setup before it changes anything", *calls)
+	}
+}
+
+// Ctrl-C during the push probe is not a refusal: setup says it was interrupted,
+// exits like its other cancellations and changes nothing.
+func TestRunSetup_InterruptedPushProbeIsNotARefusal(t *testing.T) {
+	calls := stubSetup(t, setupFacts{})
+	setupProbePush = func(context.Context, string) error {
+		return fmt.Errorf("git push --dry-run: %w", context.Canceled)
+	}
+	var code int
+	out := stderrOf(t, func() {
+		code = runSetup(setupOptions{Remote: "https://git.example.com/me/wiki.git"}, false, true, false, noPrompt())
+	})
+	if code != 1 {
+		t.Fatalf("runSetup = %d, want 1 (cancelled)", code)
+	}
+	if !strings.Contains(out, "push check interrupted — nothing was changed") || strings.Contains(out, "cannot push") {
+		t.Errorf("stderr = %q, want the interruption and no refusal", out)
+	}
+	if len(*calls) != 1 || !strings.HasPrefix((*calls)[0], "probe ") {
+		t.Errorf("calls = %q: an interrupted setup must not change anything", *calls)
+	}
+}
+
+// A remote that stopped answering, a deadline, or a failure that says nothing
+// about the credential is not "cannot push": setup notes it and goes on.
+func TestRunSetup_PushProbeWithoutVerdictIsANoteNotARefusal(t *testing.T) {
+	for name, perr := range map[string]error{
+		"offline":  errors.New("git push --dry-run https://git.example.com/me/wiki.git: fatal: unable to access: Could not resolve host: git.example.com"),
+		"deadline": fmt.Errorf("%w for git.example.com: context deadline exceeded", gitx.ErrProbeTimeout),
+		"unknown":  errors.New("git push --dry-run https://git.example.com/me/wiki.git: fatal: unable to access: SSL certificate problem"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			calls := stubSetup(t, setupFacts{})
+			setupProbePush = func(context.Context, string) error { return perr }
+			var code int
+			out := stderrOf(t, func() {
+				code = runSetup(setupOptions{Remote: "https://git.example.com/me/wiki.git"}, false, true, false, noPrompt())
+			})
+			if code != 0 {
+				t.Fatalf("runSetup = %d, want 0\n%s", code, out)
+			}
+			if !strings.Contains(out, "Note: push access") || strings.Contains(out, "cannot push") {
+				t.Errorf("stderr = %q, want a note and no refusal", out)
+			}
+			if !slices.Contains(*calls, "service install") {
+				t.Errorf("calls = %q: setup must go on", *calls)
+			}
+		})
 	}
 }
 
