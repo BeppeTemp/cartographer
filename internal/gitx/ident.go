@@ -122,20 +122,32 @@ func GlobalIdent() (ident string, perFolder bool) {
 		cmd.Dir = os.TempDir()
 		return cmd.Output()
 	}
-	global := func(args ...string) (string, error) {
-		out, err := git(append([]string{"--global", "--includes"}, args...)...)
-		return strings.TrimSpace(string(out)), err
-	}
-	if keys, err := git("--global", "--includes", "--null", "--get-regexp", `^includeif\.`); err == nil {
-		if includeIfMaySetIdentity(string(keys), git) {
-			return "", true
+	// git reads the XDG file first and ~/.gitconfig after it, which wins; its
+	// own --global reads only one of them. So each file is read on its own and
+	// the values merged here with the same precedence.
+	scopes := globalScopes()
+	for _, scope := range scopes {
+		keys, err := git(append(append([]string{}, scope...), "--includes", "--null", "--get-regexp", `^includeif\.`)...)
+		if err == nil {
+			if includeIfMaySetIdentity(string(keys), git, scope) {
+				return "", true
+			}
+		} else if exitCode(err) != 1 {
+			return "", false
 		}
-	} else if exitCode(err) != 1 {
-		return "", false
 	}
-	name, errName := global("--get", "user.name")
-	email, errEmail := global("--get", "user.email")
-	if errName != nil || errEmail != nil {
+	global := func(key string) (value string, found bool) {
+		for _, scope := range scopes {
+			out, err := git(append(append([]string{}, scope...), "--includes", "--get", key)...)
+			if err == nil {
+				value, found = strings.TrimSpace(string(out)), true
+			}
+		}
+		return value, found
+	}
+	name, okName := global("user.name")
+	email, okEmail := global("user.email")
+	if !okName || !okEmail {
 		return "", false
 	}
 	n, e, problem := ParseIdent(name + " <" + email + ">")
@@ -151,7 +163,8 @@ func GlobalIdent() (ident string, perFolder bool) {
 // Conditions are not evaluated: outside a repository gitdir: and onbranch:
 // never match, but the file may be included in the folder a client entry is
 // used from, so every conditional include counts.
-func includeIfMaySetIdentity(keys string, git func(args ...string) ([]byte, error)) bool {
+// scope selects the file the listing came from (globalScopes).
+func includeIfMaySetIdentity(keys string, git func(args ...string) ([]byte, error), scope []string) bool {
 	for _, rec := range strings.Split(keys, "\x00") {
 		key, _, _ := strings.Cut(rec, "\n")
 		if rec != "" && !strings.HasSuffix(key, ".path") {
@@ -160,8 +173,8 @@ func includeIfMaySetIdentity(keys string, git func(args ...string) ([]byte, erro
 	}
 	// --type=path lets git expand ~ with its own HOME; --null because a
 	// condition may hold spaces. Records are origin NUL key LF value NUL.
-	out, err := git("--global", "--includes", "--show-origin", "--null", "--type=path",
-		"--get-regexp", `^includeif\..*\.path$`)
+	out, err := git(append(append([]string{}, scope...), "--includes", "--show-origin", "--null", "--type=path",
+		"--get-regexp", `^includeif\..*\.path$`)...)
 	if err != nil {
 		return true
 	}
@@ -189,6 +202,44 @@ func includeIfMaySetIdentity(keys string, git func(args ...string) ([]byte, erro
 		}
 	}
 	return false
+}
+
+// globalScopes are the git config selectors of the files `git config --global`
+// stands for, in git's reading order (the later overrides the earlier): the XDG
+// file, then ~/.gitconfig. git's --global alone reads only ~/.gitconfig when it
+// exists and never the XDG file then, though a commit reads both. A file that
+// is missing is left out. GIT_CONFIG_GLOBAL replaces both files for git, so it
+// stays one --global selector, and set but empty it means no global file at
+// all (git tests getenv for non-NULL, not for a non-empty value).
+func globalScopes() [][]string {
+	if v, set := os.LookupEnv("GIT_CONFIG_GLOBAL"); set {
+		if v == "" {
+			return nil
+		}
+		return [][]string{{"--global"}}
+	}
+	home := os.Getenv("HOME")
+	if home == "" {
+		home, _ = os.UserHomeDir()
+	}
+	xdg := os.Getenv("XDG_CONFIG_HOME")
+	if xdg == "" && home != "" {
+		xdg = filepath.Join(home, ".config")
+	}
+	var files []string
+	if xdg != "" {
+		files = append(files, filepath.Join(xdg, "git", "config"))
+	}
+	if home != "" {
+		files = append(files, filepath.Join(home, ".gitconfig"))
+	}
+	var scopes [][]string
+	for _, f := range files {
+		if _, err := os.Stat(f); err == nil {
+			scopes = append(scopes, []string{"--file", f})
+		}
+	}
+	return scopes
 }
 
 // resolveIncludePath is the file an include path names, as git resolves it:

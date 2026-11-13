@@ -68,7 +68,7 @@ func TestIncludeIfFifoIsAPerFolderIdentity(t *testing.T) {
 		return nil, nil
 	}
 	done := make(chan bool, 1)
-	go func() { done <- includeIfMaySetIdentity(keys, git) }()
+	go func() { done <- includeIfMaySetIdentity(keys, git, []string{"--global"}) }()
 	select {
 	case got := <-done:
 		if !got {
