@@ -142,7 +142,7 @@ func TestRuns_PerimeterBookIsBounded(t *testing.T) {
 			s.by = map[string]map[string]surveyorDecl{"p": {}}
 		}
 		s.by["p"][per] = surveyorDecl{Principal: "p", Surveyor: per, Perimeter: per, IntervalSeconds: 3600, ReceivedAt: now}
-		s.putRuns("p", per, []surveyorRun{{RunID: "x", KB: "kb-a"}}, nil, now.Add(time.Duration(i)*time.Second))
+		s.putRuns("p", per, []surveyorRun{{RunID: "x", KB: "kb-a"}}, nil, nil, now.Add(time.Duration(i)*time.Second))
 	}
 	if n := s.booksLocked(); n != maxRunBooks {
 		t.Fatalf("books = %d", n)

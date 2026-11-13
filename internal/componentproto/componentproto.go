@@ -99,6 +99,30 @@ func ReportedAlarms() []string {
 	return []string{AlarmFeedFailing, AlarmAuthRefused, AlarmModelUnreachable}
 }
 
+// The kinds of a report candidate (a closed set): what a Surveyor records
+// when the server's answer is something a person would report. A candidate
+// carries these words, a tool name and a short code, never a text from the
+// tool (an error can quote page content).
+const (
+	CandidateToolError        = "tool_error"
+	CandidateProtocolMismatch = "protocol_mismatch"
+	CandidateContractMismatch = "contract_mismatch"
+)
+
+// CandidateKinds lists the kinds of a report candidate.
+func CandidateKinds() []string {
+	return []string{CandidateToolError, CandidateProtocolMismatch, CandidateContractMismatch}
+}
+
+// The bounds of the candidates a runs report carries; the server applies the
+// same ones to what it keeps.
+const (
+	MaxCandidatesPerPost      = 16
+	MaxCandidatesPerSurveyor  = 64
+	MaxCandidatesPerPrincipal = 128
+	MaxCandidatesTotal        = 512
+)
+
 // Error codes of the family.
 const (
 	CodeProtocolUnsupported = "protocol_unsupported" // HTTP 426

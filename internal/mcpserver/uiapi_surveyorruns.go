@@ -67,6 +67,7 @@ type surveyorAlarm struct {
 type runBook struct {
 	runs    []surveyorRun // newest first
 	alarms  []surveyorAlarm
+	cands   []reportCandidate
 	touched time.Time
 }
 
@@ -103,8 +104,9 @@ func (s *surveyorStore) pruneRunsLocked() {
 // putRuns merges a post into the book: runs are deduplicated by run_id (the
 // one already held wins, so a re-post is harmless), newest first by start,
 // kept to maxRunsKept; the alarms replace the previous set (a post carries
-// the Surveyor's whole current list). It returns the id of the newest run held.
-func (s *surveyorStore) putRuns(principal, perimeter string, runs []surveyorRun, alarms []surveyorAlarm, now time.Time) string {
+// the Surveyor's whole current list); report candidates are upserted and bounded
+// (mergeCandidatesLocked). It returns the id of the newest run held.
+func (s *surveyorStore) putRuns(principal, perimeter string, runs []surveyorRun, alarms []surveyorAlarm, cands []reportCandidate, now time.Time) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sweepLocked(now)
@@ -139,6 +141,7 @@ func (s *surveyorStore) putRuns(principal, perimeter string, runs []surveyorRun,
 		b.runs = b.runs[:maxRunsKept]
 	}
 	b.alarms = alarms
+	s.mergeCandidatesLocked(b, cands)
 	b.touched = now
 	for total := s.booksLocked(); total > maxRunBooks; total-- {
 		var op, oper string
@@ -234,6 +237,9 @@ type runsBody struct {
 		Since  time.Time `json:"since"`
 		Detail string    `json:"detail"`
 	} `json:"alarms"`
+	// Candidates are what the Surveyor noticed that a person would report
+	// (uiapi_feedback.go): a closed vocabulary with ages, never a text.
+	Candidates []runsCandidate `json:"report_candidates"`
 }
 
 // handleSurveyorRuns stores the runs and alarms of a Surveyor. It needs a live
@@ -337,7 +343,8 @@ func (m *MultiKBServer) handleSurveyorRuns(w http.ResponseWriter, r *http.Reques
 		writeUINotFound(w)
 		return
 	}
-	last := m.surveyors.putRuns(p.ID, body.Perimeter, runs, alarms, now)
+	cands := m.acceptCandidates(body.Candidates, p.ID, body.Perimeter, body.ID, writable, now)
+	last := m.surveyors.putRuns(p.ID, body.Perimeter, runs, alarms, cands, now)
 	writeUIJSON(w, http.StatusOK, map[string]any{"received": len(runs), "last_run_id": last})
 }
 
