@@ -67,6 +67,8 @@ func Run(ctx context.Context, t Target, timeout time.Duration, scrub func(string
 		tail = &tailBuffer{max: stderrLines}
 		cmd.Stderr = tail
 		cmd.WaitDelay = 2 * time.Second
+		// The child's whole tree dies with the session, not only the child.
+		defer ownTree(cmd)()
 		tr = &mcp.CommandTransport{Command: cmd}
 	} else {
 		tr = &mcp.StreamableClientTransport{Endpoint: t.URL, HTTPClient: httpClient(t), MaxRetries: -1, DisableStandaloneSSE: true}
@@ -121,6 +123,11 @@ func SessionKind(err error) Kind {
 	return Classify(err)
 }
 
+// ErrRedirectHost is the refusal of a redirect to another host. It is a typed
+// error so no text match can mistake it, or a server's "refused", for a
+// connection that nothing answered.
+var ErrRedirectHost = errors.New("redirect to another host refused")
+
 // httpClient adds the descriptor's headers to every request and refuses a
 // redirect to another host: the headers belong to the approved endpoint.
 func httpClient(t Target) *http.Client {
@@ -132,7 +139,7 @@ func httpClient(t Target) *http.Client {
 		Transport: headerTripper{h: t.Headers, next: http.DefaultTransport},
 		CheckRedirect: func(req *http.Request, _ []*http.Request) error {
 			if !strings.EqualFold(req.URL.Host, host) {
-				return errors.New("redirect to another host refused")
+				return ErrRedirectHost
 			}
 			return nil
 		},

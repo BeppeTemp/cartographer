@@ -629,7 +629,7 @@ func printConnectResult(dir string, providers []string, opts connectOptions, res
 	if res.Deferred {
 		fmt.Fprintf(os.Stderr, "Warning: skill sync deferred, %s: %v\n", deferralReason(res.DeferredErr), res.DeferredErr)
 	} else {
-		printApplySummary(os.Stdout, dir, res.Applied, opts.DryRun)
+		printApplySummary(os.Stdout, dir, res.Applied, opts.DryRun, nil)
 	}
 
 	if opts.DryRun {

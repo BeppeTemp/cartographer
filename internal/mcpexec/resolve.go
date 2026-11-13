@@ -64,7 +64,14 @@ type Launch struct {
 	redactKey map[string]bool // env names that carry a resolved value
 	redactHdr map[string]bool // header names whose value held a reference
 	secrets   []string        // every resolved value, to scrub errors
+	pieces    []string        // every substituted value, secret or ${VAR}, as it was before composition
 }
+
+// Pieces returns every value the launch substituted into the descriptor, each
+// ${VAR} and ${secret:...} alone: the composed "Bearer abc" hides abc only if
+// abc is scrubbed too. A caller that prints a child's or a server's text uses
+// them to scrub it; they are never printed themselves.
+func (l Launch) Pieces() []string { return append([]string(nil), l.pieces...) }
 
 // Redacted is the same launch without any resolved value, for reports: only the
 // descriptor's own variables are listed, never the inherited environment.
@@ -193,7 +200,7 @@ func Resolve(ctx context.Context, d Deps, ref string) (*Launch, error) {
 		l.Headers[k] = v
 		l.redactHdr[k] = strings.Contains(spec.Headers[k], "${")
 	}
-	l.Env, l.secrets = env, res.secrets
+	l.Env, l.secrets, l.pieces = env, res.secrets, res.pieces
 	return l, nil
 }
 
@@ -201,6 +208,7 @@ type resolver struct {
 	d       Deps
 	kb      string
 	secrets []string
+	pieces  []string
 	// tokenEnv is the Cartographer token variable, which expand refuses.
 	tokenEnv string
 }
@@ -263,6 +271,7 @@ func (r *resolver) expand(ctx context.Context, v string) (string, error) {
 			if err != nil {
 				return "", err
 			}
+			r.pieces = append(r.pieces, val)
 			b.WriteString(val)
 			continue
 		}
@@ -273,6 +282,7 @@ func (r *resolver) expand(ctx context.Context, v string) (string, error) {
 		if !ok {
 			return "", fmt.Errorf("${%s} is not set in the environment this launcher inherited: the client was started without it (the \"Connection closed\" case); export it before starting the client", tok)
 		}
+		r.pieces = append(r.pieces, val)
 		b.WriteString(val)
 	}
 	b.WriteString(v[last:])

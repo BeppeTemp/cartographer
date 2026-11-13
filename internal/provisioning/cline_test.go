@@ -187,3 +187,37 @@ func TestApply_ClineKBMCPHeadersAreNotWritten(t *testing.T) {
 		t.Errorf("Warnings = %v, want the headers warning", res.Warnings)
 	}
 }
+
+// `requires` is a label for probe, doctor and status: it never reaches a client
+// file, whatever the client.
+func TestApply_MCPRequiresIsNeverWrittenToAClientFile(t *testing.T) {
+	kbRoot := t.TempDir()
+	writeMCPFixture(t, kbRoot, "wiki-tools", `{"type":"http","url":"https://tools.example.com/mcp","headers":{"X-Api-Key":"${WIKI_KEY}"},"requires":"vpn-label-xyz"}`)
+	mcp := findMCPArtifact(t, signedMCPManifest(t, kbRoot, "wiki-tools"), "wiki-tools")
+	mcp.Signed = true
+	for _, p := range []configurator.Provider{configurator.ProviderClaudeCode, configurator.ProviderOpenCode, configurator.ProviderCodex} {
+		home := t.TempDir()
+		if _, err := provisioning.Apply(contract.Manifest{Revision: "r1", Artifacts: []contract.Artifact{mcp}},
+			provisioning.ApplyOptions{Provider: p, BaseDir: home, KBRoots: map[string]string{"kb": kbRoot}, SkipLockWrite: true,
+				ApprovedMCP: map[string]string{"kb:kb\x00wiki-tools": mcp.ContentHash}}); err != nil {
+			t.Fatal(err)
+		}
+		wrote := false
+		_ = filepath.WalkDir(home, func(path string, d os.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return nil
+			}
+			b, _ := os.ReadFile(path)
+			if strings.Contains(string(b), "tools.example.com") {
+				wrote = true
+				if strings.Contains(string(b), "vpn-label-xyz") || strings.Contains(string(b), "requires") {
+					t.Errorf("%s: %s carries the requires label:\n%s", p, path, b)
+				}
+			}
+			return nil
+		})
+		if !wrote {
+			t.Errorf("%s: the descriptor was not written anywhere, the test checks nothing", p)
+		}
+	}
+}

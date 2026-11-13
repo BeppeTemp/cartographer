@@ -370,7 +370,7 @@ func TestDerivedWorkspace_ClaudeLocalFilesExcludedOnFirstSync(t *testing.T) {
 	out := withStdout(t, func() {
 		results, err = materializeForProviders(map[string]contract.Manifest{projectionKey(p): m}, []syncProjection{p}, t.TempDir(), "", false, false, portabilityOptions{}, nil)
 		if err == nil {
-			printApplySummary(os.Stdout, t.TempDir(), results, false)
+			printApplySummary(os.Stdout, t.TempDir(), results, false, nil)
 		}
 	})
 	if err != nil {

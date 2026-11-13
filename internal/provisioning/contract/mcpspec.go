@@ -35,7 +35,14 @@ type MCPServerSpec struct {
 	// value is written verbatim, so it is scanned for secrets and may not hold
 	// a "${" a client would expand. Its keys are disjoint from Env's.
 	EnvLiteral map[string]string `json:"env_literal,omitempty"`
+	// Requires is a free label for the network a server is only reachable from
+	// ("vpn", "office-lan"). It only words the probe, doctor and status lines
+	// when the host does not answer; it is never written into a client file.
+	Requires string `json:"requires,omitempty"`
 }
+
+// requiresPattern is a label a person reads in a message: no space, no control.
+var requiresPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`)
 
 // SecretRef is one "${secret:<concept-id>#NAME}" reference: NAME is a
 // secret_refs name of the concept, resolved at launch by `mcp exec`, never at
@@ -176,6 +183,14 @@ func parseMCPServerSpec(name string, data []byte) (MCPServerSpec, error) {
 	for _, a := range spec.Args {
 		if strings.Contains(a, "${secret:") {
 			return MCPServerSpec{}, fmt.Errorf("mcp %q: a ${secret:...} reference is allowed in env and headers only, not in args", name)
+		}
+	}
+	if spec.Requires != "" {
+		if spec.Type != "http" {
+			return MCPServerSpec{}, fmt.Errorf("mcp %q: requires is for an http descriptor: a stdio one has no host to reach", name)
+		}
+		if !requiresPattern.MatchString(spec.Requires) {
+			return MCPServerSpec{}, fmt.Errorf("mcp %q: requires must be a short label (letters, digits, . _ -)", name)
 		}
 	}
 	switch spec.Type {

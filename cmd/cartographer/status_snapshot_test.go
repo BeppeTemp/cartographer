@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -238,5 +239,35 @@ func TestSetupHint(t *testing.T) {
 				t.Errorf("setupHint = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestSnapshotArtifacts_NeedsNetwork(t *testing.T) {
+	mk := func(name, host string) contract.Artifact {
+		return contract.Artifact{Kind: "mcp", Name: name, Source: "kb:kb", ContentHash: "h", Files: []contract.ArtifactFile{{Path: name + ".json",
+			Content: []byte(`{"type":"http","url":"https://` + host + `/mcp","headers":{"A":"${X}"},"requires":"vpn"}`)}}}
+	}
+	cfg := &clientconfig.Config{}
+	for _, n := range []string{"up", "down"} {
+		if err := cfg.ApproveMCP("kb", n, "h", time.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := statusDial
+	t.Cleanup(func() { statusDial = old })
+	calls := 0
+	statusDial = func(_ context.Context, u string, _ time.Duration) error {
+		calls++
+		if strings.Contains(u, "down.") {
+			return context.DeadlineExceeded
+		}
+		return nil
+	}
+	got := snapshotArtifacts([]contract.Artifact{mk("up", "up.example.com"), mk("down", "down.example.com"), {Kind: "mcp", Name: "pending", Source: "kb:kb", ContentHash: "x", Files: mk("up", "p.example.com").Files}}, cfg)
+	if got[0].Reach != "" || got[1].Reach != "needs_network" || got[1].Needs != "vpn" || got[2].Reach != "" {
+		t.Errorf("got %+v", got)
+	}
+	if calls != 2 {
+		t.Errorf("dials = %d, want 2 (only approved descriptors that declare a network)", calls)
 	}
 }

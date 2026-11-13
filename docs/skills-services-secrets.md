@@ -169,7 +169,7 @@ An `mcp/<slug>.json` descriptor puts a secret in `env` or `headers` as `${secret
 `secret_refs` name of that concept. `sync` does not resolve it: it writes `cartographer mcp exec <kb>/<slug>` into the
 client's MCP config (no secret on disk), and the launcher resolves it at every start with `secret_resolve`, which needs
 `rw` and is audited as a reveal. The descriptor needs the usual local approval (`cartographer approve mcp`); a changed
-one does not run. `env_literal` holds constants that are not secrets. See `sync.md` §MCP servers.
+one does not run. `env_literal` holds constants that are not secrets. A `${secret:...}` is the launcher's, so `mcp probe` and `doctor` never list it as an unresolved variable; the probe resolves it like a start does and scrubs every resolved value, each piece alone, from the errors it prints. See `sync.md` §MCP servers.
 
 ### What `rw` means for secrets
 

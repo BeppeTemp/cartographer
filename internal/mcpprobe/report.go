@@ -19,10 +19,13 @@ type Result struct {
 	Server    string   `json:"server,omitempty"`
 	ToolNames []string `json:"tool_names,omitempty"`
 	Via       string   `json:"via,omitempty"`
+	// Needs is the descriptor's `requires` label, set when the host did not
+	// answer (dns, refused, timeout): the report then reads "needs <label>".
+	Needs string `json:"needs,omitempty"`
 }
 
 // Exit codes of `cartographer mcp probe`, documented in its help and in
-// docs/mcp-clients.md. 2 (usage, not found, not approved) is decided before a
+// docs/configurator.md and docs/mcp-clients.md. 2 (usage, not found, not approved) is decided before a
 // Result exists.
 const (
 	ExitOK         = 0

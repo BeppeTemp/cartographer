@@ -140,3 +140,28 @@ func TestMCPProbe_SessionFailureExits1AndNeverPrintsASecret(t *testing.T) {
 		t.Errorf("resolve failure: exit %d, out %q", code, out)
 	}
 }
+
+func TestMCPProbe_RequiresWordsANetworkFault(t *testing.T) {
+	probeFixture(t, "h1")
+	probeLookupEnv = func(string) (string, bool) { return "v", true }
+	probeDial = func(context.Context, string, time.Duration) error { return context.DeadlineExceeded }
+	oldM := approveManifest
+	t.Cleanup(func() { approveManifest = oldM })
+	approveManifest = func(*clientconfig.Config) (contract.Manifest, error) {
+		a := contract.Artifact{Kind: "mcp", Name: "svc", Source: "kb:kb-a", ContentHash: "h1", Files: []contract.ArtifactFile{{Path: "svc.json",
+			Content: []byte(`{"type":"http","url":"https://svc.example.com/mcp","headers":{"A":"${X}"},"requires":"vpn"}`)}}}
+		return contract.Manifest{Artifacts: []contract.Artifact{a}}, nil
+	}
+	code, out, _ := runProbe(t, "kb-a/svc")
+	if code != 4 || !strings.Contains(out, "needs vpn: svc.example.com did not answer (timeout)") {
+		t.Errorf("exit %d, out %q", code, out)
+	}
+	if _, jout, _ := runProbe(t, "--json", "kb-a/svc"); !strings.Contains(jout, `"needs":"vpn"`) {
+		t.Errorf("json %q", jout)
+	}
+	// A TLS fault is not the network: no label.
+	probeDial = func(context.Context, string, time.Duration) error { return x509.UnknownAuthorityError{} }
+	if code, out, _ := runProbe(t, "kb-a/svc"); code != 5 || strings.Contains(out, "needs vpn") {
+		t.Errorf("tls: exit %d, out %q", code, out)
+	}
+}

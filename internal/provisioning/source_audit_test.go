@@ -24,7 +24,7 @@ var sourceSites = map[string]struct {
 	"cmd/cartographer/clientsync.go":                 {6, "pullTarget rejects a served source that is not the bundle or the pulled KB; kb_options apply to kb: only"},
 	"cmd/cartographer/cliskill.go":                   {1, "bundle only"},
 	"cmd/cartographer/doctor.go":                     {2, "a plugin lock entry is a residue only when its plugin is no longer configured"},
-	"cmd/cartographer/doctor_mcpvars.go":             {1, "reads the approved KB descriptors and names their KB; a plugin descriptor has no approval entry and is skipped"},
+	"cmd/cartographer/doctor_mcpvars.go":             {2, "reads the approved KB descriptors and names their KB; a plugin descriptor has no approval entry and is skipped"},
 	"cmd/cartographer/doctor_shadow.go":              {3, "a KB artifact shadowed by a workspace file: a plugin artifact is not a KB's, so it is skipped"},
 	"cmd/cartographer/kbrename.go":                   {1, "rename prefix of a KB, unrelated"},
 	"cmd/cartographer/mcpprobe.go":                   {3, "probes an approved KB descriptor: a plugin artifact has no approval entry and is not a target"},

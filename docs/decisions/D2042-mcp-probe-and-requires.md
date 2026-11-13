@@ -28,9 +28,7 @@ topic: control-plane
 
 **Alternatives rejected.** Launching the server to see what happens: it runs a descriptor's command before the person has seen the cause. Reading the client's own environment: not possible for a GUI client, so the report says what it cannot see.
 
-**Consequences.** The probe runs in the shell of the person, not of the client. `${secret:...}` references are the launcher's and are not variables. The dial ignores the system proxy. A descriptor that passes these checks exits `0` until the session part lands; `mcp probe` is not released between the two changes.
-
-The later changes of this plan (the session part of the probe, the `requires` label) extend this file.
+**Consequences.** The probe runs in the shell of the person, not of the client. `${secret:...}` references are the launcher's and are not variables. The dial ignores the system proxy. A descriptor that passes these checks goes on to the session below; the session adds exit `1` and keeps the network and TLS classes.
 
 ## The probe session starts a descriptor through `mcpexec.Resolve`
 
@@ -38,5 +36,13 @@ The later changes of this plan (the session part of the probe, the `requires` la
 
 **Why.** The probe then sees exactly the values and refusals the launcher would, without a second process to scrub, and the secret values stay in memory next to the code that redacts them. The cost is that a client's native entry (no launcher) is tested through the launcher's resolution, which is the same expansion.
 
-**Consequences.** A probe of a descriptor with a `${secret:...}` reads the secret from the server like a client start does. Every error text goes through a scrub of the resolved values; the launched child is killed by context cancel (`WaitDelay` 2 s), without the process-group kill the Surveyor's connector adds.
+**Consequences.** A probe of a descriptor with a `${secret:...}` reads the secret from the server like a client start does. Every error text goes through a scrub of the resolved values, each substituted piece alone (`Launch.Pieces`) as well as the composed value; a piece shorter than 4 characters masks the whole message. A timeout kills the child's whole tree: a process group on Unix, the descendants of a process snapshot on Windows.
+
+## `requires` is a label, not a network registry
+
+**Decision.** An `http` descriptor may declare `requires: <label>`. There is no list of networks and no per-network probe: the label only words the message when the descriptor's own host does not answer (DNS, refused or a silent drop within a bounded dial). `probe` keeps its 15 s dial and exit `4`; `doctor` and `status` dial all such descriptors in parallel within 2 s. The label is never written into a client file.
+
+**Why.** #348 (a KB behind a private network) is a timeout alignment of git fetches, not a named-network mechanism, so there is nothing to reuse but the idea that a bounded wait reads silence as "unreachable or blocked". A label costs nothing to author and says what to turn on.
+
+**Consequences.** A server without this change rejects the key as unknown and leaves the descriptor out. `status` can show the line only for the descriptors it lists (those pending in a diff), since it prints no already-installed ones.
 

@@ -2,10 +2,14 @@ package mcpprobe
 
 import (
 	"context"
+	"crypto/x509"
+	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -87,5 +91,42 @@ func TestExitCode(t *testing.T) {
 		if got := ExitCode(c.r); got != c.want {
 			t.Errorf("ExitCode(%+v) = %d, want %d", c.r, got, c.want)
 		}
+	}
+}
+
+func TestBlockedAll(t *testing.T) {
+	dial := func(_ context.Context, u string, _ time.Duration) error {
+		switch u {
+		case "down":
+			return context.DeadlineExceeded
+		case "tls":
+			return x509.UnknownAuthorityError{}
+		}
+		return nil
+	}
+	got := BlockedAll(context.Background(), []string{"up", "down", "tls"}, 0, dial)
+	if got[0] || !got[1] || got[2] {
+		t.Errorf("BlockedAll = %v, want [false true false] (a TLS fault is not the network)", got)
+	}
+}
+
+// Text is never a kind: our own redirect refusal and any message that merely
+// contains "refused" are not a connection nobody answered.
+func TestClassifyIgnoresRefusedText(t *testing.T) {
+	for _, err := range []error{
+		ErrRedirectHost,
+		fmt.Errorf("Get \"http://x\": %w", ErrRedirectHost),
+		errors.New("login refused by the server"),
+		errors.New("connection refused"),
+	} {
+		if got := Classify(err); got != KindOther {
+			t.Errorf("Classify(%v) = %q, want %q", err, got, KindOther)
+		}
+	}
+	if got := Classify(fmt.Errorf("dial: %w", syscall.ECONNREFUSED)); got != KindRefused {
+		t.Errorf("a typed ECONNREFUSED = %q, want refused", got)
+	}
+	if got := Classify(fmt.Errorf("dial: %w", syscall.Errno(10061))); got != KindRefused {
+		t.Errorf("WSAECONNREFUSED = %q, want refused", got)
 	}
 }

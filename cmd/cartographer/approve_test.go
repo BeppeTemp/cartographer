@@ -222,6 +222,49 @@ func TestParseApproveSyncFlagIsStrippedBeforeParsing(t *testing.T) {
 	}
 }
 
+// --pending --sync syncs only after an approval was written: nothing pending, a
+// declined prompt and an error never sync (docs/sync.md).
+func TestApprovePendingSyncRunsOnlyAfterARealApproval(t *testing.T) {
+	_, artifacts := approveFixture(t, false)
+	calls := 0
+	old := syncFn
+	syncFn = func([]string) int { calls++; return 7 }
+	t.Cleanup(func() { syncFn = old })
+	run := func(args ...string) (code int) {
+		withStderr(t, func() { withStdout(t, func() { code = cmdApprove(args) }) })
+		return code
+	}
+	// Non-interactive without --yes is an error.
+	if code := run("--pending", "--sync"); code != 2 || calls != 0 {
+		t.Fatalf("no --yes: exit %d, sync calls %d", code, calls)
+	}
+	// A declined prompt.
+	approveInteractive = func() bool { return true }
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldIn := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() { os.Stdin = oldIn })
+	_, _ = w.WriteString("n\n")
+	w.Close()
+	if code := run("--pending", "--sync"); code != 0 || calls != 0 {
+		t.Fatalf("declined: exit %d, sync calls %d, want 0 and none", code, calls)
+	}
+	approveInteractive = func() bool { return false }
+	// A real approval syncs, once, with the sync's exit code.
+	if code := run("--pending", "--yes", "--sync"); code != 7 || calls != 1 {
+		t.Fatalf("approved: exit %d, sync calls %d, want 7 and one", code, calls)
+	}
+	// Nothing pending any more (everything is approved).
+	calls = 0
+	_ = artifacts
+	if code := run("--pending", "--yes", "--sync"); code != 0 || calls != 0 {
+		t.Fatalf("nothing pending: exit %d, sync calls %d, want 0 and none", code, calls)
+	}
+}
+
 func TestCmdApprove_MCPReapprovalShowsTheDiff(t *testing.T) {
 	home, _ := approveFixture(t, false)
 	args := []string{"mcp", "tools", "--kb", "kb-a", "--yes"}

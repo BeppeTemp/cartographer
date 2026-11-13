@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -14,6 +15,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/mcpprobe"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/service"
@@ -184,6 +186,11 @@ type statusArtifact struct {
 	// does not: an "unrunnable" hook names the command and what is wrong with
 	// it (D267).
 	Detail string `json:"detail,omitempty"`
+	// Reach is "needs_network" for an approved MCP descriptor that declares
+	// `requires` and whose host did not answer within the quick bound; Needs is
+	// the label. Both are additive and empty otherwise.
+	Reach string `json:"reach,omitempty"`
+	Needs string `json:"needs,omitempty"`
 	// HookSettings is the untracked settings file a pending hook registers in
 	// when a derived binding receives it (#1300), resolved by sync's own
 	// function; empty otherwise. Only the human output reads it.
@@ -802,7 +809,41 @@ func snapshotArtifacts(artifacts []contract.Artifact, cfg *clientconfig.Config) 
 			out[i].HeldReason = heldAgentReason(o)
 		}
 	}
+	markNeedsNetwork(out, artifacts)
 	return out
+}
+
+// statusDial is the seam for the quick reachability check of `requires`.
+var statusDial = mcpprobe.Dial
+
+// markNeedsNetwork sets Reach and Needs on the approved MCP descriptors that
+// declare a network and whose host does not answer, with one parallel bounded
+// dial for all of them (never 15 s each). Nothing is dialed when none declares one.
+func markNeedsNetwork(out []statusArtifact, artifacts []contract.Artifact) {
+	var idx []int
+	var urls, labels []string
+	for i, a := range artifacts {
+		if a.Kind != "mcp" || out[i].Trust != "approved" {
+			continue
+		}
+		files, err := contract.ReadArtifactFiles(a, nil, nil)
+		if err != nil || len(files) != 1 {
+			continue
+		}
+		spec, err := contract.ParseMCPServerSpec(a.Name, files[0].Content)
+		if err != nil || spec.Requires == "" {
+			continue
+		}
+		idx, urls, labels = append(idx, i), append(urls, spec.URL), append(labels, spec.Requires)
+	}
+	if len(idx) == 0 {
+		return
+	}
+	for j, blocked := range mcpprobe.BlockedAll(context.Background(), urls, mcpprobe.ReachTimeout, statusDial) {
+		if blocked {
+			out[idx[j]].Reach, out[idx[j]].Needs = "needs_network", labels[j]
+		}
+	}
 }
 
 // heldAgentReason is why the approval gate holds an agent whose frontmatter it

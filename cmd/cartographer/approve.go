@@ -45,7 +45,12 @@ func cmdApprove(args []string) int {
 		return code
 	}
 	if i := slices.Index(args, "--pending"); i >= 0 {
-		return then(cmdApprovePending(slices.Delete(slices.Clone(args), i, i+1)))
+		code, approved := cmdApprovePending(slices.Delete(slices.Clone(args), i, i+1))
+		if !approved {
+			// Nothing pending, a declined prompt or an error: no sync.
+			return code
+		}
+		return then(code)
 	}
 	revoke := false
 	if len(args) > 0 && args[0] == "revoke" {
@@ -349,10 +354,11 @@ func printApprovalFiles(w io.Writer, a contract.Artifact, files []contract.Artif
 }
 
 // cmdApprovePending lists every artifact sync would report as needs_approval and
-// approves them all after one confirmation (D1166). Each one is shown exactly as
+// approves them all after one confirmation (D1166). It reports whether it wrote an
+// approval: only then does --sync run. Each one is shown exactly as
 // the single form shows it (printApprovalPreview, D1141). An MCP descriptor is
 // left out and named: it receives the agent's data and is approved one by one.
-func cmdApprovePending(args []string) int {
+func cmdApprovePending(args []string) (code int, approved bool) {
 	var kbName string
 	yes := false
 	for i := 0; i < len(args); i++ {
@@ -366,23 +372,23 @@ func cmdApprovePending(args []string) int {
 			kbName = strings.TrimPrefix(args[i], "--kb=")
 		default:
 			fmt.Fprintln(os.Stderr, approveUsage)
-			return 2
+			return 2, false
 		}
 	}
 	dir, err := clientconfig.TargetDir()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
-		return 2
+		return 2, false
 	}
 	cfg, err := clientconfig.Load(dir)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
-		return 2
+		return 2, false
 	}
 	m, err := approveManifest(cfg)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
-		return 2
+		return 2, false
 	}
 	opts := provisioning.ApplyOptions{ApprovedMCP: cfg.ApprovedMCPHashes()}
 	var pending, mcps []contract.Artifact
@@ -405,27 +411,27 @@ func cmdApprovePending(args []string) int {
 	}
 	if len(pending) == 0 {
 		fmt.Println("nothing is waiting for approval")
-		return 0
+		return 0, false
 	}
 	fmt.Printf("%d artifact(s) waiting for approval:\n\n", len(pending))
 	for _, a := range pending {
 		if err := printApprovalPreview(os.Stdout, a, nil); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %s %s: %v\n", escapeControl(a.Kind), escapeControl(a.Name), err)
-			return 2
+			return 2, false
 		}
 		fmt.Println()
 	}
 	if !yes {
 		if !approveInteractive() {
 			fmt.Fprintln(os.Stderr, "Error: non-interactive approval requires --yes")
-			return 2
+			return 2, false
 		}
 		fmt.Print("Approve all of them, exactly as shown above? [y/N] ")
 		line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
 		answer := strings.ToLower(strings.TrimSpace(line))
 		if answer != "y" && answer != "yes" {
 			fmt.Println("not approved")
-			return 0
+			return 0, false
 		}
 	}
 	now := time.Now()
@@ -438,8 +444,8 @@ func cmdApprovePending(args []string) int {
 		return nil
 	}); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
-		return 2
+		return 2, false
 	}
 	fmt.Printf("approved %d artifact(s); run cartographer sync to materialize them\n", len(pending))
-	return 0
+	return 0, true
 }
