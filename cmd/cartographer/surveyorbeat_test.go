@@ -114,8 +114,12 @@ func TestSurveyorBeatEndToEnd(t *testing.T) {
 		t.Fatalf("a person's call did not reset idle: %v >= %v", d2, d1)
 	}
 	// The server runs in-process on this clock: the idle time cannot exceed what
-	// has passed since the call.
-	if el := time.Since(before); d2 > el {
+	// has passed since the call. Up to a margin: the idle is a difference of wall-clock
+	// timestamps that crossed JSON (no monotonic reading left), `el` a monotonic one,
+	// and on Windows the two drift apart by microseconds (#2032: 353.3708ms against
+	// 353.3686ms). One tick of the default Windows timer, 16 ms, keeps the check meaningful:
+	// an idle that was not reset is at least the 30 ms slept above.
+	if el := time.Since(before); d2 > el+16*time.Millisecond {
 		t.Fatalf("idle after a person's call = %v, more than the %v since the call", d2, el)
 	}
 }
