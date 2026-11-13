@@ -463,11 +463,13 @@ project hook.UserPromptSubmit absent
 
 ## antigravity
 
-- **Aligned with**: CLI `agy` `1.4.0` — 2026-11-06, MCP tool visibility: per-tool
-  `_meta["antigravity/alwaysLoad"]` (since 1.3.3); `enabledTools`/`disabledTools` in `mcp_config.json`.
-  `1.3.2` — 2026-10-09, probed (#478, #639). App
-  `2.19.1` — 2026-10-01 (documentary review; the app was not available for the
-  probe). The CLI is versioned separately (`agy --version`).
+- **Aligned with**: CLI `agy` `1.5.8` — 2026-11-13, global and project
+  capabilities probed (`antigravity-cli-home`); `1.4.0` — 2026-11-06, MCP tool
+  visibility: per-tool `_meta["antigravity/alwaysLoad"]` (since 1.3.3);
+  `enabledTools`/`disabledTools` in `mcp_config.json`; `1.3.2` — 2026-10-09,
+  probed (#478, #639). App `2.19.1` — 2026-10-01 (documentary review; the app
+  was not available for the probe). The CLI is versioned separately
+  (`agy --version`).
 - **Sources**: changelog <https://antigravity.google/docs/changelog/>; CLI
   changelog
   <https://github.com/google-antigravity/antigravity-cli/blob/main/CHANGELOG.md>;
@@ -486,64 +488,68 @@ project hook.UserPromptSubmit absent
   - Project-local (D364): `skill` `.agents/skills`, `agent` `.agents/agents`
     (same translation), `hook` `.agents/hooks/<n>/` registered in
     `.agents/hooks.json` (the file is picked from the hook's path), `mcp`
-    `.agents/mcp_config.json`, `instructions` the `AGENTS.md` block. Rules
-    (`.agents/rules/`) are deliberately unused: they need `trigger: always_on`.
+    `.agents/mcp_config.json`, `instructions` the `AGENTS.md` block. Derived
+    bindings fall back to `.agents/rules/cartographer.md` with YAML
+    `trigger: always_on` frontmatter when `AGENTS.md` is tracked by git.
   - Native hooks support `SessionStart` (D1007), `PreToolUse`, `PostToolUse`,
     `PreInvocation`, `PostInvocation`, and `Stop`. Sync layer 1 installs the
-    `cartographer-bootstrap` hook for Antigravity (D60, D1007). Agent frontmatter
-    documents `tools`, `model` and `commandExecutionPolicy` (candidate D291 keys,
-    not verified).
-- **Probed on CLI 1.3.2** (2026-10-09):
-  - workspace scope confirmed (now the project cells above): `.agents/skills/`, `.agents/agents/`,
-    `.agents/hooks.json`, `.agents/mcp_config.json` (used in the session even
-    though `agy mcp list` shows only global servers), `AGENTS.md`, and
-    `.agents/rules/*.md` only with frontmatter `trigger: always_on`; nothing in
-    a directory without `.agents/`.
-  - globals: the CLI reads `~/.gemini/config/{skills,agents}` (the current
-    cells), not `~/.gemini/antigravity-cli/{skills,agents}` as its docs say.
-  - agent `tools: [view_file]` + `commandExecutionPolicy: never` did not
-    restrict the agent (it ran a shell command): not D291 keys.
-  - write-findings (D353, #639): **not supportable**. `PostToolUse` fires for an
-    MCP call as tool `call_mcp_tool` (args `ServerName`, `ToolName`,
-    `Arguments`), so Claude's matcher never matches, and the payload
-    (`toolCall`, `error`, `conversationId`, `stepIdx`, `transcriptPath`,
-    `workspacePaths`, …) **has no tool result**. A failed hook (exit 2, stderr)
-    does reach the model; exit 0 with stderr does not.
-- **Watch items**: the app's workspace scope and `.gemini/config.json` (2.17.0),
-  not probed; a `SessionStart` event would change the layer-1 trigger; a tool
-  result in the `PostToolUse` payload would reopen write-findings.
-- **Probe notes**: `agy -p "<prompt>" --print-timeout 240s
-  --dangerously-skip-permissions </dev/null`; the MCP test server must be global
-  (`~/.gemini/config/mcp_config.json`) or in `.agents/mcp_config.json`. Back up
-  and restore `~/.gemini/config/*` around a global probe.
+    `cartographer-bootstrap` hook for Antigravity (D60, D1007).
+  - Usage transcripts (`internal/provisioning/usage.go`): each session logs
+    `PLANNER_RESPONSE` records with RFC3339 `created_at` and structured
+    `tool_calls` under `~/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/`
+    (`transcript_full.jsonl`, with `transcript.jsonl` as fallback).
+- **Probed on CLI 1.5.8** (2026-11-13, `antigravity-cli-home`; positive and negative controls):
+  - global cells verified (`~/.gemini/config/{skills,agents,hooks.json,mcp_config.json}`,
+    `~/.gemini/GEMINI.md`): skills, MCP (`probe_gmcp`/`probe_gtool`), subagent
+    delegation (`agent.delegate` without naming the agent) and explicit
+    invocation (`agent.invoke`), plus all six hook events (`SessionStart`,
+    `PreInvocation`, `PostInvocation`, `PreToolUse`, `PostToolUse`, `Stop`).
+  - project cells verified (`.agents/{skills,agents,hooks,hooks.json,mcp_config.json}`,
+    `AGENTS.md`): skills, MCP, `agent.delegate`, `agent.invoke`, and all six
+    hook events; beside a tracked `AGENTS.md`, `.agents/rules/*.md` is loaded
+    with `trigger: always_on` and ignored without frontmatter.
+  - agent `tools` & `commandExecutionPolicy` (changed since 1.3.2): on `1.5.8`,
+    omitted `tools` grants the default read/web/schedule/MCP set without
+    `run_command`/`write_file`/`edit_file`; Antigravity tool names (`read_file`,
+    `write_file`) plus `commandExecutionPolicy: off` (with `run_command`)
+    restrict the subagent, while Claude PascalCase names (`Read`, `Grep`) fail
+    executor startup (`tool "Read" not found in registry`). Cartographer must
+    keep dropping unmapped Claude `tools` unless authored natively.
+  - write-findings (D353, #639): still **not supportable**. `PostToolUse` on
+    `1.5.8` still emits `toolCall`, `error`, `conversationId`, `stepIdx`,
+    `transcriptPath`, `workspacePaths`, etc., with **no tool result**; `call_mcp_tool`
+    names the tool (`ServerName`, `ToolName`, `Arguments`), not Claude's matcher.
+- **Watch items**: the IDE app's workspace scope and `.gemini/config.json`, not
+  probed; a tool result field in `PostToolUse` would reopen write-findings.
+- **Probe notes**: back up and restore `~/.gemini/config/*` (and verify hashes) around a global probe; run `agy -p "<prompt>" --print-timeout 240s [--dangerously-skip-permissions] </dev/null` and clean up scratch dirs afterwards. The MCP test server must be global (`~/.gemini/config/mcp_config.json`) or in `.agents/mcp_config.json`.
 - **Capabilities**: one line per scope and id, `<scope> <id> <status> [<probe-date> <recipe>]`; the Go table is
   `internal/provisioning/contract/capabilities.go`.
 
 ```capabilities
-global skill unverified
-global mcp unverified
-global agent.delegate unverified
-global agent.invoke unverified
-global hook.PostInvocation unverified
-global hook.PostToolUse unverified
+global skill verified 2026-11-13 antigravity-cli-home
+global mcp verified 2026-11-13 antigravity-cli-home
+global agent.delegate verified 2026-11-13 antigravity-cli-home
+global agent.invoke verified 2026-11-13 antigravity-cli-home
+global hook.PostInvocation verified 2026-11-13 antigravity-cli-home
+global hook.PostToolUse verified 2026-11-13 antigravity-cli-home
 global hook.PreCompact absent
-global hook.PreInvocation unverified
-global hook.PreToolUse unverified
-global hook.SessionStart unverified
-global hook.Stop unverified
+global hook.PreInvocation verified 2026-11-13 antigravity-cli-home
+global hook.PreToolUse verified 2026-11-13 antigravity-cli-home
+global hook.SessionStart verified 2026-11-13 antigravity-cli-home
+global hook.Stop verified 2026-11-13 antigravity-cli-home
 global hook.SubagentStop absent
 global hook.UserPromptSubmit absent
-project skill unverified
-project mcp unverified
-project agent.delegate unverified
-project agent.invoke unverified
-project hook.PostInvocation unverified
-project hook.PostToolUse unverified
+project skill verified 2026-11-13 antigravity-cli-home
+project mcp verified 2026-11-13 antigravity-cli-home
+project agent.delegate verified 2026-11-13 antigravity-cli-home
+project agent.invoke verified 2026-11-13 antigravity-cli-home
+project hook.PostInvocation verified 2026-11-13 antigravity-cli-home
+project hook.PostToolUse verified 2026-11-13 antigravity-cli-home
 project hook.PreCompact absent
-project hook.PreInvocation unverified
-project hook.PreToolUse unverified
-project hook.SessionStart unverified
-project hook.Stop unverified
+project hook.PreInvocation verified 2026-11-13 antigravity-cli-home
+project hook.PreToolUse verified 2026-11-13 antigravity-cli-home
+project hook.SessionStart verified 2026-11-13 antigravity-cli-home
+project hook.Stop verified 2026-11-13 antigravity-cli-home
 project hook.SubagentStop absent
 project hook.UserPromptSubmit absent
 ```

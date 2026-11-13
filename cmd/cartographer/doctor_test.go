@@ -1299,3 +1299,47 @@ func TestForeignServer_PathPrefixIsNotReprobed(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckHookRegistrations_AntigravityScopes(t *testing.T) {
+	globalDir := t.TempDir()
+	wsDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(globalDir, ".gemini", "config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(globalDir, ".gemini", "config", "hooks.json"), []byte(`{"cartographer-guard":{"enabled":true}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(wsDir, ".agents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wsDir, ".agents", "hooks.json"), []byte(`{bad json`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	lf := provisioning.LockFile{
+		Providers: map[string]provisioning.Lock{
+			"antigravity": {
+				Provider: "antigravity",
+				Managed:  []provisioning.ManagedFile{{Kind: "hook", Name: "guard", Path: ".gemini/config/hooks/guard/hook.json"}},
+			},
+		},
+	}
+	if got := checkHookRegistrations(globalDir, []string{"antigravity"}, lf); len(got) != 0 {
+		t.Errorf("healthy global hooks.json reported findings: %+v", got)
+	}
+
+	wsLF := provisioning.LockFile{
+		Providers: map[string]provisioning.Lock{
+			"antigravity": {
+				Provider:     "antigravity",
+				ProjectScope: true,
+				BaseDir:      wsDir,
+				Managed:      []provisioning.ManagedFile{{Kind: "hook", Name: "guard", Path: ".agents/hooks/guard/hook.json"}},
+			},
+		},
+	}
+	got := checkHookRegistrations(globalDir, []string{"antigravity"}, wsLF)
+	if len(got) != 1 || got[0].Check != "hooks" || !strings.Contains(got[0].Path, filepath.Join(".agents", "hooks.json")) {
+		t.Errorf("project malformed hooks.json findings = %+v", got)
+	}
+}

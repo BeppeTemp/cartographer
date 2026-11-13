@@ -2434,8 +2434,11 @@ func applyInstructionsGroup(m contract.Manifest, diff Diff, opts ApplyOptions, t
 			body += "\n\n" + cliSentence
 		}
 	}
+	fullPath := filepath.Join(opts.BaseDir, destRel)
+	header := instructionsFileHeader(opts.Provider, destRel)
+
 	if !triggered && len(signed) > 0 {
-		if !blockBodyIs(filepath.Join(opts.BaseDir, destRel), body) {
+		if !blockBodyMatchesHeader(fullPath, body, header) {
 			triggered = true
 		}
 	}
@@ -2443,8 +2446,6 @@ func applyInstructionsGroup(m contract.Manifest, diff Diff, opts ApplyOptions, t
 	if !triggered {
 		return nil
 	}
-
-	fullPath := filepath.Join(opts.BaseDir, destRel)
 
 	if len(signed) == 0 {
 		// A block another projection of this workspace still renders into the
@@ -2477,7 +2478,7 @@ func applyInstructionsGroup(m contract.Manifest, diff Diff, opts ApplyOptions, t
 
 	unchanged := false
 	if !opts.DryRun {
-		changed, err := writeInstructionsBlockChanged(opts.BaseDir, fullPath, body)
+		changed, err := writeInstructionsBlockWithHeaderChanged(opts.BaseDir, fullPath, body, header)
 		unchanged = err == nil && !changed
 		if err != nil {
 			if !IsRefusal(err) {
@@ -2595,19 +2596,35 @@ func fileImportsAgentsMDOutsideBlock(path string) bool {
 	return containsAgentsMDImport(stripped)
 }
 
-// blockBodyIs reports whether the managed block already in the file at path
-// holds exactly body: the same comparison writeInstructionsBlockChanged ends
-// with, without writing. Client-written text of the block that no artifact
-// hash records (the AGENTS.md import, the environment section, D1697) triggers
-// a rewrite through it. It stays out of the recorded paths-section hash because
-// `status` recomputes that hash without the approvals and resolver notes a sync
-// holds and would report drift for good.
+// antigravityRulesFrontmatter is the YAML frontmatter Antigravity requires
+// on .agents/rules/*.md files so the rule loads unconditionally (always_on).
+const antigravityRulesFrontmatter = "---\ntrigger: always_on\n---\n\n"
+
+func instructionsFileHeader(provider configurator.Provider, destRel string) string {
+	if provider == configurator.ProviderAntigravity && filepath.ToSlash(destRel) == AntigravityLocalInstructions {
+		return antigravityRulesFrontmatter
+	}
+	return ""
+}
+
+// blockBodyIs is blockBodyMatchesHeader with no required file header.
 func blockBodyIs(path, body string) bool {
+	return blockBodyMatchesHeader(path, body, "")
+}
+
+// blockBodyMatchesHeader reports whether the managed block already in path
+// holds exactly body and, when header is non-empty, whether the file already
+// begins with YAML frontmatter ("---"): the same comparison
+// writeInstructionsBlockWithHeaderChanged ends with, without writing.
+func blockBodyMatchesHeader(path, body, header string) bool {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return false
 	}
 	content := string(data)
+	if header != "" && !strings.HasPrefix(content, "---\n") {
+		return false
+	}
 	next, outcome := replaceBetweenMarkers(content, instructionsBlockBegin+"\n"+body+"\n"+instructionsBlockEnd+"\n")
 	if outcome == blocktext.Corrupted {
 		return true // left to the write, which refuses it (D148), when something else triggers
@@ -3225,6 +3242,10 @@ func writeInstructionsBlock(baseDir, path, body string) error {
 // whether the file changed. A file whose bytes would come out the same is not
 // written: its mtime stays and the caller reports no write (#1326).
 func writeInstructionsBlockChanged(baseDir, path, body string) (bool, error) {
+	return writeInstructionsBlockWithHeaderChanged(baseDir, path, body, "")
+}
+
+func writeInstructionsBlockWithHeaderChanged(baseDir, path, body, header string) (bool, error) {
 	block := instructionsBlockBegin + "\n" + body + "\n" + instructionsBlockEnd + "\n"
 
 	data, err := os.ReadFile(path)
@@ -3232,7 +3253,7 @@ func writeInstructionsBlockChanged(baseDir, path, body string) (bool, error) {
 		if err := mkdirAllNoFollow(baseDir, filepath.Dir(path), 0o755); err != nil {
 			return false, err
 		}
-		return true, writeFileAtomicNoFollow(baseDir, path, []byte(block), 0o644)
+		return true, writeFileAtomicNoFollow(baseDir, path, []byte(header+block), 0o644)
 	}
 	if err != nil {
 		return false, err
@@ -3245,12 +3266,16 @@ func writeInstructionsBlockChanged(baseDir, path, body string) (bool, error) {
 		return false, err
 	}
 	content := string(data)
-	next, outcome := replaceBetweenMarkers(content, block)
+	base := content
+	if header != "" && !strings.HasPrefix(base, "---\n") {
+		base = header + base
+	}
+	next, outcome := replaceBetweenMarkers(base, block)
 	switch outcome {
 	case blocktext.Corrupted:
 		return false, fmt.Errorf("%s: %w; left untouched, fix the markers by hand (`cartographer doctor` lists the file)", path, ErrCorruptedBlock)
 	case blocktext.Absent:
-		next = appendBlock(content, block)
+		next = appendBlock(base, block)
 	}
 	if next == content {
 		return false, nil
@@ -3260,12 +3285,9 @@ func writeInstructionsBlockChanged(baseDir, path, body string) (bool, error) {
 
 // removeInstructionsBlock removes the managed block (markers included) from
 // file path, if present. If the file doesn't exist, no-op. If after removal the
-// file is empty or whitespace-only, the file itself is removed (covers the case
-// of a file dedicated to just the block, like .kiro/steering/cartographer.md);
-// otherwise the residual content (entirely unrelated to Cartographer) is kept.
-// Idempotent: if the block isn't present (already removed), no-op — and a no-op
-// never refuses. When the block is there, a file or directory component below
-// baseDir that is a symlink is refused (D148).
+// file is empty or whitespace-only (or holds only Antigravity's empty
+// trigger-always frontmatter on .agents/rules/cartographer.md), the file itself
+// is removed; otherwise the residual content is kept.
 func removeInstructionsBlock(baseDir, path string) error {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -3286,7 +3308,11 @@ func removeInstructionsBlock(baseDir, path string) error {
 	if err := safewrite.CheckPath(baseDir, path); err != nil {
 		return err
 	}
-	if strings.TrimSpace(stripped) == "" {
+	residual := stripped
+	if strings.HasSuffix(filepath.ToSlash(path), "/"+AntigravityLocalInstructions) || filepath.ToSlash(path) == AntigravityLocalInstructions {
+		residual = strings.TrimPrefix(residual, strings.TrimRight(antigravityRulesFrontmatter, "\n"))
+	}
+	if strings.TrimSpace(residual) == "" {
 		// A listed leaf link is never removed: the file is rewritten through it.
 		if err := safewrite.Remove(baseDir, path); !errors.Is(err, safewrite.ErrLinkedLeaf) {
 			return err

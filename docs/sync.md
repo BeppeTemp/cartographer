@@ -57,7 +57,7 @@ After the silent sync the script runs `cartographer update notice`, keeping its 
 | codex | `SessionStart` | entry in `~/.codex/hooks.json` (D230) |
 | opencode | `session.created` event | generated plugin in `~/.config/opencode/plugins/` (`<workspace>/.opencode/plugins/` in a workspace) |
 | kiro | `SessionStart`, **only in `kiro-cli chat --v3 --tui`** ([D300](decisions/D300-kiro-gets-a-session-start-hook.md)): plain `kiro-cli chat` and every `--no-interactive` run fire no standalone hook | entry in `~/.kiro/hooks/cartographer.json`, plus the scheduled trigger below for every other session |
-| antigravity | `SessionStart` ([D1007](decisions/D1007-antigravity-session-start.md)) | owned `cartographer-<name>` definition in `~/.gemini/config/hooks.json` |
+| antigravity | `SessionStart` ([D1007](decisions/D1007-antigravity-session-start.md)) | owned `cartographer-<name>` definition in `~/.gemini/config/hooks.json` (`.agents/hooks.json` in a workspace) |
 | copilot | `sessionStart` (D676) | `~/.copilot/hooks/cartographer-<name>.json`, the hook's own files under `~/.copilot/cartographer-hooks/` |
 | crush | none: only `PreToolUse` fires (D363) | the scheduled trigger below |
 | cline | `TaskStart`, every task (a 12 h per-task dedupe) | an owned dispatcher `Documents/Cline/Hooks/TaskStart` (`.ps1` on Windows), the hook's own files under `~/.cline/cartographer-hooks/` |
@@ -149,7 +149,8 @@ one, an explicit activation.
 | kiro | `~/.kiro/sessions/**/*.jsonl` | `kind.BuiltIn.FileRead` of the path, or a shell command containing it |
 | codex | `~/.codex/sessions/**/rollout-*.jsonl` | partial: a catalogue-loaded timestamp (`count` 0) plus path-bearing tool calls |
 | copilot (CLI and VS Code Copilot-harness sessions) | `~/.copilot/session-state/*/events.jsonl` | `tool.execution_start` with `toolName: "skill"` and `arguments.skill` (an activation); MCP calls and agents are not counted |
-| opencode, antigravity, crush | none | none: no readable or documented transcript, an explicit stub each |
+| antigravity | `~/.gemini/{antigravity-cli,antigravity,antigravity-ide}/brain/*/.system_generated/logs/transcript_full.jsonl` (fallback `transcript.jsonl`) | `PLANNER_RESPONSE` read/shell tool calls (`read_file`, `run_command`, …) carrying a materialised path, plus `invoke_subagent` `TypeName` |
+| opencode, crush | none | none: no readable or documented transcript, an explicit stub each |
 
 The window is 90 days: older transcript files are not opened and older events are not counted.
 `count` is that window's aggregate, summed over providers; Meridian replaces, never adds. A
@@ -610,8 +611,9 @@ unchanged.
   declared repository with no command run there, and a KB name in a tracked file of a public
   repository is a leak. Where the agent client's instructions file is tracked it writes none, and
   `status`/`doctor` say so, naming the file and the explicit-bind alternative; Claude Code instead
-  gets its block in `CLAUDE.local.md`, which it reads beside `CLAUDE.md`, owned whole and excluded
-  in `.git/info/exclude`. Skills, agents and hooks are paths Cartographer owns and excludes, so
+  gets its block in `CLAUDE.local.md` and Antigravity in `.agents/rules/cartographer.md` (with
+  `trigger: always_on` YAML frontmatter), both read beside tracked instructions, owned whole and
+  excluded in `.git/info/exclude`. Skills, agents and hooks are paths Cartographer owns and excludes, so
   they are projected as for an explicit bind. Claude Code registers a derived projection's hooks
   in `.claude/settings.local.json`, the settings layer it reads beside `.claude/settings.json` and
   that a repository does not version, excluded like `CLAUDE.local.md` (both in the first sync's exclude block, whichever other client is projected into the same repository); the confirmation line names that file; never in `.claude/settings.json`

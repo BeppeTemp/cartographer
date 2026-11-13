@@ -1326,14 +1326,22 @@ func printHookRegistered(wr io.Writer, label, provider, dir string, w provisioni
 // derived Claude Code binding (settingsRel, #1275), else the provider's own
 // file. Empty when the provider has no registration of its own.
 func hookRegistrationTarget(p configurator.Provider, hook, managedPath, settingsRel string) (rel string, plugin bool) {
+	scope := contract.ScopeGlobal
+	if strings.HasPrefix(filepath.ToSlash(managedPath), ".agents/") {
+		scope = contract.ScopeProject
+	}
+	return hookRegistrationTargetScoped(p, hook, managedPath, settingsRel, scope)
+}
+
+func hookRegistrationTargetScoped(p configurator.Provider, hook, managedPath, settingsRel string, scope contract.Scope) (rel string, plugin bool) {
 	switch {
-	case provisioning.HookPluginRelPath(p, hook, contract.ScopeGlobal) != "":
+	case provisioning.HookPluginRelPath(p, hook, scope) != "":
 		// The generated plugin *is* the registration (D59): its own path.
 		return managedPath, true
 	case settingsRel != "":
 		return settingsRel, false
 	default:
-		return provisioning.HookRegistrationFile(p), false
+		return provisioning.HookRegistrationFileScoped(p, scope), false
 	}
 }
 

@@ -673,14 +673,15 @@ func checkHookRegistrations(dir string, providers []string, lockFile provisionin
 	for _, p := range providers {
 		provider := configurator.Provider(p)
 		lock := lockFile.ForProvider(p)
+		scope := lock.ScopeOf()
 		baseDir := provisioning.LockBaseDir(lock, dir)
-		regFile := provisioning.HookRegistrationFile(provider)
+		regFile := provisioning.HookRegistrationFileScoped(provider, scope)
 		if regFile == "" {
 			continue
 		}
 		path := filepath.Join(baseDir, regFile)
 		for _, name := range managedHookNames(lock) {
-			managed, stray, err := provisioning.HookRegistrations(baseDir, provider, name)
+			managed, stray, err := provisioning.HookRegistrationsScoped(baseDir, provider, scope, name)
 			if err != nil {
 				out = append(out, doctorFinding{
 					Check: "hooks", Severity: doctorError, Path: path,

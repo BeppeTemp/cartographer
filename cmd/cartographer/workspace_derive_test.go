@@ -356,3 +356,73 @@ func TestDerivationScope_CLIProviderDerivesAtProviderScope(t *testing.T) {
 		t.Fatalf("providers = %v, want only fork-cli", providers)
 	}
 }
+
+func TestDerivedProjection_AntigravityLocalRulesFallback(t *testing.T) {
+	repo := cloneOf(t, "example.com/owner/worked-on", "AGENTS.md")
+	override, skipped := derivedInstructions("antigravity", repo)
+	if override != provisioning.AntigravityLocalInstructions || skipped != "" {
+		t.Fatalf("derivedInstructions = (%q, %q), want (%q, \"\")", override, skipped, provisioning.AntigravityLocalInstructions)
+	}
+
+	cfg := workspaceScoped("antigravity", "kb-a")
+	cfg.SetDerived(clientconfig.DerivedState{Bindings: map[string][]clientconfig.DerivedBinding{
+		"antigravity": {{Path: repo, Remote: "example.com/owner/worked-on", KBs: []string{"kb-a"}, Sources: []clientconfig.DerivedSource{{KB: "kb-a", Key: "worked-on"}}}},
+	}})
+	target := t.TempDir()
+	projections, err := allProjections(cfg, []string{"antigravity"}, target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifests := map[string]contract.Manifest{}
+	for _, p := range projections {
+		if p.BundleOnly {
+			manifests[projectionKey(p)] = contract.Manifest{}
+		} else {
+			manifests[projectionKey(p)] = instructionsManifest("kb-a", "Antigravity KB rules.\n")
+		}
+	}
+	res, err := materializeForProviders(manifests, projections, target, "", false, false, portabilityOptions{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rulesPath := filepath.Join(repo, ".agents", "rules", "cartographer.md")
+	data, err := os.ReadFile(rulesPath)
+	if err != nil {
+		t.Fatalf("read .agents/rules/cartographer.md: %v", err)
+	}
+	content := string(data)
+	if !strings.HasPrefix(content, "---\ntrigger: always_on\n---\n\n") || !strings.Contains(content, "Antigravity KB rules.") {
+		t.Errorf("unexpected rules file content:\n%s", content)
+	}
+	agentsData, err := os.ReadFile(filepath.Join(repo, "AGENTS.md"))
+	if err != nil || string(agentsData) != "# team rules\n" {
+		t.Errorf("tracked AGENTS.md was modified: %q, err=%v", agentsData, err)
+	}
+	if owned := provisioning.OwnedLocalInstructions(repo, configurator.ProviderAntigravity); len(owned) != 1 || owned[0] != provisioning.AntigravityLocalInstructions {
+		t.Errorf("OwnedLocalInstructions = %v", owned)
+	}
+
+	// Second run is a no-op (frontmatter does not cause spurious rewrite).
+	res2, err := materializeForProviders(manifests, projections, target, "", false, false, portabilityOptions{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range res2 {
+		if len(r.Written) != 0 {
+			t.Errorf("expected no rewrite on second sync, got %+v", r.Written)
+		}
+	}
+
+	// Pruning the instructions removes the dedicated frontmatter-only file and empty dirs.
+	var managed []provisioning.ManagedFile
+	for _, r := range res {
+		managed = append(managed, r.NewLock.Managed...)
+	}
+	if _, err := provisioning.PruneManaged(managed, repo, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(rulesPath); !os.IsNotExist(err) {
+		t.Errorf(".agents/rules/cartographer.md should be removed on prune, err=%v", err)
+	}
+}

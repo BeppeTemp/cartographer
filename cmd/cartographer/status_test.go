@@ -820,3 +820,24 @@ func TestTagProjectScope_DerivedProjection(t *testing.T) {
 		t.Error("a global projection's hook is tagged project-scope")
 	}
 }
+
+func TestPrintHookRegistrationHint_AntigravityProjectScope(t *testing.T) {
+	for _, tc := range []struct {
+		project     bool
+		managedPath string
+		want        string
+	}{
+		{false, ".gemini/config/hooks/guard/hook.json", ".gemini/config/hooks.json"},
+		{true, ".agents/hooks/guard/hook.json", ".agents/hooks.json"},
+	} {
+		a := statusArtifact{Kind: "hook", Name: "guard", ProjectScope: tc.project}
+		out := withStdout(t, func() { printHookRegistrationHint("antigravity", a, "new hook") })
+		if !strings.Contains(out, tc.want) {
+			t.Errorf("project=%v: %q, want %q", tc.project, out, tc.want)
+		}
+		synced, _ := hookRegistrationTarget("antigravity", "guard", tc.managedPath, "")
+		if filepath.ToSlash(synced) != tc.want {
+			t.Errorf("project=%v: hookRegistrationTarget(%q) = %q, want %q", tc.project, tc.managedPath, synced, tc.want)
+		}
+	}
+}

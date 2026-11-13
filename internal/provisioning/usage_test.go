@@ -2,6 +2,7 @@ package provisioning_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -278,7 +279,7 @@ func TestScanUsage_Copilot_SkillActivation(t *testing.T) {
 }
 
 func TestScanUsage_UnsupportedProvidersContributeNothing(t *testing.T) {
-	for _, p := range []string{"opencode", "antigravity", "crush"} {
+	for _, p := range []string{"opencode", "crush"} {
 		home, lf := usageHome(t, p, "."+p+"/skills", "ops-tool")
 		got, err := provisioning.ScanUsage(lf, home, 90*24*time.Hour, true)
 		if err != nil || len(got) != 0 {
@@ -286,8 +287,57 @@ func TestScanUsage_UnsupportedProvidersContributeNothing(t *testing.T) {
 		}
 	}
 	_, _, unsupported := contract.UsageProviders()
-	if len(unsupported) != 5 {
+	if len(unsupported) != 4 {
 		t.Errorf("unsupported = %v", unsupported)
+	}
+}
+
+func TestScanUsage_Antigravity(t *testing.T) {
+	home, lf := usageHome(t, "antigravity", ".gemini/config/skills", "ops-tool")
+	lock := lf.Providers["antigravity"]
+	lock.Managed = append(lock.Managed, provisioning.ManagedFile{
+		Kind: "agent",
+		Name: "reviewer",
+		Path: ".gemini/config/agents/reviewer.md",
+	})
+	lf.Providers["antigravity"] = lock
+	skillPath := filepath.Join(home, ".gemini", "config", "skills", "ops-tool", "SKILL.md")
+	escapedSkillPath := strings.ReplaceAll(filepath.ToSlash(skillPath), `\`, `\\`)
+
+	// Session 1 has both transcript_full.jsonl and transcript.jsonl: only
+	// transcript_full.jsonl is read so activations are never double-counted.
+	logs1 := filepath.Join(home, ".gemini", "antigravity-cli", "brain", "sess-1", ".system_generated", "logs")
+	tsRecent := ts(2 * time.Hour)
+	readLine := fmt.Sprintf(`{"type":"PLANNER_RESPONSE","created_at":%q,"tool_calls":[{"name":"read_file","args":{"Path":%q}},{"name":"write_file","args":{"Path":%q}}]}`, tsRecent, skillPath, skillPath)
+	userAndProse := fmt.Sprintf(`{"type":"USER_INPUT","created_at":%q,"content":"ignore %s"}`+"\n"+`{"type":"PLANNER_RESPONSE","created_at":%q,"content":"prose %s","thinking":"more %s","tool_calls":[]}`, tsRecent, skillPath, tsRecent, skillPath, skillPath)
+	agentLine := fmt.Sprintf(`{"type":"PLANNER_RESPONSE","created_at":%q,"tool_calls":[{"name":"invoke_subagent","args":{"TypeName":"reviewer"}}]}`, ts(time.Hour))
+	writeLines(t, filepath.Join(logs1, "transcript_full.jsonl"), readLine, userAndProse, agentLine)
+	writeLines(t, filepath.Join(logs1, "transcript.jsonl"), readLine, agentLine)
+
+	// Session 2 uses transcript.jsonl fallback with run_command and double-quoted TypeName.
+	logs2 := filepath.Join(home, ".gemini", "antigravity", "brain", "sess-2", ".system_generated", "logs")
+	fallbackLine := fmt.Sprintf(`{"type":"PLANNER_RESPONSE","created_at":%q,"tool_calls":[{"name":"run_command","args":{"CommandLine":"cat %s"}},{"name":"invoke_subagent","args":{"TypeName":"\"reviewer\""}}]}`, ts(30*time.Minute), escapedSkillPath)
+	writeLines(t, filepath.Join(logs2, "transcript.jsonl"), fallbackLine)
+
+	before := snapshotTree(t, home)
+	got, err := provisioning.ScanUsage(lf, home, 90*24*time.Hour, true)
+	if err != nil {
+		t.Fatalf("ScanUsage: %v", err)
+	}
+	if after := snapshotTree(t, home); after != before {
+		t.Fatalf("Antigravity usage scan wrote to home dir:\n%s\n--\n%s", before, after)
+	}
+	skillUse := got[provisioning.UsageKey("skill", "ops-tool")]
+	if skillUse.Count != 2 {
+		t.Errorf("skill ops-tool count = %d, want 2 (1 read_file + 1 run_command, ignoring write_file/USER_INPUT/prose/duplicate transcript.jsonl): %+v", skillUse.Count, skillUse)
+	}
+	agentUse := got[provisioning.UsageKey("agent", "reviewer")]
+	if agentUse.Count != 2 {
+		t.Errorf("agent reviewer count = %d, want 2: %+v", agentUse.Count, agentUse)
+	}
+	supported, _, _ := contract.UsageProviders()
+	if !strings.Contains(strings.Join(supported, ","), "antigravity") {
+		t.Errorf("supported = %v, want antigravity", supported)
 	}
 }
 

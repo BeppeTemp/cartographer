@@ -591,3 +591,62 @@ func TestApplyAndPrune_AntigravityHook_SessionStart(t *testing.T) {
 		t.Fatalf("expected hooks.json to be deleted when empty, err=%v", err)
 	}
 }
+
+func TestHookRegistrations_AntigravityGlobalAndProject(t *testing.T) {
+	if got := filepath.ToSlash(provisioning.HookRegistrationFile(configurator.ProviderAntigravity)); got != ".gemini/config/hooks.json" {
+		t.Errorf("HookRegistrationFile(global) = %q", got)
+	}
+	if got := filepath.ToSlash(provisioning.HookRegistrationFileScoped(configurator.ProviderAntigravity, contract.ScopeProject)); got != ".agents/hooks.json" {
+		t.Errorf("HookRegistrationFileScoped(project) = %q", got)
+	}
+
+	kbRoot := t.TempDir()
+	writeHookKB(t, kbRoot, "notify", "PostToolUse", "run_command", "./notify.sh")
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name  string
+		scope contract.Scope
+		rel   string
+	}{
+		{"global", contract.ScopeGlobal, filepath.Join(".gemini", "config", "hooks.json")},
+		{"project", contract.ScopeProject, filepath.Join(".agents", "hooks.json")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			baseDir := t.TempDir()
+			if managed, stray, err := provisioning.HookRegistrationsScoped(baseDir, configurator.ProviderAntigravity, tc.scope, "notify"); err != nil || managed != 0 || stray != 0 {
+				t.Fatalf("absent hooks.json: (%d, %d, %v), want (0, 0, nil)", managed, stray, err)
+			}
+			opts := provisioning.ApplyOptions{
+				ApprovedMCP: approveAll(m),
+				KBRoots:     map[string]string{"kb": kbRoot},
+				Provider:    configurator.ProviderAntigravity,
+				Scope:       tc.scope,
+				BaseDir:     baseDir,
+				Lock:        provisioning.Lock{},
+			}
+			if _, err := provisioning.Apply(m, opts); err != nil {
+				t.Fatal(err)
+			}
+			managed, stray, err := provisioning.HookRegistrationsScoped(baseDir, configurator.ProviderAntigravity, tc.scope, "notify")
+			if err != nil || managed != 1 || stray != 0 {
+				t.Errorf("registered hooks.json: (%d, %d, %v), want (1, 0, nil)", managed, stray, err)
+			}
+			if tc.scope == contract.ScopeGlobal {
+				m2, s2, err2 := provisioning.HookRegistrations(baseDir, configurator.ProviderAntigravity, "notify")
+				if err2 != nil || m2 != 1 || s2 != 0 {
+					t.Errorf("HookRegistrations: (%d, %d, %v), want (1, 0, nil)", m2, s2, err2)
+				}
+			}
+			if err := os.WriteFile(filepath.Join(baseDir, tc.rel), []byte("{not json"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, _, err := provisioning.HookRegistrationsScoped(baseDir, configurator.ProviderAntigravity, tc.scope, "notify"); err == nil {
+				t.Error("malformed hooks.json must return an error")
+			}
+		})
+	}
+}

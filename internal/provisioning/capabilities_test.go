@@ -81,6 +81,20 @@ func TestCapabilityTableCoversPiAndCline(t *testing.T) {
 	if got := contract.AgentMode(configurator.ProviderCline, contract.ScopeGlobal); got != contract.AgentNative {
 		t.Errorf("cline global agent mode = %q, want native", got)
 	}
+	for _, scope := range capScopes {
+		for _, id := range []contract.Capability{
+			contract.CapSkill, contract.CapMCP, contract.CapAgentDelegate, contract.CapAgentInvoke,
+			"hook.SessionStart", "hook.PreInvocation", "hook.PostInvocation",
+			"hook.PreToolUse", "hook.PostToolUse", "hook.Stop",
+		} {
+			if got := contract.CapabilityStatus(configurator.ProviderAntigravity, scope, id); got != contract.CapVerified {
+				t.Errorf("antigravity %s %s = %q, want verified", ScopeName(scope), id, got)
+			}
+		}
+		if InvokeHint(configurator.ProviderAntigravity, scope) == "" {
+			t.Errorf("antigravity %s InvokeHint must be populated", ScopeName(scope))
+		}
+	}
 }
 
 func TestAgentModeIsNativeWhereAgentCellExists(t *testing.T) {
