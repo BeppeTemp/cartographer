@@ -120,7 +120,7 @@ bounded 30s wait that fails naming the file rather than proceeding. Details and 
 
 ## How changes land
 
-There is one way to write (D903): every successful write tool (all but the three that run their own
+A change lands in the KB through the single writer: there is one way to write (D903): every successful write tool (all but the three that run their own
 transaction, above) is wrapped by `gitWrap` and
 produces one commit per logical operation, on the branch currently checked out in the KB clone,
 whatever the configuration. No setting turns the commit off; the only KB that does not commit is
@@ -299,7 +299,7 @@ Without a remote, synchronization is a no-op and local commits still work.
 
 ## Conflict registry
 
-A rebase conflict is aborted immediately. Reserved files (`log.md`, `index.md`,
+A git merge conflict is recorded in the conflict registry: a rebase conflict is aborted immediately. Reserved files (`log.md`, `index.md`,
 `_map.md`, `_archive.md`) are not concepts, so Meridian reconciles them itself
 (D311):
 

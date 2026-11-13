@@ -77,7 +77,7 @@ A recipe that lists cheaply (`key`, `revision`) and has no content in the listin
 
 ## Protocol v2
 
-The Surveyor starts the command **once per verb call**; a script implements the verbs it can.
+Protocol v2 is the protocol between the Surveyor and an exec recipe script: the Surveyor starts the command **once per verb call**; a script implements the verbs it can.
 
 **stdin**: one JSON object, UTF-8, then closed.
 

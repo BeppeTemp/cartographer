@@ -47,7 +47,7 @@ Runtime secret injection remains an operator responsibility.
 
 ## Provider behavior
 
-Provider formats change independently of Cartographer, so this page does not
+How Cartographer handles the provider behavior of each agent client: provider formats change independently of Cartographer, so this page does not
 duplicate a dated market-wide capability matrix. The maintained sources are:
 
 - [configurator](configurator.md) — exact files Cartographer reads and writes;

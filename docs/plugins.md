@@ -89,7 +89,7 @@ malformed range is a manifest error that names it. The order of versions is the 
 
 ### Permissions
 
-Declared by the plugin and validated here; nothing in this package grants or enforces them. The grammar is `D1723`.
+The permissions a plugin manifest declares are validated here; nothing in this package grants or enforces them. The grammar is `D1723`.
 
 | Key | Rule |
 |---|---|
