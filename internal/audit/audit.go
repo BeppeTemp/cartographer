@@ -172,6 +172,12 @@ type State struct {
 // boundary immediately before the segment's first record, so a later-deleted
 // segment's place in the hash chain remains provable from the checkpoint
 // alone (first_hash/last_hash/count), even once its raw entries are gone.
+//
+// Start and End are the earliest and the latest entry timestamp of the
+// segment, not those of its first and last entry: the clock can step back
+// between two appends, and the hash chain, not the timestamps, orders the
+// entries. They are informational (retention goes by file mtime); the
+// verifier only requires Start <= End.
 type Checkpoint struct {
 	Name            string    `json:"name"`
 	Start           time.Time `json:"start"`
@@ -665,8 +671,19 @@ func (l *Log) rotateLocked() error {
 	name := fmt.Sprintf("%s.%06d.jsonl", time.Now().UTC().Format("20060102T150405.000000000Z"), nextSeq)
 	segmentPath := filepath.Join(dir, name)
 
+	// Timestamps are wall clock, so a step back (NTP, a resumed VM) can leave
+	// them out of order inside one segment: take the range, not first/last, or
+	// the writer produces a checkpoint its own verifier refuses (#1878).
+	start, end := entries[0].Timestamp.UTC(), entries[0].Timestamp.UTC()
+	for _, e := range entries[1:] {
+		if ts := e.Timestamp.UTC(); ts.Before(start) {
+			start = ts
+		} else if ts.After(end) {
+			end = ts
+		}
+	}
 	cp := Checkpoint{
-		Name: name, Start: entries[0].Timestamp.UTC(), End: entries[len(entries)-1].Timestamp.UTC(),
+		Name: name, Start: start, End: end,
 		Count: len(entries), PrevHash: entries[0].PrevHash, FirstHash: entries[0].Hash,
 		LastHash: entries[len(entries)-1].Hash, SigningRequired: l.kp != nil,
 	}
@@ -1083,6 +1100,29 @@ func validV2Outcome(e Entry) bool {
 	return e.Outcome == ""
 }
 
+// checkpointFault names the first condition a checkpoint fails, or "" when it
+// is well formed and continues the chain from previous (the last hash of the
+// checkpoint before it, "genesis" for the first). It is the whole shape check
+// of VerifyAudit, split out so the error says which condition failed instead
+// of leaving a flake to be reproduced to find out.
+func checkpointFault(cp Checkpoint, previous string) string {
+	switch {
+	case cp.Name == "":
+		return "no segment name"
+	case cp.Count <= 0:
+		return fmt.Sprintf("count %d is not positive", cp.Count)
+	case cp.PrevHash != previous:
+		return fmt.Sprintf("chain broken: prev_hash %q does not continue the previous checkpoint's last hash %q", cp.PrevHash, previous)
+	case cp.FirstHash == "":
+		return "no first hash"
+	case cp.LastHash == "":
+		return "no last hash"
+	case cp.End.Before(cp.Start):
+		return fmt.Sprintf("end %s before start %s", cp.End.Format(time.RFC3339Nano), cp.Start.Format(time.RFC3339Nano))
+	}
+	return ""
+}
+
 // VerifyOptions tunes VerifyAudit.
 type VerifyOptions struct {
 	// SignedSince, when non-zero, declares that every entry with a timestamp
@@ -1148,8 +1188,8 @@ func VerifyAudit(path, configuredArchive string, public ed25519.PublicKey, opts 
 	checkpointOnly, retained := 0, 0
 	previousCheckpoint := "genesis"
 	for _, cp := range idx.Segments {
-		if cp.Name == "" || cp.Count <= 0 || cp.PrevHash != previousCheckpoint || cp.FirstHash == "" || cp.LastHash == "" || cp.End.Before(cp.Start) {
-			return Summary{Corrupt: 1}, fmt.Errorf("audit: invalid checkpoint %q", cp.Name)
+		if fault := checkpointFault(cp, previousCheckpoint); fault != "" {
+			return Summary{Corrupt: 1}, fmt.Errorf("audit: invalid checkpoint %q: %s", cp.Name, fault)
 		}
 		segmentPath := filepath.Join(archiveDir(path, configuredArchive), cp.Name)
 		if _, statErr := os.Stat(segmentPath); statErr == nil {
