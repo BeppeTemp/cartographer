@@ -674,9 +674,12 @@ snapshot, and the revision poll is 20 s only in a live session on a build with a
 The live demo's edge is tested without Cloudflare: `deploy/demo/worker.test.mjs` (`make demo-worker-test`, run
 by the `demo-edge` CI job) covers every moderation rule, the id format, the argument rewrite, the routing
 table, CORS and cache key, that every non-approved call goes with the read token, and the webhook signature
-against a vector computed with `openssl`. `make demo-smoke` runs the image against a bare git remote on a
-Docker volume: a write with the write token lands in the remote, the read token is refused on both KBs, the
-routed `tools/list` shape follows the number of mounted KBs, and an unreachable remote leaves astronomy up.
+against a vector computed with `openssl`. `make demo-smoke` runs the image, which holds two read-only KBs
+and needs no remote: the audit log is signed, a request without a token is a 401, the routed `tools/list`
+carries a required `kb` naming `astronomy` and `cartographer-docs`, a `search` for "workspace bind" on the
+documentation KB and one on astronomy answer, `concept_write` with the read token is refused on both, and
+the documentation KB names the ref of the image's version. The base must carry `cartographer docs export`:
+test a working tree with `make docker` and `DEMO_BASE=cartographer`.
 
 The Atlas UI's own tests: Vitest with Testing Library, under `web/`. They run in
 the `web` CI job, not in `make gate`, so a pure-Go change needs no Node

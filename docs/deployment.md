@@ -1421,13 +1421,8 @@ read tools with nothing installed, and leave a message in a guestbook. It is a s
 
 - `astronomy`, the replayed `demo/astronomy` baked into the image (`demo/replay.sh` is the replay
   `demo/build.sh` shares), read-only;
-- `guestbook`, seeded from `demo/guestbook/` in a private git remote whose repository must be named
-  `guestbook` (the KB name is the remote's basename). The image's entrypoint (`deploy/demo/entrypoint.sh`)
-  clones it into `CARTOGRAPHER_DATA` with a 20 s timeout and the same per-KB credential helper Meridian uses; on
-  any failure it logs one line and Meridian starts with astronomy alone, because a remote that fails to clone is
-  fatal inside `serve`. Each message is one commit, pushed inside the request
-  (Meridian sees `K_SERVICE`, which Cloud Run sets, and pushes inline, D903), so Cloud Run's CPU throttling
-  cannot strand a push.
+- `cartographer-docs`, the documentation of the image's own binary: the build runs `cartographer docs export` of the
+  base image and seals the tree with one commit, so it is read-only and nothing external is cloned at start.
 
 Auth stays `on` with two tokens: a read token `kb:astronomy:r;kb:guestbook:r` and a write token
 `kb:guestbook:rw`. A Cloudflare Worker forwards the hostname to the `*.run.app` URL (Cloud Run routes by Host),
@@ -1459,9 +1454,9 @@ Run monthly free tier with a 5 EUR budget alert); the table of what happens at e
 is published; the instance cap is the backstop. `/ready` needs the token once auth is on, so the Cloud Run probes and the
 post-deploy check use `/health` (public, carries `ready`). Terraform, bootstrap, moderation and token rotation:
 `deploy/demo/README.md`. The `demo` workflow (`.github/workflows/demo.yml`) rebuilds and redeploys it on
-every release, then checks that the hostname initializes an MCP session without a token and warns (it does not
-fail) when `tools/list` no longer lists the guestbook, so a change to the read tools or to `demo/astronomy`
-reaches it at the next release; `make demo-smoke` checks the image locally against a bare git repository.
+every release, then checks that the hostname initializes an MCP session without a token and fails when a `search` on
+`cartographer-docs` is not answered (both KBs are in the image, so nothing external can expire), so a change to the read tools or to `demo/astronomy`
+reaches it at the next release; `make demo-smoke` checks the image locally.
 
 An open Atlas follows the KB live (D337): while the tab is visible it asks
 `/api/ui/v1/kbs/<kb>/revision` every ten seconds and, when the answer changes,
