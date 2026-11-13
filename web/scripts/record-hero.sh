@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Records the README's hero animation (D330, D790): e2e/hero.spec.ts walked over
+# Records an Atlas animation of the README (D330, D790): e2e/hero.spec.ts (or HERO_SPEC) walked over
 # the demo KB on a virtual clock, one screenshot per frame, and encoded as an
 # animated WebP.
 #
@@ -10,12 +10,19 @@
 # refreshes what the tour looks like, and refuses a capture whose page does not
 # fill the frame.
 #
-# Usage: web/scripts/record-hero.sh   (make hero)
+# Usage: web/scripts/record-hero.sh   (make hero; make hero SPEC=surveyor)
 #   HERO_OUT      where the WebP goes (default <repo>/hero.webp, gitignored)
 #   HERO_WIDTH    encoded width in px (default 1600)
 #   HERO_FPS      frames per second of the film (default 30)
 #   HERO_QUALITY  WebP quality (default 85: ~17 MB; 92 is ~25 MB, too heavy for a README)
 #   HERO_KEEP     keep the temporary directory (frames, server log)
+#   HERO_SPEC     the Playwright spec to film (default hero.spec.ts; make hero SPEC=surveyor)
+#   HERO_PREPARE  an executable run once the demo KB is served, as `<script> <tmp dir> <server url>`:
+#                 it may start more processes and prints KEY=VALUE lines the spec gets as
+#                 environment, and PID=<n> for each process to stop at the end
+#                 (web/scripts/demo-surveyor.mjs)
+#   HERO_MAX_BYTES  fail when the encoded WebP is larger (default: no cap; the film
+#                 pipeline's cap, film/max-bytes.txt, is set by the caller)
 # Needs Node, ffmpeg, img2webp (brew install ffmpeg webp / apt install ffmpeg
 # webp) and `npx playwright install chromium`.
 
@@ -34,9 +41,13 @@ for tool in ffmpeg ffprobe img2webp; do
 done
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/cartographer_hero_XXXXXX")"
+SPEC="${HERO_SPEC:-hero.spec.ts}"
 PID=""
+PREPARED=()
 cleanup() {
     if [ -n "$PID" ]; then kill "$PID" 2>/dev/null || true; wait "$PID" 2>/dev/null || true; fi
+    # Only PIDs HERO_PREPARE printed itself, never a process found by name.
+    for p in ${PREPARED[@]+"${PREPARED[@]}"}; do kill "$p" 2>/dev/null || true; done
     if [ -n "${HERO_KEEP:-}" ]; then echo "record-hero: kept ${TMP}"; else rm -rf "$TMP"; fi
 }
 trap cleanup EXIT
@@ -51,15 +62,28 @@ CARTOGRAPHER_AUTH=false "$BIN" serve --http "127.0.0.1:${PORT}" --kb "${TMP}/dem
 PID="$!"
 URL="http://127.0.0.1:${PORT}"
 for _ in $(seq 1 60); do
-    curl -sf "${URL}/health" 2>/dev/null | grep -q '"started_at"' && break
+    # Past bootstrap too (D348): until then the API answers 503, and a prepare script calls it.
+    body="$(curl -sf "${URL}/health" 2>/dev/null)" || body=""
+    printf '%s' "$body" | grep -q '"started_at"' && ! printf '%s' "$body" | grep -q '"bootstrapping"' && break
     sleep 0.5
 done
+
+# The film's own surroundings (a Surveyor, a scripted model): lines KEY=VALUE become
+# the spec's environment, PID=<n> is a process to stop.
+if [ -n "${HERO_PREPARE:-}" ]; then
+    while IFS= read -r line; do
+        case "$line" in
+            PID=*) PREPARED+=("${line#PID=}") ;;
+            [A-Z_]*=*) export "$line" ;;
+        esac
+    done < <("$HERO_PREPARE" "$TMP" "$URL")
+fi
 
 cd "$WEB_DIR"
 STARTED="$(date +%s)"
 E2E_LOCAL_URL="$URL" E2E_AUTH_URL="$URL" HERO_RECORD=1 HERO_FPS="$FPS" \
     HERO_KB=demo HERO_CONCEPT=astronomy/orbit HERO_QUERY=orbit HERO_ARTIFACT=star-chart \
-    npx playwright test hero.spec.ts --output "${TMP}/run"
+    npx playwright test "$SPEC" --output "${TMP}/run"
 CAPTURED=$(($(date +%s) - STARTED))
 
 FRAMES="$(find "${TMP}/run" -type d -name frames | head -1)"
@@ -99,4 +123,10 @@ fi
 mkdir -p "$(dirname "$OUT")"
 img2webp -loop 0 -lossy -q "$QUALITY" -m 4 -d $((1000 / FPS)) "${TMP}"/out/*.png -o "$OUT" >/dev/null
 
+SIZE="$(wc -c <"$OUT" | tr -d ' ')"
+if [ -n "${HERO_MAX_BYTES:-}" ] && [ "$SIZE" -gt "$HERO_MAX_BYTES" ]; then
+    rm -f "$OUT"
+    echo "record-hero: ${SIZE} bytes is over HERO_MAX_BYTES=${HERO_MAX_BYTES}: lower HERO_QUALITY, HERO_FPS or HERO_WIDTH; nothing written" >&2
+    exit 1
+fi
 echo "record-hero: $(du -h "$OUT" | cut -f1) -> ${OUT#"${REPO_ROOT}/"}"

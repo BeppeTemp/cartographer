@@ -510,7 +510,9 @@ derived one and prunes the projection.
 `web/scripts/publish-hero.sh` and `hero-needed.sh` (D790) against a scratch repository and a
 bare origin: no branch means a recording is needed; after a publish the same tag needs none and a
 tag whose `web/` tree differs does; publishing twice leaves one commit carrying the `Web-Tree:`
-trailer; a tag that changes only files outside `web/` needs none.
+trailer; a tag that changes only files outside `web/` needs none. It publishes two files
+(`publish-hero.sh <tag> <file>...`: `hero.webp` and `surveyor.webp`) into the one commit, refuses an empty
+file and two files of one name, and checks the usage exit.
 
 **That a search hit names no section, and the search defaults, are asserted on the wire** (D1207, D1354). `25_search_section` drives a real server with `curl` and `python3`: a multi-section page returns no `section` anywhere in the answer, a journal entry and a type listed in the map's `read_whole` return `read: "whole"`, and a search without `limit` returns all 12 pages that match with a `related` block of 5.
 
@@ -958,8 +960,23 @@ What it holds, beyond the component tests:
   times 1/60 s apart (the regression test for the black videos; MP4 where the
   browser encodes H.264, WebM otherwise);
 - the README's hero tour (`hero.spec.ts`, D330): graph, search, a concept's
-  links, colour by Map, a skill in the Artifacts panel, Health — so a
+  links, colour by Map, a skill in the Artifacts panel, Health, the Settings
+  Surveyor tab with its Sources — so a
   step the recorded animation shows and the UI no longer offers fails here;
+- the Surveyor at work (`surveyor.spec.ts`): a **real** `cartographer surveyor`
+  over a feed campaign on a third server of its own (`e2e/run.sh`; its KB is
+  `atlas`, so no other spec sees what it writes). `web/scripts/demo-surveyor.mjs`
+  prepares the campaign (a Source per feed, the plan, an exec recipe that lists two
+  notes with their text and one that fails) and `web/scripts/stub-model.mjs` is the
+  model: a tiny server speaking the Anthropic Messages shape that answers with the
+  turns of a script and fails loudly (HTTP 400) on a turn out of order or past the
+  end, as `surveyortest.Fake` does in Go. The spec checks Settings -> Surveyor
+  before and after the report, the run in Activity, the new concepts in the search
+  and the failed feed in Work, then that the stub served its whole script. The
+  report reaches the Atlas on the Surveyor's heartbeat (60 s), so the spec takes about
+  two minutes; the film cuts that wait. The Surveyor runs without `--once` because a
+  stopped replica takes its runs off the page. `film.ts` holds the virtual clock both
+  recordings share;
 - security: no request leaves the Cartographer origin (any foreign request
   fails the test, it is not allow-listed); the shell's CSP is present and an
   injected inline script and a same-origin `eval` are both refused; the token
@@ -991,17 +1008,26 @@ script scales the 2560x1520 frames to `HERO_WIDTH` (1600), refuses to write
 `hero.webp` when the encoded aspect differs from the viewport's (1280/760) by
 more than 1% or `cropdetect` finds a dark border wider than a few pixels in the
 first frames, encodes with `img2webp`, and prints the capture time and the
-per-frame average. `HERO_OUT` moves the output, `HERO_KEEP=1` keeps the frames.
+per-frame average. `HERO_OUT` moves the output, `HERO_KEEP=1` keeps the frames,
+`HERO_SPEC` films another spec (`make hero SPEC=surveyor` writes `surveyor.webp`,
+with `HERO_PREPARE=web/scripts/demo-surveyor.mjs` run once the demo KB is served: it
+prints `KEY=VALUE` lines the spec gets as environment and `PID=<n>` for what the script
+stops at the end) and `HERO_MAX_BYTES` fails the encode, naming both sizes, when the
+WebP is over a cap (the workflow sets 24 MiB for the tour and 16 MiB for the Surveyor
+at work).
 
-The README does not carry that file. The `hero` workflow (`hero.yml`, called by
-`release.yml`) records the tag's Atlas on `ubuntu-latest` and force-pushes it as
+The README does not carry those files. The `hero` workflow (`hero.yml`, called by
+`release.yml`) records the tag's Atlas twice on `ubuntu-latest` (the tour, then the
+Surveyor at work; 120 minutes in all) and force-pushes both as
 the one commit of the orphan branch `readme-assets`
 (`web/scripts/publish-hero.sh`); the README points at
-`raw.githubusercontent.com/BeppeTemp/cartographer/readme-assets/hero.webp`,
+`raw.githubusercontent.com/BeppeTemp/cartographer/readme-assets/hero.webp`
+(and `surveyor.webp`),
 which GitHub renders at any size, unlike a Pages or release asset (D790). A
 release records only when its `web/` tree differs from the `Web-Tree:` trailer
 of the branch's commit (`web/scripts/hero-needed.sh`); `gh workflow run hero.yml
--f tag=<tag>` always records. The `19_hero_publish` e2e scenario drives both
+-f tag=<tag>` always records. A change of the Surveyor that leaves `web/` alone does
+not re-record the Surveyor animation (what it shows is the Atlas). The `19_hero_publish` e2e scenario drives both
 scripts against a scratch bare repository.
 
 ### Security scans (D1020)

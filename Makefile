@@ -123,9 +123,16 @@ e2e-web: ## Browser-level Atlas UI suite against the built binary (needs Node + 
 # headless and without a GPU, on a virtual clock (D790). The README's copy is
 # recorded by the `hero` workflow on each release that changes web/ and lives on
 # the readme-assets branch; hero.spec.ts itself runs in e2e-web.
-hero: ## Record the README's Atlas animation to ./hero.webp (needs Node, Chromium, ffmpeg, img2webp; no GPU)
+# SPEC=surveyor records the second animation, a real Surveyor at work, to ./surveyor.webp.
+hero: ## Record the README's Atlas animation to ./hero.webp, or SPEC=surveyor ./surveyor.webp (needs Node, Chromium, ffmpeg, img2webp; no GPU)
 	@cd web && $(NPM_CI) true
+ifeq ($(SPEC),surveyor)
+	@HERO_SPEC=surveyor.spec.ts HERO_OUT=$(CURDIR)/surveyor.webp HERO_PREPARE=$(CURDIR)/web/scripts/demo-surveyor.mjs web/scripts/record-hero.sh
+else ifeq ($(SPEC),)
 	@web/scripts/record-hero.sh
+else
+	$(error SPEC must be empty or surveyor)
+endif
 
 # Rewrites the terminal text the films show (film/transcripts/*.txt) from the real binary: run after a change of
 # CLI output that scenario 26_film_transcripts reports, then look at the film (film/README.md).

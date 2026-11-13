@@ -40,8 +40,9 @@ export const test = base.extend<{ foreign: string[]; consoleLines: string[] }>({
       const foreign: string[] = [];
       // The app's origin is deliberately absent: the Atlas page must never
       // contact it (the link opens it in a page of its own, which is not watched).
-      // The ext server is allowed where the run has one (it does not under `make hero`).
-      const servers = [LOCAL_URL, AUTH_URL, process.env.E2E_EXT_URL].filter((u): u is string => !!u);
+      // The ext server and the Surveyor spec's server (e2e/run.sh) are allowed where
+      // the run has them (it has neither under `make hero`).
+      const servers = [LOCAL_URL, AUTH_URL, process.env.E2E_EXT_URL, process.env.SURVEYOR_URL].filter((u): u is string => !!u);
       const allowed = new Set(servers.map((u) => new URL(u).origin));
       page.on("request", (request) => {
         const url = request.url();
