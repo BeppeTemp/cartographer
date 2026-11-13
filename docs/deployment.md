@@ -21,6 +21,8 @@ Meridian also owns the data-directory administration commands (`kb`, `import`, `
 
 Each row is a way of deploying that this page documents or has assembled by hand. **Status** is `documented` when the row links its own section and `assembled by hand` when it has none yet and links the issue that will write it. A new way of deploying is a new row.
 
+![The deployment film: a laptop, a team VM, a Kubernetes cluster and a lone Compass, each lighting the components it runs, with the real command or values of the profile](https://raw.githubusercontent.com/BeppeTemp/cartographer/readme-film/deployment.webp)
+
 | # | Scenario | Components | Status | Where |
 |---|---|---|---|---|
 | 1 | Local all-in-one: native service, embedded Atlas, client on the same machine, loopback, auth off | Meridian, Atlas, Compass | documented | §Example: native local service; [getting-started](getting-started.md) |

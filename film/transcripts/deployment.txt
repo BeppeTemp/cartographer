@@ -1,0 +1,45 @@
+>> row 1 · Laptop: Meridian, Atlas and Compass on one machine
+$ cartographer setup --no-remote --name trial --agents claude --yes --dry-run
+
+Setup plan:
+  1. server       install the native service on 127.0.0.1:39273 (starts at login, no admin rights)
+  2. KB           create "trial", LOCAL ONLY (not backed up, never synced)
+  3. agents       connect claude — KBs: every mounted KB; visible in every directory on this machine
+  4.              server URL http://127.0.0.1:39273/mcp
+  5. verify       the server reports ready
+
+dry run — nothing was changed
+>> row 3 · Team VM: Meridian, Atlas and a Surveyor, bearer tokens, TLS at a proxy
+$ grep -E '^(User|EnvironmentFile|ExecStart)=' cartographer.service
+User=cartographer
+EnvironmentFile=/etc/cartographer/env
+ExecStart=/usr/local/bin/cartographer serve --config /etc/cartographer/server.yaml
+$ grep -E 'image:|command:|env_file:|127.0.0.1' compose.yaml
+    image: ghcr.io/beppetemp/cartographer:latest
+    command: ["serve", "--config=/etc/cartographer/config.yaml"]
+    env_file: ./cartographer.env          # CARTOGRAPHER_TOKENS=...
+      - "127.0.0.1:39273:39273"
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:39273/health"]
+>> row 5 · Kubernetes: the Helm chart, one Surveyor per perimeter
+$ grep -hE '^[a-z]|^  [a-zA-Z]+:|^  - name:|^    (mode|schedule):' meridian-full-values.yaml surveyor-scheduled-values.yaml
+meridian:
+  tokens:
+  credentials:
+  persistence:
+  config:
+  ingress:
+  probes:
+  resources:
+  podAnnotations:
+meridian:
+  tokens:
+  credentials:
+  config:
+surveyors:
+  - name: docs-night
+    mode: cronjob
+    schedule: "15 2 * * *"
+>> row 13 · Compass on a workstation, pointed at a remote Meridian
+$ cartographer connect claude --server-url https://wiki.example.com --dry-run | grep 'would write'
+[dry-run] would write MCP entry cartographer
+[dry-run] would write $HOME/.claude.json
