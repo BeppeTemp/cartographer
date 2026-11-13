@@ -59,6 +59,12 @@ state; the plans are read by the subagents that implement them.
   names — never the whole diff of a standard or full tier change.
 - **Run everything in the background** and act on completion notifications:
   never poll or read a subagent transcript.
+- **Nothing waits for one machine** (D2040): checks run on GitHub-hosted
+  runners (`make check-hosted`), the lander gates trains in CI (`SIGNOFF_HOSTED=1`); a shared
+  build host serves only targeted runs (`rgate -- go test …`) and Windows debugging.
+- **The process is frozen during a release**: a change to `scripts/`, `.github/`, the
+  `Makefile`, a skill or an agent definition found mid-release is written down and made
+  after the release, unless it unblocks the queue.
 
 ## 1 — Wave planning (coordinator)
 
@@ -78,7 +84,7 @@ state; the plans are read by the subagents that implement them.
    of plans that only share files (A says "before B", B says "before A"). That is
    not a hard dependency: pick one order and state it in the wave plan.
 3. Build the graph, two edge types:
-   - **Hard code dependency** — a plan uses code a sibling introduces (a new client method, a new helper). These form **chains**: the next change's worktree branches from its predecessor's branch once that one is reviewed, and is queued with `AFTER=<predecessor slug>`.
+   - **Hard code dependency** — a plan uses code a sibling introduces (a new client method, a new helper). These form **chains**: the next change's worktree branches from its predecessor's branch as soon as that one is committed (the review runs once, on the chain's tip, §3), and is queued with `AFTER=<predecessor slug>`.
    - **Shared file** — plans touching the same code or the same current-state page can conflict at merge. A decision is not a shared file: one decision is one `docs/decisions/D<n>-<slug>.md`, so two plans adding two decisions never conflict there. The **generated index** is the exception: it is regenerated, not merged (see §4).
 4. Plans that share a **hot file** (one touched by three or more plans, e.g. `internal/lint/lint.go` or `internal/mcpserver/conformance.go`) go in **one sequential chain**, not in parallel waves: each rebase there is a real conflict, and resolving it costs more than the time saved.
 5. Emit **waves**: independent roots with disjoint code file-sets run in parallel; dependency chains run internally sequential but in parallel with each other when their file-sets are disjoint. One change per entry of the plan's `## Changes` section; entries of one plan that depend on each other run as a chain.
@@ -115,7 +121,7 @@ Canonical mandate (self-contained — the subagent never sees this conversation)
 - Implement **all** WPs exactly, starting from the `file:line` pointers in the plan; do not re-explore from scratch.
 - Write the tests in the plan's "Tests" section.
 - **Same session**: update the docs in the "Closing" section per `docs/index.md` §Documentation maintenance rules, and, if the Closing section names one, add the pending decision file with `make decisions-new SLUG=<slug> TOPIC=<topic>` (`docs/decisions/D-new-<slug>.md`, cited as `D-new-<slug>`: the lander numbers both); never regenerate `docs/decisions.md` (the release PR does, D328). Every trap you hit is fixed where it bites: a test if it can be checked, a comment next to the code otherwise (D214).
-- `make check` green — iterate until it is, then `make check E2E=1` once before the report (the e2e scenarios the train gate runs); a scenario that fails there is rerun alone (`test/e2e/run.sh --only <scenario>`), not the whole tier, because every run holds the machine the train gate needs. Not `make gate`: the lander gates the whole train once.
+- The targeted tests of the packages it touches while iterating, never a check that waits for a shared build host. The plan's last change ends with one `make check-hosted` on the tip (GitHub-hosted, Linux and Windows), not one per change. Not `make gate` and not e2e: the lander gates the whole train once, in CI, every leg `main` runs (D2040).
 - Commits on `feat/<slug>` (the branch already exists in the worktree), Co-Authored-By trailer; the coordinator squashes them into one when it queues the change. A review fix round **adds commits, it never amends**: the next round diffs `<reviewed commit>..HEAD`, and an amend rewrites the commit it names.
 - Write the change's commit message to `<worktree>/../<slug>.msg` (outside the tree): the title the plan gives (a conventional commit; its scope is one `scripts/pr-triage.sh --title-scopes` prints, or none), a body with the why (the plan stays private), one unwrapped `type(scope): ...` line per further WP, `Closes #<n>` for an issue the plan names and this change finishes, `Refs #<n>` for one a later change finishes.
   The message, commits and any test fixture carry placeholder names only —
@@ -125,8 +131,11 @@ Canonical mandate (self-contained — the subagent never sees this conversation)
 
 ## 3 — Review (coordinator GATE — never skip)
 
-For each finished change, `scripts/pr-triage.sh` run in its worktree (branch mode;
-`TRIAGE_BASE=<predecessor's head>` in a chain) gives the
+Once per plan, on its tip (D2040): a chain of changes is reviewed and
+checked (`make check-hosted`) once, over the range from the chain's base, never change by
+change; a fix round adds commits to the change it concerns and the chain is rebased on it.
+`scripts/pr-triage.sh` run in the tip's worktree (branch mode; `TRIAGE_BASE=<chain's base>`)
+gives the
 tier; the procedure is `cartographer-review-pr` §3–§5 on the branch, with the coordinator on the verifying
 side and the implementer on the author side. Trust the disk, not the
 subagent's report — report text can be garbled or compressed.

@@ -31,6 +31,10 @@
 #                 The first call, `signoff-platform`, goes through the same rule: only
 #                 126 and 127 (the wrapper is missing or not executable) are a
 #                 configuration error, "check SIGNOFF_MAKE".
+#   SIGNOFF_HOSTED  non-empty: no make here or on a build host, the gate is ci.yml run on
+#                 GitHub (step 4b): every job of HOSTED_JOBS, Linux, Windows and macOS, in
+#                 parallel. The maintainer's default and the lander's (D2040):
+#                 one build host is one slot, the hosted runners are many.
 #
 # Exits: 0 signed off; 1 refused or red (a `failed (exit N): nothing pushed` line);
 # 69 (EX_UNAVAILABLE) the wrapper failed in the middle of the gate, no test failed. The code
@@ -81,6 +85,11 @@ write_probe() {
 # never land (D1750, #1743).
 TARGETS="gate smoke-http smoke e2e"
 WEB_TARGET="web-gate"
+# The jobs of ci.yml a gate in CI (step 4b) waits for: the required `gate` (test, which runs
+# the targets above, and the web legs) and every leg `main-status` watches on main, so a
+# change signed off in CI is the change main's CI would pass, Windows and macOS included
+# (D2040). forge and upgrade-e2e run on a manual run only, never on main.
+HOSTED_JOBS="gate test-windows web demo-edge docker helm test-macos test-linux-nosystemd"
 
 die() { echo "signoff: $*" >&2; exit 1; }
 
@@ -173,12 +182,12 @@ still_head() {
     die "HEAD moved during the run: the new commit was not signed off, run it again"
 }
 # 4b. The machine of SIGNOFF_MAKE is unavailable: push, dispatch ci.yml on the branch and
-# post the status only when its `gate` job (test and the web legs, ci-gate.sh) is green.
-hosted() {
-  echo "signoff: the build host is unavailable (exit 75): ci.yml runs the gate instead" >&2
+# post the status only when every job of HOSTED_JOBS is green. SIGNOFF_HOSTED=1 starts here.
+hosted() { # $1 = why the gate runs in CI
+  echo "signoff: $1: ci.yml runs the gate instead, every job of: $HOSTED_JOBS" >&2
   still_head
   push
-  local t0 id= c= i existing before
+  local t0 id= v= i existing before run
   t0=$(date +%s)
   # Run ids only grow, and no clock is involved (createdAt is GitHub's, this host's may skew):
   # the run to follow is the first one newer than the newest that already exists for this
@@ -200,18 +209,59 @@ hosted() {
     sleep "${SIGNOFF_POLL:-10}"
   done
   [ -n "$id" ] || die "the dispatched ci.yml run of $sha did not appear: nothing posted"
-  echo "signoff: waiting for the gate job of ci.yml run $id" >&2
-  for i in $(seq 1 "${SIGNOFF_GATE_TRIES:-180}"); do
-    c=$(gh run view "$id" -R "$slug" --json jobs \
-      --jq '[.jobs[] | select(.name == "gate")][0] | if .status == "completed" then .conclusion else "" end' 2>/dev/null || true)
-    [ -z "$c" ] || break
-    sleep "${SIGNOFF_POLL:-10}"
+  echo "signoff: waiting for ci.yml run $id" >&2
+  # The verdict (hosted_verdict) is read as soon as it is known: the first red job ends the
+  # wait, the rest of the run is cancelled (its runners are free for the next gate), and the
+  # failing Go tests of its failed jobs are printed for the lander's failing().
+  for i in $(seq 1 "${SIGNOFF_GATE_TRIES:-240}"); do
+    v=
+    run=$(gh run view "$id" -R "$slug" --json status,jobs 2>/dev/null) && v=$(printf '%s' "$run" | hosted_verdict) || true
+    [ -z "$v" ] || break
+    sleep "${SIGNOFF_POLL:-15}"
   done
-  [ "$c" = success ] || die "the gate job of ci.yml run $id is ${c:-unfinished}: nothing posted"
+  case "$v" in
+    green) ;;
+    red\ *)
+      gh run cancel "$id" -R "$slug" >/dev/null 2>&1 || true
+      hosted_failures "$run"
+      die "the jobs ${v#red } of ci.yml run $id are red: nothing posted" ;;
+    *) gh run cancel "$id" -R "$slug" >/dev/null 2>&1 || true
+       die "the jobs of ci.yml run $id are unfinished after the wait: nothing posted" ;;
+  esac
   secs=$(( $(date +%s) - t0 ))
-  post "make $targets - github-actions/ci.yml run $id - $(printf '%dm%02ds' $((secs / 60)) $((secs % 60)))"
+  post "make $targets - github-actions/ci.yml run $id ($HOSTED_JOBS) - $(printf '%dm%02ds' $((secs / 60)) $((secs % 60)))"
   echo "signoff: ${sha:0:12} on $branch signed off by ci.yml run $id"
   exit 0
+}
+
+# hosted_verdict: reads `gh run view --json status,jobs` on stdin and prints `green` when every
+# job of HOSTED_JOBS completed with success, `red <jobs>` as soon as one completed otherwise
+# (failure, cancelled, skipped, timed out: a skipped required leg tested nothing), and nothing
+# while they run. A leg of one of them (`test-windows (3/4)`, `web (browser)`: the aggregator
+# completes only after all its legs) that fails is red at once. A job of HOSTED_JOBS missing
+# from a completed run is red too: a renamed job must fail the gate, never wait it out.
+hosted_verdict() {
+  jq -r --arg want "$HOSTED_JOBS" '
+    ($want | split(" ") | map(select(. != ""))) as $w
+    | [.jobs[] | select(.name as $n | $w | index($n))] as $j
+    | [.jobs[] | select(.name as $n | $w | any(. as $p | $n | startswith($p + " (")))
+        | select(.status == "completed" and (.conclusion == "failure" or .conclusion == "timed_out")) | .name] as $legs
+    | ([$j[] | select(.status == "completed" and .conclusion != "success") | .name] + $legs) as $red
+    | [$w[] | select(. as $n | [$j[].name] | index($n) | not)] as $missing
+    | if ($red | length) > 0 then "red " + ($red | join(" "))
+      elif ($missing | length) == 0 and ([$j[] | select(.status == "completed")] | length) >= ($w | length) then "green"
+      elif .status == "completed" then "red " + ($missing | join(" ")) + " (missing)"
+      else "" end'
+}
+
+# hosted_failures <run JSON>: the `--- FAIL:` lines of the run's failed jobs, without the job,
+# step and time columns of `gh run view --log`, so the lander's failing() names the tests.
+hosted_failures() {
+  local jid tab=$'\t' # BSD sed reads no \t in a regular expression
+  for jid in $(printf '%s' "$1" | jq -r '.jobs[] | select(.status == "completed" and .conclusion == "failure") | .databaseId' 2>/dev/null); do
+    gh run view -R "$slug" --job "$jid" --log 2>/dev/null |
+      sed -E "s/^[^$tab]*$tab[^$tab]*$tab[^ ]+ //" | grep -E '^--- FAIL: ' | head -n 20 >&2 || true
+  done
 }
 
 # 4d. A wrapper failure (#1843). Make fails with exit 2, the Windows shards
@@ -310,10 +360,12 @@ win_failures() { # $1 = the leg's log
 }
 
 # 4. Targets. First the platform probe, so a broken wrapper is found before the gate is spent.
+# SIGNOFF_HOSTED=1: no build host at all, the gate is ci.yml's (step 4b).
+[ -z "${SIGNOFF_HOSTED:-}" ] || hosted "SIGNOFF_HOSTED is set"
 read -r -a mk <<<"${SIGNOFF_MAKE:-make}"
 prc=0
 probe=$("${mk[@]}" -s --no-print-directory signoff-platform) || prc=$?
-[ "$prc" != 75 ] || hosted
+[ "$prc" != 75 ] || hosted "the build host is unavailable (exit 75)"
 # 126/127: the wrapper is not executable or not found, a configuration error. Any other exit
 # is the host failing at its first call (an ssh drop is the likeliest moment): gated again.
 case "$prc" in
@@ -349,7 +401,7 @@ set +e
 rc=${PIPESTATUS[0]}
 set -e
 secs=$(( $(date +%s) - start ))
-[ "$rc" != 75 ] || hosted
+[ "$rc" != 75 ] || hosted "the build host is unavailable (exit 75)"
 case "$rc" in
   0) ;;
   2) lrc=0; retry linux "$mlog" || lrc=$?
