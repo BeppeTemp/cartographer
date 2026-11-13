@@ -1534,6 +1534,60 @@ func TestLanderResolvesACitationOfADecisionThatLanded(t *testing.T) {
 	}
 }
 
+// Files under a testdata/ directory and test files may spell a placeholder: they are neither
+// rewritten nor counted as citations (#2052).
+func TestLanderLeavesPlaceholdersInTestdataAlone(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{
+		"x/testdata/y/D-new-foo.md": "# D-new-foo\n",
+		"x/testdata/fixture.txt":    "cites D-new-foo\n",
+		"x/z_test.go":               "// D-new-foo\n",
+	})
+	out, ok := e.land()
+	if !ok || e.refs("failed/") != "" {
+		t.Fatalf("the change must land, failed=%q\n%s", e.refs("failed/"), out)
+	}
+	for f, want := range map[string]string{"x/testdata/y/D-new-foo.md": "# D-new-foo", "x/testdata/fixture.txt": "cites D-new-foo", "x/z_test.go": "// D-new-foo"} {
+		if got := e.upGit("show", "main:"+f); got != want {
+			t.Errorf("%s = %q, want it verbatim %q", f, got, want)
+		}
+	}
+}
+
+// The same files next to a real pending decision: the decision is numbered and cited as D<n>
+// in a normal file, the fixtures keep the placeholder (the rewrite loop skips them).
+func TestLanderNumbersADecisionButLeavesItsFixturesAlone(t *testing.T) {
+	e := newLandEnv(t)
+	dec := "docs/" + "decisions/"
+	e.queue("a", "feat(client): a\n", "2026-01-01T10:00:00Z", map[string]string{
+		dec + "D-new-foo.md":     "---\ntopic: x\n---\n\n# D-new-foo — Foo\n",
+		"notes.md":               "cites D-new-foo\n",
+		"x/testdata/fixture.txt": "cites D-new-foo\n",
+		"x/z_test.go":            "// D-new-foo\n",
+	})
+	out, ok := e.land()
+	if !ok || e.refs("failed/") != "" {
+		t.Fatalf("the change must land, failed=%q\n%s", e.refs("failed/"), out)
+	}
+	var n string
+	for _, l := range strings.Split(e.upGit("ls-tree", "--name-only", "main", dec), "\n") {
+		if strings.HasSuffix(l, "-foo.md") {
+			n = strings.TrimSuffix(strings.TrimPrefix(l, dec), "-foo.md")
+		}
+	}
+	if n == "" {
+		t.Fatalf("the decision is not numbered on main\n%s", out)
+	}
+	if got := e.upGit("show", "main:notes.md"); got != "cites "+n {
+		t.Errorf("notes.md = %q, want the citation read as %s", got, n)
+	}
+	for f, want := range map[string]string{"x/testdata/fixture.txt": "cites D-new-foo", "x/z_test.go": "// D-new-foo"} {
+		if got := e.upGit("show", "main:"+f); got != want {
+			t.Errorf("%s = %q, want it verbatim %q", f, got, want)
+		}
+	}
+}
+
 // An edit of docs/decisions/D-new-<slug>.md whose first change landed numbered is applied to
 // the numbered file, its heading read as the number (#1914).
 func TestLanderMapsAnEditOfALandedPendingDecisionOntoItsNumberedFile(t *testing.T) {
@@ -1672,5 +1726,36 @@ func TestLanderMapsAnEditButNotInTestFiles(t *testing.T) {
 	}
 	if got := e.upGit("show", "main:x_test.go"); got != "// D-new-x\n// more D-new-x" {
 		t.Errorf("the test file is not rewritten, got %q", got)
+	}
+}
+
+// remap_pick leaves a testdata/ file alone too.
+func TestLanderMapsAnEditButNotInTestdata(t *testing.T) {
+	e := newLandEnv(t)
+	dec := "docs/" + "decisions/"
+	body := "---\ntopic: x\n---\n\n# D-new-x — X\n"
+	fx := "x/testdata/fixture.txt"
+	e.queue("a", "feat(client): a\n", "2026-01-01T10:00:00Z", map[string]string{dec + "D-new-x.md": body, fx: "// D-new-x\n"})
+	e.git("fetch", "-q", "origin")
+	e.git("checkout", "-q", "-B", "work-b", "origin/ready/a")
+	e.write(filepath.Join(e.work, dec, "D-new-x.md"), body+"Two.\n")
+	e.write(filepath.Join(e.work, fx), "// D-new-x\n// more D-new-x\n")
+	e.git("add", ".")
+	e.git("commit", "-q", "-m", "fix(client): b\n")
+	e.git("push", "-q", "--force", "origin", "HEAD:refs/heads/ready/b")
+	e.git("checkout", "-q", "main")
+	e.git("fetch", "-q", "origin")
+	e.git("update-ref", "refs/lander-hold", "origin/ready/b")
+	e.upGit("update-ref", "-d", "refs/heads/ready/b")
+	if out, ok := e.land(); !ok {
+		t.Fatalf("land a failed\n%s", out)
+	}
+	e.git("push", "-q", "--force", "origin", "refs/lander-hold:refs/heads/ready/b")
+	out, ok := e.land()
+	if !ok || e.refs("failed/") != "" {
+		t.Fatalf("b must land, failed=%q\n%s", e.refs("failed/"), out)
+	}
+	if got := e.upGit("show", "main:"+fx); got != "// D-new-x\n// more D-new-x" {
+		t.Errorf("the testdata file is not rewritten, got %q", got)
 	}
 }
