@@ -15,6 +15,9 @@
 #   ext   — auth on, with a pinned plugin whose atlas side declares a view and
 #           an app (D1938); the app lives on a fourth loopback port, served by
 #           e2e/app-origin.mjs, which records the headers it receives.
+# Another one, over a KB of its own, is the Surveyor spec's: a real Surveyor
+# (scripts/demo-surveyor.mjs prepares it and a scripted model) writes into it, so
+# no other spec sees a concept it did not expect.
 #
 # Usage: web/e2e/run.sh [playwright args...]   (make e2e-web)
 
@@ -26,7 +29,9 @@ BIN="${REPO_ROOT}/bin/cartographer"
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/cartographer_e2e_web_XXXXXX")"
 PIDS=()
+PREPARED=()
 cleanup() {
+    for pid in ${PREPARED[@]+"${PREPARED[@]}"}; do kill "$pid" 2>/dev/null || true; done
     for pid in "${PIDS[@]}"; do kill "$pid" 2>/dev/null || true; done
     for pid in "${PIDS[@]}"; do wait "$pid" 2>/dev/null || true; done
     rm -rf "$TMP"
@@ -189,6 +194,14 @@ PIDS+=("$!")
 node "${WEB_DIR}/e2e/app-origin.mjs" "$APP_PORT" >"${TMP}/app.log" 2>&1 &
 PIDS+=("$!")
 
+node "${WEB_DIR}/e2e/fixture.mjs" "${TMP}/surveyor"
+"${REPO_ROOT}/test/lib/kb-bootstrap.sh" "${TMP}/surveyor/atlas"
+SURVEYOR_PORT="$(free_port)"
+CARTOGRAPHER_CREDENTIALS_DIR="${TMP}/surveyor-credentials" CARTOGRAPHER_AUDIT_LOG="${TMP}/surveyor-audit/audit.log" \
+CARTOGRAPHER_AUTH=false "$BIN" serve --http "127.0.0.1:${SURVEYOR_PORT}" --kb "${TMP}/surveyor/atlas" \
+    >"${TMP}/surveyor-server.log" 2>&1 &
+PIDS+=("$!")
+
 export E2E_LOCAL_URL="http://127.0.0.1:${LOCAL_PORT}"
 export E2E_AUTH_URL="http://127.0.0.1:${AUTH_PORT}"
 export E2E_EXT_URL="http://127.0.0.1:${EXT_PORT}"
@@ -205,6 +218,15 @@ curl -sf "${E2E_APP_URL}/__requests" >/dev/null 2>&1 || {
     cat "${TMP}/app.log" >&2
     exit 1
 }
+export SURVEYOR_URL="http://127.0.0.1:${SURVEYOR_PORT}" SURVEYOR_KB=atlas
+wait_health "$SURVEYOR_URL" "${TMP}/surveyor-server.log"
+# KEY=VALUE lines are the spec's environment, PID=<n> a process to stop (the scripted model).
+while IFS= read -r line; do
+    case "$line" in
+        PID=*) PREPARED+=("${line#PID=}") ;;
+        [A-Z_]*=*) export "$line" ;;
+    esac
+done < <(node "${WEB_DIR}/scripts/demo-surveyor.mjs" "$TMP" "$SURVEYOR_URL" atlas infra infra/gateway)
 
 echo "[e2e-web] local ${E2E_LOCAL_URL}, auth ${E2E_AUTH_URL}, ext ${E2E_EXT_URL}, app ${E2E_APP_URL}"
 cd "$WEB_DIR"

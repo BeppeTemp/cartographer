@@ -39,6 +39,7 @@ dist/
 !*.tfvars.example
 # `make hero` preview (D790): the README's copy lives on the readme-assets branch.
 /hero.webp
+/surveyor.webp
 
 # The films' renders (film/README.md).
 film/out/

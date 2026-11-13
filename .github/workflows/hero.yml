@@ -33,7 +33,7 @@ concurrency:
 jobs:
   record:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     env:
       TAG: ${{ inputs.tag }}
       # The film's frame rate. The capture is software-rendered: if a run ever
@@ -90,13 +90,18 @@ jobs:
         run: cd web && npx playwright install --with-deps chromium
       - if: steps.needed.outputs.record == 'true'
         run: sudo apt-get install -y ffmpeg webp
+      # Two software-rendered recordings of the same tag: the Atlas tour, then a real
+      # Surveyor at work. Each has a size cap (the README carries both).
       - if: steps.needed.outputs.record == 'true'
-        name: Record
-        run: make hero NPM_CI=
+        name: Record the Atlas tour
+        run: make hero NPM_CI= HERO_MAX_BYTES=25165824
+      - if: steps.needed.outputs.record == 'true'
+        name: Record the Surveyor at work
+        run: make hero SPEC=surveyor NPM_CI= HERO_MAX_BYTES=16777216
       - if: steps.needed.outputs.record == 'true'
         name: Publish to readme-assets
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          web/scripts/publish-hero.sh hero.webp "$TAG"
+          web/scripts/publish-hero.sh "$TAG" hero.webp surveyor.webp

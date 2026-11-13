@@ -11,7 +11,8 @@
 #   2. After a publish the same tag needs none (exit 1), and a tag whose web/
 #      tree differs does (exit 0).
 #   3. Publishing twice leaves exactly one commit, with the Web-Tree trailer
-#      and the two files, and main's history untouched.
+#      and the files (hero.webp, surveyor.webp, README.md), and main's history
+#      untouched.
 #   4. A tag that changes only files outside web/ needs no recording.
 #   5. A label that is not a revision (the bootstrap's `main@<sha>`) takes the
 #      tree from HEAD.
@@ -64,6 +65,9 @@ echo doc-2 > README.md
 git commit -qam "docs only" && git tag v3
 git remote add origin "$ORIGIN"
 head -c 4096 /dev/urandom > hero.webp
+head -c 2048 /dev/urandom > surveyor.webp
+: > empty.webp
+mkdir sub && cp hero.webp sub/hero.webp
 
 echo ""
 echo "--- Phase 1: no branch yet ---"
@@ -72,14 +76,14 @@ assert_file_contains "${DIR}/out.txt" "no readme-assets branch"
 
 echo ""
 echo "--- Phase 2: after a publish ---"
-check "publish v1" 0 "$PUBLISH" hero.webp v1
+check "publish v1" 0 "$PUBLISH" v1 hero.webp surveyor.webp
 check "the same tag needs no recording" 1 "$NEEDED" v1
 check "a tag whose web/ differs needs one" 0 "$NEEDED" v2
 
 echo ""
 echo "--- Phase 3: one commit, whatever is published ---"
-check "publish v2" 0 "$PUBLISH" hero.webp v2
-check "publish v2 again" 0 "$PUBLISH" hero.webp v2
+check "publish v2" 0 "$PUBLISH" v2 hero.webp surveyor.webp
+check "publish v2 again" 0 "$PUBLISH" v2 hero.webp surveyor.webp
 COMMITS="$(git -C "$ORIGIN" rev-list --count readme-assets)"
 if [[ "$COMMITS" -eq 1 ]]; then
     _assert_pass "readme-assets has exactly one commit"
@@ -91,12 +95,17 @@ assert_file_contains "${DIR}/message.txt" "hero: v2"
 assert_file_contains "${DIR}/message.txt" "Web-Tree: $(git rev-parse v2:web)"
 git -C "$ORIGIN" ls-tree --name-only readme-assets > "${DIR}/tree.txt"
 assert_file_contains "${DIR}/tree.txt" "hero.webp"
+assert_file_contains "${DIR}/tree.txt" "surveyor.webp"
 assert_file_contains "${DIR}/tree.txt" "README.md"
 if git -C "$ORIGIN" rev-parse --verify -q main >/dev/null; then
     _assert_fail "the publish pushed to main"
 else
     _assert_pass "main was not pushed"
 fi
+
+check "publish needs a tag and a file" 2 "$PUBLISH" v1
+check "an empty file is refused" 1 "$PUBLISH" v1 hero.webp empty.webp
+check "two files of one name are refused" 1 "$PUBLISH" v1 hero.webp sub/hero.webp
 
 echo ""
 echo "--- Phase 4: a change outside web/ ---"
@@ -105,7 +114,7 @@ check "the older web/ tree does" 0 "$NEEDED" v1
 
 echo ""
 echo "--- Phase 5: a label that is not a revision ---"
-check "publish main@abc1234" 0 "$PUBLISH" hero.webp main@abc1234
+check "publish main@abc1234" 0 "$PUBLISH" main@abc1234 hero.webp surveyor.webp
 git -C "$ORIGIN" log -1 --format=%B readme-assets > "${DIR}/message.txt"
 assert_file_contains "${DIR}/message.txt" "hero: main@abc1234"
 assert_file_contains "${DIR}/message.txt" "Web-Tree: $(git rev-parse HEAD:web)"

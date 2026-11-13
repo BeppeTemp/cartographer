@@ -33,7 +33,7 @@ The Atlas UI has its own loop (Node, outside `make gate`): `make web-test` for
 the frontend tests, `make web` to rebuild the committed bundle, `make e2e-web`
 for the browser suite — see [`docs/testing.md`](docs/testing.md) §Frontend. The
 README animation needs nothing by hand: the release that changes `web/`
-re-records it (`make hero` previews it locally), and the release candidate re-renders the
+re-records it and the Surveyor-at-work animation (`make hero` and `make hero SPEC=surveyor` preview them locally), and the release candidate re-renders the
 launch film when `film/` or what it imports changed (`film/README.md`).
 
 `make test` also runs the repository's own documentation gates
