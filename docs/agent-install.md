@@ -132,8 +132,9 @@ codex debug prompt-input
 Expected output: a `cartographer:kb:*` section. If it is absent while `status` reports the
 instructions installed, report it: a provider precedence rule Cartographer does not model yet.
 
-`setup` (through `connect`) provisioned the bundled skills, including `cartographer-ops`. Use that skill for ongoing
-operations, diagnosis, upgrades, and synchronization after installation. From there the bundled
+`setup` (through `connect`) provisioned the bundled skills, including `cartographer-ops` and `cartographer-docs`. Use the first for ongoing
+operations, diagnosis, upgrades, and synchronization after installation; the second answers any question about how
+Cartographer works (`cartographer docs`). From there the bundled
 `cartographer-kb-create` and `cartographer-kb-import` skills take over: `cartographer-kb-create/references/artifacts.md` for authoring the
 KB's skills, subagents, hooks and MCP descriptors, and `cartographer-kb-create/references/secrets.md` for the
 SOPS encryption flow.

@@ -490,3 +490,18 @@ func TestSourceAuthorSkillCarriesItsInvariants(t *testing.T) {
 		t.Error("the source-author skill must ship no scripts/ directory")
 	}
 }
+
+// TestDocsSkillNamesItsProcedure guards the three things the skill exists for:
+// the command, the tools it chains, the content-word rule the retrieval eval
+// found necessary, and the docs-gap exit.
+func TestDocsSkillNamesItsProcedure(t *testing.T) {
+	body, err := fs.ReadFile(FS, path.Join("bundled", "cartographer-docs", "SKILL.md"))
+	if err != nil {
+		t.Fatalf("read the docs skill: %v", err)
+	}
+	for _, want := range []string{"cartographer docs", "graph_context", "concept_read", "cartographer-feedback", "content words", "cite the concept ids"} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("the docs skill lost %q", want)
+		}
+	}
+}

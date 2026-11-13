@@ -64,6 +64,10 @@ const (
 	// hook does not fire (Kiro default chat, timer-only clients): kb_status
 	// carries latest_version (D254).
 	updateBullet = "- when `kb_status` reports a `latest_version` that differs from `server_version`, tell the user once: the installed version, the available version and the upgrade command for this channel (`cartographer update check` prints it); offer to run it, run it only on explicit consent, then follow the cartographer-ops skill (§Upgrade).\n"
+	// D2053: a skill description alone is what a model may or may not
+	// pick; a question about Cartographer itself goes to the docs of the
+	// installed version, never to memory.
+	docsBullet = "- a question about how Cartographer itself works (command, flag, key, error, why) goes to the `cartographer-docs` skill (`cartographer docs graph_context query=\"<content words>\"`), never to memory;\n"
 	// D1182: a procedure answered from a search excerpt is the failure the
 	// 35-task measurement found; the skill names in the brief sections only
 	// work together with this rule.
@@ -94,6 +98,7 @@ func SharedOperationalSection(feedbackMode string) string {
 	sb.WriteString(contract.CommitBullet)
 	sb.WriteString(gitBullet)
 	sb.WriteString(updateBullet)
+	sb.WriteString(docsBullet)
 	sb.WriteString(contract.FeedbackBullet(feedbackMode))
 	sb.WriteString(readWholeBullet)
 	sb.WriteString(guideBullet)

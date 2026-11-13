@@ -1,7 +1,7 @@
 ---
 name: cartographer-ops
 description: Configure, operate, troubleshoot, or upgrade a Cartographer server or client; connect agents and manage Knowledge Bases.
-version: "1.8"
+version: "2.0"
 ---
 # Cartographer Operations
 
@@ -13,22 +13,8 @@ remote is synchronized around writes; a KB without one is never backed up or syn
 commands (`connect`, `status`, `sync`) configure agent clients to use the server and keep their
 skills, hooks and instructions aligned. Agents use the MCP tools, never the KB files.
 
-| Command | Use it for |
-|---|---|
-| `cartographer setup` | First-time setup of this machine (below). |
-| `cartographer serve` | Running the server in the foreground: development or a custom deployment. |
-| `cartographer service install\|status\|restart\|uninstall` | The native local service. Behind a proxy or internal CA, run `install` from a shell that sets `HTTPS_PROXY`/`SSL_CERT_FILE`: the service does not inherit the shell. |
-| `cartographer kb create <name> --remote <url>` | A first KB in the local service data directory, pushed to an empty repository (or one holding only a forge's README/LICENSE/.gitignore commit, which is adopted); it becomes `origin`. Any other non-empty remote is refused before the push. `--no-remote` makes a local-only KB: the choice between the two is mandatory. |
-| `cartographer kb clone <remote> [name]` | Mounting an existing KB remote in the local service data directory. |
-| `cartographer kb attach <kb> --remote <url>` | Giving a `--no-remote` KB a remote later: an empty repository, or one holding a fast-forward ancestor of the KB. No restart; never forced. |
-| `cartographer kb reauthor <kb> [--apply]` | A push refused because of the commits' author or committer (`references/sync-errors.md`). |
-| `cartographer kb list` | The KBs mounted in the data directory. |
-| `cartographer connect [provider\|all] [--agents a,b]` | Connecting detected agent clients. Never combine `--agents` with the positional provider (the same for `disconnect`). |
-| `cartographer status` / `cartographer doctor` | Client configuration and provisioning drift / a read-only diagnosis that names the fix for each finding. |
-| `cartographer sync` | Realigning provisioned skills, agents, hooks and instructions. |
-| `cartographer reconnect` | Rebuilding a client's configuration from scratch, only when a release asks for it. |
-| `cartographer disconnect [provider\|all]` | Removing Cartographer-managed client configuration. |
-| `cartographer version`, `cartographer update check` | The installed version; whether a newer release exists and the upgrade command for this install. |
+For any command, flag, key or error: `cartographer docs graph_context query="<content words>"`
+(skill `cartographer-docs`); `cartographer setup` is the first command (below).
 
 `connect` probes the server before writing. A reachable server with no KB needs
 `cartographer kb create <name> --remote <url> --restart` (local service; or `cartographer setup --remote <url>`).
@@ -63,42 +49,32 @@ sessions.
 
 A server setting resolves as **flag > environment variable > YAML file > default**. Keep secrets in
 environment variables or the platform secret store, never in a committed YAML file.
-`cartographer config` shows every setting with its value and where it comes from.
-
-| Variable | Purpose |
-|---|---|
-| `CARTOGRAPHER_DATA` | Data directory whose direct subfolders are the KBs. |
-| `CARTOGRAPHER_KB_REMOTES` | Git remotes (comma-separated) to clone under the data directory and mount. |
-| `CARTOGRAPHER_KB` | Folders (comma-separated) to mount as they are. No remote, so no sync: for development and tests. |
-| `CARTOGRAPHER_HTTP` | HTTP listen address, such as `:39273`. |
-| `CARTOGRAPHER_AUTH` | `true` (mandatory), `false`, or unset/`auto` (on when tokens exist). |
-| `CARTOGRAPHER_TOKENS` | Bearer tokens, each optionally scoped per KB. |
-| `CARTOGRAPHER_WEB_ENABLED` | `false` turns the Atlas off. |
-
-A KB syncs exactly when it has a remote, and every write is one commit: neither is a setting.
+`cartographer config` shows every setting with its value and where it comes from; the variables are
+in the docs (`cartographer docs search query="CARTOGRAPHER_DATA"`).
 
 ## Diagnosis playbook
 
-1. Run `cartographer doctor`, then `cartographer status`: they name what is missing or stale.
-2. Check `GET /health`: `status`, `version` and `ready` tell a live process from a usable server;
-   an authenticated caller also gets `kbs`.
-3. If `ready` is false or no KB is mounted, ask for the git remote the KB belongs to, then run
-   `cartographer kb create <name> --remote <url> --restart` (or `cartographer kb clone <url>
-   --restart` if that repository already holds a KB); `--restart` restarts only a local service.
-4. If client artifacts are stale or missing, run `cartographer sync`, then have the user restart
-   the affected agent session so it reloads MCP configuration and skills.
-5. If concepts are degraded after a git conflict, use the `cartographer-kb-conflict-resolve`
-   skill; do not repair their files outside Cartographer.
-6. If the binary and the running service differ, run `cartographer upgrade-repair`. It gracefully
-   replaces a running server, proves the new version is serving, and reconciles the configured
-   providers. A bare `service restart` does none of that and can leave a client configured
-   against the previous version. Exit 1 means the service is fine and `cartographer sync` is the
-   retry; exit 2 means the service could not be replaced: read `cartographer service status`.
-7. If writes fail, or a KB does not push, read `sync_status` (not in `tools/list`: call it by
-   name) and follow `references/sync-errors.md`: a clone on the wrong branch, a protected branch,
-   or a push refused because of the commits' author.
-8. If a sync warns that a `{{repo:…}}`/`{{path:…}}` placeholder is not resolved, run
-   `cartographer paths list` and follow `references/placeholders.md`.
+Each step ends on a query for the details: `cartographer docs graph_context query="..."`.
+
+1. `cartographer doctor`, then `cartographer status`: they name what is missing or stale.
+2. `GET /health` (`status`, `version`, `ready`) tells a live process from a usable server.
+3. `ready` false or no KB mounted: ask for the git remote, then `cartographer kb create` or
+   `cartographer kb clone` (query: kb create remote).
+4. Stale or missing client artifacts: `cartographer sync`, then restart the agent session.
+5. Concepts degraded after a git conflict: the `cartographer-kb-conflict-resolve` skill; never
+   repair their files outside Cartographer.
+6. Binary and running service differ: `cartographer upgrade-repair` (a bare `service restart` does
+   not reconcile clients). Exit 1: the service is fine, retry `cartographer sync`; exit 2: read
+   `cartographer service status`.
+7. Writes fail or a KB does not push: read `sync_status` (not in `tools/list`: call it by name,
+   with `kb`); its `state` and `last_error` name the case (query: sync_status wrong branch
+   protected branch author). Report what you find; the recovery is the user's. Never merge,
+   rebase, push or delete a branch yourself. Do not retry a protected-branch refusal in a loop:
+   the remote's answer will not change. For a refusal because of the commits' author, run
+   `cartographer kb reauthor <kb>` without `--apply` first, show the commits it would change, and
+   apply only on the user's consent.
+8. A sync warns that a `{{repo:...}}` or `{{path:...}}` placeholder is not resolved:
+   `cartographer paths list` (query: placeholder paths set).
 9. Asked to see a KB, give the Atlas link: `ui_url` in `kb_status` (present only when the agent
    runs on the server's own machine), or the `ui:` line of `cartographer service status` on the
    server host. No `ui_url` means stdio, `CARTOGRAPHER_WEB_ENABLED=false`, a stopped service,
@@ -173,5 +149,5 @@ or `cartographer status` / `kb_status` can report one (`update available`, `late
 
 ## Further reading
 
-- https://github.com/BeppeTemp/cartographer/blob/main/docs/deployment.md
-- https://github.com/BeppeTemp/cartographer/blob/main/docs/configurator.md
+Every other question about Cartographer: the `cartographer-docs` skill
+(`cartographer docs graph_context query="<content words>"`).
