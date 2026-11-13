@@ -188,6 +188,68 @@ func TestApply_OpenCodeLegacyWriteRemovesTheNativeSibling(t *testing.T) {
 	}
 }
 
+// A server may legitimately be named "servers" (the name alphabet allows it);
+// removing it must take the entry, never the native section it is filed under.
+func TestRemove_OpenCodeA_ServerNamedServersKeepsTheSection(t *testing.T) {
+	root := map[string]any{"mcp": map[string]any{
+		"servers": map[string]any{
+			"mine":    map[string]any{"type": "remote"},
+			"servers": map[string]any{"type": "remote"},
+		},
+	}}
+	if !configurator.RemoveMCPServer(root, configurator.ProviderOpenCode, "servers") {
+		t.Fatal("RemoveMCPServer reported nothing removed")
+	}
+	servers := root["mcp"].(map[string]any)["servers"].(map[string]any)
+	if _, ok := servers["mine"]; !ok {
+		t.Fatalf("the native section was deleted: %v", root)
+	}
+	if _, ok := servers["servers"]; ok {
+		t.Error("the server named servers survived")
+	}
+}
+
+// A V1 flat map may legally hold a server named "servers" or "timeout": at that
+// path they are servers, not the native section or the V2 timeout defaults. The
+// emitter's own path (EmitResult.MCPServerPath) keeps the merge from reading
+// one as the other.
+func TestApply_OpenCode1WritesAServerNamedServers(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, filepath.FromSlash(configurator.OpenCodeConfigPath))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const before = `{"mcp":{"mine":{"type":"remote","url":"https://example.com/mcp"}}}`
+	if err := os.WriteFile(path, []byte(before), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &configurator.ServerConfig{Name: "servers", URL: "https://servers.example.com/mcp"}
+	r, err := configurator.Emit(cfg, configurator.ProviderOpenCode, configurator.ForOpenCodeMajor(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := configurator.Apply([]*configurator.EmitResult{r}, dir, false); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var root map[string]any
+	if err := json.Unmarshal(data, &root); err != nil {
+		t.Fatalf("invalid JSON: %v\n%s", err, data)
+	}
+	mcp := root["mcp"].(map[string]any)
+	entry, ok := mcp["servers"].(map[string]any)
+	if !ok || entry["url"] != cfg.URL {
+		t.Fatalf("the entry named servers was not written: %s", data)
+	}
+	if _, kept := mcp["mine"]; !kept {
+		t.Error("another server of the user was dropped")
+	}
+}
+
 func TestRemove_OpenCodeRemovesBothShapes(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, filepath.FromSlash(configurator.OpenCodeConfigPath))

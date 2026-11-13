@@ -85,7 +85,7 @@ func registerMCPServer(baseDir, name string, spec configurator.ServerSpec, provi
 	// One merge, in every shape the provider reads: an entry of another shape
 	// with the same name is removed, or it would shadow the one just written
 	// (D2056).
-	configurator.MergeMCPEmission(settings, incoming, provider)
+	configurator.MergeMCPEmission(settings, incoming, provider, r.MCPServerPath)
 	// OpenCode's "$schema" hint (see configurator's emitOpenCodeServer): keep
 	// whatever is already there, only add it if this is a brand-new file.
 	if schema, ok := incoming["$schema"]; ok {
@@ -161,8 +161,9 @@ func removeMCPServer(baseDir, name string, provider configurator.Provider, fileP
 
 // isEmptyMCPProviderShell reports whether settings has nothing left worth
 // keeping — no keys at all, or, for OpenCode, only its "$schema" hint — mirrors
-// configurator's own (unexported) isEmptyProviderShell, duplicated here for the
-// same reason mcpServerKey is.
+// configurator's own (unexported) isEmptyProviderShell, duplicated here because
+// provisioning must not decide a file's fate from a value the configurator does
+// not export.
 func isEmptyMCPProviderShell(settings map[string]interface{}) bool {
 	for k := range settings {
 		if k == "$schema" {

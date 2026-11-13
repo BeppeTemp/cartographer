@@ -32,6 +32,12 @@ type Descriptor struct {
 	Provider    Provider
 	DisplayName string // human-readable, e.g. "Claude Code"
 
+	// Base is the built-in provider a plugin provider takes every format
+	// decision from (PluginSpec.Base), empty for a built-in. Its emitter, its
+	// agent translation and its MCP section's shapes are the base's, so a fork
+	// of OpenCode writes what OpenCode reads (D2056).
+	Base Provider
+
 	// MCPConfigPath is the provider's native MCP configuration file, relative
 	// to the client base dir, in slash form. It is the file
 	// `cartographer connect` writes Cartographer's own entry into, and the same

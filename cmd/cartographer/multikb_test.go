@@ -1448,3 +1448,20 @@ func TestExplicitEmptyBindingGetsNoEntryOnAnySmallServer(t *testing.T) {
 		}
 	}
 }
+
+// #2056 review: the OpenCode version probe must not run for a client that does
+// not write OpenCode's MCP section. A sync from a hook on a Claude-only machine
+// would otherwise start whatever binary the repository's PATH calls `opencode`.
+func TestOpenCodeMajorFor_ProbesOnlyForOpenCodeShape(t *testing.T) {
+	restore := openCodeMajorForEmit
+	t.Cleanup(func() { openCodeMajorForEmit = restore })
+	calls := 0
+	openCodeMajorForEmit = func() int { calls++; return 2 }
+
+	if got := openCodeMajorFor("claude"); got != 0 || calls != 0 {
+		t.Fatalf("claude: got %d with %d probe calls, want 0 with none", got, calls)
+	}
+	if got := openCodeMajorFor("opencode"); got != 2 || calls != 1 {
+		t.Fatalf("opencode: got %d with %d probe calls, want 2 and one", got, calls)
+	}
+}

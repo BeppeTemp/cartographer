@@ -148,6 +148,14 @@ type EmitResult struct {
 	// existing match under baseDir. FilePath is empty then, so nothing joins a
 	// literal `*`.
 	FileGlob string
+	// MCPServerPath is the JSON path, relative to the file's root, at which the
+	// emitter placed its server entry when the provider reads more than one
+	// shape (OpenCode: "mcp"."servers" or the V1 "mcp"). Apply and the KB
+	// descriptor path pass it to MergeMCPEmission, so the merge never has to
+	// guess a shape from the content — a V1 entry legitimately named "servers"
+	// would look like the native section (D2056). Empty for a single-shape
+	// provider.
+	MCPServerPath []string
 	// viaGlob marks one expansion of a FileGlob result: the stale files are
 	// removed once, after all of them.
 	viaGlob bool
@@ -376,7 +384,7 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 		// Non-JSON files (e.g. SKILL.md) are always overwritten.
 		if filepath.Ext(fullPath) == ".json" {
 			if existing, err := os.ReadFile(fullPath); err == nil {
-				merged, mergeErr := mergeJSON(existing, r.Content, r.Provider)
+				merged, mergeErr := mergeJSON(existing, r.Content, r.Provider, r.MCPServerPath)
 				if mergeErr != nil {
 					return written, fmt.Errorf("existing file %s is not valid JSON: %w — fix or delete it manually", fullPath, mergeErr)
 				}
@@ -506,10 +514,11 @@ func removeLegacyOpenCodeEntry(name, baseDir string, dryRun bool) (bool, error) 
 
 // Remove deletes the MCP server entry named cfg.Name from provider's config file
 // in baseDir — the inverse of Apply's non-destructive merge: it reads the
-// existing JSON, deletes only that key from the servers map, and rewrites the
-// file. Everything else in the file (other servers, other top-level keys) is
-// left untouched; if the servers map becomes empty it is kept as an empty map,
-// not deleted, mirroring Apply's rule of never destroying user content.
+// existing JSON, deletes only that key from the server map (any shape the
+// provider reads; D2056), and rewrites the file. Everything else in the file
+// (other servers, other top-level keys) is left untouched; an empty server map
+// is pruned, and the file itself goes only when nothing but OpenCode's "$schema"
+// hint is left (D63).
 //
 // If the file does not exist, or the key is not present, Remove is a no-op and
 // returns removed=false with no error. If dryRun is true, Remove computes and
@@ -727,7 +736,7 @@ func removeLegacyCodexJSON(name, baseDir string, dryRun bool) (bool, error) {
 // mergeJSON deep-merges incoming JSON into existing JSON at the top map level.
 // Returns an error if existing is malformed JSON (user must fix or delete the file).
 // If incoming cannot be parsed, incoming bytes are returned as-is.
-func mergeJSON(existing, incoming []byte, provider Provider) ([]byte, error) {
+func mergeJSON(existing, incoming []byte, provider Provider, at []string) ([]byte, error) {
 	// Ordered, in the file's own layout (#1502): key order, indent, CRLF, the
 	// final newline and number digits survive the merge.
 	existMap, layout, err := jsonorder.Parse(existing)
@@ -741,9 +750,9 @@ func mergeJSON(existing, incoming []byte, provider Provider) ([]byte, error) {
 	// A server entry is replaced whole: merging into the old one would keep a
 	// removed header, command/args after a transport change, and would unite
 	// the old and new args. MergeMCPEmission merges at the level of the server
-	// map, in every shape the provider reads, and removes an older shape of the
+	// map, at the path the emitter wrote (at), and removes an older shape of the
 	// same name so it cannot shadow what was just written (D2056).
-	MergeMCPEmission(existMap, incomMap, provider)
+	MergeMCPEmission(existMap, incomMap, provider, at)
 	// The server maps are consumed: drop them from the incoming object so the
 	// deep merge below does not reintroduce a sibling shape.
 	for _, path := range mcpServerPaths(provider) {
@@ -1144,8 +1153,10 @@ func emitOpenCodeServer(name string, spec ServerSpec, opts EmitOptions) (*EmitRe
 	}
 
 	root := map[string]any{"$schema": "https://opencode.ai/config.json"}
+	serverPath := []string{"mcp", "servers"}
 	if legacy {
 		entry["enabled"] = true
+		serverPath = []string{"mcp"}
 		root["mcp"] = map[string]any{name: entry}
 	} else {
 		root["mcp"] = map[string]any{"servers": map[string]any{name: entry}}
@@ -1155,9 +1166,10 @@ func emitOpenCodeServer(name string, spec ServerSpec, opts EmitOptions) (*EmitRe
 		return nil, err
 	}
 	return &EmitResult{
-		Provider: ProviderOpenCode,
-		FilePath: OpenCodeConfigPath,
-		Content:  content,
+		Provider:      ProviderOpenCode,
+		FilePath:      OpenCodeConfigPath,
+		MCPServerPath: serverPath,
+		Content:       content,
 	}, nil
 }
 

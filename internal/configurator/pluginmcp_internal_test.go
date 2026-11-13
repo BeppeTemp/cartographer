@@ -1,6 +1,7 @@
 package configurator
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -267,5 +268,42 @@ func TestApplyGlob_RemovesAStaleFileInTheExtensionStorage(t *testing.T) {
 	}
 	if _, err := os.Stat(stale); err != nil {
 		t.Errorf("a no-op write removed the stale file: %v", err)
+	}
+}
+
+// #2056 review: a plugin provider based on OpenCode writes the base's native
+// section, so its paths and its metadata rule are the base's too. With the
+// flat path only, a merge would read the emitted "servers" member as a server
+// and replace the user's whole mcp.servers map with our one entry.
+func TestOpenCodeBasedPluginUsesTheBaseSectionShape(t *testing.T) {
+	registeredPlugins(t, PluginSpec{
+		Name: "opencode-fork", Base: string(ProviderOpenCode), Active: true, MCPMode: "native",
+		MCPConfig: []string{".fork", "opencode.json"},
+	})
+	if got := MCPShapeProvider("opencode-fork"); got != ProviderOpenCode {
+		t.Fatalf("MCPShapeProvider = %q, want opencode", got)
+	}
+	r, err := EmitServer("wiki", ServerSpec{Type: "http", URL: "https://mcp.example.com/mcp"}, "opencode-fork", ForOpenCodeMajor(2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var emitted map[string]any
+	if err := json.Unmarshal(r.Content, &emitted); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if _, ok := emitted["mcp"].(map[string]any)["servers"]; !ok {
+		t.Fatalf("the fork did not write the native section: %s", r.Content)
+	}
+
+	existing := map[string]any{"mcp": map[string]any{"servers": map[string]any{
+		"mine": map[string]any{"type": "remote", "url": "https://example.com/mcp"},
+	}}}
+	MergeMCPEmission(existing, emitted, "opencode-fork", r.MCPServerPath)
+	servers := existing["mcp"].(map[string]any)["servers"].(map[string]any)
+	if _, ok := servers["mine"]; !ok {
+		t.Fatalf("the user's servers map was replaced: %v", existing)
+	}
+	if _, ok := servers["wiki"]; !ok {
+		t.Fatalf("the entry was not written: %v", existing)
 	}
 }

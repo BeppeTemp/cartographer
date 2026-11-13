@@ -141,6 +141,7 @@ func buildPlugin(spec PluginSpec) (pluginEntry, error) {
 	d := base
 	d.MCPConfigGlob = ""
 	d.Provider = name
+	d.Base = base.Provider
 	d.DisplayName = spec.DisplayName
 	if d.DisplayName == "" {
 		d.DisplayName = spec.Name

@@ -9,11 +9,22 @@ import "sort"
 // Every reader and writer of a client's MCP section goes through the path list
 // below, so none can disagree with another about where an entry lives.
 
+// MCPShapeProvider returns the built-in provider whose MCP section layout p
+// follows: p itself for a built-in, its base for a plugin provider — whose
+// emitter is the base's, so it writes the base's format (D2056).
+func MCPShapeProvider(p Provider) Provider {
+	if d, ok := Lookup(p); ok && d.Base != "" {
+		return d.Base
+	}
+	return p
+}
+
 // mcpServerPaths returns the JSON paths at which provider keeps its map of MCP
 // server entries, native shape first. The descriptor's MCPServerKey is the
-// single-shape case; OpenCode is the only provider with two.
+// single-shape case; OpenCode — and a plugin provider based on it — is the only
+// one with two.
 func mcpServerPaths(p Provider) [][]string {
-	if p == ProviderOpenCode {
+	if MCPShapeProvider(p) == ProviderOpenCode {
 		return [][]string{{"mcp", "servers"}, {"mcp"}}
 	}
 	if d, ok := Lookup(p); ok && d.MCPServerKey != "" {
@@ -30,7 +41,7 @@ var openCodeMCPMeta = map[string]bool{"servers": true, "timeout": true}
 // isMCPServerName reports whether name, found at path in provider's config, is a
 // server entry rather than a member of the section itself.
 func isMCPServerName(p Provider, path []string, name string) bool {
-	if p == ProviderOpenCode && len(path) == 1 {
+	if MCPShapeProvider(p) == ProviderOpenCode && len(path) == 1 {
 		return !openCodeMCPMeta[name]
 	}
 	return true
@@ -132,38 +143,42 @@ func MCPServerEntry(root map[string]any, p Provider, name string) (any, bool) {
 // That last half is what keeps a file converged: a client still normalizing the
 // V1 flat map (OpenCode 2.x) would otherwise keep serving a stale entry that
 // shadows the one just written, and Cartographer would never see the difference.
-func MergeMCPEmission(root, emitted map[string]any, p Provider) {
+//
+// at is the path the emitter wrote under (EmitResult.MCPServerPath), so a shape
+// is never inferred from the content: a V1 entry legitimately named "servers"
+// is a server map member, not the native section. An empty at means the
+// provider's single shape.
+func MergeMCPEmission(root, emitted map[string]any, p Provider, at []string) {
 	paths := mcpServerPaths(p)
 	if len(paths) == 0 {
 		return
 	}
-	// The emitter writes one shape: the native one when present, the legacy one
-	// otherwise.
-	at, src := paths[0], mapAt(emitted, paths[0])
-	if src == nil && len(paths) > 1 {
-		at, src = paths[1], mapAt(emitted, paths[1])
+	if len(at) == 0 {
+		at = paths[0]
 	}
+	src := mapAt(emitted, at)
 	if src == nil {
 		return
 	}
 	dst := ensureMap(root, at)
 	for name, entry := range src {
-		if !isMCPServerName(p, at, name) {
-			continue
-		}
 		dst[name] = entry
 		for _, other := range paths {
 			if samePath(other, at) {
 				continue
 			}
-			deleteMCPEntryAt(root, other, name)
+			deleteMCPEntryAt(root, p, other, name)
 		}
 	}
 }
 
 // deleteMCPEntryAt removes name from the server map at path and prunes the maps
-// it empties.
-func deleteMCPEntryAt(root map[string]any, path []string, name string) bool {
+// it empties. A name that is section metadata at that path (OpenCode's
+// "servers") is never deleted there: it belongs to the section, not to a server.
+func deleteMCPEntryAt(root map[string]any, p Provider, path []string, name string) bool {
+	if !isMCPServerName(p, path, name) {
+		return false
+	}
 	parent := mapAt(root, path[:len(path)-1])
 	if parent == nil {
 		return false
@@ -185,7 +200,7 @@ func deleteMCPEntryAt(root map[string]any, path []string, name string) bool {
 func RemoveMCPServer(root map[string]any, p Provider, name string) bool {
 	removed := false
 	for _, path := range mcpServerPaths(p) {
-		if deleteMCPEntryAt(root, path, name) {
+		if deleteMCPEntryAt(root, p, path, name) {
 			removed = true
 		}
 	}

@@ -766,7 +766,7 @@ func appendUnique(list []string, extra ...string) []string {
 // reads (D2056). Every emission of one run takes it from the same place, so
 // the entry written and the unchanged-entry comparison cannot disagree.
 func emitMCPEntry(provider string, entry mcpEntry, auth bool, tokenEnv string) (*configurator.EmitResult, string, error) {
-	opts := configurator.ForOpenCodeMajor(openCodeMajorForEmit())
+	opts := configurator.ForOpenCodeMajor(openCodeMajorFor(provider))
 	if entry.Bridge {
 		spec, err := bridgeServerSpec(provider, auth, tokenEnv)
 		if err == nil {
@@ -795,6 +795,18 @@ func emitMCPEntry(provider string, entry mcpEntry, auth bool, tokenEnv string) (
 // artifacts of every projection, and `opencode --version` starts the client's
 // runtime.
 var openCodeMajorForEmit = sync.OnceValue(provisioning.OpenCodeMajor)
+
+// openCodeMajorFor is openCodeMajorForEmit only for a client that writes
+// OpenCode's MCP section — OpenCode itself or a plugin provider based on it.
+// No other client's config depends on it, and the probe starts whatever binary
+// is named `opencode` on PATH, which a sync from a hook must not do for a
+// Claude-only machine.
+func openCodeMajorFor(provider string) int {
+	if configurator.MCPShapeProvider(configurator.Provider(provider)) != configurator.ProviderOpenCode {
+		return 0
+	}
+	return openCodeMajorForEmit()
+}
 
 // snapshotMCPConfigFiles reads and records the raw bytes of every configuration
 // file the targeted providers manage, before any removal or rewrite.
