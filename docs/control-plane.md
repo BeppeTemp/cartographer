@@ -411,6 +411,7 @@ The `stable` and `preview` routes are also served at `/api/v1` when `api.enabled
 | `GET /api/ui/v1/kbs/{kb}/maintenance/summary` | What keeps the KB in repair (D323): `auto_repair` (`enabled` is the server setting `maintenance.auto_repair`, `default` always true, `checks` the safe set, `interval_days` the constant 1, `delegated_to` the ids of the live Surveyors that own the KB's repair, empty when none), `last_auto_repair` (the newest line of the background log, or `null`; the background repair runs at every start, after a pull that moved HEAD and once per interval, D704), `last_doctor`, `next_doctor`, `doctor_interval_days` (the fixed interval), `runs` (D365: the background repair's runs of the last 30 days from its log, newest first, at most 50, each like `last_auto_repair`), and `repairs`: the `kb_repair` and auto-repair commits of the last 30 days, newest first (at most 50), each `{sha, at, subject, reason, files, background, revert}` where `revert` is the exact `cartographer kb repair <kb> --revert <sha7>` command. A whole-KB resource: `404` for a caller that cannot see the whole KB. The Atlas on `main` has no client for this route; its consumer lives on `exp/0.28` (D1455), so it is kept as it is. Also `maintenance: {repair: {owner, by?, state, since?}}`: who repairs the KB, read from the same decision that pauses the server's timer (`repairOwners`). `state` is `server` (no covering Surveyor), `surveyor` (handed over; `by` is its perimeter) or `fallback` (an expected Surveyor last seen declaring `repair` is silent, so the server repairs again; `by` is that perimeter, `owner` is `server`). `since` is when this process first read the current state (the transition is recorded on read; absent for `server` never changed). repair-on-write is a server invariant and not part of it. |
 | `GET /api/ui/v1/kbs/{kb}/maintenance/review` | The `kb_review` items the caller can see, filtered as the tool filters them, without the `lint_judgement` ones (lint findings, listed by `/lint`) and without a template proposal's `template`/`templates` text and `map_update` arguments (D704): `{items: [{kind, concepts, evidence, suggested_action, term, template_slug, weight}]}`. |
 | `GET /api/ui/v1/kbs/{kb}/components` | The components that concern this KB (§Component contract): `{protocol, min_protocol, server: {version, started_at, now}, components: [{kind, name, state, declared, kind_declared, min_replicas, last_seen_at, kbs, replicas: [{id, version?, protocol, protocol_skew, kind_declared, tasks, state, last_beat_at, interval_seconds, last_run?, budgets, next_window_at?}]}]}`. Rows are the registry's entries naming the KB (a silent one has `replicas: []`) plus the live Surveyors the registry does not name (`state` `undeclared`; with no registry every live Surveyor is one); `state` is one of `componentproto.States`, `id` is the replica's self-declared id. `kbs` lists only the KBs the caller sees whole. No principal id or token digest is shown. A whole-KB resource: `404` for a caller that cannot see the whole KB. Replaces the `/surveyors` route of the 0.29 previews. |
+| `GET /api/ui/v1/feedback/candidates`, `GET /api/ui/v1/feedback/candidates/draft?id=` | The Surveyors' report candidates and the redacted draft of one, with the URL that files it (§Surveyor runs and alarms, Report candidates). Both `GET`; `404` `feedback_off` when the operator switched feedback off. |
 | `GET /api/ui/v1/kbs/{kb}/feeds` | The Source concepts whose frontmatter carries a non-empty `feed_error`: `{feeds: [{id, title, source_shape?, recipe?, feed_checked_at?, feed_error}], total}`, newest `feed_checked_at` first then id, at most 50 (`total` counts all). `feed_error` is cut to 300 characters and stripped of control characters; `feed_checked_at` is passed on only when it is RFC 3339. Each concept is filtered with the caller's principal (no whole-KB gate): a narrowed caller sees the feeds of the maps it sees. |
 | `GET /api/ui/v1/kbs/{kb}/status` | `kb_status`'s response (open knowledge gaps, search misses, stale count and the rest). A whole-KB resource like the artifact routes: `404` for a caller that cannot see the whole KB. |
 | `GET /api/ui/v1/kbs/{kb}/checks` | `{categories, checks}` (D365): every lint check Meridian runs — `kb_review` kinds excluded — in registry order, each `{name, category, fixable, auto, active, reason?}`: `fixable` when the check has a mechanical fix, `auto` when this KB's background repair applies it by itself, `active: false` with a short `reason` when the check cannot run on this KB (nothing to compare against, or every map able to run it opted out, D371; `docs/data-plane.md` §Active checks). The categories are the registry's (`lint.Categories`), in reading order. Counts are not here: they come from `/lint`, so a scoped or narrowed caller sees the coverage of exactly its findings. |
@@ -587,6 +588,38 @@ cannot make a run look recent or stale.
 (`origin: "reported"`, shown as reported; an alarm with no `kb` is shown with its code and time only, `source` and
 `detail` blanked, because no KB check vouches for its text) plus the ones Meridian computes (`origin: "server"`: `silent`,
 `degraded` from the health state, `protocol_skew` per skewed replica). No principal id leaves the server.
+
+**Report candidates (`report_candidates`, D1925).** The same post may carry what the Surveyor noticed that a
+person would report: an optional array of at most 16 entries `{kind, tool?, code, kb?, count, first_age_seconds,
+last_age_seconds}`. `kind` is one of `componentproto.CandidateKinds`: `tool_error` (a tool answered with an
+internal error, or with an error code the Surveyor does not treat as an expected refusal), `protocol_mismatch` (the
+two sides could not agree on a component protocol) or `contract_mismatch` (a result the Surveyor could not decode as
+the shape it reads). The vocabulary is closed and holds no text: a tool name (`[a-z][a-z0-9_]{0,63}`), a code
+(`[a-z][a-z0-9_]{0,40}`, else `unknown`) and counts, never an error text, an argument or a result body, because a
+tool's error can quote page content. An entry with an unknown kind or tool, or for a KB the token cannot write, is
+dropped, not refused; an older Meridian ignores the field, so it does not bump the protocol. The Surveyor sends
+ages, never times: Meridian dates `first_at`/`last_at` on its own clock, as it does for runs. Candidates are
+deduplicated by `(kind, surveyor, kb, tool, code)` with the Surveyor's cumulative `count` and the earliest and
+latest sighting, kept in memory with the runs they ride (at most 64 per Surveyor, 128 per principal and 512 in
+all; the per-Surveyor and per-principal bounds take the holder's own oldest last sighting, the total one takes
+from a largest holder: each principal keeps at least its fair share of the 512, and a principal posting under
+many Surveyor ids cannot push another below that share. On a tie the poster pays if it is among the largest,
+else the tied holder with the oldest last sighting), gone with the declaration and on a restart, never written to a KB or to disk. With
+`feedback.destination: off` the field is accepted and dropped.
+
+Two read routes serve the Atlas (internal tier, so not on `/api/v1` and not in its OpenAPI document), both `GET`
+so the Atlas stays read-only: `GET /api/ui/v1/feedback/candidates` lists the candidates the caller may see,
+newest sighting first, `{candidates: [{id, kind, surveyor, kb?, tool?, code, count, first_at, last_at}],
+destination}`, and `GET /api/ui/v1/feedback/candidates/draft?id=<id>` returns `{title, body, kind: "bug", url,
+search_url, body_in_url, destination}`. The draft is pure computation over one candidate (nothing is stored or
+sent): the bug template's three headings with the server version, the Surveyor's version and component protocol
+as it declared them, the transport, the tool, the code, the count and the window, "not reproduced" for the
+reproduction, and a line saying it was drafted from a Surveyor's record. It names no KB, perimeter or replica id by
+construction and passes through `feedback.Redact` with every served KB name and the request host as a net. The URLs
+are the destination's (the duplicate-search link is empty unless the destination is GitHub). Visibility is the components view's: a
+candidate of a KB is for whoever sees that KB whole, one that names no KB for whoever sees every mounted KB whole;
+a candidate the caller cannot see answers the `404` of an unknown id, and no count reveals others. With
+`feedback.destination: off` both routes answer `404` with code `feedback_off`.
 
 ### Surveyor settings reports (`POST /api/component/v1/settings`, D1259)
 

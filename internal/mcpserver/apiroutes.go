@@ -205,6 +205,15 @@ var apiRoutes = buildAPIRoutes([]apiRoute{
 		Handler: func(m *MultiKBServer, w http.ResponseWriter, r *http.Request, name string, srv *Server) {
 			m.uiComponents(w, r, name, srv)
 		}},
+	{Pattern: "/feedback/candidates", Tier: tierInternal, Summary: "Report candidates a Surveyor recorded", Errors: []int{http.StatusNotFound},
+		Handler: func(m *MultiKBServer, w http.ResponseWriter, r *http.Request, _ string, _ *Server) {
+			m.uiFeedbackCandidates(w, r)
+		}},
+	{Pattern: "/feedback/candidates/draft", Tier: tierInternal, Summary: "A redacted draft report of one candidate, and its URL", Errors: errsBadRequest,
+		Query: []apiParam{{Name: "id", Description: "The id of a candidate", Required: true}},
+		Handler: func(m *MultiKBServer, w http.ResponseWriter, r *http.Request, _ string, _ *Server) {
+			m.uiFeedbackDraft(w, r)
+		}},
 	{Pattern: "/kbs/{kb}/artifacts", Tier: tierInternal, Summary: "Artifacts of a KB",
 		Handler: func(m *MultiKBServer, w http.ResponseWriter, r *http.Request, _ string, srv *Server) {
 			m.uiArtifacts(w, r, srv)
