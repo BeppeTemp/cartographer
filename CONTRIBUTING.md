@@ -70,7 +70,7 @@ Windows checkout without Developer Mode). Every directory with an `AGENTS.md` ha
 its own one-line `CLAUDE.md` import, which Claude loads on its first read of a
 file there (D213). The skills are real directories in `.claude/skills/` and the
 subagents are the files in `.claude/agents/`.
-A maintainer's agent whose build host is busy runs `make check-hosted` instead of `make check`.
+A maintainer's agent whose build host is busy runs `make check-hosted` instead of `make check`; it also runs the affected packages' tests on Windows, in parallel with the Linux ones, as the train gate does.
 
 With another agent, have it read `AGENTS.md` and follow `.claude/skills/<name>/SKILL.md`
 as a plain procedure, spawning a subagent from the body of `.claude/agents/<name>.md`
@@ -241,7 +241,7 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
   `ci.yml` run the gate on the pushed branch; an exit other than make's 2, such as ssh's 255 when the
   connection drops, is the wrapper's: the signoff exits 69, not a red gate, so the lander gates the train again, a bounded number of times), `SIGNOFF_WINDOWS` at one that runs the tests of
   the packages a code change affects on Windows beside them, sharded; the push is `--force-with-lease` and names its remote
-  and branch. `make check` is the fast tier to run while iterating (the affected packages only). `make check-hosted` runs it on a GitHub-hosted runner when the build host is busy (maintainer only: a contributor's push is refused and the check runs locally).
+  and branch. `make check` is the fast tier to run while iterating (the affected packages only). `make check-hosted` runs it on a GitHub-hosted runner when the build host is busy, with a Windows leg beside the Linux one (the packages of the gate's Windows leg), so a Windows-only failure shows before the change is queued; `make check` itself runs on Linux only (maintainer only: a contributor's push is refused and the check runs locally).
   `docs/testing.md` has the table.
 - **A maintainer's change lands in a train** (D1706): finished and reviewed on its
   branch, it is queued with `make ready MSG=<message file>` as **one commit** whose message

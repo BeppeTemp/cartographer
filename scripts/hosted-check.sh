@@ -11,11 +11,23 @@
 # PR and never lands. Pushing needs write access: a contributor's push is refused (exit 75) and
 # the check runs locally.
 #
+# Two legs run in parallel in the dispatched run: Linux (`make check-run`) and, when the Windows
+# list is not empty, Windows (the sharded `go test` of the packages the train gate's Windows leg
+# covers). The script computes that list itself, from the same changed paths `make check` uses
+# (`affected-pkgs.sh --changed | affected-pkgs.sh --code`): `make check` hands it nothing but
+# CHECK_PKGS. A list that cannot be computed is exit 1 with the reason, never 75. Both legs are
+# read from the one poll of the run; a red check names the red leg(s) and prints each one's log
+# excerpt.
+#
 # Exit: 0 green, 1 red or cancelled or timed out, 2 bad call, 75 GitHub cannot run it (gh missing
 # or unauthenticated, push or dispatch refused, run never appeared, network lost). Never 75 for a
 # red check (D1704). The dispatch needs hosted-check.yml on the default branch: before the first
 # landing it fails with 75.
 #
+#   HOSTED_CHECK_TEST_WIN_PKGS=<list>
+#                                 TEST SEAM, never for a real run: a list in the environment (empty:
+#                                 no Windows leg) replaces the computation, which needs the checkout's
+#                                 upstream/main; a note on stderr says when it is used
 #   HOSTED_CHECK_DRY=1            build the commit and print the branch, push nothing
 #   HOSTED_CHECK_POLL=15          seconds before the first poll of the run; doubles after each poll
 #   HOSTED_CHECK_POLL_MAX=60      ceiling of that back-off (a run costs ~15 calls, not ~720 an hour:
@@ -46,15 +58,27 @@ for a in "$@"; do
 done
 # Whole-string match (a newline is not in the class), and no word may start with `-`: the list
 # is expanded unquoted by make, where a newline starts a command and `-exec=...` a go test flag.
-[[ "$pkgs" =~ ^[A-Za-z0-9_./\ -]*$ ]] || { note "bad package list"; exit 2; }
-for w in $pkgs; do
-  if [[ "$w" == -* ]]; then note "bad package list: $w looks like a flag"; exit 2; fi
-done
+check_list() {
+  [[ "$1" =~ ^[A-Za-z0-9_./\ -]*$ ]] || { note "bad package list"; exit 2; }
+  local w
+  for w in $1; do
+    if [[ "$w" == -* ]]; then note "bad package list: $w looks like a flag"; exit 2; fi
+  done
+}
+check_list "$pkgs"
+# The test seam: set (even empty) it replaces the computation of step 3. Its name is not one a
+# shell or a CI job would export by accident, and a run that uses it says so.
+winpkgs=${HOSTED_CHECK_TEST_WIN_PKGS-} win_given=${HOSTED_CHECK_TEST_WIN_PKGS+1}
+check_list "$winpkgs"
+[ -z "$win_given" ] || note "HOSTED_CHECK_TEST_WIN_PKGS is set: the Windows packages are NOT computed (test seam)"
 
 dry=${HOSTED_CHECK_DRY:-}
 poll=${HOSTED_CHECK_POLL:-15}
 poll_max=${HOSTED_CHECK_POLL_MAX:-60}
-here=${BASH_SOURCE[0]%/*}
+# Absolute: the script runs from any directory and later changes to the toplevel.
+src=${BASH_SOURCE[0]}
+case "$src" in */*) here=${src%/*} ;; *) here=. ;; esac
+here=$(cd "$here" && pwd)
 
 # 2. Preconditions (75: GitHub cannot run it).
 if [ -z "$dry" ]; then
@@ -100,6 +124,21 @@ if [ -n "$untracked" ]; then
     exit 2
   fi
 fi
+
+# The packages of the Windows leg: what the train gate's leg runs (affected-pkgs.sh --code) over the
+# paths `make check` selects its packages from. Two steps, each status checked: a pipe into the
+# list would hide a failure as an empty list, and a check that tests nothing must not pass.
+if [ -z "$win_given" ]; then
+  changed=$("$here/affected-pkgs.sh" --changed) || { note "cannot compute the changed paths (see above): not running a check that would test nothing"; exit 1; }
+  winpkgs=$(printf '%s\n' "$changed" | "$here/affected-pkgs.sh" --code) || { note "cannot compute the Windows packages (see above)"; exit 1; }
+  winpkgs=${winpkgs//$'\n'/ }
+  check_list "$winpkgs"
+fi
+# Every run says what the Windows leg will test: a skipped leg is not a silent one.
+nwin=0
+for _ in $winpkgs; do nwin=$((nwin + 1)); done
+if [ "$nwin" = 0 ]; then note "no Windows leg: no Go code changed"; else note "Windows leg: $nwin package(s): $winpkgs"; fi
+
 tree=$(GIT_INDEX_FILE=$tmp git write-tree)
 if [ "$tree" = "$(git rev-parse 'HEAD^{tree}')" ]; then
   sha=$(git rev-parse HEAD)
@@ -110,7 +149,7 @@ fi
 branch=check/$slug-${sha:0:12}
 
 if [ -n "$dry" ]; then
-  note "dry run: would push $sha to $remote $branch and dispatch hosted-check.yml (pkgs='$pkgs' e2e=$e2e)"
+  note "dry run: would push $sha to $remote $branch and dispatch hosted-check.yml (pkgs='$pkgs' win_pkgs='$winpkgs' e2e=$e2e)"
   exit 0
 fi
 
@@ -138,7 +177,7 @@ list_runs() {
 existing=$(list_runs 2>/dev/null) || unavailable "cannot list the runs of $branch"
 before=$(printf '%s\n' "$existing" | sort -n | tail -n 1)
 before=${before:-0}
-gh workflow run hosted-check.yml -R "$repo" --ref "$branch" -f pkgs="$pkgs" -f e2e="$e2e" >/dev/null ||
+gh workflow run hosted-check.yml -R "$repo" --ref "$branch" -f pkgs="$pkgs" -f win_pkgs="$winpkgs" -f e2e="$e2e" >/dev/null ||
   unavailable "cannot dispatch hosted-check.yml on $branch (is it on the default branch?)"
 
 # 7. Find the run.
@@ -153,7 +192,7 @@ note "run $id on $branch"
 # 8. Wait. Back-off: the interval doubles up to poll_max, and the ceiling is elapsed time. The
 # elapsed time is the larger of the wall clock and the sum of the naps (a stubbed sleep in tests).
 timeout=${HOSTED_CHECK_TIMEOUT:-3600}
-last='' fails=0 concl='' slept=0 interval=$poll start=$SECONDS
+last='' fails=0 concl='' jobs='' slept=0 interval=$poll start=$SECONDS
 nap() { sleep "$1"; slept=$((slept + $1)); }
 elapsed() { local e=$((SECONDS - start)); [ "$slept" -le "$e" ] || e=$slept; echo "$e"; }
 # Core quota exhausted: print the seconds to wait for its reset (capped at the time left), else nothing.
@@ -170,14 +209,21 @@ quota_wait() {
   echo "$w"
 }
 while [ "$(elapsed)" -lt "$timeout" ]; do
-  if v=$(gh run view "$id" -R "$repo" --json status,conclusion --jq '.status + " " + .conclusion' 2>/dev/null); then
+  if v=$(gh run view "$id" -R "$repo" --json status,conclusion,jobs \
+    --jq '.status + " " + .conclusion + " " + ([.jobs[]? | .name + "=" + .conclusion] | join(","))' 2>/dev/null); then
     fails=0
     status=${v%% *}
     if [ "$status" != "$last" ]; then
       note "$status ($((SECONDS / 60))m$(printf %02d $((SECONDS % 60)))s)"
       last=$status
     fi
-    if [ "$status" = completed ]; then done_=1; concl=${v#* }; break; fi
+    if [ "$status" = completed ]; then
+      done_=1
+      # "<conclusion> <job>=<conclusion>,...": the legs come from the same poll as the verdict.
+      rest=${v#* } concl=${rest%% *} jobs=
+      case "$rest" in *\ *) jobs=${rest#* } ;; esac
+      break
+    fi
   elif w=$(quota_wait) && [ -n "$w" ]; then
     note "GitHub API quota exhausted: waiting ${w}s for its reset"
     nap "$w"
@@ -199,8 +245,22 @@ case "$concl" in
   success) echo "check: OK (hosted-check run $id)"; exit 0 ;;
   cancelled) note "run $id was cancelled (a newer check of the same branch supersedes it, or it was cancelled by hand)"; exit 1 ;;
   *)
-    gh run view "$id" -R "$repo" --log-failed 2>&1 | tail -n "${HOSTED_CHECK_TAIL:-150}" >&2 || true
-    note "run $id: $concl"
+    tail_n=${HOSTED_CHECK_TAIL:-150}
+    log=$(gh run view "$id" -R "$repo" --log-failed 2>&1) || true
+    red='' shown=0
+    # A failed log line is "<job>\t<step>\t<text>": each red leg gets its own excerpt.
+    IFS=, read -r -a legs <<<"$jobs"
+    for leg in ${legs[@]+"${legs[@]}"}; do
+      name=${leg%%=*} c=${leg#*=}
+      case "$c" in success | skipped | '') continue ;; esac
+      case "$name" in check) label=Linux ;; windows) label=Windows ;; *) label=$name ;; esac
+      red=${red:+$red, }$label
+      excerpt=$(printf '%s\n' "$log" | awk -F'\t' -v j="$name" '$1 == j' | tail -n "$tail_n")
+      note "--- $label leg ($name): $c"
+      if [ -n "$excerpt" ]; then printf '%s\n' "$excerpt" >&2; shown=1; fi
+    done
+    [ "$shown" = 1 ] || printf '%s\n' "$log" | tail -n "$tail_n" >&2
+    note "run $id: $concl${red:+ (red: $red)}"
     exit 1
     ;;
 esac
