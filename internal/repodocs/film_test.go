@@ -371,3 +371,41 @@ func inFilmInputs(inputs []string, target string) bool {
 	}
 	return false
 }
+
+// The deployment film shows one scene per profile, and a profile is a row of the `Deployment scenarios` table in
+// docs/deployment.md. PROFILES in film/src/deployment.ts names the row number and the start of the Scenario cell; a
+// renumbered or renamed scenario fails here instead of leaving a film that names a row the page no longer has.
+func TestFilmDeploymentProfilesAreScenarioRows(t *testing.T) {
+	root := repoRoot(t)
+	profiles := regexp.MustCompile(`\{ id: "[a-z0-9-]+", row: (\d+), title: "([^"]+)" \}`).FindAllStringSubmatch(readFile(t, root, "film/src/deployment.ts"), -1)
+	if len(profiles) == 0 {
+		t.Fatal(`film/src/deployment.ts: no PROFILES line of the form { id: "...", row: N, title: "..." }`)
+	}
+	// The table: the rows between the "Deployment scenarios" heading and the next heading, `| # | Scenario | ...`.
+	doc := readFile(t, root, "docs/deployment.md")
+	_, after, found := strings.Cut(doc, "### Deployment scenarios\n")
+	if !found {
+		t.Fatal("docs/deployment.md has no `### Deployment scenarios` section")
+	}
+	if i := strings.Index(after, "\n#"); i >= 0 {
+		after = after[:i]
+	}
+	scenario := map[string]string{}
+	for _, line := range strings.Split(after, "\n") {
+		cells := strings.Split(line, "|")
+		if len(cells) < 4 {
+			continue
+		}
+		scenario[strings.TrimSpace(cells[1])] = strings.TrimSpace(cells[2])
+	}
+	for _, m := range profiles {
+		cell, ok := scenario[m[1]]
+		if !ok {
+			t.Errorf("film/src/deployment.ts names scenario row %s, which the Deployment scenarios table of docs/deployment.md does not have", m[1])
+			continue
+		}
+		if cell != m[2] && !strings.HasPrefix(cell, m[2]+":") {
+			t.Errorf("film/src/deployment.ts names row %s %q, but the table's Scenario cell is %q: rename the profile or the row", m[1], m[2], cell)
+		}
+	}
+}
