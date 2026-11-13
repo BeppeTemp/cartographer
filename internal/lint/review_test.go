@@ -645,6 +645,11 @@ func TestReviewRepeatedFact(t *testing.T) {
 		"# Title that is a heading and long enough to count otherwise",
 		"> Fill in the details of this note before saving it anywhere.",
 		"- [[m/target-of-a-link-only-list-item-long-enough]]",
+		// A wrapped citation (#1864): only links and punctuation, over the floor
+		// because of the URL, in a list item or not.
+		"([call](../journal/2026-01-01-meeting-with-the-whole-team.md)).",
+		"([[m/target-of-a-wiki-link-long-enough-to-pass-the-floor]]), [x](y/z-long-enough-to-pass-the-floor-too.md).",
+		"- ([call](../journal/2026-01-01-meeting-with-the-whole-team.md)).",
 		"`an inline code span that is long enough to be a fact line`",
 		"```",
 		"a fenced code line that is also long enough to be a fact",
@@ -663,6 +668,37 @@ func TestReviewRepeatedFact(t *testing.T) {
 	got := itemsOf(review(t, k), ReviewRepeatedFact)
 	if len(got) != 1 || !strings.Contains(got[0].Evidence, "backup-host | nightly at 02:00") || got[0].Weight != 3 {
 		t.Fatalf("want only the table row: %+v", got)
+	}
+}
+
+// #1864: a prose line that carries a link and words is still a fact.
+func TestReviewRepeatedFactLinkWithWords(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
+	line := "The nightly job is described in [the runbook](../ops/runbook.md) too."
+	for i := 0; i < 3; i++ {
+		writeFile(t, k.DataRoot(), fmt.Sprintf("m/c%d.md", i), fmt.Sprintf("---\ntype: Note\ntitle: C%d\n---\n%s\n", i, line))
+	}
+	got := itemsOf(review(t, k), ReviewRepeatedFact)
+	if len(got) != 1 || !strings.Contains(got[0].Evidence, "The nightly job is described") {
+		t.Fatalf("want the prose line with a link: %+v", got)
+	}
+}
+
+// #1864: a code span is content, so a line holding one next to a citation
+// is a fact, not a link-only line.
+func TestReviewRepeatedFactCodeSpanWithCitation(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
+	line := "`kubectl rollout restart deployment/api -n prod` ([runbook](../ops/runbooks/restart-the-api-deployment.md))."
+	for i := 0; i < 3; i++ {
+		writeFile(t, k.DataRoot(), fmt.Sprintf("m/c%d.md", i), fmt.Sprintf("---\ntype: Note\ntitle: C%d\n---\n%s\n", i, line))
+	}
+	got := itemsOf(review(t, k), ReviewRepeatedFact)
+	if len(got) != 1 || !strings.Contains(got[0].Evidence, "kubectl rollout restart deployment/api") || got[0].Weight != 3 {
+		t.Fatalf("want the code span + citation line: %+v", got)
 	}
 }
 

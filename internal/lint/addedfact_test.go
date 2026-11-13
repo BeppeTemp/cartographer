@@ -75,6 +75,7 @@ func TestAddedRepeatedFactsNotFacts(t *testing.T) {
 		"short":    "Too short to count.",
 		"heading":  "## A heading that is certainly longer than forty bytes in total",
 		"code":     "```\n" + addedFactLine + "\n```",
+		"citation": "([call](../journal/2026-01-01-meeting-with-the-whole-team.md)).",
 		"template": "> Fill in the details of this note before saving it anywhere.",
 	}
 	for name, line := range lines {
