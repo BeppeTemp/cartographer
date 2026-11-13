@@ -8,7 +8,7 @@ VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 # that hold this module's Go code scopes both targets correctly, and unlike
 # `git ls-files` it still sees a file that has been written but not yet staged —
 # a gate that passes locally and fails in CI is worse than no gate (D209).
-GO_DIRS = cmd internal
+GO_DIRS = cmd internal docsfs.go
 
 # The tests `race` runs under the race detector, by name; `test-rerun` runs them again.
 RACE_RUN = Race|Concurren

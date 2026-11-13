@@ -10,5 +10,7 @@ import (
 // TestMain: see gitxtest.QuietGit.
 func TestMain(m *testing.M) {
 	gitxtest.QuietGit()
-	os.Exit(m.Run())
+	code := m.Run()
+	closeSharedRunner()
+	os.Exit(code)
 }
