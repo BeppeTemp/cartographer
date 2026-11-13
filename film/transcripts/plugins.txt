@@ -1,0 +1,235 @@
+$ cartographer plugin validate example-forks
+example-forks 0.1.0 is valid (digest 2aafadffc1f2)
+scripts (they run on this machine, with the permissions above and nothing else):
+  lib/greeting.star  2 lines  sha256 c9a25c337a8ae9d262aca0876bfb64d0b3cb7110862c83b775543bb3e6a8744b
+  plugin.star  32 lines  sha256 f24c49978c34a677bc2ed81d37be91e967df3c0099e7ba401fcd80993b036362
+registers:
+  command example-forks hello  (plugin.star:17)
+  event sync.after  (plugin.star:32)
+  tool example_forks_echo  (plugin.star:18)
+$ cartographer plugin install example-forks
+plugin example-forks 0.1.0  (Example forks)
+  A worked example of a plugin with a skill, a fictitious fork client, a command, a tool and a sync handler.
+  source: $HOME/example-forks
+  digest: 2aafadffc1f2
+  needs Cartographer >=0.28.0: met by this build
+permissions:
+  may read KB content
+  may write files: {home}/.example-forks/*.txt
+settings: greeting (string)
+providers/:
+provider acme-code (Acme Code), a fork of crush
+  detected by binaries: acme-code
+  writes global agent: $HOME/.acme-code/agents (format opencode)
+  writes global instructions: $HOME/.acme-code/ACME-CODE.md
+  writes global skill: $HOME/.acme-code/skills
+  writes project instructions: <project>/AGENTS.md
+  writes project skill: <project>/.acme-code/skills
+  mcp: cli
+skills/:
+skill "example-forks-hello" (1 files)
+  description: Use when the user asks what the example-forks plugin does; it greets and searches a KB through the plugin's hello command and echo tool.
+scripts (they run on this machine, with the permissions above and nothing else):
+  lib/greeting.star  2 lines  sha256 c9a25c337a8ae9d262aca0876bfb64d0b3cb7110862c83b775543bb3e6a8744b
+  plugin.star  32 lines  sha256 f24c49978c34a677bc2ed81d37be91e967df3c0099e7ba401fcd80993b036362
+registers:
+  command example-forks hello  (plugin.star:17)
+  event sync.after  (plugin.star:32)
+  tool example_forks_echo  (plugin.star:18)
+skill "example-forks-hello":
+files:
+  SKILL.md  433 bytes
+--- lib/greeting.star ---
+def greet(greeting, name):
+    return greeting + ", " + name + "!"
+--- plugin.star ---
+# The example plugin: one command, one tool and one sync handler. Everything it
+# touches is granted by cartographer-plugin.yaml: a KB read and one folder under
+# home. It runs no process and reads no clock at load.
+load("lib/greeting.star", "greet")
+
+def hello(args):
+    name = args[0] if args else "world"
+    print(greet(settings.greeting, name))
+
+def echo(params):
+    hits = kb.call("search", kb = params["kb"], query = params["text"])
+    return {"echo": params["text"], "hits": hits}
+
+def after_sync(ctx):
+    files.write("{home}/.example-forks/last-sync.txt", "synced " + str(ctx.installed) + " installed\n")
+
+command("hello", hello, "Print a greeting built from the greeting setting", usage = "[name]")
+tool(
+    "echo",
+    echo,
+    "Search a KB for the given text and return it with the hits",
+    params = {
+        "type": "object",
+        "properties": {
+            "kb": {"type": "string", "description": "The KB to search"},
+            "text": {"type": "string", "description": "What to search for"},
+        },
+        "required": ["kb", "text"],
+    },
+    writes = False,
+)
+on("sync.after", after_sync)
+pending approval: run `cartographer plugin install example-forks` again on a terminal, or with --yes
+$ cartographer example-forks hello
+Error: plugin example-forks is installed but not approved: run "cartographer plugin show example-forks"
+[exit 2]
+$ cartographer plugin show example-forks --files
+state: pending approval; showing the installed tree
+plugin example-forks 0.1.0  (Example forks)
+  A worked example of a plugin with a skill, a fictitious fork client, a command, a tool and a sync handler.
+  source: $HOME/example-forks
+  digest: 2aafadffc1f2
+  needs Cartographer >=0.28.0: met by this build
+permissions:
+  may read KB content
+  may write files: {home}/.example-forks/*.txt
+settings: greeting (string)
+providers/:
+provider acme-code (Acme Code), a fork of crush
+  detected by binaries: acme-code
+  writes global agent: $HOME/.acme-code/agents (format opencode)
+  writes global instructions: $HOME/.acme-code/ACME-CODE.md
+  writes global skill: $HOME/.acme-code/skills
+  writes project instructions: <project>/AGENTS.md
+  writes project skill: <project>/.acme-code/skills
+  mcp: cli
+skills/:
+skill "example-forks-hello" (1 files)
+  description: Use when the user asks what the example-forks plugin does; it greets and searches a KB through the plugin's hello command and echo tool.
+scripts (they run on this machine, with the permissions above and nothing else):
+  lib/greeting.star  2 lines  sha256 c9a25c337a8ae9d262aca0876bfb64d0b3cb7110862c83b775543bb3e6a8744b
+  plugin.star  32 lines  sha256 f24c49978c34a677bc2ed81d37be91e967df3c0099e7ba401fcd80993b036362
+registers:
+  command example-forks hello  (plugin.star:17)
+  event sync.after  (plugin.star:32)
+  tool example_forks_echo  (plugin.star:18)
+setting greeting = hello  (default)
+files:
+  cartographer-plugin.yaml  415 bytes
+  lib/greeting.star  67 bytes
+  plugin.star  1127 bytes
+  providers/acme-code.yaml  382 bytes
+  skills/example-forks-hello/SKILL.md  433 bytes
+--- lib/greeting.star ---
+def greet(greeting, name):
+    return greeting + ", " + name + "!"
+--- plugin.star ---
+# The example plugin: one command, one tool and one sync handler. Everything it
+# touches is granted by cartographer-plugin.yaml: a KB read and one folder under
+# home. It runs no process and reads no clock at load.
+load("lib/greeting.star", "greet")
+
+def hello(args):
+    name = args[0] if args else "world"
+    print(greet(settings.greeting, name))
+
+def echo(params):
+    hits = kb.call("search", kb = params["kb"], query = params["text"])
+    return {"echo": params["text"], "hits": hits}
+
+def after_sync(ctx):
+    files.write("{home}/.example-forks/last-sync.txt", "synced " + str(ctx.installed) + " installed\n")
+
+command("hello", hello, "Print a greeting built from the greeting setting", usage = "[name]")
+tool(
+    "echo",
+    echo,
+    "Search a KB for the given text and return it with the hits",
+    params = {
+        "type": "object",
+        "properties": {
+            "kb": {"type": "string", "description": "The KB to search"},
+            "text": {"type": "string", "description": "What to search for"},
+        },
+        "required": ["kb", "text"],
+    },
+    writes = False,
+)
+on("sync.after", after_sync)
+$ cartographer plugin approve example-forks --yes
+plugin example-forks 0.1.0  (Example forks)
+  A worked example of a plugin with a skill, a fictitious fork client, a command, a tool and a sync handler.
+  source: $HOME/example-forks
+  digest: 2aafadffc1f2
+  needs Cartographer >=0.28.0: met by this build
+permissions:
+  may read KB content
+  may write files: {home}/.example-forks/*.txt
+settings: greeting (string)
+providers/:
+provider acme-code (Acme Code), a fork of crush
+  detected by binaries: acme-code
+  writes global agent: $HOME/.acme-code/agents (format opencode)
+  writes global instructions: $HOME/.acme-code/ACME-CODE.md
+  writes global skill: $HOME/.acme-code/skills
+  writes project instructions: <project>/AGENTS.md
+  writes project skill: <project>/.acme-code/skills
+  mcp: cli
+skills/:
+skill "example-forks-hello" (1 files)
+  description: Use when the user asks what the example-forks plugin does; it greets and searches a KB through the plugin's hello command and echo tool.
+scripts (they run on this machine, with the permissions above and nothing else):
+  lib/greeting.star  2 lines  sha256 c9a25c337a8ae9d262aca0876bfb64d0b3cb7110862c83b775543bb3e6a8744b
+  plugin.star  32 lines  sha256 f24c49978c34a677bc2ed81d37be91e967df3c0099e7ba401fcd80993b036362
+registers:
+  command example-forks hello  (plugin.star:17)
+  event sync.after  (plugin.star:32)
+  tool example_forks_echo  (plugin.star:18)
+skill "example-forks-hello":
+files:
+  SKILL.md  433 bytes
+--- lib/greeting.star ---
+def greet(greeting, name):
+    return greeting + ", " + name + "!"
+--- plugin.star ---
+# The example plugin: one command, one tool and one sync handler. Everything it
+# touches is granted by cartographer-plugin.yaml: a KB read and one folder under
+# home. It runs no process and reads no clock at load.
+load("lib/greeting.star", "greet")
+
+def hello(args):
+    name = args[0] if args else "world"
+    print(greet(settings.greeting, name))
+
+def echo(params):
+    hits = kb.call("search", kb = params["kb"], query = params["text"])
+    return {"echo": params["text"], "hits": hits}
+
+def after_sync(ctx):
+    files.write("{home}/.example-forks/last-sync.txt", "synced " + str(ctx.installed) + " installed\n")
+
+command("hello", hello, "Print a greeting built from the greeting setting", usage = "[name]")
+tool(
+    "echo",
+    echo,
+    "Search a KB for the given text and return it with the hits",
+    params = {
+        "type": "object",
+        "properties": {
+            "kb": {"type": "string", "description": "The KB to search"},
+            "text": {"type": "string", "description": "What to search for"},
+        },
+        "required": ["kb", "text"],
+    },
+    writes = False,
+)
+on("sync.after", after_sync)
+Enabled example-forks 0.1.0
+$ cartographer plugin config example-forks greeting=hi
+setting greeting = hi  (set)
+$ cartographer example-forks hello ada
+hi, ada!
+>> one byte appended to the stored plugin.star
+$ cartographer plugin list
+warning: plugin example-forks is modified: its providers are not registered this run
+example-forks        0.1.0    modified           2aafadffc1f2 $HOME/example-forks
+$ cartographer example-forks hello ada
+warning: plugin example-forks is modified: its providers are not registered this run
+Error: plugin example-forks is installed but modified: run "cartographer plugin show example-forks"
+[exit 2]
