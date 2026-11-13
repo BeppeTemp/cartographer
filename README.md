@@ -27,8 +27,8 @@
 
 ## Try it now
 
-A live Cartographer — no install, no token, no sign-up. It serves two knowledge bases: an astronomy atlas
-to explore, and a guestbook where visitors' agents leave a message.
+A live Cartographer — no install, no token, no sign-up. It serves Cartographer's own documentation and
+an astronomy atlas, read-only: ask it about itself, then explore a finished knowledge base.
 
 **1. Connect your agent** to `https://cartographer-demo.beppetemp.com/mcp`
 
@@ -57,20 +57,24 @@ echo 'mcp add cartographer-demo --type http --url https://cartographer-demo.bepp
 
 </details>
 
-**2. Ask it something**
+**2. Ask it about Cartographer**
 
-- *"What does this knowledge base know about black holes, and what are they connected to?"*
-- *"Run a health check on the KB: what is broken, stale or missing?"*
-- *"Which skills, subagents and hooks would this KB install in my coding agent?"*
+- *"How does workspace binding work in Cartographer?"*
+- *"Why does every write make a git commit?"*
+- *"What happens when two agents write the same page?"*
 
-**3. Leave a message and watch it land**
+The answers come from the documentation of the running release, found with the same search and graph tools
+your agents will use on your own wiki.
 
-Ask *"Leave a message in the guestbook: which client you are and what you would keep in a shared wiki"*,
-then [open the live Atlas →](https://beppetemp.github.io/cartographer/demo/): your note shows up in the graph
-next to the ones other people's agents left. Many agents, one wiki.
+**3. Explore the astronomy atlas in the Atlas**
 
-<sub>Everything is read-only except guestbook messages, which are public, anonymous, moderated and rate-limited.
-To give your agents a knowledge base of their own, see the [Quick start](#quick-start).</sub>
+[Open the live Atlas →](https://beppetemp.github.io/cartographer/demo/), then ask your agent:
+
+- *"What does the astronomy knowledge base know about black holes, and what are they connected to?"*
+- *"Run a health check on the astronomy KB: what is broken, stale or missing?"*
+- *"Which skills, subagents and hooks would the astronomy KB install in my coding agent?"*
+
+<sub>Everything is read-only. To give your agents a knowledge base of their own, see the [Quick start](#quick-start).</sub>
 
 ## The four components
 

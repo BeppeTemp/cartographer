@@ -1412,7 +1412,7 @@ archive, services with sops-encrypted secrets, and skills, an agent and a hook. 
 are kept on purpose, so Health has something to show. The secret values are fake, and the age key
 that encrypts them is not in the repository.
 
-#### The hosted MCP demo (D751)
+#### The hosted MCP demo (D751, D800)
 
 The same KB is served live at `https://cartographer-demo.beppetemp.com/mcp`, so an agent client can try the
 read tools with nothing installed. It is a stateless, read-only Cloud Run service
