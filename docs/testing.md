@@ -525,16 +525,16 @@ nudges, so a seeded stray page makes "no nudge" non-vacuous and a provisioned co
 it; and the nudge window is shared by every stateless connection of a KB, so the generic calls come first and
 the control last.
 
-**The film's branch is asserted the same way, and its render only in CI.** `23_film_publish` runs
+**The films' branch is asserted the same way, and their render only in CI.** `23_film_publish` runs
 `film/publish.sh` and `film/film-needed.sh` (D1068) against a scratch repository and a bare origin: no branch
 means a render is needed; after a publish the same revision needs none; a change to a file in each class of the
 film's inputs (`film/inputs.sh`) needs one and a change outside them (`README.md`, another `web/src` file) none;
-publishing twice leaves one commit with `README.md`, `film.webp` and the `Film-Tree:` trailer; an input missing
-at the revision is exit 2. `TestFilmImportsStayInsideTheHashedInputs` (`internal/repodocs`) fails when a file reached
+publishing twice leaves one commit with `README.md`, both fixture films (`film.webp`, the launch film, and another) and the `Film-Tree:` trailer; with no argument it publishes each listed film's file present in `film/out`, still in one commit; a file whose name `film/films.txt` does not allow (an unlisted name, one holding a newline that would add a `git mktree` entry, D1068), or a symlink, is exit 1 and pushes nothing; a file over its film's cap (`film/max-bytes.txt`, the file `record.mjs` reads too, or `FILM_MAX_BYTES`) is exit 1 naming the file, its size and the cap, before any file is hashed, a file exactly at the cap is published, and a bad override or cap file is exit 1 (a cap line separated by a no-break space, VT, FF or an inner CR, and a value of 16 digits or past int64, and a NUL byte anywhere in `film/max-bytes.txt` (a comment line too) or in `film/films.txt`, which bash `read` would cut a line at, are refused; `render.sh` refuses the NUL byte in `films.txt` before it starts vite; tabs and CRLF are read); an input missing
+at the revision is exit 2. `TestFilmPagesAreTheFilmList` (`internal/repodocs`) fails when `film/films.txt`, the one list of films, and the `film/*.html` pages disagree (a page nobody lists, a listed film with no page or no script) or when `vite.config.ts`, `render.sh`, `record.mjs` or `publish.sh` stops refusing a NUL byte in it, or `vite.config.ts`, `render.sh` or `record.mjs` stops reading that list; `TestFilmCapsAreOneFile` (`internal/repodocs`) fails when `film/max-bytes.txt` has no `default`, names a film nobody lists, or `record.mjs` or `publish.sh` stops reading it (a `readNoNul("max-bytes.txt")` call or the `< film/max-bytes.txt` redirect, not a comment naming the file) or drops the `[1-9][0-9]{0,14}` bytes grammar; `TestFilmCapGrammar` pins the grammar the three parsers share. `TestFilmImportsStayInsideTheHashedInputs` (`internal/repodocs`) fails when a file reached
 from `film/` by imports (followed transitively: multi-line, side-effect, dynamic and `?raw`/`?url` forms) is outside that list, and `TestPreviewCallsTheFilmWithoutToleratingFailure` pins the workflow (read-only `render`, `publish` on main only)
 shape (no `continue-on-error`, write only in `publish`, actions pinned). The render itself needs a browser,
 ffmpeg and minutes of software WebGL, so it is exercised only by `film.yml`: no test or pull-request check
-renders it, except `film-check.yml`: on a pull request touching `film/` or the film workflows it renders 30 frames
+renders them (the size cap per file, `film/max-bytes.txt` or `FILM_MAX_BYTES`, is checked by `record.mjs` there, and again by `publish.sh`, which `23_film_publish` runs), except `film-check.yml`: on a pull request touching `film/` or the film workflows it renders 30 frames of each film
 (`film/render.sh --no-mp4 --frames 30`, same pinned actions and packages, no cache (`package-manager-cache: false`), read-only) so the encode runs on the
 runner's tool versions before the release candidate does. It is not a required check.
 

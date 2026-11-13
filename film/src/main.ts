@@ -1,5 +1,6 @@
 // The launch film: one page, one pure function of time. frame(n) sets every overlay from t = n / fps,
 // fires the graph events whose time has passed, then lets the real Atlas engine draw the frame.
+import "../film.css";
 import "../../docs/brand/cartographer.css";
 import "../../web/src/styles/tokens.css";
 import logoUrl from "../../docs/brand/coordinate-pine.svg";
@@ -9,6 +10,7 @@ import { beside } from "../../web/src/lib/graph3d/physics";
 import { planBursts } from "../../web/src/lib/graph3d/motion";
 import { resolveSlots } from "../../web/src/lib/palette";
 import { buildKb } from "./data";
+import { H, W, clamp01, defineFilm, easeInOut, easeOut, fade, lerp, mk, prog, reveal, stage, vis } from "./kit";
 
 const FPS = 60;
 // Story time: every beat below is authored in the seconds of the first cut. The film plays them slower,
@@ -22,11 +24,8 @@ function story(T: number): number {
   }
   return WARP[WARP.length - 1]![1];
 }
-const W = 1920;
-const H = 1080;
 const GW = 1000; // the graph's canvas: the right part of the frame; the left column (x 120-940) is for the roster, cards and captions
 const GX = W - GW;
-const RECORD = new URLSearchParams(location.search).has("record");
 const TUESDAY_ZOOM = 1.25; // how much wider than focus() the Tuesday camera frames the neighbourhood
 const COL = 120; // left margin of the text column
 const CARD_W = 820;
@@ -45,34 +44,6 @@ const ROW0 = 320; // centre of the first roster row (x 120, 76 px apart), under 
 const rowY = (i: number) => ROW0 + 76 * i;
 const LX0 = 690; // where a connection line leaves its roster row
 const TERM = { x: COL, y: 608, w: CARD_W }; // the agent's terminal card, under the roster
-
-// --- easing ---------------------------------------------------------------
-const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
-const prog = (t: number, t0: number, dur: number) => clamp01((t - t0) / dur);
-const easeOut = (p: number) => 1 - Math.pow(1 - p, 3);
-const easeInOut = (p: number) => (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
-const lerp = (a: number, b: number, p: number) => a + (b - a) * p;
-
-// --- DOM ------------------------------------------------------------------
-const stage = document.getElementById("stage")!;
-function mk<K extends keyof HTMLElementTagNameMap>(tag: K, cls = "", html = "", style = ""): HTMLElementTagNameMap[K] {
-  const el = document.createElement(tag);
-  el.className = cls;
-  el.innerHTML = html;
-  el.style.cssText = style;
-  stage.appendChild(el);
-  return el;
-}
-/** Opacity + a rise (px, 0 = none), composed with a base transform. */
-function vis(el: HTMLElement, opacity: number, rise = 0, extra = "") {
-  const o = clamp01(opacity);
-  el.style.opacity = String(o);
-  el.style.visibility = o <= 0.001 ? "hidden" : "visible";
-  el.style.transform = `${extra} translateY(${rise * (1 - clamp01(opacity))}px)`.trim();
-}
-/** Reveal: easeOutCubic over 600 ms, 16 px rise. */
-const reveal = (t: number, t0: number, dur = 0.6) => easeOut(prog(t, t0, dur));
-const fade = (t: number, t0: number, dur = 0.4) => 1 - prog(t, t0, dur);
 
 const graph = mk("canvas", "", "", `left:${GX}px;top:0;width:${GW}px;height:${H}px`);
 graph.id = "graph";
@@ -527,14 +498,8 @@ function placeLabels(t: number) {
   }
 }
 
-let last = -1;
 async function frame(n: number) {
-  if (n === 0) {
-    await document.fonts.ready;
-    measureCards();
-  }
-  if (n !== last + 1) throw new Error(`frames must be rendered in order: asked ${n} after ${last}`);
-  last = n;
+  if (n === 0) measureCards(); // the fonts are loaded by now (defineFilm waits for them before frame 0)
   const T = n / FPS;
   const t = story(T);
   for (const ev of EVENTS) if (!ev.done && t >= ev.t) { ev.done = true; ev.run(); }
@@ -545,20 +510,4 @@ async function frame(n: number) {
   gctx.drawImage(sc.canvas, 0, 0);
 }
 
-const film = { fps: FPS, frames: Math.round(DURATION * FPS), frame, rendered: () => last + 1 };
-(window as unknown as { film: typeof film }).film = film;
-
-if (!RECORD) {
-  const fit = () => { stage.style.transform = `scale(${Math.min(innerWidth / W, innerHeight / H)})`; };
-  fit();
-  addEventListener("resize", fit);
-  addEventListener("keydown", (e) => { if (e.key === "r" || e.key === "R") location.reload(); });
-  const t0 = performance.now();
-  const tick = async () => {
-    const want = Math.min(film.frames, Math.floor(((performance.now() - t0) / 1000) * FPS));
-    for (let k = 0; last + 1 < want && k < 3; k++) await frame(last + 1);
-    if (last + 1 >= film.frames) setTimeout(() => location.reload(), 1500);
-    else requestAnimationFrame(tick);
-  };
-  void document.fonts.ready.then(() => requestAnimationFrame(tick));
-}
+defineFilm({ fps: FPS, duration: DURATION, frame });

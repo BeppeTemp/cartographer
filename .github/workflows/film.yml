@@ -113,7 +113,8 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: film
-          path: film/out/film.webp
+          # Every film of film/films.txt: film.webp and <name>.webp. publish downloads them to film/out.
+          path: film/out/*.webp
           if-no-files-found: error
           retention-days: 1
 
