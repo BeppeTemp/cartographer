@@ -58,7 +58,7 @@ wait_health() {
         # being mounted, and /mcp is 503 until then.
         local body
         body=$(curl -sf "http://127.0.0.1:${port}/health" 2>/dev/null) || body=""
-        if printf '%s' "$body" | grep -q '"started_at"' && ! printf '%s' "$body" | grep -q '"bootstrapping"'; then
+        if grep -q -- '"started_at"' <<<"$body" && ! grep -q -- '"bootstrapping"' <<<"$body"; then
             return 0
         fi
         sleep 1; elapsed=$((elapsed + 1))

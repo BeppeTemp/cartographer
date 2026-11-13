@@ -88,7 +88,7 @@ echo ""
 echo "--- a. A write that names its author lands ---"
 call map_create '{"name":"rules","title":"Rules"}' "$ADA" >/dev/null
 OUT="$(page one "Written by a member." "$ADA")"
-if printf '%s' "$OUT" | grep -q 'sync_state'; then _assert_fail "the push of a member's write failed: ${OUT}"; else _assert_pass "no sync warning on a member's write"; fi
+if grep -q -- 'sync_state' <<<"$OUT"; then _assert_fail "the push of a member's write failed: ${OUT}"; else _assert_pass "no sync warning on a member's write"; fi
 [[ "$(remote_head '%an <%ae> | %cn <%ce>')" == "Ada Example <ada@example.test> | Ada Example <ada@example.test>" ]] \
     && _assert_pass "the remote head is by the header's author and committer" \
     || _assert_fail "remote head = $(remote_head '%an <%ae> | %cn <%ce>')"
@@ -97,7 +97,7 @@ HEAD_A="$(remote_head %H)"
 echo ""
 echo "--- b. A write with no header and no git identity is refused before it is committed ---"
 OUT="$(page two "No author.")"
-if printf '%s' "$OUT" | grep -q 'git.identities.default' && printf '%s' "$OUT" | grep -q 'user.email'; then
+if grep -q -- 'git.identities.default' <<<"$OUT" && grep -q -- 'user.email' <<<"$OUT"; then
     _assert_pass "the tool result names the keys to set"
 else
     _assert_fail "the tool result does not report the refusal: ${OUT}"
@@ -115,14 +115,14 @@ printf 'http: "127.0.0.1:%s"\ngit:\n  identities:\n    default: ""\n' "$E2E_HTTP
 E2E_CONFIG="$CONFIG" server_start "$KB_DIR"
 server_wait_health 20
 OUT="$(page two "No author.")"
-if printf '%s' "$OUT" | grep -q 'is not a member of team' && printf '%s' "$OUT" | grep -q 'failed'; then
+if grep -q -- 'is not a member of team' <<<"$OUT" && grep -q -- 'failed' <<<"$OUT"; then
     _assert_pass "the tool result reports the refused push with the forge's message"
 else
     _assert_fail "the tool result does not report the refusal: ${OUT}"
 fi
 # A generic connection gets the neutral recovery, with no CLI command (D1101).
-if printf '%s' "$OUT" | grep -q 'local-admin' && printf '%s' "$OUT" | grep -q "Tell the server's operator" \
-    && ! printf '%s' "$OUT" | grep -q 'cartographer kb' && ! printf '%s' "$OUT" | grep -qi 'unprotect'; then
+if grep -q -- 'local-admin' <<<"$OUT" && grep -q -- "Tell the server's operator" <<<"$OUT" \
+    && ! grep -q -- 'cartographer kb' <<<"$OUT" && ! grep -qi -- 'unprotect' <<<"$OUT"; then
     _assert_pass "the refusal names the identity and the recovery, and does not blame a protected branch"
 else
     _assert_fail "the refusal is not worded as an identity refusal: ${OUT}"
@@ -140,7 +140,7 @@ REFUSED="$(git -C "$KB_DIR" log -1 --format='%an|%cn|%ae|%ce')"
 [[ "$(remote_head %H)" == "$HEAD_A" ]] && _assert_pass "the remote head is still the last member's commit" || _assert_fail "the remote head moved"
 printf 'http: "127.0.0.1:%s"\n' "$E2E_HTTP_PORT" > "$CONFIG"
 NOID="$("${BIN}" kb reauthor kb-rules --data "$DIR" --config "$CONFIG" 2>&1)"
-if printf '%s' "$NOID" | grep -q 'local-admin' && printf '%s' "$NOID" | grep -q 'git.identities.default'; then
+if grep -q -- 'local-admin' <<<"$NOID" && grep -q -- 'git.identities.default' <<<"$NOID"; then
     _assert_pass "the preview lists the commit without any identity and names the key to set"
 else
     _assert_fail "preview without identity = ${NOID}"
@@ -148,7 +148,7 @@ fi
 printf 'http: "127.0.0.1:%s"\ngit:\n  identities:\n    default: "%s"\n' "$E2E_HTTP_PORT" "$ADA" > "$CONFIG"
 REAUTHOR=("${BIN}" kb reauthor kb-rules --data "$DIR" --config "$CONFIG")
 PREVIEW="$("${REAUTHOR[@]}" 2>&1)"
-if printf '%s' "$PREVIEW" | grep -q 'local-admin' && printf '%s' "$PREVIEW" | grep -q 'would be re-authored'; then
+if grep -q -- 'local-admin' <<<"$PREVIEW" && grep -q -- 'would be re-authored' <<<"$PREVIEW"; then
     _assert_pass "the preview lists the token-authored commit"
 else
     _assert_fail "preview = ${PREVIEW}"
@@ -161,7 +161,7 @@ if "${REAUTHOR[@]}" --apply >"${DIR}/reauthor.log" 2>&1; then _assert_pass "kb r
 E2E_CONFIG="$CONFIG" server_start "$KB_DIR"
 server_wait_health 20
 OUT="$(page three "Identity from the server file.")"
-if printf '%s' "$OUT" | grep -q 'sync_state'; then _assert_fail "the push failed with git.identities.default set: ${OUT}"; else _assert_pass "no sync warning once git.identities.default is set"; fi
+if grep -q -- 'sync_state' <<<"$OUT"; then _assert_fail "the push failed with git.identities.default set: ${OUT}"; else _assert_pass "no sync warning once git.identities.default is set"; fi
 [[ "$(remote_head '%an <%ae> | %cn <%ce>')" == "Ada Example <ada@example.test> | Ada Example <ada@example.test>" ]] \
     && _assert_pass "the remote head is by the configured identity" \
     || _assert_fail "remote head = $(remote_head '%an <%ae> | %cn <%ce>')"
@@ -178,7 +178,7 @@ git -C "$KB_DIR" -c user.name=Cartographer -c user.email=cartographer@example.te
 E2E_CONFIG="$CONFIG" server_start "$KB_DIR"
 server_wait_health 20
 OUT="$(page four "After the unattended commit.")"
-if printf '%s' "$OUT" | grep -q 'sync_state'; then _assert_fail "the push failed with an unattended commit pending: ${OUT}"; else _assert_pass "no sync warning with an unattended commit pending"; fi
+if grep -q -- 'sync_state' <<<"$OUT"; then _assert_fail "the push failed with an unattended commit pending: ${OUT}"; else _assert_pass "no sync warning with an unattended commit pending"; fi
 git -C "$BARE" show main:data/rules/unattended.md >/dev/null 2>&1 && _assert_pass "the unattended commit reached the remote" || _assert_fail "the unattended commit did not reach the remote"
 BAD="$(git -C "$BARE" log "${SEED}..main" --format='%ae %ce' | grep -vc '^ada@example.test ada@example.test$')"
 [[ "$BAD" == "0" ]] && _assert_pass "every published commit has the member as author and committer" || _assert_fail "${BAD} published commit(s) by someone else"

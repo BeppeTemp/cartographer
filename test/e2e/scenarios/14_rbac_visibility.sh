@@ -121,7 +121,7 @@ assert_mcp_error_text "a-tok: concept_write notes/hello-b on kbB is denied" \
     "$(mcp_call "$BASE" "$KB_B_NAME" "$A_TOKEN" "$(concept_write_body notes/hello-b "Hacked")")" "not found"
 RESP="$(mcp_call "$BASE" "$KB_B_NAME" "$ADMIN_TOKEN" "$(concept_read_body notes/hello-b)")"
 assert_mcp_ok "admin: notes/hello-b on kbB still readable after the denied write" "$RESP"
-if echo "$RESP" | grep -qF "Hello B" && ! echo "$RESP" | grep -qF "Hacked"; then
+if grep -qF -- "Hello B" <<<"$RESP" && ! grep -qF -- "Hacked" <<<"$RESP"; then
     _assert_pass "kbB concept content unchanged by the denied cross-KB write"
 else
     _assert_fail "kbB concept content was mutated by a denied cross-KB write: ${RESP}"

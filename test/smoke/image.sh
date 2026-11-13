@@ -54,7 +54,8 @@ port=$(docker port "$name" 8080/tcp | head -1 | sed 's/.*://')
 url=http://127.0.0.1:$port
 ready=
 for _ in $(seq 100); do
-  curl -sf "$url/health" 2>/dev/null | grep -q '"ready":true' && { ready=1; break; }
+  health=$(curl -sf "$url/health" 2>/dev/null || true)
+  grep -q '"ready":true' <<<"$health" && { ready=1; break; }
   sleep 0.3
 done
 [ -n "$ready" ] || fail "/health never reported ready:true"
