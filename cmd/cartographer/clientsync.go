@@ -994,6 +994,7 @@ func materializeForProviders(manifests map[string]contract.Manifest, projections
 		if serverVersion != "" {
 			applied.NewLock.ServerVersion = serverVersion
 		}
+		applied.NewLock.Worktree = p.Worktree
 		lockFile.SetProjection(p.Key(), applied.NewLock)
 		results[projectionKey(p)] = applied
 
