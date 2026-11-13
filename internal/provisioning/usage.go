@@ -87,7 +87,7 @@ var usageScanners = map[string]usageScanner{
 	"codex":       scanCodex,
 	"kiro":        scanKiro,
 	"opencode":    scanNone("opencode: no session transcript (a JS plugin sees session events but writes none)"),
-	"antigravity": scanNone("antigravity: no documented session transcript"),
+	"antigravity": scanAntigravity,
 	"crush":       scanNone("crush: no documented session transcript"),
 	"copilot":     scanCopilot,
 	"pi":          scanNone("pi: session transcript format not probed"),
@@ -764,3 +764,110 @@ func hostSkillNames(raw json.RawMessage) map[string]bool {
 }
 
 var hostSkillLine = regexp.MustCompile(`^\s*- ([^\s` + "`" + `]+): `)
+
+// antigravityReadTools are the read-only/shell tool calls in an Antigravity
+// transcript_full.jsonl PLANNER_RESPONSE step whose args may reference a
+// materialized skill or instruction path. Authoring tools (write_file,
+// edit_file) and messaging/scheduling tools are excluded.
+var antigravityReadTools = map[string]bool{
+	"read_file":         true,
+	"view_file":         true,
+	"view_file_outline": true,
+	"view_code_item":    true,
+	"run_command":       true,
+	"grep_search":       true,
+	"find_by_name":      true,
+	"list_dir":          true,
+}
+
+type antigravityRecord struct {
+	Type      string            `json:"type"`
+	CreatedAt json.RawMessage   `json:"created_at"`
+	ToolCalls []antigravityCall `json:"tool_calls"`
+}
+
+type antigravityCall struct {
+	Name string          `json:"name"`
+	Args json.RawMessage `json:"args"`
+}
+
+func scanAntigravity(base string, arts []usageTarget, cutoff time.Time) []usageEvent {
+	m := newPathMatcher(arts)
+	agents := map[string]bool{}
+	for _, a := range arts {
+		if a.kind == "agent" {
+			agents[a.name] = true
+		}
+	}
+	var out []usageEvent
+	for _, path := range antigravityTranscriptFiles(base, cutoff) {
+		mtime := fileMTime(path)
+		eachLine(path, func(line []byte) {
+			var rec antigravityRecord
+			if json.Unmarshal(line, &rec) != nil || rec.Type != "PLANNER_RESPONSE" || len(rec.ToolCalls) == 0 {
+				return
+			}
+			at, ok := parseTranscriptTime(rec.CreatedAt)
+			if !ok {
+				at = mtime
+			}
+			if at.IsZero() || at.Before(cutoff) {
+				return
+			}
+			for _, tc := range rec.ToolCalls {
+				if tc.Name == "invoke_subagent" {
+					var a struct {
+						TypeName string `json:"TypeName"`
+					}
+					if json.Unmarshal(tc.Args, &a) == nil {
+						name := strings.Trim(a.TypeName, `"`)
+						if agents[name] {
+							out = append(out, usageEvent{key: UsageKey("agent", name), at: at, provider: "antigravity"})
+						}
+					}
+					continue
+				}
+				if !antigravityReadTools[tc.Name] {
+					continue
+				}
+				for _, k := range m.match(tc.Args) {
+					out = append(out, usageEvent{key: k, at: at, provider: "antigravity"})
+				}
+			}
+		})
+	}
+	return out
+}
+
+// antigravityTranscriptFiles returns one transcript path per conversation dir
+// across ~/.gemini/{antigravity-cli,antigravity,antigravity-ide}/brain/, taking
+// transcript_full.jsonl first and falling back to transcript.jsonl so a session
+// that writes both is never counted twice.
+func antigravityTranscriptFiles(base string, cutoff time.Time) []string {
+	var paths []string
+	for _, sub := range []string{"antigravity-cli", "antigravity", "antigravity-ide"} {
+		brainDir := filepath.Join(base, ".gemini", sub, "brain")
+		entries, err := os.ReadDir(brainDir)
+		if err != nil {
+			continue
+		}
+		for _, ent := range entries {
+			if !ent.IsDir() {
+				continue
+			}
+			logsDir := filepath.Join(brainDir, ent.Name(), ".system_generated", "logs")
+			for _, name := range []string{"transcript_full.jsonl", "transcript.jsonl"} {
+				p := filepath.Join(logsDir, name)
+				info, err := os.Stat(p)
+				if err != nil || info.IsDir() {
+					continue
+				}
+				if !info.ModTime().Before(cutoff) {
+					paths = append(paths, p)
+				}
+				break
+			}
+		}
+	}
+	return paths
+}

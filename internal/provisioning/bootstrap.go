@@ -237,11 +237,11 @@ type hookMechanism struct {
 	// Antigravity gained SessionStart in D1007.
 	noSessionStartEvent bool
 	// warningBlocksBootstrap makes a non-fatal warning fatal for the
-	// bootstrap hook specifically. True only for opencode: its warning means
-	// the hook's event has no OpenCode equivalent, and SessionStart is always
-	// mapped (openCodeHookEvents) — a warning there would mean the mapping
-	// regressed, and silently leaving the bootstrap hook unregistered is
-	// worse than failing. Codex's warning is a D99 repair notice, informational.
+	// bootstrap hook specifically. True for providers whose SessionStart is
+	// always mapped (openCodeHookEvents, antigravityHookEvents, pi, cline): a
+	// warning there means the mapping regressed or hook metadata broke, and
+	// silently leaving the bootstrap hook unregistered is worse than failing.
+	// Codex's warning is a D99 repair notice, informational.
 	warningBlocksBootstrap bool
 	// sessionHookLimit names the only sessions the bootstrap hook fires in,
 	// when the client has session modes that run no hooks at all; empty when
@@ -354,7 +354,8 @@ var hookMechanisms = map[configurator.Provider]hookMechanism{
 		},
 	},
 	configurator.ProviderAntigravity: {
-		settingsFile: []string{".gemini", "config", "hooks.json"},
+		settingsFile:           []string{".gemini", "config", "hooks.json"},
+		warningBlocksBootstrap: true,
 		register: func(baseDir, name, fullDestDir string, scope contract.Scope) (string, string, bool, error) {
 			warning, registered, err := registerAntigravityHook(baseDir, name, fullDestDir)
 			if err != nil {
@@ -542,6 +543,16 @@ func HookRegistrationFile(provider configurator.Provider) string {
 		return ""
 	}
 	return filepath.Join(m.settingsFile...)
+}
+
+// HookRegistrationFileScoped is HookRegistrationFile with the scope axis: a
+// project-scope Antigravity hook registers in .agents/hooks.json rather than
+// .gemini/config/hooks.json. Other providers delegate to HookRegistrationFile.
+func HookRegistrationFileScoped(provider configurator.Provider, scope contract.Scope) string {
+	if provider == configurator.ProviderAntigravity && scope == contract.ScopeProject {
+		return filepath.FromSlash(antigravityProjectHooksRel)
+	}
+	return HookRegistrationFile(provider)
 }
 
 // HookPluginRelPath returns the path, relative to the client base dir, of the

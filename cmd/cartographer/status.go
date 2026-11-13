@@ -290,7 +290,7 @@ func printHookRegistrationHint(provider string, a statusArtifact, lead string) {
 	if a.ProjectScope {
 		scope = contract.ScopeProject
 	}
-	rel, plugin := hookRegistrationTarget(p, a.Name, provisioning.HookPluginRelPath(p, a.Name, scope), a.HookSettings)
+	rel, plugin := hookRegistrationTargetScoped(p, a.Name, provisioning.HookPluginRelPath(p, a.Name, scope), a.HookSettings, scope)
 	switch {
 	case rel == "":
 	case plugin:

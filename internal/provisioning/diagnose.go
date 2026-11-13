@@ -172,17 +172,39 @@ func MCPServerEntryNames(baseDir string, provider configurator.Provider) ([]stri
 }
 
 // HookRegistrations counts the provider-native registrations of hookName under
-// baseDir: managed is how many Cartographer owns and expects (exactly one when
-// the hook is registered), stray is how many live outside the mechanism's
-// managed span — for Codex, any registration of it still in config.toml (a
-// pre-D230 block, or the marker-less copy of D99), which fires alongside the
-// hooks.json entry.
+// baseDir for the global scope: managed is how many Cartographer owns and
+// expects (exactly one when the hook is registered), stray is how many live
+// outside the mechanism's managed span — for Codex, any registration of it
+// still in config.toml (a pre-D230 block, or the marker-less copy of D99),
+// which fires alongside the hooks.json entry. For a project-scope Antigravity
+// hook (.agents/hooks.json), call HookRegistrationsScoped.
 //
 // Only the providers with a native registration file are inspected;
 // OpenCode registers through a generated plugin, which is a managed file and is
 // therefore already covered by on-disk verification (D139).
 func HookRegistrations(baseDir string, provider configurator.Provider, hookName string) (managed, stray int, err error) {
+	return HookRegistrationsScoped(baseDir, provider, contract.ScopeGlobal, hookName)
+}
+
+// HookRegistrationsScoped is HookRegistrations with an explicit scope, so
+// Antigravity inspects .agents/hooks.json in ScopeProject and
+// .gemini/config/hooks.json in ScopeGlobal. Other providers behave the same in
+// both scopes.
+func HookRegistrationsScoped(baseDir string, provider configurator.Provider, scope contract.Scope, hookName string) (managed, stray int, err error) {
 	switch provider {
+	case configurator.ProviderAntigravity:
+		rel := HookRegistrationFileScoped(provider, scope)
+		settings, err := loadJSONObject(filepath.Join(baseDir, rel))
+		if errors.Is(err, os.ErrNotExist) {
+			return 0, 0, nil
+		}
+		if err != nil {
+			return 0, 0, fmt.Errorf("parse %s: %w", filepath.ToSlash(rel), err)
+		}
+		if _, ok := settings[antigravityHookKey(hookName)]; ok {
+			return 1, 0, nil
+		}
+		return 0, 0, nil
 	case configurator.ProviderClaudeCode:
 		files, err := loadClaudeSettings(baseDir)
 		if err != nil {

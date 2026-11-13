@@ -28,6 +28,10 @@ var capabilityInvokeHint = map[configurator.Provider]map[contract.Scope]string{
 	configurator.ProviderKiro: {
 		contract.ScopeProject: "Ask for it by name: \"use the <name> subagent\".",
 	},
+	configurator.ProviderAntigravity: {
+		contract.ScopeGlobal:  "Ask for it by name: \"use the <name> subagent\".",
+		contract.ScopeProject: "Ask for it by name: \"use the <name> subagent\".",
+	},
 }
 
 // ScopeName is the scope's spelling in the ledger.

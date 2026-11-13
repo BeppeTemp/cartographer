@@ -194,11 +194,19 @@ unique token; ask the client to repeat it.
 
 ## Antigravity
 
-- Everything is global under `$HOME/.gemini`: skill `config/skills`, agent
-  `config/agents`, hook `config/hooks.json`, MCP `config/mcp_config.json`,
-  instructions `GEMINI.md`. Probe each with a token or sentinel as above.
-- Watch for a project-local configuration root (flips the D193 cells) and for a
-  `SessionStart` event (changes the sync layer-1 trigger).
+- Global cells live under `$HOME/.gemini`: `config/skills`, `config/agents`,
+  `config/hooks.json`, `config/mcp_config.json`, `GEMINI.md`; project cells
+  under `.agents/{skills,agents,hooks,hooks.json,mcp_config.json}`, `AGENTS.md`,
+  and `.agents/rules/*.md` (only when `trigger: always_on` frontmatter is set).
+- `agy -p "<prompt>" --print-timeout 240s </dev/null` runs non-interactively
+  (add `--dangerously-skip-permissions` only when a probe runs local commands).
+  Snapshot and restore `$HOME/.gemini/config/*` (verify SHA-256 hashes before
+  and after) around any global probe.
+- Note on `tools`: Antigravity `1.5.8` enforces Antigravity tool names
+  (`read_file`, `write_file`, `run_command` with `commandExecutionPolicy: off`)
+  and rejects unmapped Claude names (`Read`, `Grep`) at executor startup.
+- Watch for the GUI app's workspace scope or a `PostToolUse` payload field
+  carrying the MCP tool result (reopens write-findings).
 
 ## Crush
 
@@ -316,3 +324,4 @@ credentials (`auth.json`, `settings.json`) included. A recipe that trusts all to
 - **pi-scratch-agent-dir**: `PI_CODING_AGENT_DIR` scratch with `auth.json` and `settings.json` copied;
   `pi -p --no-session "<prompt>"`. Skill in `skills/`, MCP in `mcp.json` (`pi mcp list`, then the count in a
   session), hooks as one extension `extensions/*.ts` listening on `session_start`, `tool_call`, `tool_result`.
+- **antigravity-cli-home**: snapshot `$HOME/.gemini/config/{hooks.json,mcp_config.json}` (and clean temporary entries under `config/{skills,agents}`) with SHA-256 hashes for global cells, plus a fresh `mktemp -d` git workspace for `.agents/{skills,agents,hooks,hooks.json,mcp_config.json}` and `AGENTS.md` / `.agents/rules/*.md`; run `agy -p "<prompt>" --print-timeout 240s </dev/null` with positive and negative controls (after restoring globals). Verifies global and project `skill`, `mcp`, `agent.delegate`, `agent.invoke`, and the six native hook events (`SessionStart`, `PreInvocation`, `PostInvocation`, `PreToolUse`, `PostToolUse`, `Stop`).

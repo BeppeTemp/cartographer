@@ -127,6 +127,32 @@ var capabilityProbed = map[configurator.Provider]map[Scope]map[Capability]CapSta
 			Capability(HookCapPrefix + "PostToolUse"):  CapVerified,
 		},
 	},
+	configurator.ProviderAntigravity: {
+		ScopeGlobal: {
+			CapSkill:         CapVerified,
+			CapMCP:           CapVerified,
+			CapAgentDelegate: CapVerified,
+			CapAgentInvoke:   CapVerified,
+			Capability(HookCapPrefix + "SessionStart"):   CapVerified,
+			Capability(HookCapPrefix + "PreInvocation"):  CapVerified,
+			Capability(HookCapPrefix + "PostInvocation"): CapVerified,
+			Capability(HookCapPrefix + "PreToolUse"):     CapVerified,
+			Capability(HookCapPrefix + "PostToolUse"):    CapVerified,
+			Capability(HookCapPrefix + "Stop"):           CapVerified,
+		},
+		ScopeProject: {
+			CapSkill:         CapVerified,
+			CapMCP:           CapVerified,
+			CapAgentDelegate: CapVerified,
+			CapAgentInvoke:   CapVerified,
+			Capability(HookCapPrefix + "SessionStart"):   CapVerified,
+			Capability(HookCapPrefix + "PreInvocation"):  CapVerified,
+			Capability(HookCapPrefix + "PostInvocation"): CapVerified,
+			Capability(HookCapPrefix + "PreToolUse"):     CapVerified,
+			Capability(HookCapPrefix + "PostToolUse"):    CapVerified,
+			Capability(HookCapPrefix + "Stop"):           CapVerified,
+		},
+	},
 }
 
 // CapabilityOverride replaces the table in tests (nil in production), so a

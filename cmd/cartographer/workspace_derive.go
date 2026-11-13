@@ -208,7 +208,9 @@ func computeDerived(cfg *clientconfig.Config, targets, providers []string, pre *
 // do it in every declared repository with no command run there, and a KB name in
 // a tracked file of a public repository is a leak. rel is the project-scope
 // instructions file; when it is tracked, Claude Code gets its block in the
-// untracked CLAUDE.local.md and every other client gets none.
+// untracked CLAUDE.local.md, Antigravity in the untracked
+// .agents/rules/cartographer.md (with `trigger: always_on`), and every other
+// client gets none.
 func derivedInstructions(provider, workspace string) (override, skipped string) {
 	rel := provisioning.ProjectDestination("instructions", "", configurator.Provider(provider))
 	if rel == "" {
@@ -220,6 +222,9 @@ func derivedInstructions(provider, workspace string) (override, skipped string) 
 	}
 	if provider == string(configurator.ProviderClaudeCode) && !tracked[provisioning.ClaudeLocalInstructions] {
 		return provisioning.ClaudeLocalInstructions, ""
+	}
+	if provider == string(configurator.ProviderAntigravity) && !tracked[provisioning.AntigravityLocalInstructions] {
+		return provisioning.AntigravityLocalInstructions, ""
 	}
 	return "", rel
 }

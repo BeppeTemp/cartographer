@@ -79,7 +79,7 @@ func TestDestDirPaths(t *testing.T) {
 		{"skill", configurator.ProviderCodex, ".codex/skills/demo"},
 		{"skill", configurator.ProviderKiro, ".kiro/skills/demo"},
 		{"skill", configurator.ProviderOpenCode, ".config/opencode/skills/demo"},
-		// Antigravity supports every artifact kind; SessionStart bootstrap remains timer-based.
+		// Antigravity supports every artifact kind in global and project scopes.
 		{"mcp", configurator.ProviderAntigravity, ".gemini/config/mcp_config.json"},
 		{"instructions", configurator.ProviderAntigravity, ".gemini/GEMINI.md"},
 		{"skill", configurator.ProviderAntigravity, ".gemini/config/skills/demo"},
