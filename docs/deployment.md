@@ -1399,7 +1399,7 @@ The documentation site also carries a demo of the Atlas at
 **Live source (D800).** `demo/build.sh` also sets `VITE_ATLAS_LIVE_ORIGIN` to the live demo's origin. Once per
 page load, before its first API read, the Atlas asks `GET <origin>/api/ui/v1/kbs` (6 s, enough for a Cloud Run
 cold start). If that answers, every API read of the session, and the version read, goes to the origin, so the
-page shows both KBs, `astronomy` and `guestbook`, and the revision poll runs every 20 s to stay inside the
+page shows both KBs, `astronomy` and `cartographer-docs`, and the revision poll runs every 20 s to stay inside the
 Worker's free quota (the origin's Worker answers CORS for the Pages origin and caches the reads for 5 s). If it
 does not answer, the session uses the exported snapshot exactly as above (astronomy only) and the top bar says
 the live demo is unavailable. There is no switching mid-session.
@@ -1412,11 +1412,11 @@ archive, services with sops-encrypted secrets, and skills, an agent and a hook. 
 are kept on purpose, so Health has something to show. The secret values are fake, and the age key
 that encrypts them is not in the repository.
 
-#### The hosted MCP demo (D751, D800)
+#### The hosted MCP demo (D751)
 
 The same KB is served live at `https://cartographer-demo.beppetemp.com/mcp`, so an agent client can try the
-read tools with nothing installed, and leave a message in a guestbook. It is a stateless Cloud Run service
-(`europe-west1`, scale to zero, one instance at most, so a single writer) running the released image plus two KBs
+read tools with nothing installed. It is a stateless, read-only Cloud Run service
+(`europe-west1`, scale to zero, one instance at most) running the released image plus two KBs
 (`deploy/demo/Dockerfile`):
 
 - `astronomy`, the replayed `demo/astronomy` baked into the image (`demo/replay.sh` is the replay
@@ -1424,35 +1424,23 @@ read tools with nothing installed, and leave a message in a guestbook. It is a s
 - `cartographer-docs`, the documentation of the image's own binary: the build runs `cartographer docs export` of the
   base image and seals the tree with one commit, so it is read-only and nothing external is cloned at start.
 
-Auth stays `on` with two tokens: a read token `kb:astronomy:r;kb:guestbook:r` and a write token
-`kb:guestbook:rw`. A Cloudflare Worker forwards the hostname to the `*.run.app` URL (Cloud Run routes by Host),
-maps the public `/mcp` onto the routed mount `/mcp/routed`, and answers 404 under `/.well-known/`, so no client
-starts an OAuth flow and a client connects with the URL alone, a claude.ai or ChatGPT connector included (D789).
-With both KBs mounted every tool takes a required `kb` (an enum of the two); with the guestbook missing the tools
-carry none. The Worker sets the read token on every request, replacing the client's, and attaches the write token to
-exactly one call: a `concept_new` from the `message` template on `kb: guestbook` that passed moderation. Anything
-else, a write tool added to Meridian tomorrow included, reaches Meridian with the read token and is refused by
-its scope check. Moderation (`deploy/demo/worker.js`, pure functions tested by `make demo-worker-test`): a 16 KB
-body cap; the kill switch `GUESTBOOK_OPEN`; exactly the vars `client` (1 to 60 characters, one line) and
-`message` (1 to 500 characters, six lines at most), no links, markup or control characters; three attempts per IP
-per hour and 100 a day overall, counted in a KV namespace; a Llama Guard 3 verdict from Workers AI within 5 s that
-fails closed (an error, a timeout or an exhausted quota refuses the message); then the Worker assigns the id
-`messages/<UTC date>-<6 base36>` and sets `index_entry: true` (so the write gate accepts a message whether the map's index is curated, as on a
-guestbook bootstrapped before the seed's generated index, where a message without its entry is refused, D907, or
-generated, where it is a no-op; an `index_entry` the visitor sent is not forwarded).
-A refusal is a JSON-RPC result with `isError`, so the visitor's agent reads and
-relays the reason. After an accepted message the Worker POSTs a Standard Webhooks signed JSON to `NOTIFY_URL`
-when one is configured; what receives it is the operator's business. A message is removed with a `git revert` in
-the private repository.
+Auth stays `on` with one read token, `kb:astronomy:r;kb:cartographer-docs:r`; the demo has no write token and no
+write path (the guestbook of D800 is gone, D2053). A Cloudflare Worker forwards the hostname to the `*.run.app`
+URL (Cloud Run routes by Host), maps the public `/mcp` onto the routed mount `/mcp/routed`, and answers 404 under
+`/.well-known/`, so no client starts an OAuth flow and a client connects with the URL alone, a claude.ai or ChatGPT
+connector included (D789). Every tool takes a required `kb` (an enum of the two). The Worker sets the read token on
+every request, replacing the client's, and bounds a public surface with a 16 KB cap on every `/mcp` body
+(`deploy/demo/worker.js`, pure functions tested by `make demo-worker-test`); it keeps no list of tools, so a write
+tool, one added tomorrow included, reaches the server with the read token and is refused by its scope check.
 
 The edge cache and the free-tier limits: `GET /api/ui/v1/*` and `/health` are cached at the edge for 5 s keyed on
 the URL (every visitor shares the read token) and answered with CORS for the Pages origin (`ATLAS_ORIGIN`); one
 rate-limiting rule applies per client IP before the Worker; the Pages Atlas polls every 20 s instead of 10. The
-whole demo stays on free tiers (Worker 100k requests a day, KV 1,000 writes, Workers AI daily allocation, Cloud
+whole demo stays on free tiers (Worker 100k requests a day, Cloud
 Run monthly free tier with a 5 EUR budget alert); the table of what happens at each limit is in
 `deploy/demo/README.md`. The `*.run.app` URL stays reachable around Cloudflare, but only with a token, and neither
 is published; the instance cap is the backstop. `/ready` needs the token once auth is on, so the Cloud Run probes and the
-post-deploy check use `/health` (public, carries `ready`). Terraform, bootstrap, moderation and token rotation:
+post-deploy check use `/health` (public, carries `ready`). Terraform, bootstrap and token rotation:
 `deploy/demo/README.md`. The `demo` workflow (`.github/workflows/demo.yml`) rebuilds and redeploys it on
 every release, then checks that the hostname initializes an MCP session without a token and fails when a `search` on
 `cartographer-docs` is not answered (both KBs are in the image, so nothing external can expire), so a change to the read tools or to `demo/astronomy`
