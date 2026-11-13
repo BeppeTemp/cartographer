@@ -368,13 +368,25 @@ number_decisions() {
 # it, which a test can print, must never decide that the gate was not red. Tests pin both scripts.
 host_rc=69
 infra_line='^signoff: the (build host|Windows machine) failed \(exit [0-9]+\) before the gate finished: nothing pushed, nothing posted$'
+gate_token=
 gate_once() { # $1 = log file; signoff.sh on the train branch: exit 0 green, 1 red, 2 not a test, 3 the build host failed
-  local rc
+  local rc pf
+  # The probe of a confirmed failure comes back out of band (SIGNOFF_PROBE_FILE, signoff.sh): the log
+  # holds the change's own output, and so does anything a test can reach on this machine. The file is
+  # made here, empty, and the signoff writes `<token> <words>` in it; the token is random per gate and
+  # goes to the signoff on file descriptor 3, which it reads and closes before any target runs: it is
+  # in no environment, no argv and no log, so only the signoff can write a line probe_of accepts.
+  pf=$1.probefile
+  rm -f "$pf"
+  (umask 077; : >"$pf")
+  gate_token=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n' || true)
   # Streamed to the lander's log as it runs (a gate takes minutes), and kept in $1.
   set +e
-  (cd "$wt" && "$here/signoff.sh") 2>&1 | tee "$1" >&2
+  (cd "$wt" && SIGNOFF_PROBE_FILE="$pf" "$here/signoff.sh" 3<<<"$gate_token") 2>&1 | tee "$1" >&2
   rc=${PIPESTATUS[0]}
   set -e
+  # Only a red signoff (exit 1) can have confirmed a failure: any other exit leaves no probe.
+  [ "$rc" = 1 ] || rm -f "$pf"
   [ "$rc" = 0 ] && return 0
   [ "$rc" != "$host_rc" ] || return 3
   # Known follow-up: these greps read the log, so a test that prints such a line can make a
@@ -406,27 +418,169 @@ gate() { # $1 = log file; exit 0 green, 1 red, 2 not a test (the caller dies)
   done
 }
 
-# The tests a red gate log names: the ones a signoff retry confirmed (the Windows leg's output
-# has no `--- FAIL` line of the linux shape; they are what the change broke) first, then Go
-# top-level tests, vitest cases, Playwright specs. At most 10, `pkg.Test` and `Test` once.
+# safe_names: every name that reaches a title, a body or a commit message passes here (failing(),
+# issue_title, flaky_issue): the gate log holds the change's own output, so a name read from it is
+# attacker text. One name per line in, one inert name per line out. Only [A-Za-z0-9_.-] is kept (a `/`,
+# as in the path of a vitest file, becomes `_`), plus the ` (panic)` / ` (panic: <message>)` suffix of failing() in its own charset [A-Za-z0-9 _:-]: no
+# `@` (mention), `#` (issue reference), `[`, `(`, `!`, `/` or `:` (link, image, URL). What the charset
+# still lets through is defused: a `www.` (GitHub links `www.example.org` unmarked) loses its dot,
+# `www_`, a `GH-<digit>` (an issue autolink) becomes `GH_<digit>`, and a run of 7 to 40 lowercase hex
+# digits (a commit link) gets a `_` after it (once: a name that went through is left as it is). $1 =
+# the longest a name may be (none: no cut): the cut is part of the filter, because it can leave a hex
+# run at the end of a name that had its `_`, or one `_` too many: the longest prefix that fits once
+# defused is kept. A name that comes out empty is dropped. The same text serves the title, the body
+# and the commit message of a rejection: the lander writes names into none of them any other way.
+safe_names() { # $1 = longest name, optional
+  LC_ALL=C awk -v cut="${1:-0}" '
+    function defuse(s,   res, tok) {
+      while (match(s, /[Ww][Ww][Ww]\./)) s = substr(s, 1, RSTART + 2) "_" substr(s, RSTART + 4)
+      while (match(s, /[Gg][Hh]-[0-9]/)) s = substr(s, 1, RSTART + 1) "_" substr(s, RSTART + 3)
+      res = ""
+      while (match(s, /[A-Za-z0-9]+/)) {
+        tok = substr(s, RSTART, RLENGTH)
+        res = res substr(s, 1, RSTART - 1) tok
+        s = substr(s, RSTART + RLENGTH)
+        if (length(tok) >= 7 && length(tok) <= 40 && tok ~ /^[0-9a-f]+$/ && substr(s, 1, 1) != "_") res = res "_"
+      }
+      return res s
+    }
+    function inert(s,   suf, n, res) {
+      suf = ""
+      if (match(s, / \(panic(: [A-Za-z0-9 _:-]*)?\)$/)) { suf = substr(s, RSTART); s = substr(s, 1, RSTART - 1) }
+      gsub(/\//, "_", s)
+      gsub(/[^A-Za-z0-9_.-]/, "", s)
+      if (s == "") return ""
+      s = s suf
+      res = defuse(s)
+      if (cut > 0 && length(res) > cut)
+        for (n = cut; n > 0; n--) { res = defuse(substr(s, 1, n)); if (length(res) <= cut) break }
+      return res
+    }
+    { sub(/\r$/, ""); r = inert($0); if (r != "") print r }'
+}
+
+# The failures a red gate log names, in this order: the tests a signoff retry confirmed (the Windows
+# leg's output has no `--- FAIL` line of the linux shape; they are what the change broke), the Go
+# panics and fatal errors (`pkg.Test (panic)` when the test is known, else `pkg (panic: <message>)`,
+# named by the `FAIL<TAB>pkg` line that ends the package), the e2e scenarios (`e2e.<scenario>`, from
+# the `E2E FAILED: <scenario>: ...` lines of test/e2e/run.sh), then Go top-level tests, vitest cases,
+# Playwright specs. At most 10, `pkg.Test` and `Test` once, each cut to 60 characters. The test of a
+# panic is, in this order: the `--- FAIL` line directly before a `panic:` (a go test panic prints its
+# test's verdict first; an earlier failed test is not the one that panicked, and a `fatal error:` has
+# no such line), the `running tests:` entry go test prints after a timeout, the first `.TestX(` frame of
+# the first goroutine's trace. A name is built from the charset [A-Za-z0-9_.-]; a panic's package from
+# [A-Za-z0-9_-] and its message also spaces and `:`, no `.`: neither makes a link in the issue. Every
+# name goes through safe_names, and is deduped in the form it is printed in (cut to 60), not before.
+# $2 = lines: one name per line (the title of an issue is cut by names, see issue_title).
 failing() { # $1 = gate log; vitest and Playwright colour their lines
-  local clean confirmed others
+  local clean confirmed panics pkeys e2e others
   clean=$(sed "s/$(printf '\033')\[[0-9;]*m//g" "$1" | tr -d '\r')
   confirmed=$(sed -n 's/^signoff: confirmed on a targeted retry: *//p' <<<"$clean" | tr ' ' '\n' | grep -E '^[A-Za-z0-9_.-]+$' | awk '!s[$0]++' || true)
+  # Each line: the name, a TAB, the whole test (its name cut to 25 in the first field): the second
+  # field says which plain `--- FAIL` test a panic's name already covers.
+  panics=$(awk '
+    function reset() { inpanic = 0; direct = ""; tn = ""; msg = ""; inrun = 0; ngo = 0 }
+    function top(s) { sub(/^[ \t]*--- FAIL: /, "", s); sub(/[^A-Za-z0-9_].*$/, "", s); return s }
+    /^[ \t]*--- FAIL: Test/ { if (!inpanic) direct = top($0); next }
+    /^(panic: |fatal error: )/ {
+      if (!inpanic) {
+        inpanic = 1
+        msg = $0; sub(/^(panic|fatal error): /, "", msg)
+        if ($0 ~ /^panic: / && msg !~ /^test timed out/) tn = direct
+      }
+      direct = ""; next
+    }
+    inpanic && /^[ \t]+running tests:[ \t]*$/ { inrun = 1; next }
+    inpanic && inrun && tn == "" && /^[ \t]+Test[A-Za-z0-9_]*(\/[^ \t]*)?[ \t]+\(/ { t = $1; sub(/\/.*$/, "", t); tn = t; next }
+    /^goroutine [0-9]+ \[/ { if (inpanic) ngo++; next }
+    inpanic && tn == "" && ngo <= 1 && /^[^ \t]/ && match($0, /\.Test[A-Za-z0-9_]+[.(]/) { tn = substr($0, RSTART + 1, RLENGTH - 2); next }
+    /^(ok|\?)[ \t]/ { reset(); next }
+    /^FAIL[ \t]+[^ \t]/ {
+      if (inpanic) {
+        pkg = $2; sub(/^.*\//, "", pkg); gsub(/[^A-Za-z0-9_-]/, "", pkg); pkg = substr(pkg, 1, 25)
+        sub(/ \[recovered\]$/, "", msg); gsub(/[^A-Za-z0-9 _:-]/, "", msg); msg = substr(msg, 1, 50 - length(pkg)); sub(/ +$/, "", msg)
+        if (pkg != "") print (tn != "" ? (pkg "." substr(tn, 1, 25) " (panic)\t" tn) : (pkg " (panic: " msg ")\t"))
+      }
+      reset(); next
+    }
+    { direct = ""; if (inrun) inrun = 0 }' <<<"$clean" | awk '!s[$0]++' || true)
+  pkeys=$(cut -f2 <<<"$panics" | grep . || true)
+  panics=$(cut -f1 <<<"$panics")
+  e2e=$(sed -n 's/^E2E FAILED: \([A-Za-z0-9_.-][A-Za-z0-9_.-]*\): .*/e2e.\1/p' <<<"$clean" | awk '!s[$0]++' || true)
   others=$(sed -n \
     -e 's/^--- FAIL: \([A-Za-z0-9_]*\).*/\1/p' \
     -e 's/^ FAIL  \([^ ]*\) > .*/\1/p' \
-    -e 's/^ *✘ *[0-9]* *\([^ ]*\) .*/\1/p' <<<"$clean" | LC_ALL=C sort -u || true)
+    -e 's/^ *✘ *[0-9]* *\([^ ]*\) .*/\1/p' <<<"$clean" | LC_ALL=C sort -u | safe_names || true)
   # Through the environment: macOS awk refuses a newline in a -v value, and the lander runs there.
-  printf '%s\n' "$others" | CONFIRMED=$confirmed awk '
+  # A first name covers the plain test it ends in, whole or cut: `pkg.Test (panic)` and `Test` are one
+  # failure. The names are cut to 60 by safe_names, last, and deduped in the form they are printed in.
+  printf '%s\n' "$others" | FIRST=$(printf '%s\n%s\n%s' "$confirmed" "$panics" "$e2e" | safe_names) KEYS=$pkeys awk '
+    function emit(s) { if (!(s in out)) { out[s] = 1; print s } }
+    function cover(t) { seen[t] = 1; seen[substr(t, 1, 60)] = 1 }
     BEGIN {
-      n = split(ENVIRON["CONFIRMED"], a, "\n")
-      for (i = 1; i <= n; i++) if (a[i] != "") { print a[i]; t = a[i]; sub(/^.*\./, "", t); seen[t] = 1 }
+      n = split(ENVIRON["FIRST"], a, "\n")
+      for (i = 1; i <= n; i++) if (a[i] != "") { emit(a[i]); t = a[i]; sub(/ .*$/, "", t); sub(/^.*\./, "", t); cover(t) }
+      n = split(ENVIRON["KEYS"], a, "\n")
+      for (i = 1; i <= n; i++) if (a[i] != "") cover(a[i])
     }
-    $0 != "" && !($0 in seen) { print }' | head -n 10 | tr '\n' ' ' | sed 's/ $//' || true
+    $0 != "" && !($0 in seen) && !(substr($0, 1, 60) in seen) { emit($0) }' | safe_names 60 | awk '!s[$0]++' | head -n 10 | { if [ "${2:-}" = lines ]; then cat; else tr '\n' ' ' | sed 's/ $//'; fi; } || true
 }
-issue_flaky() { # $1 = names, $2 = what happened, $3 = body
-  gh issue create -R "$repo" --label bug --title "flaky: $1 $2" --body "$3" >/dev/null ||
+# The title of a flaky issue: "flaky: <names> <what>", at most 200 characters (GitHub refuses a title
+# past 256, and issue_flaky would only warn: ten long names are 278). The names, one per line and each
+# cut to 60 characters, are taken in order while they fit; the rest are `and N more` (the body keeps
+# them all). The first name is always there.
+issue_title() { # $1 = names, one per line; $2 = what happened
+  NAMES=$(safe_names 60 <<<"$1") WHAT=$2 awk 'BEGIN {
+    max = 200; head = "flaky: "; tail = " " ENVIRON["WHAT"]
+    n = split(ENVIRON["NAMES"], raw, "\n"); m = 0
+    for (i = 1; i <= n; i++) if (raw[i] != "") a[++m] = raw[i]
+    for (k = m; k >= 1; k--) {
+      s = a[1]; for (i = 2; i <= k; i++) s = s " " a[i]
+      if (k < m) s = s " and " (m - k) " more"
+      if (length(head s tail) <= max) break
+    }
+    print head s tail
+  }'
+}
+# The first failing line of each e2e scenario, indented as a code block, for the body of an issue.
+# The lines come from the gate log, which holds the output of the change under test: each is cut to
+# printable ASCII (an embedded CR or an escape would break out of the block), loses its `@` (no
+# mention) and is cut to 200 characters; at most 10.
+e2e_report() { # $1 = gate log
+  LC_ALL=C grep -a '^E2E FAILED: ' "$1" | head -n 10 | while IFS= read -r l; do
+    l=$(printf '%s' "$l" | LC_ALL=C tr -cd '[:print:]' | tr -d '@' | cut -c1-200)
+    printf '    %s\n' "$l"
+  done || true
+}
+# The probe of a confirmed failure: `<linux|windows> <packages> <race packages>`, the words of the
+# signoff's `signoff: probe:` line (signoff.sh step 4c), read from `$1.probefile`, the file the gate
+# of log $1 handed to the signoff (gate_once), or nothing. Never from the log: it holds the change's
+# own output, and a test can print a well-formed line when the real signoff printed none (a panic,
+# a build failure) and so send the bisection after the wrong change. The file is not trusted
+# either, a test on this machine can reach it: its last line counts only if it starts with $2, the
+# token of that gate (gate_token), which only the signoff knew; a file without it, or no token, is
+# no probe. The words are still checked before they become the arguments of `signoff.sh --probe`:
+# the platform, then two comma-separated lists of [A-Za-z0-9_./-] words none of which starts with
+# `-`, or `-` for none, not both. No file, an empty one or any other shape is no probe, and the
+# bisection runs full gates. The token is compared by the shell, never given to another command.
+# The file is that of the last gate (the re-run's when there was one: the first gate had no
+# confirmed retry).
+probe_of() { # $1 = the last gate's log, $2 = the token of that gate
+  local line words
+  [ -n "${2:-}" ] || return 0
+  line=$(tr -d '\r' 2>/dev/null <"$1.probefile" | tail -n 1 || true)
+  case "$line" in "$2 "*) words=${line#"$2 "} ;; *) return 0 ;; esac
+  printf '%s\n' "$words" | awk '
+    function ok(s,   n, w, i) {
+      if (s == "-") return 1
+      n = split(s, w, ",")
+      for (i = 1; i <= n; i++) if (w[i] !~ "^[A-Za-z0-9_./][A-Za-z0-9_./-]*$") return 0
+      return 1
+    }
+    NF == 3 && ($1 == "linux" || $1 == "windows") && ok($2) && ok($3) && ($2 != "-" || $3 != "-") { print $1, $2, $3 }' || true
+}
+issue_flaky() { # $1 = names, one per line, $2 = what happened, $3 = body
+  gh issue create -R "$repo" --label bug --title "$(issue_title "$1" "$2")" --body "$3" >/dev/null ||
     log "warning: could not open the flaky issue"
 }
 # A green gate whose signoff retried named tests: they are flaky, the train lands, a bug names them.
@@ -434,10 +588,10 @@ issue_flaky() { # $1 = names, $2 = what happened, $3 = body
 flaky_issue() { # $1 = gate log, $2 = what happened
   local names
   names=$(sed -n 's/^signoff: flaky: \(.*\) failed and passed on a targeted retry$/\1/p' "$1" |
-    grep -E '^[A-Za-z0-9_.-]+( [A-Za-z0-9_.-]+)*$' | tr '\n' ' ' | sed 's/ $//' || true)
+    grep -E '^[A-Za-z0-9_.-]+( [A-Za-z0-9_.-]+)*$' | tr ' ' '\n' | safe_names | tr '\n' ' ' | sed 's/ $//' || true)
   [ -n "$names" ] || return 0
   log "green after the signoff's targeted retry: flaky $names"
-  issue_flaky "$names" "$2" \
+  issue_flaky "$(tr ' ' '\n' <<<"$names")" "$2" \
     "The gate of the train \`$branch\` failed on $names and passed when the signoff ran their packages once more, the rest of the gate green. A retry is not a fix: find why they fail."
 }
 
@@ -634,6 +788,7 @@ while :; do
   [ "$rc" != 0 ] || flaky_issue "$glog" "failed and passed on a targeted retry of the signoff"
   if [ "$rc" = 1 ]; then
     fails=$(failing "$glog")
+    fails_lines=$(failing "$glog" lines)
     rc2=1
     if grep -q '^signoff: confirmed on a targeted retry:' "$glog"; then
       log "red, and red again on the signoff's targeted retry of${fails:+ $fails}: not a flake"
@@ -643,21 +798,26 @@ while :; do
     fi
     if [ "$rc2" = 0 ]; then
       log "red once, green on the re-run: a flaky test (${fails:-not named})"
-      issue_flaky "${fails:-the gate of a train}" "failed once and passed on a re-run" \
-        "The gate of the train \`$branch\` failed, then passed on the same tree. Failing tests: ${fails:-none named in the log}. A re-run is not a fix: find why it fails."
+      # The e2e runner's own lines say which assertion failed first: the issue keeps them (#1952).
+      issue_body="The gate of the train \`$branch\` failed, then passed on the same tree. Failing tests: ${fails:-none named in the log}. A re-run is not a fix: find why it fails."
+      e2e_lines=$(e2e_report "$glog")
+      if [ -n "$e2e_lines" ]; then
+        issue_body="$issue_body"$'\n\n'"The first failing line of each e2e scenario:"$'\n\n'"$e2e_lines"
+      fi
+      issue_flaky "${fails_lines:-the gate of a train}" "failed once and passed on a re-run" "$issue_body"
     else
       lo=0 hi=$k good=
       # The confirmed tests alone (their packages, a minute or two) find the change that
       # breaks them; the green prefix still gets its full gate below. Without a confirmed
       # retry, or with its machine gone, each prefix gets a full gate.
-      probe=$(cat "$glog" "$glog.2" 2>/dev/null | sed -n 's/^signoff: probe: //p' | tail -n 1 || true)
+      if [ -e "$glog.2" ]; then probe=$(probe_of "$glog.2" "$gate_token"); else probe=$(probe_of "$glog" "$gate_token"); fi
       if [ -n "$probe" ]; then
         log "bisecting with the confirmed tests only: $probe"
         while [ $((hi - lo)) -gt 1 ]; do
           m=$(( (lo + hi) / 2 ))
           git reset -q --hard "${commits[m - 1]}"
           r=0
-          # shellcheck disable=SC2086  # the probe is three words on purpose
+          # shellcheck disable=SC2086  # the probe is three words on purpose, checked by probe_of
           (cd "$wt" && "$here/signoff.sh" --probe $probe) >>"$glog.probe" 2>&1 || r=$?
           if [ "$r" = 75 ]; then
             log "the probe's machine is unavailable: bisecting with full gates"

@@ -18,6 +18,12 @@ make e2e-upgrade
 `--keep` preserves the temporary directory for debugging. `E2E_HTTP_PORT`
 overrides the default base port.
 
+A failed scenario is named in the report, after the totals, one line each:
+`E2E FAILED: <scenario>: <first [FAIL] line>` (a scenario that died without a
+`[FAIL]` line says its exit code and last line), followed by that scenario's
+`[FAIL]` lines (at most 20). `scripts/land.sh` reads those lines to name the
+scenarios in the issue it files for a flaky gate (#1952).
+
 ## Scenarios
 
 | Scenario | Boundary covered |
