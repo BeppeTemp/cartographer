@@ -18,8 +18,19 @@ export function useComponents(kb: string | null, live: number, enabled = true): 
   const [tick, setTick] = useState(0);
   useEffect(() => {
     if (!enabled || !kb) return;
-    const timer = window.setInterval(() => setTick((n) => n + 1), REFRESH_MS);
-    return () => window.clearInterval(timer);
+    // Never poll a hidden tab (docs/deployment.md): the beat is skipped, and the
+    // page refreshes once when it becomes visible again.
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") setTick((n) => n + 1);
+    }, REFRESH_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") setTick((n) => n + 1);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [enabled, kb]);
   // Another KB shows nothing of the previous one while its answer is pending.
   useEffect(() => {
