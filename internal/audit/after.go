@@ -212,7 +212,10 @@ func readPrefix(path string, size int64) ([]Entry, error) {
 	}
 	f, err := os.Open(path)
 	if os.IsNotExist(err) {
-		return nil, nil
+		// The snapshot saw bytes here, so the file is gone because a rotation
+		// renamed it and has not yet created the next one: a changed segment,
+		// not an empty one (reading it as empty lost the cursor's entries).
+		return nil, fmt.Errorf("%w: %s is gone at the snapshot", errSegmentChanged, path)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("audit: open %s: %w", path, err)
