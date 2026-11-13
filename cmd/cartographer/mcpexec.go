@@ -16,8 +16,8 @@ import (
 
 const mcpExecUsage = `usage: cartographer mcp exec <kb>/<slug>
 
-Starts the MCP server the approved descriptor mcp/<slug>.json of <kb> declares,
-with its ${VAR} and ${secret:...} references resolved into the child's
+Starts the MCP server the approved descriptor mcp/<slug>.json of <kb> declares
+(an http one is bridged from stdio, its headers sent to the server), with its ${VAR} and ${secret:...} references resolved into the child's
 environment (stdio) only. Every start reads the secrets from the server and
 nothing is cached. Written into a client's MCP configuration by sync, not meant
 to be run by hand. stdout belongs to the server; diagnostics go to stderr.`
@@ -27,6 +27,10 @@ to be run by hand. stdout belongs to the server; diagnostics go to stderr.`
 var (
 	mcpExecDeps = productionMCPExecDeps
 	mcpExecRun  = func(l *mcpexec.Launch) (int, error) { return l.Exec() }
+	// mcpExecBridge serves an http descriptor over this process's stdio.
+	mcpExecBridge = func(ctx context.Context, l *mcpexec.Launch) error {
+		return l.Bridge(ctx, os.Stdin, os.Stdout, os.Stderr)
+	}
 )
 
 // cmdMCPExec is `cartographer mcp exec <kb>/<slug>`.
@@ -56,8 +60,12 @@ func cmdMCPExec(args []string) int {
 		return 1
 	}
 	if l.Spec.Type == "http" {
-		fmt.Fprintln(os.Stderr, "Error: http bridge not available in this build")
-		return 2
+		// stdin and stdout are the client's protocol; the bridge keeps them.
+		if err := mcpExecBridge(ctx, l); err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", escapeText(err.Error()))
+			return 1
+		}
+		return 0
 	}
 	stop()
 	code, err := mcpExecRun(l)
