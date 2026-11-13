@@ -210,9 +210,9 @@ below are constants, not settings: a 30s freshness window and a 3s push debounce
    never waits for it (D258): when the window has expired it is served at once from the
    local clone and starts the same refresh in the background, one per KB at a time, under
    the same KB lock; what that refresh pulls is visible from the next call on, and a
-   failure there is non-fatal. Every fetch is bounded (15s; on Unix the whole git process
+   failure there is non-fatal. Every fetch is bounded (15s, plus the separately bounded `core.sshCommand` probe (5s plus a 1s pipe wait) that runs before the deadline and is skipped when `GIT_SSH_COMMAND`/`GIT_SSH` is set; on Unix the whole git process
    group is killed on expiry, on Windows git is killed and `WaitDelay` bounds the pipes).
-   A push is bounded the same way (60s, `gitx.PushTimeout`) and a timed-out push is not
+   A push is bounded the same way (60s plus that probe, `gitx.PushTimeout`) and a timed-out push is not
    retried: `SyncOut` fails at once and the commit waits locally for the next write. No
    git command prompts for a credential (`GIT_TERMINAL_PROMPT=0`, ssh in batch mode,
    D1004). After a failed fetch reads skip the fetch for 60s, so a remote

@@ -95,6 +95,10 @@ func netEnv(dir string, extra []string) []string {
 	defer cancel()
 	cfg := procattr.Hide(exec.CommandContext(ctx, "git", "-C", dir, "config", "--get", "core.sshCommand"))
 	cfg.Env = env
+	// Like netCommand: kill the group and bound the pipes, so a surviving child
+	// (a Windows shim) cannot hold Output() past the 5s deadline.
+	killGroupOnCancel(cfg)
+	cfg.WaitDelay = time.Second
 	if out, err := cfg.Output(); err == nil && strings.TrimSpace(string(out)) != "" {
 		return env
 	}
@@ -120,9 +124,12 @@ func netCommand(ctx context.Context, env []string, args ...string) *exec.Cmd {
 // with a process-group kill (the way Fetch is), under netEnv. A deadline hit
 // comes back as a RemoteTimeoutError.
 func runGitNet(dir, remote string, timeout time.Duration, env []string, args ...string) (string, error) {
+	// netEnv first: its own bounded config probe is not network time and must
+	// not eat the budget that bounds the command (#1870).
+	env = netEnv(dir, env)
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	cmd := netCommand(ctx, netEnv(dir, env), append([]string{"-C", dir}, args...)...)
+	cmd := netCommand(ctx, env, append([]string{"-C", dir}, args...)...)
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
 		return string(out), &RemoteTimeoutError{Remote: RedactRemoteURL(remote), After: timeout}
@@ -737,9 +744,10 @@ func LsRemote(dir, remote string, env ...string) (RemoteRefs, error) {
 	if remote == "" {
 		remote = "origin"
 	}
+	env = netEnv(dir, env) // before the deadline: the probe is not network time (#1870)
 	ctx, cancel := context.WithTimeout(context.Background(), FetchTimeout)
 	defer cancel()
-	cmd := netCommand(ctx, netEnv(dir, env), "-C", dir, "ls-remote", "--symref", remote)
+	cmd := netCommand(ctx, env, "-C", dir, "ls-remote", "--symref", remote)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -1071,10 +1079,11 @@ func fetchWith(dir, remote string, opts, env []string) error {
 	if remote == "" {
 		remote = "origin"
 	}
+	env = netEnv(dir, env) // before the deadline: the probe is not network time (#1870)
 	ctx, cancel := context.WithTimeout(context.Background(), FetchTimeout)
 	defer cancel()
 	args := append([]string{"-C", dir, "fetch"}, opts...)
-	cmd := netCommand(ctx, netEnv(dir, env), append(args, remote)...)
+	cmd := netCommand(ctx, env, append(args, remote)...)
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
 		return fmt.Errorf("git fetch %s: %w", RedactRemoteURL(remote), &RemoteTimeoutError{Remote: RedactRemoteURL(remote), After: FetchTimeout})
@@ -1090,7 +1099,10 @@ func fetchWith(dir, remote string, opts, env []string) error {
 // -- about 75s on macOS -- and every tool call waiting on the KB's git lock
 // with it, past the client's 30s HTTP timeout (#348). The fetch is the
 // operation that meets an unreachable remote first; pull and push run after a
-// fetch has just succeeded. A variable so tests can shorten it.
+// fetch has just succeeded. The deadline starts after netEnv, so one fetch
+// takes at most FetchTimeout plus the separate core.sshCommand probe, bounded
+// at 5s plus a 1s pipe wait (skipped when GIT_SSH_COMMAND or GIT_SSH is set).
+// A variable so tests can shorten it.
 var FetchTimeout = 15 * time.Second
 
 // RemoteTimeoutError reports a git remote that did not answer in time. It is
@@ -1486,7 +1498,9 @@ func pushError(what string, err error, out string) error {
 // PushTimeout bounds one git push. A push carries data, so it gets a longer
 // bound than FetchTimeout, but it is bounded all the same: an unbounded push
 // holds the KB's git lock, and every tool call behind it, for as long as the
-// remote stalls. A variable so tests can shorten it.
+// remote stalls. As for FetchTimeout, the deadline starts after netEnv: a push
+// takes at most PushTimeout plus the core.sshCommand probe, bounded at 5s plus
+// a 1s pipe wait. A variable so tests can shorten it.
 var PushTimeout = 60 * time.Second
 
 // PushSetUpstream pushes branch to remote and sets it as the branch's

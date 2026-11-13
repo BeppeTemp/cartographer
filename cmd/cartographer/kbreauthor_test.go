@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
@@ -224,6 +226,26 @@ func TestKBReauthorRefusals(t *testing.T) {
 		defer func() { reauthorLockTimeout = saved }()
 		refused(t, e, "locked")
 	})
+}
+
+// The refusals that follow the fetch (no upstream, diverged, merge in range,
+// published history) are only reachable when the fetch finishes inside
+// gitx.FetchTimeout; one that outlives it refuses with "git fetch origin
+// failed" instead (#1870, #1867). That is why this package's TestMain scales
+// the git deadlines with gitxtest.Deadline.
+func TestKBReauthorRefusesWhenTheFetchOutlivesItsDeadline(t *testing.T) {
+	e := newReauthorEnv(t, true)
+	commitInKB(t, e.root, "a.md", "tok-1", "cartographer@host.example.test")
+	defer func(d time.Duration) { gitx.FetchTimeout = d }(gitx.FetchTimeout)
+	gitx.FetchTimeout = time.Nanosecond // already expired when the fetch starts
+	before := reauthorGit(t, e.root, "rev-parse", "HEAD")
+	out, errOut, code := e.run(t, true, false)
+	if code != 2 || !strings.Contains(errOut, "git fetch origin failed") {
+		t.Errorf("code=%d stderr=%q stdout=%q, want exit 2 saying the fetch failed", code, errOut, out)
+	}
+	if reauthorGit(t, e.root, "rev-parse", "HEAD") != before {
+		t.Error("a refused run moved HEAD")
+	}
 }
 
 // Commits that already carry the identity are not rewritten, but --apply still
