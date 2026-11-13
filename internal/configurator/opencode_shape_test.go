@@ -252,6 +252,20 @@ func TestEmitOpenCode_ReportsThePathItWrote(t *testing.T) {
 	}
 }
 
+// A provider with two shapes must state the one it wrote: the merge never
+// guesses from the content, so a missing path writes nothing rather than
+// treating an entry named "servers" as the native section.
+func TestMergeMCPEmission_NoShapeGuessing(t *testing.T) {
+	root := map[string]any{}
+	emitted := map[string]any{"mcp": map[string]any{
+		"servers": map[string]any{"type": "remote", "url": "https://example.com/mcp"},
+	}}
+	configurator.MergeMCPEmission(root, emitted, configurator.ProviderOpenCode, nil)
+	if len(root) != 0 {
+		t.Errorf("merge wrote without a path: %v", root)
+	}
+}
+
 func TestRemove_OpenCodeRemovesBothShapes(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, filepath.FromSlash(configurator.OpenCodeConfigPath))

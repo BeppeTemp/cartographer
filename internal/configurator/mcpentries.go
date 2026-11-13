@@ -156,6 +156,11 @@ func MergeMCPEmission(root, emitted map[string]any, p Provider, at []string) {
 		return
 	}
 	if len(at) == 0 {
+		if len(paths) > 1 {
+			// A provider with two shapes must say which one it wrote: guessing
+			// from the content once wrote an entry's fields as server names.
+			return
+		}
 		at = paths[0]
 	}
 	src := mapAt(emitted, at)

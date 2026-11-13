@@ -949,12 +949,21 @@ func TestApply_MCP_OpenCodeV1SkipsASectionName(t *testing.T) {
 	}
 	warned := false
 	for _, w := range res.Warnings {
-		if strings.Contains(w, `mcp "servers" skipped`) {
+		if strings.Contains(w, `mcp "servers":`) && strings.Contains(w, "skipped here") {
 			warned = true
 		}
 	}
 	if !warned {
 		t.Errorf("warnings = %v, want one naming the skipped artifact", res.Warnings)
+	}
+	unsupported := false
+	for _, a := range res.Unsupported {
+		if a.Name == "servers" {
+			unsupported = true
+		}
+	}
+	if !unsupported {
+		t.Errorf("Unsupported = %v, want the skipped artifact listed", res.Unsupported)
 	}
 	if data, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(configurator.OpenCodeConfigPath))); err == nil {
 		var root map[string]any

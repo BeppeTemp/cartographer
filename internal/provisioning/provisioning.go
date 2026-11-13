@@ -1700,7 +1700,12 @@ hookLoop:
 						// The client cannot carry this name without ambiguity: skip the
 						// one artifact with a warning, never fail the whole sync
 						// (D69's rule for a part of the spec a provider cannot hold).
-						result.Warnings = append(result.Warnings, fmt.Sprintf("mcp %q skipped: %v", a.Name, regErr))
+						// An entry an earlier run wrote stays as it is, and stays owned,
+						// so a prune, a disconnect or a revocation can still reach it
+						// (the same rule as the missing-launcher skip above).
+						result.Warnings = append(result.Warnings, fmt.Sprintf("%v; skipped here", regErr))
+						result.Unsupported = append(result.Unsupported, a)
+						carryManaged(a)
 						continue
 					}
 					if refuseArtifact(a, regErr) {
