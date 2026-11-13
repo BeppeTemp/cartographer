@@ -21,7 +21,9 @@
 #
 # The train branch `train/<UTC time>` is gated by scripts/signoff.sh (the gate, the web
 # legs and the Windows leg when needed, the CI fallback on exit 75, the push and the
-# `signoff` status: one gate for the whole train). The signoff itself retries once the
+# `signoff` status: one gate for the whole train). With SIGNOFF_HOSTED=1, the maintainer's
+# setting (D2040), the gate is ci.yml on GitHub: every leg main's CI runs,
+# Windows and macOS included, in parallel; a prefix of a bisection is gated the same way. The signoff itself retries once the
 # Go tests a red run names (its step 4c): green, the train lands on that gate and a `bug`
 # issue names them; red, the failure is confirmed and bisection starts without a re-run.
 # A signoff that exits 69 (ssh or rsync dropped, so no test failed: #1843; its line `the build
@@ -265,6 +267,30 @@ pick() {
   done
 }
 
+# bundle_pick <slug>: in a cherry-pick stopped on conflicts, those in internal/webui/dist only
+# (the committed Atlas bundle, rebuilt whole by every frontend change: two of them always
+# conflict there, never in web/src) are resolved by building the bundle again from the merged
+# sources, and the pick goes on (D2040). The gate's TestBundleMatchesSource
+# proves the result. 1 when another path conflicts, Node is missing, or the build fails: the
+# change is then rejected as a conflict, as before. LAND_BUNDLE_BUILD replaces `make -s web`.
+bundle_pick() {
+  local u blog
+  u=$(git diff --name-only --diff-filter=U 2>/dev/null) || return 1
+  [ -n "$u" ] || return 1
+  if grep -qv '^internal/webui/dist/' <<<"$u"; then return 1; fi
+  if [ -z "${LAND_BUNDLE_BUILD:-}" ] && ! command -v node >/dev/null 2>&1; then
+    log "$1: only the Atlas bundle conflicts, but Node is not installed here: not rebuilt"
+    return 1
+  fi
+  blog=$state/bundle-$1.log
+  if ! ${LAND_BUNDLE_BUILD:-make -s web} >"$blog" 2>&1; then
+    log "$1: only the Atlas bundle conflicts, and building it again failed (see $blog)"
+    return 1
+  fi
+  git add -A internal/webui/dist && GIT_EDITOR=true git cherry-pick --continue >/dev/null 2>&1 || return 1
+  log "$1: only the Atlas bundle conflicted: built again from the merged sources"
+}
+
 # landed_decision <slug>: prints D<n> when main ($base) holds docs/decisions/D<n>-<slug>.md,
 # the decision the lander numbered when the change that added it landed; nothing otherwise.
 landed_decision() {
@@ -392,7 +418,7 @@ gate_once() { # $1 = log file; signoff.sh on the train branch: exit 0 green, 1 r
   # Known follow-up: these greps read the log, so a test that prints such a line can make a
   # signoff that failed for another reason read as red. That costs a re-run, and at worst a
   # bisection of a train that failed anyway; it cannot make a red gate read as infrastructure.
-  if grep -qE 'failed \(exit [0-9]+\): nothing pushed, nothing posted|of ci.yml run [0-9]+ is ' "$1"; then return 1; fi
+  if grep -qE 'failed \(exit [0-9]+\): nothing pushed, nothing posted|of ci.yml run [0-9]+ (is|are) ' "$1"; then return 1; fi
   return 2
 }
 
@@ -721,7 +747,7 @@ while :; do
       $dry || dequeue "$s" "$sha" || log "warning: could not delete ready/$s"
       continue
     fi
-    if ! git cherry-pick --allow-empty "$sha" >/dev/null 2>&1; then
+    if ! git cherry-pick --allow-empty "$sha" >/dev/null 2>&1 && ! bundle_pick "$s"; then
       git cherry-pick --abort >/dev/null 2>&1 || true
       git reset -q --hard
       # An edit of a pending decision whose first change landed numbered: applied to D<n>-<slug>.md.

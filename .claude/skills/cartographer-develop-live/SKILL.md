@@ -110,7 +110,7 @@ numbers both).
 2. Closing mandate to one `cartographer-live-implementer` (or yourself): the docs named in
    `docs/index.md` §Documentation maintenance rules for what changed, the tests
    still missing, `make web` if `web/` changed (the bundle is committed), then
-   `make check` until green, then `make check E2E=1`. The coordinator writes the decision file: it holds
+   targeted tests until green, then `make check-hosted` once (D2040). The coordinator writes the decision file: it holds
    the why.
 3. Review: `cartographer-review-pr` run on the branch (§Before opening your own PR, or queuing
    a change) — `scripts/pr-triage.sh` on the branch, the reviewers of the tier on the

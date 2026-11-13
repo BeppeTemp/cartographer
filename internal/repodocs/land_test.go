@@ -912,6 +912,41 @@ func TestLanderRejectsConflictsAndUnknownPlaceholders(t *testing.T) {
 	}
 }
 
+// Two frontend changes always conflict in the committed bundle, never in their sources: a
+// change whose only conflict is under internal/webui/dist is picked with the bundle built
+// again (LAND_BUNDLE_BUILD stands in for make web), and lands; a conflict anywhere else is
+// still a conflict.
+func TestLanderRebuildsAConflictingBundle(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("ui", "fix(atlas): ui\n", "2026-01-01T10:00:00Z", map[string]string{"internal/webui/dist/index.js": "mine\n", "web/src/a.ts": "a\n"})
+	e.queue("mixed", "fix(atlas): mixed\n", "2026-01-01T11:00:00Z", map[string]string{"internal/webui/dist/index.js": "other\n", "b.txt": "mine\n"})
+	e.git("checkout", "-q", "-B", "move", "origin/main")
+	e.write(filepath.Join(e.work, "internal/webui/dist/index.js"), "theirs\n")
+	e.write(filepath.Join(e.work, "b.txt"), "theirs\n")
+	e.git("add", "-A")
+	e.git("commit", "-q", "-m", "fix: move the bundle")
+	e.git("push", "-q", "origin", "move:main")
+	e.git("checkout", "-q", "main")
+	build := filepath.Join(t.TempDir(), "build")
+	e.write(build, "#!/bin/sh\nprintf 'built\\n' > internal/webui/dist/index.js\n")
+	if err := os.Chmod(build, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out, ok := e.land("LAND_BUNDLE_BUILD=" + build)
+	if !ok {
+		t.Fatalf("land failed\n%s", out)
+	}
+	if got := strings.Join(e.mainSubjects(), " | "); got != "fix: move the bundle | fix(atlas): ui" {
+		t.Fatalf("main holds %q\n%s", got, out)
+	}
+	if got := e.upGit("show", "main:internal/webui/dist/index.js"); got != "built" {
+		t.Errorf("the bundle on main is the rebuilt one, got %q", got)
+	}
+	if got := strings.Fields(e.refs("failed/")); strings.Join(got, " ") != "mixed" {
+		t.Errorf("a conflict outside the bundle is still rejected, got %v\n%s", got, out)
+	}
+}
+
 // A queued change whose diff main already holds (its train landed, the queue entry
 // outlived it) leaves the queue without a failed/ ref, and the train goes on.
 func TestLanderDequeuesAChangeAlreadyOnMain(t *testing.T) {

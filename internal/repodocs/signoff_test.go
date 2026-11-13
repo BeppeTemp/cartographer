@@ -2,6 +2,7 @@ package repodocs
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -99,7 +100,7 @@ case "$1 $2" in
         echo "$body" | out ;;
       *) if [ -f "$FAKE_GH_RUNS" ]; then cat "$FAKE_GH_RUNS"; else echo '[]'; fi | out ;;
     esac ;;
-  "run view") printf '%s\n' "${FAKE_GH_JOBS:-}" | out ;;
+  "run view") case "$*" in *--log*) printf '%b' "${FAKE_GH_JOBLOG:-}" ;; *) printf '%s\n' "${FAKE_GH_JOBS:-}" | out ;; esac ;;
   "workflow run") touch "$FAKE_GH_LOG.dispatched"; exit "${FAKE_GH_DISPATCH_RC:-0}" ;;
   "pr view") exit 1 ;;
 esac
@@ -608,23 +609,72 @@ func TestSignoffWithoutAWindowsCommandSaysSo(t *testing.T) {
 	}
 }
 
+// hostedJobs is HOSTED_JOBS of scripts/signoff.sh: the jobs a gate in CI waits for.
+var hostedJobs = []string{"gate", "test-windows", "web", "demo-edge", "docker", "helm", "test-macos", "test-linux-nosystemd"}
+
+// hostedRun is `gh run view --json status,jobs` for a run whose hosted jobs are all in
+// state def, except the ones named in over ("<status> <conclusion>").
+func hostedRun(runStatus, def string, over map[string]string) string {
+	var jobs []string
+	for i, n := range hostedJobs {
+		st := def
+		if o, ok := over[n]; ok {
+			st = o
+		}
+		status, concl, _ := strings.Cut(st, " ")
+		jobs = append(jobs, fmt.Sprintf(`{"databaseId":%d,"name":%q,"status":%q,"conclusion":%q}`, 100+i, n, status, concl))
+	}
+	return fmt.Sprintf(`{"status":%q,"jobs":[%s]}`, runStatus, strings.Join(jobs, ","))
+}
+
 // Exit 75 from SIGNOFF_MAKE (the probe or the targets) means the machine is
-// unavailable: the branch is pushed, ci.yml is dispatched on it, and the status is
-// posted only when that run's gate job is green.
-func TestSignoffFallsBackToCIWhenTheHostIsUnavailable(t *testing.T) {
-	green := `{"jobs":[{"name":"test","status":"completed","conclusion":"success"},{"name":"gate","status":"completed","conclusion":"success"}]}`
-	red := `{"jobs":[{"name":"gate","status":"completed","conclusion":"failure"}]}`
+// unavailable, and SIGNOFF_HOSTED=1 skips the machine altogether: the branch is pushed,
+// ci.yml is dispatched on it, and the status is posted only when every job of
+// HOSTED_JOBS is green, Windows and macOS included (D-new-hosted-train-gate). The first red
+// job ends the wait and cancels the rest of the run.
+func TestSignoffGatesInCIWithEveryHostedJob(t *testing.T) {
+	green := hostedRun("completed", "completed success", nil)
+	// Only the gate job green, the rest still running: not a verdict yet, so the wait
+	// times out; the old fallback signed off here.
+	gateOnly := hostedRun("in_progress", "in_progress ", map[string]string{"gate": "completed success"})
+	redEarly := hostedRun("in_progress", "in_progress ", map[string]string{"test-macos": "completed failure"})
+	skipped := hostedRun("completed", "completed success", map[string]string{"test-windows": "completed skipped"})
+	// A red shard ends the wait before its aggregator, which waits for the other shards.
+	shard := strings.Replace(hostedRun("in_progress", "in_progress ", nil), `"jobs":[`,
+		`"jobs":[{"databaseId":99,"name":"test-windows (3/4)","status":"completed","conclusion":"failure"},`, 1)
+	missing := `{"status":"completed","jobs":[{"databaseId":1,"name":"gate","status":"completed","conclusion":"success"}]}`
 	for _, c := range []struct {
-		name, jobs string
-		ok         bool
-	}{{"green gate", green, true}, {"red gate", red, false}} {
+		name, jobs, want string
+		hostedEnv, ok    bool
+	}{
+		{"make exits 75, all green", green, "", false, true},
+		{"SIGNOFF_HOSTED, all green", green, "", true, true},
+		{"gate job alone is not enough", gateOnly, "unfinished after the wait", true, false},
+		{"a red job ends the wait", redEarly, "the jobs test-macos of ci.yml run 7 are red", true, false},
+		{"a skipped leg tested nothing", skipped, "the jobs test-windows of ci.yml run 7 are red", true, false},
+		{"a missing job is red", missing, "(missing)", true, false},
+		{"a red shard ends the wait", shard, "the jobs test-windows (3/4) of ci.yml run 7 are red", true, false},
+	} {
 		t.Run(c.name, func(t *testing.T) {
 			e := newSignoffEnv(t)
 			e.branch(e.work, "feat/x", "x.txt")
 			head := e.run(e.work, "git", "rev-parse", "HEAD")
-			out, ok := e.signoff(e.work, "FAKE_MAKE_RC=75", `FAKE_GH_DISPATCHED=[{"databaseId":7}]`, "FAKE_GH_JOBS="+c.jobs)
+			args := []string{`FAKE_GH_DISPATCHED=[{"databaseId":7}]`, "FAKE_GH_JOBS=" + c.jobs, "SIGNOFF_GATE_TRIES=3",
+				`FAKE_GH_JOBLOG=test-macos\tRun tests\t2026-01-01T00:00:00.0000000Z --- FAIL: TestTrayQuits (0.10s)\n`}
+			if c.hostedEnv {
+				args = append(args, "SIGNOFF_HOSTED=1")
+			} else {
+				args = append(args, "FAKE_MAKE_RC=75")
+			}
+			out, ok := e.signoff(e.work, args...)
 			if ok != c.ok {
 				t.Fatalf("ok=%v, want %v\n%s", ok, c.ok, out)
+			}
+			if c.want != "" && !strings.Contains(out, c.want) {
+				t.Errorf("the output must say %q:\n%s", c.want, out)
+			}
+			if c.hostedEnv && strings.TrimSpace(e.log(e.makeLog)) != "" {
+				t.Errorf("SIGNOFF_HOSTED runs no make:\n%s", e.log(e.makeLog))
 			}
 			if !strings.Contains(e.log(e.ghLog), "workflow run ci.yml -R up/proj --ref feat/x") {
 				t.Errorf("ci.yml must be dispatched on the branch:\n%s", e.log(e.ghLog))
@@ -637,9 +687,46 @@ func TestSignoffFallsBackToCIWhenTheHostIsUnavailable(t *testing.T) {
 				t.Errorf("the status names the CI run: %v", posts)
 			}
 			if !c.ok && len(posts) != 0 {
-				t.Errorf("a red gate job posts nothing: %v", posts)
+				t.Errorf("a red or unfinished run posts nothing: %v", posts)
+			}
+			if !c.ok && !strings.Contains(e.log(e.ghLog), "run cancel 7") {
+				t.Errorf("a run that ends the wait red or unfinished is cancelled:\n%s", e.log(e.ghLog))
+			}
+			// The lander's failing() reads the failed jobs' Go tests from the signoff's output.
+			if c.name == "a red job ends the wait" && !strings.Contains(out, "\n--- FAIL: TestTrayQuits") {
+				t.Errorf("the failed job's tests are printed without the log columns:\n%s", out)
 			}
 		})
+	}
+}
+
+// HOSTED_JOBS names every job main-status watches, plus gate: a train signed off in CI must
+// be the tree main's CI passes. A job added to main-status and not here would land unchecked.
+func TestSignoffHostedJobsCoverMainStatus(t *testing.T) {
+	root := repoRoot(t)
+	sh := readFile(t, root, "scripts/signoff.sh")
+	m := regexp.MustCompile(`(?m)^HOSTED_JOBS="([^"]+)"$`).FindStringSubmatch(sh)
+	if m == nil {
+		t.Fatal(`scripts/signoff.sh has no HOSTED_JOBS="..." line`)
+	}
+	if got := strings.Join(hostedJobs, " "); m[1] != got {
+		t.Errorf("HOSTED_JOBS is %q, the test's list is %q: change both", m[1], got)
+	}
+	ci := readFile(t, root, ".github/workflows/ci.yml")
+	needs := regexp.MustCompile(`(?s)\n  main-status:.*?\n    needs: \[([^\]]+)\]`).FindStringSubmatch(ci)
+	if needs == nil {
+		t.Fatal("ci.yml: main-status has no needs list")
+	}
+	have := map[string]bool{}
+	for _, j := range strings.Fields(m[1]) {
+		have[j] = true
+	}
+	for _, j := range strings.Split(needs[1], ",") {
+		if j = strings.TrimSpace(j); j == "test" {
+			continue // gate collects it
+		} else if !have[j] {
+			t.Errorf("main-status watches %q, HOSTED_JOBS does not wait for it", j)
+		}
 	}
 }
 
@@ -908,7 +995,7 @@ func mustAtoi(t *testing.T, s string) int {
 // attempt left: the fallback follows only a run newer than the newest listed before the
 // dispatch, never that one, even while the new run is not listed yet (#1916).
 func TestSignoffHostedNeverPicksARunThatExistedBeforeTheDispatch(t *testing.T) {
-	green := `{"jobs":[{"name":"gate","status":"completed","conclusion":"success"}]}`
+	green := hostedRun("completed", "completed success", nil)
 	old := `[{"databaseId":5}]`
 	tmp := t.TempDir()
 	polls := filepath.Join(tmp, "polls.txt")
