@@ -224,6 +224,20 @@ func TestReadPrefix_ACutLineIsAChangedSegment(t *testing.T) {
 	}
 }
 
+// The active file missing while the snapshot saw bytes in it is the instant
+// inside a rotation between the rename and the new file: a changed segment,
+// read again, never an empty active segment (which made EventsAfter lose the
+// cursor and replay the chain from its start, flaking the concurrent test).
+func TestReadPrefix_AMissingFileWithBytesIsAChangedSegment(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.jsonl")
+	if _, err := readPrefix(path, 10); !errors.Is(err, errSegmentChanged) {
+		t.Fatalf("a missing file after a non-empty snapshot: %v", err)
+	}
+	if es, err := readPrefix(path, 0); err != nil || es != nil {
+		t.Fatalf("an empty snapshot reads nothing: %v, %v", es, err)
+	}
+}
+
 // The first hash of a deleted segment places the cursor at that segment's end.
 func TestEventsAfter_FirstHashOfADeletedSegment(t *testing.T) {
 	dir := t.TempDir()
