@@ -141,6 +141,19 @@ func TestSink_FailingHookNeverSlowsAnAppend(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer l.Close()
+	// An append is fsynced, so its cost is the disk's (a few ms on Linux, tens
+	// of ms on Windows): the bound is the same appends on a log with no sink,
+	// not a fixed duration. A hook awaited by the append would add its timeout
+	// to each one.
+	const n = 40
+	bl, err := audit.OpenWithOptions(filepath.Join(t.TempDir(), "audit.jsonl"), audit.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer bl.Close()
+	start := time.Now()
+	appendN(t, bl, n)
+	base := time.Since(start)
 	rc := &sinkReceiver{fail: true}
 	s, _ := serve(t, rc.handler)
 	r, ck := sinkRegClock(t, s.URL, nil)
@@ -151,10 +164,10 @@ func TestSink_FailingHookNeverSlowsAnAppend(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { sk.Run(ctx); close(done) }()
-	start := time.Now()
-	appendN(t, l, 200)
-	if d := time.Since(start); d > 5*time.Second {
-		t.Fatalf("200 appends took %s with a failing sink", d)
+	start = time.Now()
+	appendN(t, l, n)
+	if d := time.Since(start); d > 5*base+2*time.Second {
+		t.Fatalf("%d appends took %s with a failing sink, %s without", n, d, base)
 	}
 	rc.mu.Lock()
 	rc.fail = false
@@ -165,8 +178,8 @@ func TestSink_FailingHookNeverSlowsAnAppend(t *testing.T) {
 	}
 	cancel()
 	<-done
-	if n := len(rc.got()); n != 200 {
-		t.Fatalf("delivered %d, want 200", n)
+	if got := len(rc.got()); got != n {
+		t.Fatalf("delivered %d, want %d", got, n)
 	}
 }
 
@@ -275,18 +288,29 @@ func TestSink_BackoffIgnoresWakeUps(t *testing.T) {
 	defer l.Close()
 	s, hits := serve(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusServiceUnavailable) })
 	r := sinkReg(t, s.URL, nil)
-	sk, err := r.NewSink("acme/siem", auditSource(l), l.Wake(), dir)
+	// The wake-ups are sent by hand, as the log does (never blocking): an
+	// fsynced append takes tens of ms on Windows, so 20 real appends would
+	// outlast the 1 s backoff this test is about.
+	wake := make(chan struct{}, 1)
+	ping := func() {
+		select {
+		case wake <- struct{}{}:
+		default:
+		}
+	}
+	sk, err := r.NewSink("acme/siem", auditSource(l), wake, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { sk.Run(ctx); close(done) }()
-	appendN(t, l, 1) // the first wake-up: one failed delivery, then a 1 s backoff
+	appendN(t, l, 1)
+	ping() // the first wake-up: one failed delivery, then a 1 s backoff
 	time.Sleep(100 * time.Millisecond)
 	before := hits.Load()
 	for i := 0; i < 20; i++ {
-		appendN(t, l, 1)
+		ping()
 		time.Sleep(10 * time.Millisecond)
 	}
 	if got := hits.Load(); got != before {
