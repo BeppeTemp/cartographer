@@ -1,3 +1,4 @@
+import { screen } from "@testing-library/react";
 import { vi } from "vitest";
 import type { Artifact, ArtifactList, GraphSnapshot, LintReport, Overview } from "../api/types";
 
@@ -308,6 +309,19 @@ export function generateSnapshot(nodes: number, maps = 12, seed = 1): GraphSnaps
 export function openPanels(): void {
   localStorage.setItem("cartographer.panel.rail", "0");
   localStorage.setItem("cartographer.panel.list", "1");
+}
+
+/** The rail's version button once <App /> has booted (fetchKBs + the rail's
+ *  /health). This is the one wait with its own budget: the tests that use it are
+ *  about the integration and need the whole boot, which on a heavily loaded gate
+ *  can outlast Testing Library's default 1000 ms. The content tests do not boot
+ *  the App (they mount the sheet alone), so they keep the default. A test that
+ *  uses this wait also clicks, reads the dialog and waits once more at the
+ *  default budget, which does not fit vitest's default 5000 ms per-test timeout
+ *  next to the 4000 ms here: each of those tests sets its own `{ timeout:
+ *  10_000 }`, and nothing is raised globally. */
+export function bootedVersionButton(version: RegExp): Promise<HTMLElement> {
+  return screen.findByLabelText(version, undefined, { timeout: 4000 });
 }
 
 /** A component row as GET /kbs/{kb}/components answers it; `over` replaces fields. */
