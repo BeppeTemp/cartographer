@@ -136,3 +136,30 @@ func TestFolderSessionHasNoDefaultDirectories(t *testing.T) {
 		}
 	}
 }
+
+func TestReplaceCredential(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "creds")
+	if err := ReplaceCredential(dir, "a.age", []byte("one")); err != nil {
+		t.Fatal(err)
+	}
+	if err := ReplaceCredential(dir, "a.age", []byte("two")); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, "a.age")); string(got) != "two" {
+		t.Fatalf("got %q", got)
+	}
+	if runtime.GOOS != "windows" {
+		if fi, _ := os.Stat(filepath.Join(dir, "a.age")); fi.Mode().Perm() != 0o600 {
+			t.Fatalf("mode %v", fi.Mode().Perm())
+		}
+		if err := os.Symlink(filepath.Join(dir, "a.age"), filepath.Join(dir, "b.age")); err != nil {
+			t.Fatal(err)
+		}
+		if err := ReplaceCredential(dir, "b.age", []byte("x")); err == nil {
+			t.Fatal("a symlink target was replaced")
+		}
+	}
+	if left, _ := filepath.Glob(filepath.Join(dir, ".tmp-*")); len(left) != 0 {
+		t.Fatalf("temp files left: %v", left)
+	}
+}

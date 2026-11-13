@@ -102,8 +102,7 @@ No per-KB paths are needed in the config: the server reads the KB's files from `
   `<nome>.token`); if the KB has SOPS secrets, add its age key as `<nome>.age` in the same
   Secret. Never inline key material in the ConfigMap itself.
 - **The age key is the deployment half only.** Generating that key, writing the root `.sops.yaml`
-  creation rules and creating the first encrypted file are operator actions Cartographer never
-  performs — `secret_set` creates a file only under a creation rule the operator wrote. Do them **before** this step, and do
+  creation rules (`cartographer kb secrets init` does that and installs the key) and creating the first encrypted file are operator actions Cartographer does not perform on its own — `secret_set` creates a file only under a creation rule the operator wrote. Do them **before** this step, and do
   not assume an encrypted file is already there: `references/secrets.md` is the full procedure. A
   KB with no service credentials needs none of it.
 - Add a **scoped token** for the clients of this KB to `CARTOGRAPHER_TOKENS` (or `auth.tokens` in

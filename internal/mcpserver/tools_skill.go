@@ -174,7 +174,7 @@ func withResultAudit(r ToolResult, extra map[string]string) ToolResult {
 // path of the credentials directory is not the caller's to know.
 func errNoAgeKey(k *kb.KB) error {
 	n := kbName(k)
-	return fmt.Errorf("requires an age key for this KB: the operator creates it with `age-keygen -o <credentials_dir>/%s.age` (or default.age for every KB), then adds its public key to the KB's .sops.yaml", n)
+	return fmt.Errorf("requires an age key for this KB: the operator creates it with `age-keygen -o <credentials_dir>/%s.age` (or default.age for every KB), then adds its public key to the KB's .sops.yaml (`cartographer kb secrets init` does both)", n)
 }
 
 var secretRefName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)

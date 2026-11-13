@@ -77,6 +77,8 @@ func cmdKB(args []string) int {
 		return cmdKBUnmount(rest)
 	case "attach":
 		return cmdKBAttach(rest)
+	case "secrets":
+		return cmdKBSecrets(rest)
 	default:
 		fmt.Fprint(os.Stderr, "Error: ")
 		printKBUsage(os.Stderr)
@@ -85,7 +87,7 @@ func cmdKB(args []string) int {
 }
 
 func printKBUsage(w io.Writer) {
-	fmt.Fprintln(w, "usage: cartographer kb create <name> (--remote <url> [--branch <name>] | --no-remote) [--readme generate|keep] [--data <dir>] [--restart]\n       cartographer kb clone <remote> [name] [--branch <name>] [--data <dir>] [--config <path>] [--timeout <d>] [--restart]\n       cartographer kb list [--data <dir>] [--config <path>] [--json]\n       cartographer kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]\n       cartographer kb repair <kb> [--apply] [--json]\n       cartographer kb reauthor <kb> [--apply] [--json] [--data <dir>] [--config <path>]\n       cartographer kb attach <kb> --remote <url> [--data <dir>] [--config <path>]\n       cartographer kb unmount <name> [--delete-clone] [--force] [--dry-run] [--data <dir>] [--config <path>] [--restart]")
+	fmt.Fprintln(w, "usage: cartographer kb create <name> (--remote <url> [--branch <name>] | --no-remote) [--readme generate|keep] [--data <dir>] [--restart]\n       cartographer kb clone <remote> [name] [--branch <name>] [--data <dir>] [--config <path>] [--timeout <d>] [--restart]\n       cartographer kb list [--data <dir>] [--config <path>] [--json]\n       cartographer kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]\n       cartographer kb repair <kb> [--apply] [--json]\n       cartographer kb reauthor <kb> [--apply] [--json] [--data <dir>] [--config <path>]\n       cartographer kb attach <kb> --remote <url> [--data <dir>] [--config <path>]\n       cartographer kb secrets init <kb> --recipient <age-pub> [--key-file <path>] [--force] [--data <dir>] [--config <path>] [--local]\n       cartographer kb unmount <name> [--delete-clone] [--force] [--dry-run] [--data <dir>] [--config <path>] [--restart]")
 }
 
 // validateKBName returns an error describing why name is not a usable KB

@@ -16,7 +16,7 @@ This is the part that traps people, so it comes before the procedure.
 | Step | Who |
 |---|---|
 | Generate the age key | **you**, with `age-keygen` |
-| Write the root `.sops.yaml` creation rules | **you** — Cartographer never writes this file |
+| Write the root `.sops.yaml` creation rules | **you**, with `cartographer kb secrets init <kb> --recipient <age-pub> [--key-file <path>]` (the admin-only `secrets_init` tool writes and commits it, and the command installs the key); or by hand, as below |
 | Create the **first** encrypted file and choose its recipients | **you**, with the `sops` CLI |
 | Rotate or add a pointer in an encrypted file, or create a new file the creation rules already cover | Cartographer (`secret_set`) |
 | Declare which values a concept uses | Cartographer (`concept_write`, `secret_refs`) |
@@ -54,6 +54,8 @@ exported in your shell, `~/.config/sops/age/keys.txt` or an SSH key under
 can decrypt — this key must be a recipient of the file.
 
 ### 2.2 Write the root `.sops.yaml`
+
+On the server machine, `cartographer kb secrets init <kb> --recipient <age-pub> --key-file <path>` writes the rule below through the server, commits it and installs the key as `<kb>.age`; no restart is needed. The manual steps stay as the fallback (a remote server, no admin token).
 
 At the **root of the KB repository**, not inside `secrets/`:
 
@@ -172,7 +174,7 @@ as `~1`. A null leaf is the empty string.
 | a `NAME` resolves to nothing | The JSON Pointer does not exist in the decrypted file. Check it with `sops decrypt secrets/<file>.sops.yaml` and re-read §4. |
 | `secret_set: file does not exist and the KB has no .sops.yaml` | Encryption is not set up for this KB. Go back to §2.2 and §2.3. |
 | `secret_set: no .sops.yaml creation rule matches` or `not a recipient` | The rule does not cover the path, or the server's key is not one of its recipients: fix the rule (§2.2) or the key (§2.1). `kb_status` `capabilities.secrets.hint` names the recipient the KB expects. |
-| `capabilities.secrets: missing key` | Read the `hint`. The age key is read when the service starts: a key file added later needs a restart of the service. |
+| `capabilities.secrets: missing key` | Read the `hint`. The age key is read from `credentials_dir` on each use: a key file added later (`cartographer kb secrets init … --key-file`) is picked up without a restart. |
 | the committed file is readable plaintext | The `.sops.yaml` `path_regex` did not match. Fix the rule (§2.2), re-encrypt, and treat the plaintext value as **compromised** — git history is forever: rotate it upstream. |
 
 ## 6. Hygiene
