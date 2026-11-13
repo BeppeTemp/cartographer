@@ -44,7 +44,7 @@ func secretKB(t *testing.T, rules string) *kb.KB {
 	if err := os.WriteFile(keyFile, []byte("# public key: "+recipientA+"\nAGE-SECRET-KEY-1PLACEHOLDER\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	k.SopsAgeKeyFile = keyFile
+	k.SetSopsAgeKeyFile(keyFile)
 	if rules != "" {
 		if err := os.WriteFile(filepath.Join(k.Root, ".sops.yaml"), []byte(rules), 0o644); err != nil {
 			t.Fatal(err)
@@ -116,7 +116,7 @@ func TestSecretSetCreateRefusals(t *testing.T) {
 		t.Error("a key that is not a JSON Pointer was accepted")
 	}
 	// Without a server key nothing is attempted.
-	k.SopsAgeKeyFile = ""
+	k.SetSopsAgeKeyFile("")
 	if res := callSecretSet(t, k, "secrets/new.sops.yaml", "/token", "x"); !res.IsError || !strings.Contains(res.Content[0].Text, "age key") {
 		t.Errorf("no key: %#v", res)
 	}
@@ -183,16 +183,79 @@ func TestKBStatusMissingKeyHint(t *testing.T) {
 	if h := hint(); !strings.Contains(h, "no key in credentials_dir holds it") {
 		t.Errorf("hint = %q", h)
 	}
-	// The KB's own key file added after the start: keys are read at start only.
+	// The KB's own key file added after the start: the key is resolved on read, so the file loads with no restart.
 	if err := os.WriteFile(filepath.Join(credDir, "kb-a.age"), []byte("# public key: "+recipientA+"\nAGE-SECRET-KEY-1PLACEHOLDER\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if h := hint(); !strings.Contains(h, "restart the service to load it") || !strings.Contains(h, "now in credentials_dir") {
-		t.Errorf("hint = %q", h)
-	}
-	// Loaded: no hint.
-	k.SopsAgeKeyFile = filepath.Join(credDir, "kb-a.age")
+	k.SetSopsAgeKeyResolver(func() string { return resolveForTest(credDir, "kb-a") })
 	if c := kbCapabilities(k)["secrets"]; c.State != "enabled" || c.Hint != "" {
 		t.Errorf("loaded key: %+v", c)
 	}
+}
+
+// resolveForTest mirrors the serve resolver: <name>.age, then default.age.
+func resolveForTest(dir, name string) string {
+	for _, n := range []string{name, "default"} {
+		p := filepath.Join(dir, n+".age")
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
+}
+
+func TestSecretsKeyLoadsWithoutRestart(t *testing.T) {
+	k := setupTestKB(t)
+	k.AuthName = "kb-a"
+	credDir := t.TempDir()
+	k.CredentialsDir = credDir
+	if err := os.MkdirAll(filepath.Join(k.Root, "secrets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(k.Root, "secrets", "x.sops.yaml"), []byte("a: ENC[x]\nsops:\n  age: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	k.SetSopsAgeKeyResolver(func() string { return resolveForTest(credDir, "kb-a") })
+	state := func() string { return kbCapabilities(k)["secrets"].State }
+	if got := state(); got != "missing key" {
+		t.Fatalf("before the key: %q", got)
+	}
+	if res := callSecretSet(t, k, "secrets/x.sops.yaml", "/a", "v"); !res.IsError || !strings.Contains(res.Content[0].Text, "requires an age key") {
+		t.Fatalf("secret_set without key: %#v", res)
+	}
+	keyPath := filepath.Join(credDir, "kb-a.age")
+	if err := os.WriteFile(keyPath, []byte("AGE-SECRET-KEY-1PLACEHOLDER\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := state(); got != "enabled" {
+		t.Fatalf("after the key, same server: %q", got)
+	}
+	if res := callSecretSet(t, k, "secrets/x.sops.yaml", "/a", "v"); strings.Contains(res.Content[0].Text, "requires an age key") {
+		t.Fatalf("secret_set still answers no key: %#v", res)
+	}
+	if err := os.Remove(keyPath); err != nil {
+		t.Fatal(err)
+	}
+	if got := state(); got != "missing key" {
+		t.Fatalf("after removal: %q", got)
+	}
+}
+
+func TestSopsAgeKeyIsRaceFree(t *testing.T) {
+	k := setupTestKB(t)
+	dir := t.TempDir()
+	k.SetSopsAgeKeyResolver(func() string { return resolveForTest(dir, "kb-a") })
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 200; i++ {
+			_ = k.SopsAgeKey()
+		}
+	}()
+	for i := 0; i < 50; i++ {
+		_ = os.WriteFile(filepath.Join(dir, "kb-a.age"), []byte("x"), 0o600)
+		_ = os.Remove(filepath.Join(dir, "kb-a.age"))
+		k.SetSopsAgeKeyFile("")
+	}
+	<-done
 }

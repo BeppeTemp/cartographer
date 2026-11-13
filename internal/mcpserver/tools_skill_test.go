@@ -18,7 +18,7 @@ import (
 func setupServiceTestKB(t *testing.T, sopsAgeKeyFile string) *kb.KB {
 	t.Helper()
 	k := setupTestKB(t)
-	k.SopsAgeKeyFile = sopsAgeKeyFile
+	k.SetSopsAgeKeyFile(sopsAgeKeyFile)
 
 	svcContent := "---\ntype: Service\ntitle: Test Service\nsecrets_source: secrets/test.sops.yaml\n---\nBody.\n"
 	if err := os.WriteFile(filepath.Join(k.DataRoot(), "svc-test.md"), []byte(svcContent), 0o644); err != nil {
@@ -262,7 +262,7 @@ func callSecretTool(t *testing.T, tool Tool, params map[string]any) ToolResult {
 func secretRefsKB(t *testing.T) *kb.KB {
 	t.Helper()
 	k := setupTestKB(t)
-	k.SopsAgeKeyFile = filepath.Join(t.TempDir(), "kb-a.age")
+	k.SetSopsAgeKeyFile(filepath.Join(t.TempDir(), "kb-a.age"))
 	svc := "---\ntype: Service\ntitle: S\nsecret_refs:\n  - PW=secrets/app.sops.yaml#/pw\n  - X=secrets/missing.sops.yaml#/x\n---\nBody.\n"
 	if err := os.WriteFile(filepath.Join(k.DataRoot(), "svc-refs.md"), []byte(svc), 0o644); err != nil {
 		t.Fatal(err)
@@ -321,7 +321,7 @@ func TestSecretResolve_DecryptFailureNamesTheAgeKeyNotThePaths(t *testing.T) {
 	if !res.IsError || !strings.Contains(text, "age key missing or invalid for kb-a") {
 		t.Fatalf("error = %q", text)
 	}
-	for _, leak := range []string{k.Root, k.SopsAgeKeyFile, ".ssh", "no identity", os.TempDir()} {
+	for _, leak := range []string{k.Root, k.SopsAgeKey(), ".ssh", "no identity", os.TempDir()} {
 		if strings.Contains(text, leak) {
 			t.Errorf("error leaks %q: %q", leak, text)
 		}
@@ -344,7 +344,7 @@ func TestSecretToolMessagesSayTheWayOut(t *testing.T) {
 		t.Errorf("secret_resolve malformed argument: %q", text)
 	}
 
-	k.SopsAgeKeyFile = ""
+	k.SetSopsAgeKeyFile("")
 	res = callSecretTool(t, toolSecretSet(k), map[string]any{"path": "secrets/app.sops.yaml", "key": "/k", "value": "v"})
 	if !res.IsError || !strings.Contains(res.Content[0].Text, "age-keygen -o <credentials_dir>/kb-a.age") {
 		t.Errorf("secret_set without key: %v", res.Content)

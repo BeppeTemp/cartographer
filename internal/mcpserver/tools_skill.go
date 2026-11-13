@@ -260,14 +260,15 @@ func resolveFrontmatterSecrets(ctx requestContext, k *kb.KB, conceptID string, f
 	if refs != nil && len(hookRefs) > 0 {
 		return resolveDeclaredWithHooks(ctx, k, conceptID, refs, hookRefs, names)
 	}
-	if k.SopsAgeKeyFile == "" {
+	keyFile := k.SopsAgeKey()
+	if keyFile == "" {
 		return resolvedSecrets{}, errNoAgeKey(k)
 	}
 	if !sops.Available() {
 		return resolvedSecrets{}, fmt.Errorf("sops binary not found in PATH")
 	}
 	if refs != nil {
-		values, err := sops.ResolveNamed(k.Root, refs, names, sops.AgeKeyEnv(k.SopsAgeKeyFile)...)
+		values, err := sops.ResolveNamed(k.Root, refs, names, sops.AgeKeyEnv(keyFile)...)
 		return resolvedSecrets{values: values, source: "declared refs"}, secretError(k, err)
 	}
 	raw, ok := fm.Get("secrets_source")
@@ -281,7 +282,7 @@ func resolveFrontmatterSecrets(ctx requestContext, k *kb.KB, conceptID string, f
 	values := map[string]string{}
 	owner := map[string]string{}
 	for _, source := range sources {
-		sf, err := sops.Decrypt(k.Root, source, sops.AgeKeyEnv(k.SopsAgeKeyFile)...)
+		sf, err := sops.Decrypt(k.Root, source, sops.AgeKeyEnv(keyFile)...)
 		if err != nil {
 			return resolvedSecrets{}, secretError(k, err)
 		}
@@ -334,13 +335,14 @@ func resolveDeclaredWithHooks(ctx requestContext, k *kb.KB, conceptID string, re
 	}
 	values := map[string]string{}
 	if wantSops {
-		if k.SopsAgeKeyFile == "" {
+		keyFile := k.SopsAgeKey()
+		if keyFile == "" {
 			return resolvedSecrets{}, errNoAgeKey(k)
 		}
 		if !sops.Available() {
 			return resolvedSecrets{}, fmt.Errorf("sops binary not found in PATH")
 		}
-		v, err := sops.ResolveNamed(k.Root, refs, sopsNames, sops.AgeKeyEnv(k.SopsAgeKeyFile)...)
+		v, err := sops.ResolveNamed(k.Root, refs, sopsNames, sops.AgeKeyEnv(keyFile)...)
 		if err != nil {
 			return resolvedSecrets{}, secretError(k, err)
 		}
@@ -470,12 +472,13 @@ func toolSecretSet(k *kb.KB) Tool {
 		}
 		_, statErr := os.Lstat(filepath.Join(k.Root, p.Path))
 		creating := os.IsNotExist(statErr)
-		if k.SopsAgeKeyFile == "" {
+		keyFile := k.SopsAgeKey()
+		if keyFile == "" {
 			return errorResult("secret_set: " + errNoAgeKey(k).Error()), nil
 		}
 		if creating {
 			// D1191: the recipients are the operator's creation rule, never the caller's.
-			if err := sops.Create(k.Root, p.Path, p.Key, p.Value, k.SopsAgeKeyFile, sops.AgeKeyEnv(k.SopsAgeKeyFile)...); err != nil {
+			if err := sops.Create(k.Root, p.Path, p.Key, p.Value, keyFile, sops.AgeKeyEnv(keyFile)...); err != nil {
 				if errors.Is(err, sops.ErrNoConfig) {
 					return errorResult("secret_set: file does not exist and the KB has no .sops.yaml; bootstrapping encryption and its recipients is an operator action"), nil
 				}
@@ -483,7 +486,7 @@ func toolSecretSet(k *kb.KB) Tool {
 			}
 			return textResult(fmt.Sprintf("secret_set: created %s %s", p.Path, p.Key)), nil
 		}
-		if err := sops.Set(k.Root, p.Path, p.Key, p.Value, sops.AgeKeyEnv(k.SopsAgeKeyFile)...); err != nil {
+		if err := sops.Set(k.Root, p.Path, p.Key, p.Value, sops.AgeKeyEnv(keyFile)...); err != nil {
 			return errorResult("secret_set: " + secretError(k, err).Error()), nil
 		}
 		return textResult(fmt.Sprintf("secret_set: updated %s %s", p.Path, p.Key)), nil

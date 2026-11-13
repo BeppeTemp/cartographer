@@ -664,12 +664,13 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 	if k.Discovered {
 		mount = "discovered"
 	}
-	secretsState := onOff(k.SopsAgeKeyFile != "")
+	hasKey := k.SopsAgeKey() != "" // read once: the key loads on read, no restart
+	secretsState := onOff(hasKey)
 	secretsSetting := "credentials_dir"
 	// A KB declares secrets when a sops file sits under secrets/ (D906).
 	secretsHint := ""
 	if sops.Declared(k.Root) {
-		if k.SopsAgeKeyFile == "" {
+		if !hasKey {
 			secretsState = "missing key"
 			secretsHint = missingKeyHint(k)
 		}
@@ -683,32 +684,29 @@ func kbCapabilities(k *kb.KB) map[string]KBCapability {
 }
 
 // missingKeyHint says what a KB with sops files and no age key is waiting for
-// (D1191): a key file that appeared in credentials_dir after the start (keys are
-// read only at start, so the service has to be restarted), else the recipient
-// the KB's files name and whether another key file of the directory holds it.
-// Public keys only; no path and no other KB's name is returned.
+// (D1191): the recipient the KB's sops files name and whether another key file
+// of credentials_dir holds it. The key is resolved on every read, so a file
+// added there loads on the next call, with no restart. Public keys only; no
+// path and no other KB's name is returned.
 func missingKeyHint(k *kb.KB) string {
 	name := k.AuthName
 	if name == "" {
 		name = config.DefaultCredentialName
 	}
-	if _, ok := config.CredentialFile(k.CredentialsDir, name, config.CredentialAge); ok {
-		return "a key file for this KB is now in credentials_dir, but keys are read when the service starts: restart the service to load it"
-	}
 	recipients := sops.ExpectedRecipients(k.Root)
 	if len(recipients) == 0 {
-		return "no age key for this KB: add " + name + ".age (or default.age) to credentials_dir with an identity that is a recipient of its sops files, then restart the service"
+		return "no age key for this KB: add " + name + ".age (or default.age) to credentials_dir with an identity that is a recipient of its sops files; it loads on the next call"
 	}
 	msg := "the KB's sops files name the age recipient " + strings.Join(recipients, ", ") + "; "
 	if k.CredentialsDir != "" {
 		files, _ := filepath.Glob(filepath.Join(k.CredentialsDir, "*."+config.CredentialAge))
 		for _, f := range files {
 			if sops.HoldsRecipient(f, recipients) {
-				return msg + "a key file already in credentials_dir holds it: copy it to " + name + ".age, then restart the service to load it"
+				return msg + "a key file already in credentials_dir holds it: copy it to " + name + ".age (it loads on the next call)"
 			}
 		}
 	}
-	return msg + "no key in credentials_dir holds it: add " + name + ".age with that identity, then restart the service to load it"
+	return msg + "no key in credentials_dir holds it: add " + name + ".age with that identity (it loads on the next call)"
 }
 
 func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverVersion string, latestVersion func() string, fb func() feedback.Destination, atlasURL func(requestContext) string, cc *conformanceCache) Tool {

@@ -452,7 +452,8 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 			}
 		}
 		k.SetBranchOverride(m.Spec.BranchOverride)
-		k.SopsAgeKeyFile = resolveSopsAgeKeyFile(credDir, m.Name)
+		kbName := m.Name
+		k.SetSopsAgeKeyResolver(func() string { return resolveSopsAgeKeyFile(credDir, kbName) })
 		k.CredentialsDir = credDir
 		// The KB's settings.yaml is brought up to date first (D903): a retired
 		// key is dropped, in one commit of its own, and a KB that still asks for
@@ -564,7 +565,7 @@ func applyKBPolicy(k *kb.KB, cfg *config.Config, server config.KBSpec, name stri
 	for _, f := range info.Findings {
 		log.Printf("warning: KB %q: %s: %s", name, kb.SettingsFile, f)
 	}
-	if sops.Declared(k.Root) && k.SopsAgeKeyFile == "" {
+	if sops.Declared(k.Root) && k.SopsAgeKey() == "" {
 		log.Printf("warning: KB %q holds sops files under secrets/ but no age key is configured for it (create %s.age or default.age in credentials_dir)", name, name)
 	}
 	if refresh {
