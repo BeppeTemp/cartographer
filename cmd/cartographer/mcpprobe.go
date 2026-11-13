@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/mcpexec"
 	"github.com/BeppeTemp/cartographer/internal/mcpprobe"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
@@ -18,14 +21,27 @@ import (
 var (
 	probeLookupEnv = os.LookupEnv
 	probeDial      = mcpprobe.Dial
+	// probeResolve is the launch path of `mcp exec`: the descriptor read from the
+	// server, checked against the approval, its variables and secrets expanded.
+	probeResolve = func(ctx context.Context, ref string) (*mcpexec.Launch, error) {
+		deps, err := mcpExecDeps()
+		if err != nil {
+			return nil, err
+		}
+		return mcpexec.Resolve(ctx, deps, ref)
+	}
+	probeSession = mcpprobe.Run
 )
 
-const mcpProbeUsage = `usage: cartographer mcp probe [--json] <kb>/<slug>
-       cartographer mcp probe [--json] <slug>
+const mcpProbeUsage = `usage: cartographer mcp probe [--json] [--timeout <duration>] <kb>/<slug>
+       cartographer mcp probe [--json] [--timeout <duration>] <slug>
 
 Diagnoses one approved MCP descriptor without a client: the ${VAR} references
 unset in this shell, and for an http descriptor whether DNS, TCP and TLS reach
-the server and what a failure is. Values are never printed.
+the server and what a failure is. When those pass it starts the descriptor the
+way a client would (resolving ${VAR} and ${secret:...} as mcp exec does), runs
+initialize and tools/list and prints the server and the tools. --timeout bounds
+the session (default 20s). Values are never printed.
 
 Exit codes:
   0  ok
@@ -35,18 +51,29 @@ Exit codes:
   4  network: DNS, connection refused or timeout
   5  TLS: unknown authority, expired or wrong name`
 
-// cmdMCPProbe is `cartographer mcp probe`. The MCP session itself (initialize,
-// tools/list) is not run yet: this part ends after the static checks.
+// cmdMCPProbe is `cartographer mcp probe`: the static checks, then, when nothing
+// above stopped it, an MCP session (initialize, tools/list) started through the
+// same resolution `mcp exec` uses.
 func cmdMCPProbe(args []string) int {
 	if hasHelpFlag(args) {
 		fmt.Fprintln(os.Stdout, mcpProbeUsage)
 		return 0
 	}
 	asJSON, target := false, ""
-	for _, a := range args {
+	timeout := mcpprobe.SessionTimeout
+	for i := 0; i < len(args); i++ {
+		a := args[i]
 		switch {
 		case a == "--json":
 			asJSON = true
+		case a == "--timeout" && i+1 < len(args):
+			d, err := time.ParseDuration(args[i+1])
+			if err != nil || d <= 0 {
+				fmt.Fprintln(os.Stderr, mcpProbeUsage)
+				return mcpprobe.ExitUsage
+			}
+			timeout = d
+			i++
 		case strings.HasPrefix(a, "-") || target != "":
 			fmt.Fprintln(os.Stderr, mcpProbeUsage)
 			return mcpprobe.ExitUsage
@@ -121,8 +148,9 @@ func cmdMCPProbe(args []string) int {
 			res.Hint = mcpprobe.Hint(res.Net)
 		}
 	}
-	// The session part (initialize, tools/list) is the next change; until then a
-	// descriptor that passes the static checks reports exit 0.
+	if len(res.Unresolved) == 0 && res.Net == "" {
+		probeRunSession(&res, kb, a.Name, timeout)
+	}
 	code := mcpprobe.ExitCode(res)
 	if asJSON {
 		out, _ := json.Marshal(res)
@@ -148,4 +176,65 @@ func printProbe(w io.Writer, kb, name string, r mcpprobe.Result) {
 	} else if r.Transport == "http" {
 		fmt.Fprintln(w, "network: reachable (DNS, TCP and TLS)")
 	}
+	if r.Via != "" {
+		fmt.Fprintf(w, "via: %s\n", escapeControl(r.Via))
+	}
+	if r.Error != "" {
+		fmt.Fprintf(w, "session: failed: %s\n", escapeControl(r.Error))
+	} else if r.Protocol != "" {
+		fmt.Fprintf(w, "session: ok, protocol %s, server %s\ntools: %d\n", escapeControl(r.Protocol), escapeControl(r.Server), r.Tools)
+		for _, n := range r.ToolNames {
+			fmt.Fprintf(w, "  %s\n", escapeControl(n))
+		}
+	}
+}
+
+// probeRunSession resolves the descriptor as mcp exec does and runs one MCP
+// session with it, filling r. A fault that is a network or TLS class is
+// reported as such; anything else is a server that is not usable (exit 1).
+func probeRunSession(r *mcpprobe.Result, kb, slug string, timeout time.Duration) {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	l, err := probeResolve(ctx, kb+"/"+slug)
+	if err != nil {
+		r.Error = err.Error()
+		return
+	}
+	t := mcpprobe.Target{Command: l.Command, Args: l.Args, Env: l.Env, URL: l.URL, Headers: l.Headers}
+	r.Via = "cartographer mcp exec resolution (in process)"
+	// Scrub every value the launch resolved from the text of an error.
+	var secrets []string
+	for k := range l.Spec.Env {
+		for _, e := range l.Env {
+			if n, v, ok := strings.Cut(e, "="); ok && n == k && v != "" {
+				secrets = append(secrets, v)
+			}
+		}
+	}
+	for k, v := range l.Headers {
+		if v != "" && strings.Contains(l.Spec.Headers[k], "${") {
+			secrets = append(secrets, v)
+		}
+	}
+	scrub := func(s string) string {
+		for _, v := range secrets {
+			s = strings.ReplaceAll(s, v, "<redacted>")
+		}
+		return s
+	}
+	info, err := probeSession(ctx, t, timeout, scrub)
+	if err != nil {
+		if k := mcpprobe.SessionKind(err); k == mcpprobe.KindDNS || k == mcpprobe.KindRefused || k == mcpprobe.KindTimeout || k == mcpprobe.KindTLSUnknownAuthority || k == mcpprobe.KindTLSOther {
+			r.Net, r.Hint = k, mcpprobe.Hint(k)
+			r.Detail = err.Error()
+			return
+		}
+		r.Error = err.Error()
+		return
+	}
+	r.Protocol, r.Server, r.Tools = info.Protocol, info.Server, len(info.Tools)
+	if info.Version != "" {
+		r.Server += " " + info.Version
+	}
+	r.ToolNames = info.Tools[:min(len(info.Tools), mcpprobe.MaxToolNames)]
 }
