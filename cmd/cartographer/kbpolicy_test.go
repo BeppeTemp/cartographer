@@ -99,7 +99,7 @@ func TestApplyKBPolicy_SecretsAreDerivedFromSopsFiles(t *testing.T) {
 	if c := mcpserver.KBCapabilitiesFor(k)["secrets"]; c.State != "missing key" {
 		t.Errorf("a sops file and no key: secrets = %+v, want missing key", c)
 	}
-	k.SopsAgeKeyFile = filepath.Join(t.TempDir(), "key.age")
+	k.SetSopsAgeKeyFile(filepath.Join(t.TempDir(), "key.age"))
 	if c := mcpserver.KBCapabilitiesFor(k)["secrets"]; c.State != "enabled" {
 		t.Errorf("secrets with a key = %+v, want enabled", c)
 	}

@@ -888,8 +888,8 @@ Two things are derived and have no key (D906). A KB **declares secrets** when at
 file directly under `secrets/` carries sops metadata (read, never decrypted): a mount of such a KB
 without an age key reports `capabilities.secrets: missing key` and warns at startup, instead of a
 silent `disabled`; `kb_status` adds a `hint` (D1191) naming the recipient the KB expects and whether a
-key file in `credentials_dir` holds it, or, for a key file added after the start, "restart the service
-to load it" (the key is read at start only). A KB's **MCP descriptors** (`mcp/<name>.json`) are always distributable: no list
+key file in `credentials_dir` holds it; the key is resolved on every read, so a file added there loads
+on the next call, with no restart. A KB's **MCP descriptors** (`mcp/<name>.json`) are always distributable: no list
 names them; each client still approves a descriptor before installing it (`docs/sync.md` §MCP
 servers).
 

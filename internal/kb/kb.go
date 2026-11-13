@@ -95,11 +95,12 @@ type KB struct {
 	// this KB (SetDefaultIdentity, D950); empty means the server identity.
 	defaultName, defaultEmail string
 
-	// SopsAgeKeyFile is the path to the SOPS age key file used to decrypt
-	// this KB's secrets (e.g. via service_get resolve_secrets). Empty means
-	// no per-KB key is configured — secret resolution fails clearly instead
-	// of falling back to an ambient key.
-	SopsAgeKeyFile string
+	// sopsAgeKey resolves the path of the SOPS age key file used to decrypt
+	// this KB's secrets (SopsAgeKey). It is called on every read, so a key file
+	// added to or removed from credentials_dir is seen by the next call with no
+	// restart. Empty means no per-KB key: secret resolution fails clearly
+	// instead of falling back to an ambient key.
+	sopsAgeKey atomic.Pointer[func() string]
 
 	// CredentialsDir is the server's credentials directory (D905), kept so
 	// kb_status can say whether a key file for this KB appeared after the start
@@ -3447,4 +3448,22 @@ func checkMapDescriptorInputs(title string, conceptTypes []string) error {
 		}
 	}
 	return nil
+}
+
+// SetSopsAgeKeyResolver sets the function that finds the age key file of this
+// KB; it runs on each SopsAgeKey call, so it must be cheap and safe to call
+// concurrently.
+func (k *KB) SetSopsAgeKeyResolver(f func() string) { k.sopsAgeKey.Store(&f) }
+
+// SetSopsAgeKeyFile sets a constant age key path ("" for none).
+func (k *KB) SetSopsAgeKeyFile(path string) {
+	k.SetSopsAgeKeyResolver(func() string { return path })
+}
+
+// SopsAgeKey is the age key file path now, "" when there is none.
+func (k *KB) SopsAgeKey() string {
+	if f := k.sopsAgeKey.Load(); f != nil && *f != nil {
+		return (*f)()
+	}
+	return ""
 }
