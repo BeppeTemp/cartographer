@@ -66,6 +66,12 @@ if (!caps.has("default")) {
   console.error('record: film/max-bytes.txt has no "default" line');
   process.exit(1);
 }
+// WebP quality (img2webp -q) per film. The launch film at 82 s with q85 is estimated at about 27 MB, over its cap in
+// film/max-bytes.txt, which would fail film.yml and block the release candidate (D1068). q80 is chosen to fit; the first
+// render measures it. Lower the quality before cutting a scene.
+const LAUNCH_QUALITY = 80;
+const DEFAULT_QUALITY = 85;
+const quality = film === "launch" ? LAUNCH_QUALITY : DEFAULT_QUALITY;
 const maxEnv = process.env.FILM_MAX_BYTES;
 if (maxEnv !== undefined && maxEnv !== "" && !new RegExp(`^${BYTES}$`).test(maxEnv)) {
   console.error(`record: FILM_MAX_BYTES must be a positive number of bytes, at most 15 digits, got "${maxEnv}"`);
@@ -130,10 +136,10 @@ if (!stills.size) {
   // -exact is img2webp 1.4+: the CI runner's Ubuntu ships 1.3, which refuses it. Without it the key frames still bound
   // a ghost stripe to half a second.
   const exact = img2webpHas("-exact") ? ["-exact"] : [];
-  execFileSync("img2webp", ["-loop", "0", "-d", String(Math.round((1000 * step) / rate)), "-lossy", "-q", "85", "-m", "4", ...exact, "-kmin", "14", "-kmax", "15", ...pngs, "-o", webp], { stdio: "inherit" });
+  execFileSync("img2webp", ["-loop", "0", "-d", String(Math.round((1000 * step) / rate)), "-lossy", "-q", String(quality), "-m", "4", ...exact, "-kmin", "14", "-kmax", "15", ...pngs, "-o", webp], { stdio: "inherit" });
   const size = fs.statSync(webp).size;
   if (size > maxBytes) {
-    console.error(`record: ${path.relative(path.join(here, ".."), webp)} is ${size} bytes, over the cap of ${maxBytes} bytes (FILM_MAX_BYTES): shorten the film, or lower the WebP quality (-q) at the img2webp call`);
+    console.error(`record: ${path.relative(path.join(here, ".."), webp)} is ${size} bytes, over the cap of ${maxBytes} bytes (film/max-bytes.txt, or FILM_MAX_BYTES): shorten the film, or lower the WebP quality (LAUNCH_QUALITY / DEFAULT_QUALITY in record.mjs) used at the img2webp call`);
     process.exit(1);
   }
 }

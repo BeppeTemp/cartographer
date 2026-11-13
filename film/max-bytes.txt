@@ -1,5 +1,5 @@
 # The size cap of each film's WebP, the one source record.mjs (the render job) and publish.sh (the publish job) both read.
 # `<film> <bytes>`; a film with no line takes `default`. FILM_MAX_BYTES overrides every film's cap in both.
 default 8388608
-# The launch film is about 20 MB: its cap is today's size plus room, the others start smaller.
+# The launch film is about 20 MB at 60 s; the 82 s film is encoded at q80 to fit: its cap is that size plus room, the others start smaller.
 launch 25165824

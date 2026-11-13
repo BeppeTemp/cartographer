@@ -15,7 +15,8 @@ import { H, W, clamp01, defineFilm, easeInOut, easeOut, fade, lerp, mk, prog, re
 const FPS = 60;
 // Story time: every beat below is authored in the seconds of the first cut. The film plays them slower,
 // so each line can be read at README size (the opening most), while the engine keeps real time.
-const WARP: [number, number][] = [[0, 0], [11.4, 7], [53.4, 40], [60, 46.6]]; // [film s, story s]
+// Scene G (the four components, story 40 to 62) plays 1:1, so each component is held for its 5 s; the pairs before it are scene A-E's.
+const WARP: [number, number][] = [[0, 0], [11.4, 7], [53.4, 40], [75.4, 62], [82, 68.6]]; // [film s, story s]
 const DURATION = WARP[WARP.length - 1]![0];
 function story(T: number): number {
   for (let k = 1; k < WARP.length; k++) {
@@ -32,6 +33,7 @@ const CARD_W = 820;
 const NEW_ID = "team/staging-deploys";
 const ROLLBACK_ID = "runbooks/rollback";
 const FLAGS_ID = "decisions/feature-flags";
+const SURV_ID = "team/release-notes"; // the note the Surveyor adds in scene G
 
 // The cast: one person, one coding agent, one colour (avatar, title-bar dot, note border, connection line).
 const CAST = [
@@ -145,7 +147,7 @@ const cap = (s: string, wide = false) => {
 };
 const capA1 = cap("Four people, each with their own coding agents.", true);
 const capA2 = cap("What one agent learns stays on one laptop.", true);
-const capB = cap('Cartographer gives them<br>one shared wiki.<div class="sub24">over MCP · Markdown in git</div>');
+const capB = cap('Cartographer gives them one shared wiki.<br>Four components, one binary.<div class="sub24">over MCP · Markdown in git</div>');
 const capC = cap("Alice finds out why staging<br>breaks. Her agent writes it down.");
 const capD = cap("Marco — another laptop, another agent —<br>picks it up the next morning.");
 const capE1 = cap("Everyone’s agents add to it.");
@@ -171,9 +173,56 @@ const noteBad = mk("div", "note bad", "stagin-deploy", "left:0;top:0");
 noteBad.style.borderColor = CAST[3]!.color;
 noteBad.style.color = CAST[3]!.color;
 const tag = mk("div", "tag", "✗ broken link [[infra/stagin]]", "left:0;top:0");
+
+// --- scene G: the four components ------------------------------------------
+// Created before the veil, so the end card covers them. They are named in the order D1867 fixes: Meridian, Surveyor, Atlas, Compass.
+const G_MERIDIAN = 40.8;
+const G_SURVEYOR = 45.8;
+const G_ATLAS = 50.8;
+const G_COMPASS = 55.8;
+const EC = 62.0; // when the end card's veil starts: scene G runs from story second 40 to here
+const COMPONENTS = [
+  { name: "Meridian", color: "var(--carto-accent)", text: "The server. The only writer of a KB. MCP over HTTP." },
+  { name: "Surveyor", color: "var(--carto-clay-text)", text: "A headless agent that keeps the wiki in order: ingest, repair, review." },
+  { name: "Atlas", color: "var(--carto-info)", text: "The read-only web UI, embedded in Meridian." },
+  { name: "Compass", color: "var(--carto-warning)", text: "On every laptop: connect, sync, the local bridge. Skills, hooks and instructions reach each agent in its own format." },
+];
+const dayG = mk("div", "day", "The four components.", `left:${COL}px;top:56px`);
+const capG = cap("Each does one job.");
+const compList = mk("div", "", COMPONENTS.map((c) => `<div class="comp" style="border-left-color:${c.color}"><b>${c.name}</b><span>${c.text}</span></div>`).join(""), `left:${COL}px;top:604px;width:840px;display:flex;flex-direction:column;gap:18px`);
+const compEls = Array.from(compList.children) as HTMLElement[];
+
+// Meridian: a frame around the graph (the graph is the KB), labelled, with a lock.
+const FRAME = { x: 990, y: 130, w: 910, h: 860 };
+const gfx = document.createElementNS(SVG, "svg");
+gfx.setAttribute("viewBox", `0 0 ${W} ${H}`);
+gfx.style.cssText = "position:absolute;left:0;top:0;width:1920px;height:1080px;pointer-events:none";
+stage.appendChild(gfx);
+const meridianFrame = document.createElementNS(SVG, "rect");
+for (const [k, v] of Object.entries({ x: FRAME.x, y: FRAME.y, width: FRAME.w, height: FRAME.h, rx: 28, fill: "none", stroke: "var(--carto-accent)", "stroke-width": 3, opacity: 0 })) meridianFrame.setAttribute(k, String(v));
+// Surveyor: a dotted line from its card, outside the frame, to the note it adds in the graph.
+const SRV_FROM = [1300, 106];
+const srvLine = document.createElementNS(SVG, "line");
+for (const [k, v] of Object.entries({ x1: SRV_FROM[0]!, y1: SRV_FROM[1]!, x2: SRV_FROM[0]!, y2: SRV_FROM[1]!, stroke: "var(--carto-clay-text)", "stroke-width": 4, "stroke-dasharray": "2 12", "stroke-linecap": "round", opacity: 0 })) srvLine.setAttribute(k, String(v));
+gfx.append(meridianFrame, srvLine);
+const LOCK = '<svg width="24" height="28" viewBox="0 0 26 30" style="flex:none"><rect x="2" y="12" width="22" height="16" rx="4" fill="currentColor"/><path d="M7 12V8a6 6 0 0 1 12 0v4" fill="none" stroke="currentColor" stroke-width="3"/></svg>';
+const meridianTab = mk("div", "chip", `${LOCK}<b>Meridian</b><span>MCP over HTTP</span>`, `left:${FRAME.x + 30}px;top:${FRAME.y + 22}px`);
+const srvCard = mk("div", "srv", "<b>Surveyor</b><span>ingest · repair · review</span>", "left:1010px;top:26px;width:580px;height:80px");
+// Atlas: a browser window over the graph.
+const MINI =
+  CLUSTER_EDGES.map(([a, b]) => `<line x1="${CLUSTER[a!]![0]}" y1="${CLUSTER[a!]![1]}" x2="${CLUSTER[b!]![0]}" y2="${CLUSTER[b!]![1]}" stroke="var(--carto-info)" stroke-opacity="0.45" stroke-width="3"/>`).join("") +
+  CLUSTER.map(([x, y], k) => `<circle cx="${x}" cy="${y}" r="${k % 3 === 0 ? 13 : 10}" fill="var(--carto-info)" fill-opacity="${k % 2 ? 0.55 : 0.9}"/>`).join("");
+const atlasWin = mk("div", "win", `<div class="wbar"><i></i><i></i><i></i><b>Atlas</b><em>read-only</em></div><div class="wbody"><div class="sk" style="width:62%"></div><div class="sk" style="width:84%"></div><svg width="324" height="120" style="margin-top:22px">${MINI}</svg></div>`, "left:1310px;top:680px;width:560px;height:290px");
+// Compass: a tag on the line of each person's agent, between the laptop and Meridian.
+const compassPills = CAST.map((_, i) => mk("div", "cpill", "Compass", `left:700px;top:${rowY(i) - 22}px`));
+/** A component's moment: it appears at `at` and, when `next` is given, dims to 45 % once the next component lights. */
+const beat = (t: number, at: number, next?: number) => reveal(t, at) * (next === undefined ? 1 : 1 - 0.55 * prog(t, next, 0.5));
+
 // Created before the veil, so the end card covers them.
 const LABEL_CSS = "left:0;top:0;font:26px Georgia,serif;color:#252824;background:#FCFAF6;border:1px solid #DCDDD5;border-radius:8px;padding:4px 10px;white-space:nowrap;visibility:hidden";
-const LABELS = [NEW_ID, ROLLBACK_ID, FLAGS_ID].map((id) => ({ id, el: mk("div", "", id.split("/")[1]!, LABEL_CSS) }));
+const LABEL_CLAY = LABEL_CSS.replace("1px solid #DCDDD5", "2px solid var(--carto-clay-text)"); // the Surveyor's note: a clay border, nobody's colour
+const LABELS = [NEW_ID, ROLLBACK_ID, FLAGS_ID, SURV_ID].map((id) => ({ id, el: mk("div", "", id.split("/")[1]!, id === SURV_ID ? LABEL_CLAY : LABEL_CSS) }));
+
 const veil = mk("div", "", "");
 veil.id = "veil";
 const logo = mk("img", "", "", "left:310px;top:392px;width:150px;height:150px") as HTMLImageElement;
@@ -312,6 +361,7 @@ function addNode(id: string, anchorId: string, targets: string[], colour: string
 const addStaging = () => addNode(NEW_ID, "infra/ci", ["infra/ci", "services/api", "runbooks/deploy"], slots[6]!);
 const addRollback = () => addNode(ROLLBACK_ID, "runbooks/deploy", ["runbooks/deploy", "services/api", "infra/k8s"], colourOf.get("runbooks/deploy")!);
 const addFlags = () => addNode(FLAGS_ID, "decisions/adopt-k8s", ["decisions/adopt-k8s", "services/gateway", "infra/k8s"], colourOf.get("decisions/adopt-k8s")!);
+const addSurveyed = () => addNode(SURV_ID, "services/api", ["services/api", "infra/ci"], css("--carto-clay-text"));
 function select() {
   selected = NEW_ID;
   const deg = new Map<string, number>();
@@ -350,6 +400,7 @@ const EVENTS: { t: number; run: () => void; done?: boolean }[] = [
   { t: 31.8, run: release },
   { t: 34.6, run: addRollback },
   { t: 36.1, run: addFlags },
+  { t: 46.4, run: addSurveyed },
 ];
 
 // --- the frame ------------------------------------------------------------
@@ -380,7 +431,7 @@ function overlays(tFilm: number) {
   const t = tFilm;
   // contours: drift a few px per second
   for (const c of CONTOURS) {
-    const t = Math.min(tFilm, 44); // the end card holds still from 44 s
+    const t = Math.min(tFilm, EC + 4); // the end card holds still from 4 s after its veil starts
     let d = "";
     for (let x = -40; x <= W + 40; x += 40) d += `${x === -40 ? "M" : "L"}${x} ${(c.y + c.amp * Math.sin(c.k * (x + c.v * t) + c.ph) + c.amp * 0.35 * Math.sin(c.k * 2.3 * (x + c.v * t))).toFixed(1)} `;
     c.p.setAttribute("d", d);
@@ -401,7 +452,7 @@ function overlays(tFilm: number) {
   vis(capB, reveal(t, 7.8) * fade(t, 11.7, 0.4), 16);
   rows.forEach((r, i) => {
     const present = prog(t, FLY + 0.12 * i + 0.6, 0.4);
-    const act = windows(t, ACTIVE[i]!);
+    const act = Math.max(windows(t, ACTIVE[i]!), prog(t, G_COMPASS, 0.5)); // Compass lights all four laptops
     vis(r.el, present * (0.35 + 0.65 * act));
     r.bar.style.opacity = String(act * prog(t, 12.0, 0.4));
     const l = connLines[i]!;
@@ -459,13 +510,23 @@ function overlays(tFilm: number) {
     ring.style.opacity = String(Math.sin(Math.PI * p) * 0.9);
     ring.style.transform = `scale(${(0.97 + 0.06 * p).toFixed(3)})`;
   }
+  // G: the four components. Each is held 5 s and stays dimmed once the next lights.
+  vis(dayG, reveal(t, 40.1), 16);
+  vis(capG, reveal(t, 40.5), 16);
+  const lit = [beat(t, G_MERIDIAN, G_SURVEYOR), beat(t, G_SURVEYOR, G_ATLAS), beat(t, G_ATLAS, G_COMPASS), beat(t, G_COMPASS)];
+  lit.forEach((o, k) => vis(compEls[k]!, o, 16));
+  meridianFrame.setAttribute("opacity", String(lit[0]!));
+  vis(meridianTab, lit[0]!, 10);
+  vis(srvCard, lit[1]!, 12);
+  vis(atlasWin, lit[2]!, 16);
+  compassPills.forEach((p, i) => vis(p, reveal(t, G_COMPASS + 0.5 + 0.25 * i, 0.5), 10));
   // F: the end card
-  veil.style.opacity = String(easeInOut(prog(t, 40.0, 0.5)));
-  vis(logo, reveal(t, 40.9, 0.8));
-  vis(word, easeOut(prog(t, 41.6, 0.8)), 0, `translateX(${(-12 * (1 - easeOut(prog(t, 41.6, 0.8)))).toFixed(2)}px)`);
-  vis(sub, reveal(t, 42.3), 16);
-  vis(url, reveal(t, 42.9), 16);
-  vis(agents, reveal(t, 43.4), 16);
+  veil.style.opacity = String(easeInOut(prog(t, EC, 0.5)));
+  vis(logo, reveal(t, EC + 0.9, 0.8));
+  vis(word, easeOut(prog(t, EC + 1.6, 0.8)), 0, `translateX(${(-12 * (1 - easeOut(prog(t, EC + 1.6, 0.8)))).toFixed(2)}px)`);
+  vis(sub, reveal(t, EC + 2.3), 16);
+  vis(url, reveal(t, EC + 2.9), 16);
+  vis(agents, reveal(t, EC + 3.4), 16);
 }
 
 // Labels follow their node's projected position, ~18 px right of its on-screen radius.
@@ -474,6 +535,7 @@ const labelOpacity: Record<string, (t: number) => number> = {
   [NEW_ID]: (t) => Math.max(reveal(t, 18.0, 0.4) * fade(t, 19.6, 0.6) * (t < 22 ? 1 : 0), reveal(t, 25.5, 0.4) * fade(t, 31.4, 0.5) * (t >= 25.5 ? 1 : 0)),
   [ROLLBACK_ID]: (t) => reveal(t, 34.6, 0.4) * fade(t, 35.4, 0.4),
   [FLAGS_ID]: (t) => reveal(t, 36.0, 0.4) * fade(t, 38.0, 0.5),
+  [SURV_ID]: (t) => reveal(t, 46.8, 0.4), // stays until the end card covers it
 };
 function placeLabels(t: number) {
   const shown: DOMRect[] = [];
@@ -498,6 +560,18 @@ function placeLabels(t: number) {
   }
 }
 
+/** The Surveyor's dotted line runs from its card to the note it added, wherever the camera has put that note. */
+function placeSurveyorLine(t: number) {
+  const node = sc.nodeById(SURV_ID);
+  const p = node ? sc.project(node) : null;
+  const tx = p ? GX + p.x : gctr.x;
+  const ty = p ? p.y : gctr.y;
+  const g = easeInOut(prog(t, G_SURVEYOR + 0.8, 1.2));
+  srvLine.setAttribute("x2", String(lerp(SRV_FROM[0]!, tx, g)));
+  srvLine.setAttribute("y2", String(lerp(SRV_FROM[1]!, ty, g)));
+  srvLine.setAttribute("opacity", String(g > 0 ? beat(t, G_SURVEYOR, G_ATLAS) : 0));
+}
+
 async function frame(n: number) {
   if (n === 0) measureCards(); // the fonts are loaded by now (defineFilm waits for them before frame 0)
   const T = n / FPS;
@@ -506,6 +580,7 @@ async function frame(n: number) {
   overlays(t);
   sc.renderFrame(T * 1000);
   placeLabels(t);
+  placeSurveyorLine(t);
   // Copy before awaiting: the WebGL canvas holds its frame only for the length of the task.
   gctx.drawImage(sc.canvas, 0, 0);
 }

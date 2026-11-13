@@ -38,3 +38,23 @@ html, body { margin: 0; height: 100%; background: #f5f2eb; overflow: hidden; }
 .wordmark { font-size: 112px; letter-spacing: -0.02em; white-space: nowrap; }
 .sub { font-size: 44px; color: var(--carto-text-muted); white-space: nowrap; }
 .url { font: 26px var(--carto-font-code); color: var(--carto-text-muted); white-space: nowrap; }
+/* Scene G of the launch film: the four components (the colours are the brand's, one per component). */
+.comp { display: flex; align-items: flex-start; gap: 24px; border-left: 4px solid var(--carto-accent); padding-left: 20px; }
+.comp b { flex: none; width: 190px; font-weight: normal; font-size: 40px; line-height: 1.25; }
+.comp span { font-size: 28px; line-height: 1.25; padding-top: 5px; }
+.chip { display: flex; align-items: center; gap: 14px; padding: 8px 18px; background: var(--carto-background); border: 2px solid var(--carto-accent);
+  border-radius: 14px; color: var(--carto-accent); font-size: 32px; white-space: nowrap; }
+.chip b { font-weight: normal; }
+.chip span { font: 22px var(--carto-font-code); color: var(--carto-text-muted); }
+.srv { box-sizing: border-box; display: flex; align-items: center; gap: 20px; padding: 0 26px; background: #191F1C; color: #EEEDE5;
+  border-left: 6px solid var(--carto-clay-text); border-radius: 18px; box-shadow: 0 24px 50px rgba(37,40,36,.2); white-space: nowrap; }
+.srv b { font-weight: normal; font-size: 34px; }
+.srv span { font: 22px var(--carto-font-code); color: #AFB9AE; }
+.win { box-sizing: border-box; background: var(--carto-surface); border: 2px solid var(--carto-info); border-radius: 18px; box-shadow: 0 30px 60px rgba(37,40,36,.18); overflow: hidden; }
+.win .wbar { height: 56px; background: var(--carto-info); display: flex; align-items: center; gap: 10px; padding: 0 22px; color: #FCFAF6; font-size: 28px; }
+.win .wbar i { width: 13px; height: 13px; border-radius: 50%; background: rgba(252,250,246,.55); display: block; }
+.win .wbar b { font-weight: normal; margin-left: 10px; }
+.win .wbar em { font: 20px var(--carto-font-code); font-style: normal; margin-left: auto; }
+.win .wbody { padding: 24px 28px; }
+.win .sk { height: 14px; border-radius: 7px; background: var(--carto-border); margin-bottom: 14px; }
+.cpill { box-sizing: border-box; height: 44px; padding: 0 18px; line-height: 44px; background: var(--carto-warning); color: #FCFAF6; font: 24px/44px var(--carto-font-code); border-radius: 12px; white-space: nowrap; }
