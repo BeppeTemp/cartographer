@@ -7,6 +7,7 @@
 package docskb
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -60,6 +61,7 @@ var (
 type page struct {
 	src, slug, title, contents string
 	text                       string // the source, ready to cut
+	listsDecisions             bool   // its generated decisions list was replaced by the decisions map
 }
 
 type mapDef struct {
@@ -68,9 +70,11 @@ type mapDef struct {
 }
 
 type gen struct {
-	out map[string][]byte
-	ref string
-	err error
+	out     map[string][]byte
+	ref     string
+	errs    []error
+	targets map[string]target // source file -> the concept it became
+	byNum   map[int]string    // decision number -> concept id
 }
 
 // Generate returns the KB as a map of slash-separated paths to bytes. src is
@@ -82,22 +86,46 @@ func Generate(src fs.FS, ref string) (map[string][]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	g := &gen{out: map[string][]byte{}, ref: ref}
-	for _, m := range maps {
-		for _, pg := range m.pages {
-			if err := g.page(m, pg); err != nil {
-				return nil, fmt.Errorf("%s: %w", pg.src, err)
-			}
-		}
-	}
 	decs, err := readDecisions(src)
 	if err != nil {
 		return nil, err
 	}
+	g := &gen{out: map[string][]byte{}, ref: ref, targets: map[string]target{}, byNum: map[int]string{}}
+	// Plan every page before writing any, so a link can name a section of a
+	// page that comes later.
+	var plans []*plan
+	for _, m := range maps {
+		for _, pg := range m.pages {
+			pl := g.plan(m, pg)
+			plans = append(plans, pl)
+			if pg.listsDecisions { // the list's topic anchors are the topic concepts
+				for _, t := range topicsOf(decs) {
+					pl.anchors[t.Slug] = topicID(t.Slug)
+				}
+			}
+			g.targets[pg.src] = target{id: pl.id, anchors: pl.anchors}
+		}
+	}
+	for _, d := range decs {
+		id := decisionMap + "/" + d.id
+		anchors := map[string]string{}
+		for _, n := range scan(strings.Split(d.body, "\n")).nodes {
+			anchors[n.anchor] = id
+		}
+		g.targets[d.file] = target{id: id, anchors: anchors}
+		if d.num > 0 && strings.HasPrefix(d.id, "d") && !strings.HasPrefix(d.id, "ad") {
+			g.byNum[d.num] = id
+		}
+	}
+	for _, pl := range plans {
+		g.emitPage(pl)
+	}
 	g.decisions(decs)
+	g.topics(decs)
 	g.indexes(maps, decs)
-	if g.err != nil {
-		return nil, g.err
+	g.registry()
+	if len(g.errs) > 0 {
+		return nil, errors.Join(g.errs...)
 	}
 	return g.out, nil
 }
@@ -202,6 +230,7 @@ func readMaps(src fs.FS) ([]*mapDef, error) {
 			if pg.src == "docs/index.md" {
 				text = strings.Join(kept, "\n")
 			}
+			pg.listsDecisions = strings.Contains(text, repodocs.IndexBegin)
 			pg.text = repodocs.StripGeneratedBlocks(text)
 		}
 	}
@@ -217,8 +246,8 @@ func readMaps(src fs.FS) ([]*mapDef, error) {
 }
 
 func (g *gen) put(name, front, body string) {
-	if _, dup := g.out[name]; dup && g.err == nil {
-		g.err = fmt.Errorf("%s: generated twice", name)
+	if _, dup := g.out[name]; dup {
+		g.errs = append(g.errs, fmt.Errorf("%s: generated twice", name))
 	}
 	g.out[name] = []byte("---\n" + front + "\n---\n\n" + strings.TrimRight(body, "\n") + "\n")
 }
@@ -267,8 +296,20 @@ type unit struct {
 }
 
 type builder struct {
-	title string
-	used  map[string]bool
+	title   string
+	used    map[string]bool
+	anchors map[string]string // heading anchor -> slug of the unit that holds it
+}
+
+// hold records that the unit slug holds the heading n and, when it is not split
+// below, every heading under it.
+func (b *builder) hold(n *node, slug string, deep bool) {
+	b.anchors[n.anchor] = slug
+	if deep {
+		for _, k := range n.kids {
+			b.hold(k, slug, true)
+		}
+	}
 }
 
 func (b *builder) fresh(base string, ord int) string {
@@ -296,12 +337,14 @@ func (b *builder) unit(n *node, path []string) *unit {
 		anchor: n.anchor,
 	}
 	if size(n) > softCap && len(n.kids) > 0 {
+		b.hold(n, u.slug, false)
 		u.body = trimBlank(n.own)
 		for _, k := range n.kids {
 			u.kids = append(u.kids, b.unit(k, path))
 		}
 		return u
 	}
+	b.hold(n, u.slug, true)
 	u.body = trimBlank(render(n))
 	if bytesOf(u.body) > hardCap {
 		ps := parts(u.body, softCap)
@@ -313,7 +356,18 @@ func (b *builder) unit(n *node, path []string) *unit {
 	return u
 }
 
-func (g *gen) page(m *mapDef, pg page) error {
+// plan is a page cut into units, before any link is resolved.
+type plan struct {
+	m       *mapDef
+	pg      page
+	id      string
+	title   string
+	lead    []string
+	top     []*unit // nil for a page with no H2
+	anchors map[string]string
+}
+
+func (g *gen) plan(m *mapDef, pg page) *plan {
 	p := scan(strings.Split(pg.text, "\n"))
 	title := p.title
 	if title == "" {
@@ -322,17 +376,34 @@ func (g *gen) page(m *mapDef, pg page) error {
 	if title == "" {
 		title = pg.slug
 	}
-	id := m.slug + "/" + pg.slug
-	tags := []string{pg.slug, m.slug}
-	lead := trimBlank(p.lead)
+	pl := &plan{m: m, pg: pg, id: m.slug + "/" + pg.slug, title: title, lead: trimBlank(p.lead), anchors: map[string]string{}}
 	if len(p.h2) == 0 {
-		g.put("data/"+id+".md", front("type", "Doc", "title", title, "description", firstSentence(lead, descMax), "tags", tags, "provenance", []string{pg.src}, "origin", "external", "source_url", g.sourceURL(pg.src, "")), "# "+title+"\n\n"+join(lead))
-		return nil
+		return pl
 	}
-	b := &builder{title: title, used: map[string]bool{"index": true}}
-	var top []*unit
+	b := &builder{title: title, used: map[string]bool{"index": true}, anchors: map[string]string{}}
 	for _, n := range p.h2 {
-		top = append(top, b.unit(n, nil))
+		pl.top = append(pl.top, b.unit(n, nil))
+	}
+	for a, slug := range b.anchors {
+		pl.anchors[a] = pl.id + "/" + slug
+	}
+	return pl
+}
+
+func (g *gen) emitPage(pl *plan) {
+	m, pg, id, title := pl.m, pl.pg, pl.id, pl.title
+	tags := []string{pg.slug, m.slug}
+	pl.anchors[githubAnchor(plainText(title))] = id // the H1's anchor is the page itself
+	lead, linked := g.rewrite(pg.src, pg.text, pl.lead)
+	citedLine := func(lines []string, self string, linked map[string]bool) string {
+		if c := g.cited(lines, self, linked); c != "" {
+			return "\n\n" + c
+		}
+		return ""
+	}
+	if pl.top == nil {
+		g.put("data/"+id+".md", front("type", "Doc", "title", title, "description", firstSentence(pl.lead, descMax), "tags", tags, "provenance", []string{pg.src}, "origin", "external", "source_url", g.sourceURL(pg.src, "")), "# "+title+"\n\n"+join(lead)+citedLine(lead, "", linked))
+		return
 	}
 	var emit func(us []*unit)
 	emit = func(us []*unit) {
@@ -345,7 +416,8 @@ func (g *gen) page(m *mapDef, pg page) error {
 				return fmt.Sprintf("%s (part %d)", all[i].title, i+1)
 			}
 			for i, pt := range all {
-				body := join(pt.body)
+				text, linked := g.rewrite(pg.src, pg.text, pt.body)
+				body := join(text)
 				if len(u.kids) > 0 && i == 0 {
 					body += "\n\n## Subsections\n\n" + g.list(id, u.kids, false)
 				}
@@ -360,19 +432,18 @@ func (g *gen) page(m *mapDef, pg page) error {
 					}
 				}
 				g.put("data/"+id+"/"+pt.slug+".md", front("type", "DocSection", "title", name(i), "description", firstSentence(pt.body, descMax), "tags", tags, "provenance", []string{pg.src}, "origin", "external", "source_url", g.sourceURL(pg.src, u.anchor)),
-					"# "+name(i)+"\n\n"+strings.TrimSpace(body)+"\n\n"+foot)
+					"# "+name(i)+"\n\n"+strings.TrimSpace(body)+"\n\n"+foot+citedLine(text, "", linked))
 			}
 			emit(u.kids)
 		}
 	}
-	emit(top)
+	emit(pl.top)
 	body := "# " + title + "\n\n"
 	if len(lead) > 0 {
 		body += join(lead) + "\n\n"
 	}
-	body += "## Sections\n\n" + g.list(id, top, true)
-	g.put("data/"+id+"/index.md", front("type", "Doc", "title", title, "description", firstSentence(lead, descMax), "tags", tags, "provenance", []string{pg.src}, "origin", "external", "source_url", g.sourceURL(pg.src, "")), body)
-	return nil
+	body += "## Sections\n\n" + g.list(id, pl.top, true)
+	g.put("data/"+id+"/index.md", front("type", "Doc", "title", title, "description", firstSentence(pl.lead, descMax), "tags", tags, "provenance", []string{pg.src}, "origin", "external", "source_url", g.sourceURL(pg.src, "")), body+citedLine(lead, "", linked))
 }
 
 // list is the bullet list of units: id, title and first sentence. The page
@@ -469,7 +540,52 @@ func readDecisions(src fs.FS) ([]decision, error) {
 
 func (g *gen) decisions(ds []decision) {
 	for _, d := range ds {
-		g.put("data/"+decisionMap+"/"+d.id+".md", front("type", "Decision", "title", d.title, "description", d.desc, "tags", []string{d.topic}, "provenance", []string{d.file}, "origin", "external", "source_url", g.sourceURL(d.file, "")), d.body)
+		lines, linked := g.rewrite(d.file, d.body, strings.Split(d.body, "\n"))
+		body := strings.TrimRight(join(lines), "\n") + "\n\nTopic: " + link(topicID(d.topic), topicTitle(d.topic)) + "."
+		if c := g.cited(lines, decisionMap+"/"+d.id, linked); c != "" {
+			body += "\n\n" + c
+		}
+		g.put("data/"+decisionMap+"/"+d.id+".md", front("type", "Decision", "title", d.title, "description", d.desc, "tags", []string{d.topic}, "provenance", []string{d.file}, "origin", "external", "source_url", g.sourceURL(d.file, "")), body)
+	}
+}
+
+func topicID(slug string) string { return decisionMap + "/topic-" + slug }
+
+func topicTitle(slug string) string {
+	for _, t := range repodocs.TopicOrder {
+		if t.Slug == slug {
+			return t.Title
+		}
+	}
+	return slug
+}
+
+// topicsOf is the topics that have at least one decision, in TopicOrder.
+func topicsOf(ds []decision) []struct{ Slug, Title string } {
+	var out []struct{ Slug, Title string }
+	for _, t := range repodocs.TopicOrder {
+		for _, d := range ds {
+			if d.topic == t.Slug {
+				out = append(out, t)
+				break
+			}
+		}
+	}
+	return out
+}
+
+// topics writes one concept per topic, listing its decisions: what the anchors
+// of the dropped decisions list stand for, and the one link every decision has.
+func (g *gen) topics(ds []decision) {
+	for _, t := range topicsOf(ds) {
+		desc := "The decisions recorded under " + t.Title + "."
+		body := "# " + t.Title + "\n\n" + desc + "\n\n"
+		for _, d := range ds {
+			if d.topic == t.Slug {
+				body += "- " + link(decisionMap+"/"+d.id, d.title) + "\n"
+			}
+		}
+		g.put("data/"+topicID(t.Slug)+".md", front("type", "DecisionTopic", "title", t.Title, "description", desc, "tags", []string{t.Slug}, "provenance", []string{"docs/decisions"}, "origin", "external"), body)
 	}
 }
 
@@ -495,12 +611,13 @@ func (g *gen) indexes(maps []*mapDef, ds []decision) {
 			}
 			if first {
 				body += "\n### " + t.Title + "\n\n"
+				body += fmt.Sprintf("- [[%s]] — all the decisions of this topic\n", topicID(t.Slug))
 				first = false
 			}
 			body += fmt.Sprintf("- [[%s/%s]] — %s\n", decisionMap, d.id, d.title)
 		}
 	}
-	g.mapFiles(decisionMap, "Decisions", desc, "[Decision]", body)
+	g.mapFiles(decisionMap, "Decisions", desc, "[Decision, DecisionTopic]", body)
 	root += "- [Decisions](" + decisionMap + "/index.md) — " + desc + "\n"
 	g.put("data/index.md", front("type", "Index", "title", "Cartographer documentation"), root)
 	g.put("instructions.md", front("perimeter", "docs"), "# How to use this KB\n\nThis is the documentation of Cartographer "+g.ref+", written as a knowledge base: ask it how Cartographer works and why.\n"+

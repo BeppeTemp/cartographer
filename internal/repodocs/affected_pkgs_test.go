@@ -49,7 +49,7 @@ func TestAffectedPackagesSeedTable(t *testing.T) {
 		{"embedded skill belongs to the embedding package", []string{"internal/skillbundle/bundled/cartographer-ops/SKILL.md"}, "./internal/skillbundle"},
 		{"nested command", []string{"internal/webui/gen/main.go"}, "./internal/webui/gen ./internal/procattr ./internal/repodocs ./internal/boundaries"},
 		{"frontend is hashed by webui", []string{"web/src/lib/health.ts"}, "./internal/webui"},
-		{"markdown is read by repodocs and the tool-citation check", []string{"docs/testing.md"}, "./internal/repodocs ./internal/mcpserver"},
+		{"markdown is read by repodocs, the tool-citation check and the docs KB gate", []string{"docs/testing.md"}, "./internal/repodocs ./internal/mcpserver ./internal/docskb"},
 		{"scripts and workflows are read by repodocs", []string{"scripts/signoff.sh", ".github/workflows/ci.yml", "Makefile"}, "./internal/repodocs"},
 		{"the module selects everything", []string{"docs/testing.md", "go.sum"}, "./..."},
 		{"duplicates collapse", []string{"internal/kb/a.go", "internal/kb/b.go"}, "./internal/kb ./internal/procattr ./internal/repodocs ./internal/boundaries"},
@@ -107,7 +107,7 @@ func affected(t *testing.T, paths []string, args ...string) string {
 // selection, leaves the readers out.
 func TestAffectedPackagesDoesNotExpandReaders(t *testing.T) {
 	needBash(t)
-	if got := affected(t, []string{"docs/testing.md", "scripts/land.sh"}); got != "./internal/mcpserver ./internal/repodocs" {
+	if got := affected(t, []string{"docs/testing.md", "scripts/land.sh"}); got != "./internal/docskb ./internal/mcpserver ./internal/repodocs" {
 		t.Errorf("docs and scripts select %q, want only their readers", got)
 	}
 	if got := affected(t, []string{"docs/testing.md", "web/src/lib/health.ts"}, "--code"); got != "" {
