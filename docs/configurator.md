@@ -331,6 +331,14 @@ directory that is not there any more and `[derived: paths.yaml of kb-a]` next to
 server-push stream; if `cartographer` is not on `PATH` when `sync` runs, the provider keeps its HTTP
 entry with a warning; a client with `roots` in an unbound folder gets a handshake naming no KB.
 
+**`cartographer mcp exec <kb>/<slug>`.** Starts the approved `mcp/<slug>.json` of a KB with its `${VAR}` and
+`${secret:<concept>#NAME}` references resolved into the child's environment: it reads the descriptor and each
+secret from Meridian (`secret_resolve` with `reveal`, so an `rw` token that allows secrets; every start is a
+reveal), refuses a descriptor that is not approved or changed since, and replaces itself with the command
+(Windows: a parent that forwards the interrupt and returns the exit code). Nothing is cached: an unreachable
+server stops with one line on stderr and starts nothing. stdout is the server's. An `http` descriptor is not
+served yet (exit 2). No sync emits this entry yet ([D2037](decisions/D2037-mcp-secret-launcher.md)).
+
 **`cartographer call` (no MCP).** For an agent that has a shell but cannot use MCP,
 `cartographer call --provider <p> <tool> [key=value…] [--json '<object>'|-]` sends one stateless
 `tools/call` and exits; `--list` prints `name<TAB>first sentence` per tool, `--describe <tool>` the
