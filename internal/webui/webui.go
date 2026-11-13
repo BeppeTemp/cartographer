@@ -35,6 +35,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/procattr"
 )
 
@@ -134,7 +135,11 @@ func SourceHash(root string) (string, int, error) {
 // the directories skipDir names. ok is false when root is not inside a git
 // work tree, git is missing, or it tracks nothing there.
 func trackedFiles(root string) ([]string, bool) {
-	out, err := procattr.Hide(exec.Command("git", "-C", root, "ls-files", "-z", "--", ".")).Output()
+	cmd := procattr.Hide(exec.Command("git", "-C", root, "ls-files", "-z", "--", "."))
+	// gitx.Env drops GIT_DIR and the other repository pins: root alone names the
+	// repository, as in every other git call of the client.
+	cmd.Env = gitx.Env()
+	out, err := cmd.Output()
 	if err != nil || len(out) == 0 {
 		return nil, false
 	}
