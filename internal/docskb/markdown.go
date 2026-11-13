@@ -121,7 +121,13 @@ func scan(lines []string) parsed {
 // their label, code spans, emphasis and HTML tags go.
 func plainText(s string) string {
 	s = linkRe.ReplaceAllString(s, "$1")
-	s = tagRe.ReplaceAllString(s, "")
+	// HTML tags go, but a code span is literal: `<subcommand>` stays, as it does
+	// in the anchor GitHub gives the heading.
+	parts := strings.Split(s, "`")
+	for i := 0; i < len(parts); i += 2 {
+		parts[i] = tagRe.ReplaceAllString(parts[i], "")
+	}
+	s = strings.Join(parts, "`")
 	s = strings.NewReplacer("`", "", "**", "", "__", "", "*", "").Replace(s)
 	return strings.Join(strings.Fields(s), " ")
 }

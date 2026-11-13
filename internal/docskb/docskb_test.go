@@ -156,6 +156,7 @@ func TestSizeCaps(t *testing.T) {
 	b.WriteString("## Block\n\n" + strings.Repeat("A single paragraph with no blank line. ", 600) + "\n")
 	m := fixture(t)
 	m[docs+"guide.md"] = &fstest.MapFile{Data: []byte(b.String())}
+	m[docs+"flat.md"] = &fstest.MapFile{Data: []byte("# A flat page\n\nNo links into the page above.\n")} // its fixture links name headings guide.md no longer has
 	files, err := Generate(m, "main")
 	if err != nil {
 		t.Fatal(err)
@@ -192,6 +193,9 @@ func TestErrors(t *testing.T) {
 		"unknown topic": {func(m fstest.MapFS) {
 			m[docs+"decisions/D1-first-choice.md"].Data = bytes.Replace(m[docs+"decisions/D1-first-choice.md"].Data, []byte("architecture"), []byte("nonsense"), 1)
 		}, docs + "decisions/D1-first-choice.md: missing or unknown `topic:`"},
+		"broken anchor": {func(m fstest.MapFS) {
+			m[docs+"flat.md"].Data = append(m[docs+"flat.md"].Data, []byte("\nSee [nowhere](guide.md#no-such-heading).\n")...)
+		}, docs + "flat.md:"},
 		"bad decision name": {func(m fstest.MapFS) { m[docs+"decisions/notes.md"] = &fstest.MapFile{Data: []byte("x")} }, docs + "decisions/notes.md: name is neither"},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -223,6 +227,21 @@ func TestSlugAndAnchor(t *testing.T) {
 	} {
 		if got := githubAnchor(in); got != want {
 			t.Errorf("githubAnchor(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestRef(t *testing.T) {
+	for in, want := range map[string]string{
+		"v0.29.0":            "v0.29.0",
+		"v0.29.0-rc.1":       "v0.29.0-rc.1",
+		"v0.28.0-5-gabc1234": "main",
+		"0.29.0":             "main",
+		"dev":                "main",
+		"":                   "main",
+	} {
+		if got := Ref(in); got != want {
+			t.Errorf("Ref(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

@@ -42,7 +42,7 @@ fi
 # checks read docs, scripts, workflows and the Makefile; internal/mcpserver checks
 # the tool names the markdown cites; internal/webui hashes web/.
 repo_readers="internal/repodocs"
-md_readers="internal/repodocs internal/mcpserver"
+md_readers="internal/repodocs internal/mcpserver internal/docskb"
 # Every test that scans the source of the whole tree: internal/procattr
 # (TestEveryChildProcessIsHidden), internal/repodocs and internal/boundaries (the
 # import graph of every package) read every package, so a Go file changed anywhere
