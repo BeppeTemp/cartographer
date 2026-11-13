@@ -315,7 +315,7 @@ remap_pick() {
   git diff "$1^" "$1" >"$patch"
   for pair in $pairs; do
     ph=${pair%%=*}
-    PH=$ph NUM=${pair#*=} perl -pi -e 'BEGIN { ($s = $ENV{PH}) =~ s/^D-new-//; } $t = /^diff --git .*_test\.go$/ if /^diff --git /; next if $t; s/\Q$ENV{PH}\E(?=\.md(?![a-z0-9-]))/$ENV{NUM}-$s/g; s/\Q$ENV{PH}\E(?![a-z0-9-])/$ENV{NUM}/g' "$patch"
+    PH=$ph NUM=${pair#*=} perl -pi -e 'BEGIN { ($s = $ENV{PH}) =~ s/^D-new-//; } $t = m{^diff --git .*(_test\.go|/testdata/.*)$} if /^diff --git /; next if $t; s/\Q$ENV{PH}\E(?=\.md(?![a-z0-9-]))/$ENV{NUM}-$s/g; s/\Q$ENV{PH}\E(?![a-z0-9-])/$ENV{NUM}/g' "$patch"
   done
   if git apply --index "$patch" >/dev/null 2>&1; then
     rm -f "$patch"
@@ -329,8 +329,8 @@ remap_pick() {
 
 # number_decisions: in the train worktree, after a cherry-pick, numbers the pending decisions
 # the commit adds and rewrites the known placeholders (MAP: "<placeholder>=D<n>" words) in
-# the files the commit touches. Text already on main is never rewritten, and test files
-# are left alone (fixtures may spell a placeholder). LEFT is set to a placeholder the
+# the files the commit touches. Text already on main is never rewritten, and test files and
+# anything under a testdata/ directory are left alone (fixtures may spell a placeholder). LEFT is set to a placeholder the
 # commit still cites that is neither on main nor earlier in the train. A citation of a
 # pending decision that main holds as D<n>-<slug>.md (its change landed in an earlier train) reads
 # as D<n>; a pending decision whose slug main already holds sets DUP to the reason. Not run in a
@@ -338,7 +338,8 @@ remap_pick() {
 number_decisions() {
   local f ph n pair num touched landed
   DUP=
-  touched=$(git diff-tree --no-commit-id --name-only -r HEAD | grep -v '_test\.go$' || true)
+  # Filtered once: every loop below (numbering, citations, rewrite, LEFT) walks only these files.
+  touched=$(git diff-tree --no-commit-id --name-only -r HEAD | grep -vE '_test\.go$|(^|/)testdata/' || true)
   for f in $(grep -E '^docs/decisions/D-new-[a-z0-9-]+\.md$' <<<"$touched" || true); do
     [ -f "$f" ] || continue
     ph=$(basename "$f" .md)
