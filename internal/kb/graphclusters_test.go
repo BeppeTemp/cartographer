@@ -92,6 +92,21 @@ func edgeWeight(g ClusterGraph, a, b string) int {
 	return 0
 }
 
+// describeClusters prints a cluster graph for a failure message: counts, each
+// cluster with its size and top member, and each edge weight, so a flake seen
+// once in a gate log can be told apart (a lost concept, a moved id).
+func describeClusters(g ClusterGraph) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "mode %q total_nodes %d total_edges %d nodes %d truncated %v\n", g.Mode, g.TotalNodes, g.TotalEdges, len(g.Nodes), g.Truncated)
+	for _, c := range g.Clusters {
+		fmt.Fprintf(&b, "  cluster %s size %d internal_edges %d\n", c.ID, c.Size, c.InternalEdges)
+	}
+	for _, e := range g.Edges {
+		fmt.Fprintf(&b, "  edge %s -- %s weight %d\n", e.Source, e.Target, e.Weight)
+	}
+	return b.String()
+}
+
 // clusterIDOf finds the cluster holding a concept by unfolding it with Focus.
 func clusterIDOf(t *testing.T, k *KB, concept string) string {
 	t.Helper()
@@ -138,14 +153,17 @@ func TestGraphClusters_WeightsAndUnfold(t *testing.T) {
 	a, b := clusterConcept("alpha", 0, 0), clusterConcept("alpha", 1, 0)
 	cross := [][2]string{{a, b}, {b, a}}
 	k := buildClusterKB(t, twoBlocks, cross)
-	snap, _ := k.GraphSnapshot(GraphSnapshotOptions{})
+	snap, err := k.GraphSnapshot(GraphSnapshotOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	g, err := k.GraphClusters(GraphClusterOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if g.Mode != ClusterModeClusters || len(g.Nodes) != 0 || g.TotalNodes != 2200 {
-		t.Fatalf("mode %q, %d nodes, total %d", g.Mode, len(g.Nodes), g.TotalNodes)
+		t.Fatalf("mode %q, %d nodes, total %d\n%s", g.Mode, len(g.Nodes), g.TotalNodes, describeClusters(g))
 	}
 	// Every underlying edge is inside a cluster or in exactly one weight.
 	sum := 0
@@ -156,15 +174,15 @@ func TestGraphClusters_WeightsAndUnfold(t *testing.T) {
 		sum += c.InternalEdges
 	}
 	if g.Truncated || sum != snap.TotalEdges || g.TotalEdges != snap.TotalEdges {
-		t.Fatalf("weights+internal = %d, total_edges %d, snapshot %d", sum, g.TotalEdges, snap.TotalEdges)
+		t.Fatalf("weights+internal = %d, total_edges %d, snapshot %d (%d nodes)\n%s", sum, g.TotalEdges, snap.TotalEdges, snap.TotalNodes, describeClusters(g))
 	}
 
 	ca, cb := clusterIDOf(t, k, a), clusterIDOf(t, k, b)
 	if w := edgeWeight(g, ca, cb); w != 2 {
-		t.Fatalf("cluster edge weight = %d, want 2 (a duplicate link counts once, both directions count)", w)
+		t.Fatalf("cluster edge weight = %d, want 2 (a duplicate link counts once, both directions count); %s -> %s\n%s", w, ca, cb, describeClusters(g))
 	}
 	if clusterByID(t, g, ca).Size != 20 {
-		t.Fatalf("size %d", clusterByID(t, g, ca).Size)
+		t.Fatalf("size %d, want 20\n%s", clusterByID(t, g, ca).Size, describeClusters(g))
 	}
 
 	u, err := k.GraphClusters(GraphClusterOptions{Unfold: []string{ca}})
@@ -172,7 +190,7 @@ func TestGraphClusters_WeightsAndUnfold(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(u.Nodes) != 20 || len(u.Unfolded) != 1 || u.Unfolded[0].Shown != 20 || u.Unfolded[0].Total != 20 || u.Truncated {
-		t.Fatalf("unfold: %d nodes, %+v", len(u.Nodes), u.Unfolded)
+		t.Fatalf("unfold of %s: %d nodes, %+v\n%s", ca, len(u.Nodes), u.Unfolded, describeClusters(u))
 	}
 	for _, c := range u.Clusters {
 		if c.ID == ca {
@@ -277,13 +295,19 @@ func TestGraphClusters_BudgetsAtScale(t *testing.T) {
 func TestGraphClusters_IDStability(t *testing.T) {
 	t.Parallel()
 	k := buildClusterKB(t, twoBlocks, nil)
-	before, _ := k.GraphClusters(GraphClusterOptions{})
+	before, err := k.GraphClusters(GraphClusterOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	// A concept that nothing links to ranks low; it links to the group's top member.
 	add := filepath.Join(k.DataRoot(), "alpha", "newcomer.md")
 	if err := os.WriteFile(add, []byte("---\ntype: Note\n---\n[[alpha/g0003-n00]]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	after, _ := k.GraphClusters(GraphClusterOptions{})
+	after, err := k.GraphClusters(GraphClusterOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	ids := func(g ClusterGraph) []string {
 		var out []string
 		for _, c := range g.Clusters {
@@ -293,16 +317,19 @@ func TestGraphClusters_IDStability(t *testing.T) {
 		return out
 	}
 	if !reflect.DeepEqual(ids(before), ids(after)) {
-		t.Fatal("adding a low-rank concept changed cluster ids")
+		t.Fatalf("adding a low-rank concept changed cluster ids\nbefore: %v\nafter:  %v\n--- before\n%s--- after\n%s", ids(before), ids(after), describeClusters(before), describeClusters(after))
 	}
 	// Removing the top member of a cluster renames it; the old id is dropped.
 	old := clusterIDOf(t, k, clusterConcept("beta", 2, 0))
 	if err := os.Remove(filepath.Join(k.DataRoot(), strings.TrimPrefix(old, "c:")+".md")); err != nil {
 		t.Fatal(err)
 	}
-	g, _ := k.GraphClusters(GraphClusterOptions{Unfold: []string{old}})
+	g, err := k.GraphClusters(GraphClusterOptions{Unfold: []string{old}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !reflect.DeepEqual(g.DroppedUnfolds, []string{old}) || len(g.Unfolded) != 0 {
-		t.Fatalf("dropped %v unfolded %v", g.DroppedUnfolds, g.Unfolded)
+		t.Fatalf("removed top member of %s: dropped %v unfolded %v\n%s", old, g.DroppedUnfolds, g.Unfolded, describeClusters(g))
 	}
 }
 
