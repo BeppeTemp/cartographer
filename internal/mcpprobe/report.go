@@ -13,6 +13,12 @@ type Result struct {
 	// the server answered but is not usable.
 	Error string `json:"error,omitempty"`
 	Tools int    `json:"tools"`
+	// Protocol, Server and ToolNames come from a session that worked; ToolNames
+	// lists at most MaxToolNames. Via says how the descriptor was started.
+	Protocol  string   `json:"protocol,omitempty"`
+	Server    string   `json:"server,omitempty"`
+	ToolNames []string `json:"tool_names,omitempty"`
+	Via       string   `json:"via,omitempty"`
 }
 
 // Exit codes of `cartographer mcp probe`, documented in its help and in
