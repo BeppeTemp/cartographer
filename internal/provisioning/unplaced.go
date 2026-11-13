@@ -34,7 +34,7 @@ func UnplacedArtifacts(m contract.Manifest, provider configurator.Provider, scop
 		switch {
 		case a.Kind == "skill":
 			out = append(out, a)
-		case a.Kind == "agent" && !contract.StrictAgentSkipped(a, provider) && (!native || contract.DestDirScoped("agent", a.Name, provider, scope) == ""):
+		case a.Kind == "agent" && !contract.AgentSkipped(a, provider) && (!native || contract.DestDirScoped("agent", a.Name, provider, scope) == ""):
 			out = append(out, a)
 		}
 	}

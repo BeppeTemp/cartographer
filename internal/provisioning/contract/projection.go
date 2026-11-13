@@ -90,7 +90,7 @@ func ProjectOne(m Manifest, provider configurator.Provider, scope Scope, opts Pr
 	haveSkill := map[string]bool{}
 	nativeAgents := AgentMode(provider, scope) == AgentNative
 	for _, a := range m.Artifacts {
-		if DestDirScoped(a.Kind, a.Name, provider, scope) != "" && !StrictAgentSkipped(a, provider) && (a.Kind != "agent" || nativeAgents) {
+		if DestDirScoped(a.Kind, a.Name, provider, scope) != "" && !AgentSkipped(a, provider) && (a.Kind != "agent" || nativeAgents) {
 			out.Artifacts = append(out.Artifacts, a)
 			if a.Kind == "skill" {
 				haveSkill[a.Name] = true
@@ -99,8 +99,8 @@ func ProjectOne(m Manifest, provider configurator.Provider, scope Scope, opts Pr
 		}
 		id := a.Kind + "/" + a.Name
 		switch {
-		case StrictAgentSkipped(a, provider):
-			dropped[id] = "strict_tools"
+		case AgentSkipped(a, provider):
+			dropped[id] = AgentSkipReason(a, provider)
 		case a.Kind == "agent" && DestDirScoped("skill", a.Name, provider, scope) != "":
 			degradable = append(degradable, a)
 		default:

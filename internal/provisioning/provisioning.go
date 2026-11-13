@@ -1192,7 +1192,7 @@ func ComputeDiff(m contract.Manifest, lock Lock) Diff {
 func FilterForProvider(m contract.Manifest, provider configurator.Provider) contract.Manifest {
 	var out contract.Manifest
 	for _, a := range m.Artifacts {
-		if contract.DestDir(a.Kind, a.Name, provider) != "" && !contract.StrictAgentSkipped(a, provider) {
+		if contract.DestDir(a.Kind, a.Name, provider) != "" && !contract.AgentSkipped(a, provider) {
 			out.Artifacts = append(out.Artifacts, a)
 		}
 	}
@@ -1589,9 +1589,9 @@ hookLoop:
 			result.Unsupported = append(result.Unsupported, a)
 			continue
 		}
-		if contract.StrictAgentSkipped(a, opts.Provider) {
-			// A restricted agent that opted out of being widened (D283):
-			// not written here, and whatever an earlier sync wrote for it
+		if contract.AgentSkipped(a, opts.Provider) {
+			// An agent this client is not for (`clients:`) or that opted out of
+			// being widened (D283): not written here, and whatever an earlier sync wrote for it
 			// leaves with it.
 			result.Unsupported = append(result.Unsupported, a)
 			for _, mf := range opts.Lock.Managed {
@@ -2616,7 +2616,7 @@ func widenedAgentWarnings(m contract.Manifest, opts ApplyOptions) []string {
 	for _, a := range m.Artifacts {
 		// Kiro has its own warning (kiroToollessAgentWarnings): "unrestricted"
 		// would be the opposite of what it receives.
-		if opts.Provider == configurator.ProviderKiro || !contract.AgentWidened(a, opts.Provider) || a.Restriction.Strict {
+		if opts.Provider == configurator.ProviderKiro || !contract.AgentWidened(a, opts.Provider) || a.Restriction.Strict || contract.AgentSkipped(a, opts.Provider) {
 			continue
 		}
 		if contract.DestDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope) == "" || !artifactAuthorized(a, opts) {
@@ -2642,7 +2642,7 @@ func kiroToollessAgentWarnings(m contract.Manifest, opts ApplyOptions) []string 
 	}
 	var out []string
 	for _, a := range m.Artifacts {
-		if a.Kind != "agent" || contract.DestDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope) == "" || !artifactAuthorized(a, opts) || contract.StrictAgentSkipped(a, opts.Provider) {
+		if a.Kind != "agent" || contract.DestDirScoped(a.Kind, a.Name, opts.Provider, opts.Scope) == "" || !artifactAuthorized(a, opts) || contract.AgentSkipped(a, opts.Provider) {
 			continue
 		}
 		content, err := singleArtifactContent(a, opts)
@@ -2826,7 +2826,7 @@ func installedSubagentSentence(m contract.Manifest, opts ApplyOptions) string {
 		if a.Kind != "agent" || !strings.HasPrefix(a.Source, "kb:") {
 			continue
 		}
-		if contract.DestDirScoped("agent", a.Name, opts.Provider, opts.Scope) == "" || contract.StrictAgentSkipped(a, opts.Provider) {
+		if contract.DestDirScoped("agent", a.Name, opts.Provider, opts.Scope) == "" || contract.AgentSkipped(a, opts.Provider) {
 			continue
 		}
 		if !artifactAuthorized(a, opts) {

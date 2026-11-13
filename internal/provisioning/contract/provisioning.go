@@ -53,6 +53,11 @@ type Artifact struct {
 	// agent that declares no `tools`.
 	Restriction *AgentRestriction `json:"-"`
 
+	// Clients is the `clients:` allow-list of an "agent" artifact: the ids of the
+	// clients it is for, empty for every client. Derived like Restriction, never
+	// sent; AgentSkipped is its one reader.
+	Clients []string `json:"-"`
+
 	// DerivedFrom is set on a skill the client derived from a KB agent because
 	// it has no subagents (projection.go). Client-side only, never sent, outside
 	// the hash and every signature; approval and provenance resolve to the origin.
@@ -525,6 +530,7 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 				}
 				if raw, size, rerr := ReadFileCapped(filepath.Join(agentsDir, e.Name())); rerr == nil && size == 0 {
 					agent.Restriction = ParseAgentRestriction(raw)
+					agent.Clients = AgentClientsOf(raw)
 					// A file that came by git skipped artifact_write's check. The
 					// agent stays (the approval gate cannot tell what it declares,
 					// so a client installs it only once this content is approved),
@@ -533,6 +539,13 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 					if yerr := ValidateFrontmatterYAML(raw); yerr != nil {
 						issue := AgentFrontmatterIssuePrefix(kbName, name) + fmt.Sprintf(" (%v), so the approval gate cannot read what it declares: "+
 							"a client installs it only once this content is approved; quoting the value fixes it (the usual cause is an unquoted value containing \": \")", yerr)
+						issues = append(issues, issue)
+						if opts.SkillDiagnostic != nil {
+							opts.SkillDiagnostic(issue)
+						}
+					} else if cerr := validateClientsOf(raw); cerr != nil {
+						// Parses, but `clients` is not usable: the agent goes to every client.
+						issue := AgentFrontmatterIssuePrefix(kbName, name) + fmt.Sprintf(" (%v), so it is projected to every client", cerr)
 						issues = append(issues, issue)
 						if opts.SkillDiagnostic != nil {
 							opts.SkillDiagnostic(issue)
@@ -1604,8 +1617,49 @@ func AgentWidened(a Artifact, provider configurator.Provider) bool {
 	return true
 }
 
-// StrictAgentSkipped reports that the agent opted out of being widened
-// (strict_tools) and provider cannot enforce its restriction.
-func StrictAgentSkipped(a Artifact, provider configurator.Provider) bool {
-	return AgentWidened(a, provider) && a.Restriction.Strict
+// validateClientsOf is the error of an agent source's `clients` key, nil when
+// the key is absent, valid or the frontmatter cannot be read.
+func validateClientsOf(content []byte) error {
+	fmRaw, _, hasFM := okf.SplitFrontmatter(string(content))
+	if !hasFM {
+		return nil
+	}
+	fm, err := okf.ParseFrontmatter(fmRaw)
+	if err != nil {
+		return nil
+	}
+	return ValidateAgentClients(fm)
+}
+
+// AgentSkipped reports that an agent is not projected to provider: either it
+// opted out of being widened (strict_tools) and provider cannot enforce its
+// restriction, or its `clients` allow-list does not name provider (a plugin
+// provider is matched by its base id). EVERY agent-skip site (sync, status, the
+// resolver, the unplaced sentence, the hygiene check) must call this one
+// predicate: a second one drifts between sync and status and shows permanent drift.
+func AgentSkipped(a Artifact, provider configurator.Provider) bool {
+	return AgentSkipReason(a, provider) != ""
+}
+
+// AgentSkipReason is why AgentSkipped holds: "clients" when the allow-list
+// excludes provider, "strict_tools" when the agent refuses to be widened there,
+// "" otherwise.
+func AgentSkipReason(a Artifact, provider configurator.Provider) string {
+	if a.Kind == "agent" && len(a.Clients) > 0 {
+		base := string(NativeProvider(provider))
+		listed := false
+		for _, c := range a.Clients {
+			if c == base {
+				listed = true
+				break
+			}
+		}
+		if !listed {
+			return "clients"
+		}
+	}
+	if AgentWidened(a, provider) && a.Restriction.Strict {
+		return "strict_tools"
+	}
+	return ""
 }

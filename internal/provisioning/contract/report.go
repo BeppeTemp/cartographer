@@ -15,7 +15,7 @@ func UnverifiedFor(a Artifact, provider configurator.Provider, scope Scope, bund
 	var out []Capability
 	switch a.Kind {
 	case "agent":
-		if StrictAgentSkipped(a, provider) {
+		if AgentSkipped(a, provider) {
 			return nil
 		}
 		d, i := CapabilityStatus(provider, scope, CapAgentDelegate), CapabilityStatus(provider, scope, CapAgentInvoke)

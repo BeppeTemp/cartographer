@@ -123,6 +123,84 @@ func ValidateAgentProviders(fm *okf.Frontmatter) error {
 	return err
 }
 
+// ClientsKey is the frontmatter key of an agent's allow-list of clients.
+const ClientsKey = "clients"
+
+// agentClientNames are the ids `clients:` accepts: Claude Code, which receives
+// the agent as written, and the native providers. A plugin provider is matched
+// by its base id (NativeProvider), so it has no name of its own here.
+func agentClientNames() string {
+	return string(configurator.ProviderClaudeCode) + ", " + nativeProviderNames()
+}
+
+func validAgentClient(id string) bool {
+	if id == string(configurator.ProviderClaudeCode) {
+		return true
+	}
+	for _, p := range nativeProviders {
+		if id == string(p) {
+			return true
+		}
+	}
+	return false
+}
+
+// ParseAgentClients reads the `clients` allow-list of an agent's frontmatter:
+// nil when the key is absent (every client), otherwise the lower-cased,
+// de-duplicated names in order. A scalar, an empty list or an unknown name is an
+// error naming the key and the supported clients.
+func ParseAgentClients(fm *okf.Frontmatter) ([]string, error) {
+	v, ok := fm.Get(ClientsKey)
+	if !ok {
+		return nil, nil
+	}
+	list, isList := v.([]string)
+	if !isList {
+		return nil, fmt.Errorf("frontmatter 'clients' must be a list of clients, e.g. [claude, kiro] (supported: %s)", agentClientNames())
+	}
+	if len(list) == 0 {
+		return nil, fmt.Errorf("frontmatter 'clients' is empty: list at least one client (supported: %s), or drop the key to project the agent everywhere", agentClientNames())
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, e := range list {
+		id := strings.ToLower(strings.TrimSpace(e))
+		if !validAgentClient(id) {
+			return nil, fmt.Errorf("frontmatter 'clients': unknown client %q (supported: %s)", e, agentClientNames())
+		}
+		if !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	return out, nil
+}
+
+// ValidateAgentClients is the check artifact_write applies to `clients`.
+func ValidateAgentClients(fm *okf.Frontmatter) error {
+	_, err := ParseAgentClients(fm)
+	return err
+}
+
+// AgentClientsOf reads the allow-list from an agent's source for the client
+// side. An invalid or missing list yields nil (every client): a file that came
+// by git skipped artifact_write, and BuildManifest reports the reason.
+func AgentClientsOf(content []byte) []string {
+	fmRaw, _, hasFM := okf.SplitFrontmatter(string(content))
+	if !hasFM {
+		return nil
+	}
+	fm, err := okf.ParseFrontmatter(fmRaw)
+	if err != nil {
+		return nil
+	}
+	list, err := ParseAgentClients(fm)
+	if err != nil {
+		return nil
+	}
+	return list
+}
+
 // kiroV2OnlyKeys are the keys of a `providers.kiro` entry that only Kiro's V2
 // engine reads (#1717). Kiro CLI 3.x ignores `toolsSettings`, reads a shell
 // `allowedCommands` regex as a glob and refuses `autoAllowReadonly` together with
