@@ -2,6 +2,7 @@ package contract
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -46,9 +47,18 @@ type NativeField struct {
 // An unknown client, a non-map entry or a reserved key is an error, so a typo
 // fails loudly (at artifact_write and at sync) instead of dropping a restriction.
 func agentProviderFields(fm *okf.Frontmatter) (map[configurator.Provider][]NativeField, error) {
+	fields, _, err := agentProviderBlocks(fm)
+	return fields, err
+}
+
+// agentProviderBlocks is agentProviderFields plus the `prompt_file` directive of
+// each client. `prompt_file` is Cartographer's own instruction about the entry,
+// never a native field: it is validated here and kept out of the returned
+// fields, so no renderer can copy it into a client's file (PromptFileKey).
+func agentProviderBlocks(fm *okf.Frontmatter) (map[configurator.Provider][]NativeField, map[configurator.Provider]string, error) {
 	v, ok := fm.Get("providers")
 	if !ok || v == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	var text string
 	switch t := v.(type) {
@@ -57,55 +67,63 @@ func agentProviderFields(fm *okf.Frontmatter) (map[configurator.Provider][]Nativ
 	case string:
 		text = t // a one-line flow map: providers: { codex: { ... } }
 	default:
-		return nil, fmt.Errorf("frontmatter 'providers' must be a map keyed by client")
+		return nil, nil, fmt.Errorf("frontmatter 'providers' must be a map keyed by client")
 	}
 	if strings.TrimSpace(text) == "" {
-		return nil, nil
+		return nil, nil, nil
 	}
 	var doc yaml.Node
 	if err := yaml.Unmarshal([]byte(text), &doc); err != nil {
-		return nil, fmt.Errorf("frontmatter 'providers': %w", err)
+		return nil, nil, fmt.Errorf("frontmatter 'providers': %w", err)
 	}
 	if len(doc.Content) != 1 || doc.Content[0].Kind != yaml.MappingNode {
-		return nil, fmt.Errorf("frontmatter 'providers' must be a map keyed by client")
+		return nil, nil, fmt.Errorf("frontmatter 'providers' must be a map keyed by client")
 	}
 	known := map[string]configurator.Provider{}
 	for _, p := range nativeProviders {
 		known[string(p)] = p
 	}
 	out := map[configurator.Provider][]NativeField{}
+	files := map[configurator.Provider]string{}
 	top := doc.Content[0]
 	for i := 0; i+1 < len(top.Content); i += 2 {
 		name, entry := top.Content[i].Value, top.Content[i+1]
 		p, ok := known[name]
 		if !ok {
 			if name == string(configurator.ProviderClaudeCode) {
-				return nil, fmt.Errorf("frontmatter 'providers.%s': Claude Code receives the agent as written, so put its fields at the top level of the frontmatter", name)
+				return nil, nil, fmt.Errorf("frontmatter 'providers.%s': Claude Code receives the agent as written, so put its fields at the top level of the frontmatter", name)
 			}
-			return nil, fmt.Errorf("frontmatter 'providers.%s': unknown client (supported: %s)", name, nativeProviderNames())
+			return nil, nil, fmt.Errorf("frontmatter 'providers.%s': unknown client (supported: %s)", name, nativeProviderNames())
 		}
 		if entry.Kind == yaml.AliasNode {
 			entry = entry.Alias
 		}
 		if entry.Kind != yaml.MappingNode {
-			return nil, fmt.Errorf("frontmatter 'providers.%s' must be a map of that client's native fields", name)
+			return nil, nil, fmt.Errorf("frontmatter 'providers.%s' must be a map of that client's native fields", name)
 		}
 		reserved := reservedNativeKeys[p]
 		for j := 0; j+1 < len(entry.Content); j += 2 {
 			k := entry.Content[j].Value
 			for _, r := range reserved {
 				if k == r {
-					return nil, fmt.Errorf("frontmatter 'providers.%s.%s': Cartographer writes %q itself on %s", name, k, k, name)
+					return nil, nil, fmt.Errorf("frontmatter 'providers.%s.%s': Cartographer writes %q itself on %s", name, k, k, name)
 				}
 			}
 			val := entry.Content[j+1]
 			if val.Kind == yaml.AliasNode {
 				val = val.Alias
 			}
+			if k == PromptFileKey {
+				if err := validatePromptFile(val); err != nil {
+					return nil, nil, fmt.Errorf("frontmatter 'providers.%s.%s': %w", name, k, err)
+				}
+				files[p] = val.Value
+				continue
+			}
 			out[p] = append(out[p], NativeField{Key: k, Value: val})
 		}
 	}
-	return out, nil
+	return out, files, nil
 }
 
 func nativeProviderNames() string {
@@ -253,4 +271,68 @@ func NativeFieldsFor(fm *okf.Frontmatter, provider configurator.Provider) ([]Nat
 		return nil, err
 	}
 	return m[provider], nil
+}
+
+// PromptFileKey is the `providers.<client>` directive that points a client's
+// agent prompt at a file of the workspace instead of copying the body. It is
+// not a native field of any client.
+const PromptFileKey = "prompt_file"
+
+// PromptFileClients are the clients that read their agent prompt from a file
+// reference (`file://`), so a `prompt_file` is rendered for them. For any other
+// client the key is a documented no-op: the body is used. Only Kiro is verified
+// (docs/harnesses.md); a plugin provider is not listed, because it translates by
+// its declared agent format and never as the built-in.
+var PromptFileClients = []configurator.Provider{configurator.ProviderKiro}
+
+// PromptFileCapable reports whether provider renders a `prompt_file`.
+func PromptFileCapable(provider configurator.Provider) bool {
+	for _, p := range PromptFileClients {
+		if p == provider {
+			return true
+		}
+	}
+	return false
+}
+
+const maxPromptFileBytes = 512
+
+func validatePromptFile(n *yaml.Node) error {
+	if n.Kind != yaml.ScalarNode || n.Tag != "!!str" {
+		return fmt.Errorf("must be a string: a path relative to the workspace root")
+	}
+	return checkPromptFilePath(n.Value)
+}
+
+// checkPromptFilePath is the one syntactic rule of a `prompt_file`: a non-empty,
+// lexically local, slash-separated path relative to the workspace. Whether the
+// file is inside the workspace once links are followed is the client's check
+// (provisioning.resolvePromptFile).
+func checkPromptFilePath(s string) error {
+	switch {
+	case s == "" || strings.TrimSpace(s) == "":
+		return fmt.Errorf("must not be empty")
+	case len(s) > maxPromptFileBytes:
+		return fmt.Errorf("is longer than %d bytes", maxPromptFileBytes)
+	case strings.ContainsRune(s, 0):
+		return fmt.Errorf("must not contain a NUL byte")
+	case strings.Contains(s, `\`):
+		return fmt.Errorf("must use / as separator, not a backslash")
+	case strings.HasPrefix(s, "/") || filepath.IsAbs(s) || (len(s) >= 2 && s[1] == ':' && (s[0]|0x20 >= 'a' && s[0]|0x20 <= 'z')):
+		return fmt.Errorf("must be relative to the workspace, not absolute")
+	case !filepath.IsLocal(filepath.FromSlash(s)):
+		return fmt.Errorf("must stay inside the workspace (no '..' that leaves it)")
+	}
+	return nil
+}
+
+// PromptFileFor returns the validated `providers.<provider>.prompt_file` of an
+// agent's frontmatter, "" when it declares none. The error is the one
+// artifact_write reports.
+func PromptFileFor(fm *okf.Frontmatter, provider configurator.Provider) (string, error) {
+	_, files, err := agentProviderBlocks(fm)
+	if err != nil {
+		return "", err
+	}
+	return files[provider], nil
 }

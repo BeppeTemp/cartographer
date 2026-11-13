@@ -111,7 +111,7 @@ func TestPluginCells_AgentFormatSuffixAndTranslation(t *testing.T) {
 
 	registerCells(t, forkCLI())
 	in := "---\nname: a\ndescription: Reads\nproviders:\n  opencode:\n    permission: {edit: deny}\n---\nBody.\n"
-	out, err := translateAgentForProvider(p, "a", []byte(in))
+	out, err := translateAgentForProvider(p, "a", []byte(in), "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func TestPluginCells_AgentFormatSuffixAndTranslation(t *testing.T) {
 	oc := forkCLI()
 	oc.Name, oc.Base = "fork-oc", "opencode"
 	registerCells(t, oc)
-	if out, err := translateAgentForProvider("fork-oc", "a", []byte(in)); err != nil || !strings.Contains(string(out), "permission: {edit: deny}") {
+	if out, err := translateAgentForProvider("fork-oc", "a", []byte(in), ""); err != nil || !strings.Contains(string(out), "permission: {edit: deny}") {
 		t.Errorf("providers.<base> block not honoured: %v\n%s", err, out)
 	}
 	UnregisterPluginCells("fork-oc")
@@ -134,7 +134,7 @@ func TestPluginCells_AgentFormatSuffixAndTranslation(t *testing.T) {
 	cl.Global.Agent.AgentFormat = "claude"
 	registerCells(t, cl)
 	plain := "---\nname: a\ndescription: Reads\n---\nBody.\n"
-	if out, _ := translateAgentForProvider(p, "a", []byte(plain)); string(out) != plain {
+	if out, _ := translateAgentForProvider(p, "a", []byte(plain), ""); string(out) != plain {
 		t.Errorf("claude-format agent is not verbatim:\n%s", out)
 	}
 }

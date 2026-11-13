@@ -53,10 +53,13 @@ type providerStatus struct {
 	// over the instructions file Cartographer manages, when one exists (D189).
 	// A block written correctly into a file the provider does not read is not
 	// installed, so it is excluded from the Kinds count and reported here.
-	ShadowedInstructions string           `json:"shadowed_instructions,omitempty"`
-	Added                []statusArtifact `json:"added,omitempty"`
-	Updated              []statusArtifact `json:"updated,omitempty"`
-	Removed              []statusArtifact `json:"removed,omitempty"`
+	ShadowedInstructions string `json:"shadowed_instructions,omitempty"`
+	// PromptFileIssues are the agents sync holds for their `prompt_file` and
+	// the files it names that are missing, in the words sync reports them.
+	PromptFileIssues []string         `json:"prompt_file_issues,omitempty"`
+	Added            []statusArtifact `json:"added,omitempty"`
+	Updated          []statusArtifact `json:"updated,omitempty"`
+	Removed          []statusArtifact `json:"removed,omitempty"`
 	// Diverged lists managed artifacts whose files on disk no longer match
 	// what was materialized (D139): edited by hand, deleted, or with their
 	// managed key/block removed from a shared file. `cartographer sync`
@@ -574,6 +577,12 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		p.KBCounts = countBySource(lock)
 		p.Diverged = snapshotDiverged(append(provisioning.VerifyManaged(lock, configurator.Provider(p.Name), provisioning.LockBaseDir(lock, dir)), wsDiverged...))
 		p.Diverged = append(p.Diverged, snapshotStaleBridge(cfg, p.Name, dir, routedPath)...)
+		for _, sp := range provProjections[p.Name] {
+			p.PromptFileIssues = append(p.PromptFileIssues, provisioning.AgentPromptFileIssues(manifests[projectionKey(sp)], provisioning.ApplyOptions{
+				Provider: configurator.Provider(sp.Provider), BaseDir: sp.BaseDir, Scope: sp.Scope,
+				ApprovedMCP: cfg.ApprovedMCPHashes(), ActivePlugins: manifestPlugins(manifests[projectionKey(sp)]),
+			})...)
+		}
 		held := heldArtifacts(pm, d, cfg, configurator.Provider(p.Name))
 		if d.InSync && len(p.Diverged) == 0 && len(held) == 0 {
 			p.State = "in_sync"

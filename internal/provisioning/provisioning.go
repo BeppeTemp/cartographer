@@ -1521,15 +1521,18 @@ func Apply(m contract.Manifest, opts ApplyOptions) (AppliedResult, error) {
 	// refused update leaves the previous content on disk, so the lockfile must
 	// keep saying we own it; dropping the entries would leave a prune or a
 	// disconnect unaware of those files until a retry succeeds.
-	refuseArtifact := func(a contract.Artifact, err error) bool {
-		if !refuse(&result, a, err) {
-			return false
-		}
+	carryManaged := func(a contract.Artifact) {
 		for _, mf := range opts.Lock.Managed {
 			if mf.Kind == a.Kind && mf.Name == a.Name {
 				newManaged = append(newManaged, mf)
 			}
 		}
+	}
+	refuseArtifact := func(a contract.Artifact, err error) bool {
+		if !refuse(&result, a, err) {
+			return false
+		}
+		carryManaged(a)
 		return true
 	}
 
@@ -1678,7 +1681,19 @@ hookLoop:
 				// provider.
 				content = expandPlaceholders(content, opts, tracker)
 				content = stampArtifact(content, a)
-				content, err = translateAgentForProvider(opts.Provider, a.Name, content)
+				promptRef, _, err := resolvePromptFile(a, opts, content)
+				if err != nil {
+					if !IsRefusal(err) {
+						return AppliedResult{}, fmt.Errorf("provisioning: agent %s: %w", a.Name, err)
+					}
+					// Held like any refused write: the previous file stays and the
+					// lockfile keeps owning it. The text is the one status prints.
+					result.Refused = append(result.Refused, a)
+					result.Warnings = append(result.Warnings, heldForPromptFile(a, opts, err))
+					carryManaged(a)
+					continue
+				}
+				content, err = translateAgentForProvider(opts.Provider, a.Name, content, promptRef)
 				if err != nil {
 					return AppliedResult{}, fmt.Errorf("provisioning: translate agent %s for %s: %w", a.Name, opts.Provider, err)
 				}
@@ -1860,6 +1875,7 @@ hookLoop:
 	result.Warnings = append(result.Warnings, legacySkillWarnings(m)...)
 	result.Warnings = append(result.Warnings, widenedAgentWarnings(m, opts)...)
 	result.Warnings = append(result.Warnings, kiroToollessAgentWarnings(m, opts)...)
+	result.Warnings = append(result.Warnings, promptFileWarnings(m, opts)...)
 	result.Warnings = append(result.Warnings, absentMCPServerWarnings(m, opts)...)
 
 	// Prune: remove stale managed entries from BaseDir. The "instructions" kind
@@ -3694,6 +3710,9 @@ func ManagedDestinationRoots(provider configurator.Provider, baseDir string) []s
 	return out
 }
 
+// promptRef is the resolved `prompt_file` reference of the agent for the one
+// client that reads it (Kiro); "" for every other client and agent.
+//
 // translateAgentForProvider adapts an "agent" artifact's content (a Claude Code
 // subagent .md, see docs/sync.md §Agents and hooks) for materialization under a
 // specific provider (D55). Claude receives the content verbatim (native format).
@@ -3714,7 +3733,7 @@ func ManagedDestinationRoots(provider configurator.Provider, baseDir string) []s
 // takes the source verbatim. Providers whose "agent" cell is unsupported never
 // reach here: DestDir returns "" for them, so Apply routes them to Unsupported
 // before calling this function.
-func translateAgentForProvider(provider configurator.Provider, name string, content []byte) ([]byte, error) {
+func translateAgentForProvider(provider configurator.Provider, name string, content []byte, promptRef string) ([]byte, error) {
 	// A plugin provider dispatches on its declared agent.format, not on its own
 	// id: the format names the built-in whose file layout it reads, and a
 	// `providers.<base>` block of the agent is honoured through NativeProvider.
@@ -3744,7 +3763,7 @@ func translateAgentForProvider(provider configurator.Provider, name string, cont
 	case configurator.ProviderCopilot:
 		return translateAgentForCopilot(name, content)
 	case configurator.ProviderKiro:
-		return translateAgentForKiro(name, content)
+		return translateAgentForKiro(name, content, promptRef)
 	case configurator.ProviderCline:
 		return translateAgentForCline(name, content)
 	default:
@@ -3886,7 +3905,7 @@ func translateAgentForCopilot(name string, content []byte) ([]byte, error) {
 // agent capabilities its author never granted. An agent file without `tools`
 // has no tools in Kiro (D300): only the author's `providers.kiro` fields can
 // give it some, and kiroToollessAgentWarnings says so on every sync.
-func translateAgentForKiro(name string, content []byte) ([]byte, error) {
+func translateAgentForKiro(name string, content []byte, promptRef string) ([]byte, error) {
 	fmRaw, body, hasFM := okf.SplitFrontmatter(string(content))
 	description := name
 	var native []contract.NativeField
@@ -3911,6 +3930,11 @@ func translateAgentForKiro(name string, content []byte) ([]byte, error) {
 
 	// Built member by member so the author's `providers.kiro` fields (D291) land
 	// after ours, in their own order, without a round trip through a Go map.
+	// promptRef (a `providers.kiro.prompt_file`, resolved by resolvePromptFile)
+	// stands in for the body: the file is the one source of the instructions.
+	if promptRef != "" {
+		body = promptRef
+	}
 	members := make([]string, 0, 3+len(native))
 	for _, kv := range [][2]string{{"name", name}, {"description", description}, {"prompt", body}} {
 		k, _ := json.Marshal(kv[0])
