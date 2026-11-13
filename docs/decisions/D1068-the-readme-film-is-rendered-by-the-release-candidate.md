@@ -4,6 +4,8 @@ topic: deployment-release
 
 # D1068 — The README film is rendered by the release candidate, and a failed render blocks the train
 
+> **Amended by [D2041](D2041-readme-videos.md)**: the render covers the whole film set, one `Film-Tree:` hash, and a file over its cap fails the render.
+
 **Decision.** This amends D807, which left "recording the film in CI" as a follow-up. `film.yml` renders the
 launch film on `ubuntu-latest` (software WebGL, no GPU) and force-pushes it as the single commit of the orphan
 branch `readme-film`, with the push model of the hero (D790): `GITHUB_TOKEN` only, nothing pushed to `main`.

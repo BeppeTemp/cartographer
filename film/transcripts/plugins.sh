@@ -7,7 +7,7 @@
 # test/e2e/fixtures/plugin-example, with bin/cartographer (CARTOGRAPHER_BIN overrides it), in a sandbox whose HOME
 # is a temp dir, and writes each command line as `$ <command>` followed by its output verbatim. The sandbox path is
 # normalised to $HOME, so the file does not depend on where it was produced. The film imports the file as text; the
-# e2e scenario 26_film_transcripts regenerates it and fails on a difference (a change of CLI output fails a test
+# e2e scenario 31_film_transcripts regenerates it and fails on a difference (a change of CLI output fails a test
 # instead of leaving a film that lies). `make film-transcripts` rewrites the committed file.
 #
 # A line starting with `>> ` is a note of the transcript (the film draws it dimmed), not output; a command line starts

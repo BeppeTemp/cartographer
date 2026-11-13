@@ -1,7 +1,7 @@
 // The plugins film: a plugin adds clients, commands and tools, and you approve exactly what runs. One terminal card
 // types the commands of docs/plugins.md §Add a script: the example plugin; every command line and every line of output
 // comes from film/transcripts/plugins.txt, which the real binary wrote (film/transcripts/plugins.sh) and the e2e
-// scenario 26_film_transcripts keeps equal to it. The page only folds long outputs (a `…` line) and never edits a line.
+// scenario 31_film_transcripts keeps equal to it. The page only folds long outputs (a `…` line) and never edits a line.
 // Like every film it is a pure function of time: frame(n) sets every element from t = n / FPS.
 import "../film.css";
 import "../../docs/brand/cartographer.css";

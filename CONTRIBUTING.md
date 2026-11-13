@@ -519,7 +519,7 @@ make worktree-add SLUG=my-change
 cd .worktrees/my-change && make dev DATA=<data dir>   # or no DATA: the generated test KBs (D818)
 ```
 
-`make dev` rebuilds and restarts the server on every Go change and serves the UI
+`make dev` rebuilds and restarts Meridian on every Go change and serves the UI
 with hot reload on `http://localhost:5173/ui/`. `DATA` is copied with its git
 remotes keeping their fetch URL and an unreachable push URL, so nothing the session writes leaves the
 machine; `API_PORT`/`UI_PORT` keep two sessions apart. With `DATA`, the instance also shows this machine's real client (Settings, Artifacts usage): `make dev` runs `cartographer sync --report-to` against it, which reports and changes nothing (D1044). Nothing is pushed

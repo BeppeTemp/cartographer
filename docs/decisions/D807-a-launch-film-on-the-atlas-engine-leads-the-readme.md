@@ -4,6 +4,8 @@ topic: project-governance
 
 # D807 — A launch film on the Atlas engine leads the README
 
+> **Amended by [D2041](D2041-readme-videos.md)**: the launch film is one of three films rendered and published together, with a size cap per file and quality per film.
+
 **Decision.** The README opens with a one-minute silent film instead of the Atlas tour: four teammates, each
 with their own coding agents, share one wiki; Monday one agent writes a fix down, Tuesday another agent on
 another client finds it, every day the others add to it and a broken link is refused. It is motion graphics
