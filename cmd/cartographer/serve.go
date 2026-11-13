@@ -1122,6 +1122,9 @@ func openMountedKB(path string) (*kb.KB, error) {
 	// The one place that sweeps temp files orphaned by a killed write: a CLI
 	// command that opens a KB for a moment must not walk it or take its lock.
 	k.SweepStaleTempFiles()
+	// A git killed with the server leaves .git/index.lock and every later commit
+	// fails on it; at start no git of ours runs, so the leftover is cleared.
+	k.ClearStaleIndexLock()
 	return k, nil
 }
 

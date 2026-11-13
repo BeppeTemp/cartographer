@@ -586,7 +586,7 @@ func ResetPaths(dir string, paths ...string) error {
 		return nil
 	}
 	if out, err := runGit(dir, append([]string{"--literal-pathspecs", "reset", "-q", "--"}, paths...)...); err != nil {
-		return fmt.Errorf("git reset -- paths: %w: %s", err, out)
+		return fmt.Errorf("git reset -- paths: %w: %s%s", err, out, indexLockHint(dir, out))
 	}
 	return nil
 }
@@ -616,7 +616,7 @@ func commit(dir, message, authorName, authorEmail string, env ...string) error {
 			strings.Contains(out, "nothing added to commit") {
 			return ErrNothingToCommit
 		}
-		return fmt.Errorf("git commit: %w: %s", err, out)
+		return fmt.Errorf("git commit: %w: %s%s", err, out, indexLockHint(dir, out))
 	}
 	return nil
 }
@@ -1013,6 +1013,12 @@ func PullRebaseAutostash(dir, remote, branch string, env ...string) error {
 	if err == nil {
 		return nil
 	}
+	// A leftover index.lock is not a conflict, though git words it "error: could
+	// not detach HEAD": name the lock before the conflict markers are read.
+	if hint := indexLockHint(dir, out); hint != "" {
+		hint += abortRebaseIfStarted(dir)
+		return fmt.Errorf("git pull --rebase --autostash %s %s: %w: %s%s", RedactRemoteURL(remote), branch, redactedErr(err, remote), RedactRemoteText(out, remote), hint)
+	}
 	// Detect rebase conflict: output contains "CONFLICT" or "rebase" stall markers.
 	if strings.Contains(out, "CONFLICT") ||
 		strings.Contains(out, "could not apply") ||
@@ -1209,6 +1215,10 @@ func RebaseOntoAutostash(dir, remote, branch string, env ...string) error {
 	out, err := runGitEnv(dir, env, "rebase", "--autostash", target)
 	if err == nil {
 		return nil
+	}
+	if hint := indexLockHint(dir, out); hint != "" {
+		hint += abortRebaseIfStarted(dir)
+		return fmt.Errorf("git rebase --autostash %s: %w: %s%s", target, err, out, hint)
 	}
 	if strings.Contains(out, "CONFLICT") || strings.Contains(out, "could not apply") || strings.Contains(out, "error: could not") {
 		files, _ := UnmergedFiles(dir)
@@ -1464,9 +1474,15 @@ func HeadSHAAt(dir, ref string) (string, error) {
 // ResetHardTo resets a clean working tree to ref. It is deliberately narrow:
 // callers check cleanliness before using it.
 func ResetHardTo(dir, ref string, env ...string) error {
-	out, err := runGitEnv(dir, env, "reset", "--hard", "--end-of-options", ref)
+	// git before 2.44 refuses "reset --hard --end-of-options <ref>" ("must come
+	// before non-option arguments"), so a ref that could be read as an option is
+	// refused here and the trailing "--" ends the revision.
+	if strings.HasPrefix(ref, "-") {
+		return fmt.Errorf("git reset --hard %s: ref starts with '-'", ref)
+	}
+	out, err := runGitEnv(dir, env, "reset", "--hard", ref, "--")
 	if err != nil {
-		return fmt.Errorf("git reset --hard %s: %w: %s", ref, err, out)
+		return fmt.Errorf("git reset --hard %s: %w: %s%s", ref, err, out, indexLockHint(dir, out))
 	}
 	return nil
 }
@@ -1530,13 +1546,56 @@ const (
 	RebaseStateOrphanAutostash = "orphan-autostash"
 )
 
+// gitStatePath is where git keeps the per-worktree state file or directory name
+// for the repository rooted at dir, without starting a git process and without
+// git's upward discovery: a folder with no `.git` of its own, or a bogus one,
+// must not be judged by the repository enclosing it. `.git` a directory: the state
+// is inside it. `.git` a file (a linked worktree or a submodule): its `gitdir:`
+// line names the git dir that holds the state. Anything else yields a path that
+// does not exist, i.e. no state.
+func gitStatePath(dir, name string) string {
+	dotGit := filepath.Join(dir, ".git")
+	if fi, err := os.Stat(dotGit); err == nil && fi.Mode().IsRegular() {
+		if gd := gitFileDir(dotGit); gd != "" {
+			return filepath.Join(gd, name)
+		}
+	}
+	return filepath.Join(dotGit, name)
+}
+
+// gitFileDir is the directory the `gitdir: <path>` line of the gitfile at path
+// names (a relative path is relative to the gitfile's folder); "" when the file
+// holds no such line.
+func gitFileDir(path string) string {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		v, ok := strings.CutPrefix(strings.TrimSpace(line), "gitdir:")
+		if !ok {
+			continue
+		}
+		v = strings.TrimSpace(v)
+		if v == "" {
+			return ""
+		}
+		v = filepath.FromSlash(v)
+		if !filepath.IsAbs(v) {
+			v = filepath.Join(filepath.Dir(path), v)
+		}
+		return v
+	}
+	return ""
+}
+
 // RebaseInProgress reports whether dir has a rebase state directory and what kind
 // it is. A caller must not run git in the worktree while this returns true: the
 // point is to refuse with an actionable message instead of letting git fail with
 // one that names no way out.
 func RebaseInProgress(dir string) (kind string, ok bool) {
 	for _, name := range []string{"rebase-merge", "rebase-apply"} {
-		d := filepath.Join(dir, ".git", name)
+		d := gitStatePath(dir, name)
 		if _, err := os.Stat(d); err != nil {
 			continue
 		}
@@ -1554,7 +1613,7 @@ func RebaseInProgress(dir string) (kind string, ok bool) {
 // Named in the operator-facing message so the remedy points at a real path.
 func RebaseStateDir(dir string) string {
 	for _, name := range []string{"rebase-merge", "rebase-apply"} {
-		d := filepath.Join(dir, ".git", name)
+		d := gitStatePath(dir, name)
 		if _, err := os.Stat(d); err == nil {
 			return d
 		}
@@ -1606,7 +1665,7 @@ func MergeNoCommitNoFFEnv(dir, ref string, env ...string) (conflicted bool, err 
 	if strings.Contains(out, "CONFLICT") || strings.Contains(out, "Automatic merge failed") {
 		return true, nil
 	}
-	return false, fmt.Errorf("git merge --no-commit --no-ff %s: %w: %s", ref, gerr, out)
+	return false, fmt.Errorf("git merge --no-commit --no-ff %s: %w: %s%s", ref, gerr, out, indexLockHint(dir, out))
 }
 
 // MergeAbort aborts an in-progress merge ("git merge --abort").
@@ -1770,7 +1829,7 @@ func StageExecutable(dir string, paths ...string) error {
 	}
 	args := append([]string{"--literal-pathspecs", "add", "--chmod=+x", "--"}, paths...)
 	if out, err := runGit(dir, args...); err != nil {
-		return fmt.Errorf("git add --chmod=+x: %w: %s", err, out)
+		return fmt.Errorf("git add --chmod=+x: %w: %s%s", err, out, indexLockHint(dir, out))
 	}
 	return nil
 }
@@ -1782,7 +1841,7 @@ func Untrack(dir string, paths ...string) error {
 		return nil
 	}
 	if out, err := runGit(dir, append([]string{"--literal-pathspecs", "rm", "--cached", "-q", "--"}, paths...)...); err != nil {
-		return fmt.Errorf("git rm --cached: %w: %s", err, out)
+		return fmt.Errorf("git rm --cached: %w: %s%s", err, out, indexLockHint(dir, out))
 	}
 	return nil
 }
@@ -1791,7 +1850,7 @@ func Untrack(dir string, paths ...string) error {
 func AddPath(dir, path string) error {
 	out, err := runGit(dir, "--literal-pathspecs", "add", "--", path)
 	if err != nil {
-		return fmt.Errorf("git add %s: %w: %s", path, err, out)
+		return fmt.Errorf("git add %s: %w: %s%s", path, err, out, indexLockHint(dir, out))
 	}
 	return nil
 }
@@ -2486,7 +2545,7 @@ var noEOL = []string{"-c", "core.autocrlf=false"}
 func StashPushEnv(dir string, env ...string) error {
 	out, err := runGitEnv(dir, env, append(noEOL, "stash", "push")...)
 	if err != nil {
-		return fmt.Errorf("git stash push: %w: %s", err, out)
+		return fmt.Errorf("git stash push: %w: %s%s", err, out, indexLockHint(dir, out))
 	}
 	return nil
 }
@@ -2495,7 +2554,7 @@ func StashPushEnv(dir string, env ...string) error {
 func StashPop(dir string) error {
 	out, err := runGit(dir, append(noEOL, "stash", "pop")...)
 	if err != nil {
-		return fmt.Errorf("git stash pop: %w: %s", err, out)
+		return fmt.Errorf("git stash pop: %w: %s%s", err, out, indexLockHint(dir, out))
 	}
 	return nil
 }
@@ -2586,7 +2645,7 @@ func ShowCommit(dir, sha string) (CommitSummary, error) {
 // conflict it returns an error and leaves the tree for the caller to reset.
 func RevertNoCommit(dir, sha string, env ...string) error {
 	if out, err := runGitEnv(dir, env, "revert", "--no-commit", "--end-of-options", sha); err != nil {
-		return fmt.Errorf("git revert %s: %w: %s", sha, err, strings.TrimSpace(out))
+		return fmt.Errorf("git revert %s: %w: %s%s", sha, err, strings.TrimSpace(out), indexLockHint(dir, out))
 	}
 	return nil
 }
@@ -2635,7 +2694,7 @@ func StagedChanges(dir string) ([]FileChange, error) {
 // clean before the write it undoes (D350). Ignored files are kept.
 func DiscardChanges(dir string) error {
 	if out, err := runGit(dir, "reset", "--hard", "HEAD"); err != nil {
-		return fmt.Errorf("git reset --hard HEAD: %w: %s", err, out)
+		return fmt.Errorf("git reset --hard HEAD: %w: %s%s", err, out, indexLockHint(dir, out))
 	}
 	if out, err := runGit(dir, "clean", "-fd"); err != nil {
 		return fmt.Errorf("git clean -fd: %w: %s", err, out)
@@ -2650,7 +2709,7 @@ func DiscardChanges(dir string) error {
 func StashPushAllEnv(dir string, env ...string) error {
 	out, err := runGitEnv(dir, env, append(noEOL, "stash", "push", "--include-untracked")...)
 	if err != nil {
-		return fmt.Errorf("git stash push --include-untracked: %w: %s", err, out)
+		return fmt.Errorf("git stash push --include-untracked: %w: %s%s", err, out, indexLockHint(dir, out))
 	}
 	return nil
 }

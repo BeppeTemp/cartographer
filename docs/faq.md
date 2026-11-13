@@ -82,6 +82,15 @@ Cartographer does not sign commits, and it ignores your global `commit.gpgsign` 
 requires signed commits cannot be pushed to: lift that rule for the KB's branch, or set `branch` to one it does not
 cover. A TLS error (`x509`, `SSL certificate problem`) names `SSL_CERT_FILE` and git's `http.sslCAInfo`.
 
+## A write fails with "Unable to create '…/.git/index.lock': File exists". What do I do?
+
+Git keeps a lock file while it changes the index. The server removes a leftover one by itself when it starts (a
+crash or a kill leaves one), so one that appears while the server runs belongs to a git process in that clone: your
+own `git` in a terminal, an editor's git integration, another tool. The error names the file. If no git process runs
+in that clone, delete it (`rm <path>`) and retry the write; nothing else needs repairing. If one does run, let it finish.
+The same error appears when the write's sync step (the rebase onto the remote's new commits) meets the lock; it is not a
+merge conflict. If another server process holds the KB at start, the leftover is not removed and the server log says so.
+
 ## Can I turn off the offer to report a bug from an agent?
 
 Yes. Set `feedback.destination: off` on the server (`CARTOGRAPHER_FEEDBACK_DESTINATION=off`): the served instructions stop naming when to offer a report and internal-error results lose their report hint. Set it to an `https://` URL template with `{title}` (and optionally `{kind}`, `{body}`) to send agents to your own tracker instead of GitHub. Nothing is ever sent by Cartographer: the user opens the link and submits it. See [deployment.md](deployment.md).
