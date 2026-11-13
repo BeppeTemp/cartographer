@@ -19,6 +19,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/gitx/gitxtest"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
@@ -81,6 +82,15 @@ func TestMain(m *testing.M) {
 		os.Exit(0)
 	}
 	gitxtest.QuietGit() // a detached git gc would break t.TempDir cleanup
+	// The git deadlines no test here is about: a local fetch, commit or push
+	// against a bare repository on a loaded Windows runner (4 shards x every
+	// package) can outlast the production 15 s / 60 s, and the command under
+	// test then reports "git fetch origin failed" instead of its real answer
+	// (#1870, #1867). Scaled like every deadline that is not under test (#1048);
+	// a test that is about a deadline sets its own value.
+	gitx.FetchTimeout = gitxtest.Deadline(gitx.FetchTimeout)
+	gitx.PushTimeout = gitxtest.Deadline(gitx.PushTimeout)
+	gitx.CommitTimeout = gitxtest.Deadline(gitx.CommitTimeout)
 	home, err := os.MkdirTemp("", "cartographer-test-home-")
 	if err != nil {
 		panic(err)
