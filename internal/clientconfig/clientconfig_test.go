@@ -804,3 +804,34 @@ func TestLoadIgnoresALeftoverPathFingerprint(t *testing.T) {
 		t.Fatalf("hash = %q", got)
 	}
 }
+
+func TestMCPApprovalContentRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(clientconfig.Path(dir), []byte("server_url: http://x/mcp\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	if err := cfg.ApproveMCPContent("kb", "with", "h1", `{"url":"x"}`, at); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.ApproveMCP("kb", "without", "h2", at); err != nil {
+		t.Fatal(err)
+	}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := loaded.MCPApprovals["kb"]["with"].Content; got != `{"url":"x"}` {
+		t.Errorf("content = %q", got)
+	}
+	if got := loaded.MCPApprovals["kb"]["without"].Content; got != "" {
+		t.Errorf("an approval without content must stay empty, got %q", got)
+	}
+}
