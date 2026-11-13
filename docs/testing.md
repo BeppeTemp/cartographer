@@ -1061,7 +1061,9 @@ documents or scripts has no Windows leg) beside the targets, a red leg fails the
 the leg (`windows <duration>`, `windows not run` without the variable), so a Windows-only break is found
 before the merge instead of on `main`. An exit 75 from `SIGNOFF_MAKE` (the platform probe or the targets)
 means its machine is unavailable: the signoff pushes the branch, dispatches `ci.yml` on it, waits for that
-run's `gate` job and posts the status only when it is green, naming the run.
+run's `gate` job and posts the status only when it is green, naming the run. The run it follows is the first one
+with an id above the newest already listed for that branch and sha (an earlier attempt's finished run is never
+reused, and no clock is compared).
 
 The targets run under `make -k`, so a red run still runs every other target and its log is
 the whole evidence. When every failure in it is a named Go test (`scripts/test-failures.sh`:
