@@ -167,6 +167,9 @@ var advancedToolNames = map[string]bool{
 	// preset_list: the presets of the plugins pinned in the server config,
 	// reached by name from the plugin's own instructions; server data, not a KB's.
 	"preset_list": true,
+	// secrets_init (D2039): admin-only, run once per KB by the
+	// operator's CLI; not a step of the agent loop.
+	"secrets_init": true,
 }
 
 // ToolAdvanced reports whether the named tool is hidden from tools/list under

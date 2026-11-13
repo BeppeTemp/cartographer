@@ -54,7 +54,7 @@ var serverToolNames = []string{
 	"conflict_resolve", "conflicts_list", "contradiction_report", "gate_check", "git_conflict_resolve", "graph_context",
 	"graph_neighbors", "graph_path", "index_get", "index_patch", "ingest_setup", "kb_guide", "kb_repair", "kb_review",
 	"kb_status", "link_suggest", "lint", "log_append", "log_tail", "map_create", "map_delete", "map_list", "map_update",
-	"preset_list", "reindex", "repair_revert", "search", "secret_resolve", "secret_set", "service_get", "service_list",
+	"preset_list", "reindex", "repair_revert", "search", "secret_resolve", "secret_set", "secrets_init", "service_get", "service_list",
 	"skill_install", "skill_list", "snapshot", "source_list", "source_register", "supersede", "sync_check", "sync_pull",
 	"sync_status", "template_list", "validate", "work_list",
 }

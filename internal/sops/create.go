@@ -26,8 +26,8 @@ const maxConfigSize = 1 << 20
 // RuleRecipients returns the age recipients of the first creation rule of the
 // KB's root .sops.yaml that matches relativePath, the rule sops itself would
 // pick (an empty path_regex matches every path). matched is false when no rule
-// matches. The file is never written by Cartographer (D1191): the recipients are
-// the operator's, not the caller's.
+// matches. Only InitRule writes that file, for an admin (D2039): the
+// recipients are the operator's, not the caller's.
 func RuleRecipients(kbRoot, relativePath string) (recipients []string, matched bool, err error) {
 	path := filepath.Join(kbRoot, ".sops.yaml")
 	fi, err := os.Lstat(path)

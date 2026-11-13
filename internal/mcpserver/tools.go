@@ -175,6 +175,7 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	// wrap explicitly so a synchronised KB is fresh before decryption.
 	register(readSyncWrap(k, toolSecretResolve(k)))
 	register(gitWrap(k, toolSecretSet(k)))
+	register(gitWrap(k, toolSecretsInit(k)))
 	register(toolArtifactRead(k))
 	register(toolArtifactList(k))
 	register(toolTemplateList(k))

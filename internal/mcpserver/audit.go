@@ -80,8 +80,10 @@ var auditResourceFields = map[string][]string{
 	// names, not resource identifiers — deliberately excluded.
 	// "reveal" is recorded: the argument name is not secret, and the decision
 	// to print a credential is exactly what an audit trail is for (D158).
-	"secret_resolve":       {"concept_id", "reveal"},
-	"secret_set":           {"path"},
+	"secret_resolve": {"concept_id", "reveal"},
+	"secret_set":     {"path"},
+	// secrets_init: the recipient is public but needs no logging, only force.
+	"secrets_init":         {"force"},
 	"skill_install":        {"name"},
 	"conflict_resolve":     {"contradiction_id"},
 	"git_conflict_resolve": {"concept_id"},

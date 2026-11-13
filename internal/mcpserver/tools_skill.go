@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/hooks"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -490,6 +491,42 @@ func toolSecretSet(k *kb.KB) Tool {
 			return errorResult("secret_set: " + secretError(k, err).Error()), nil
 		}
 		return textResult(fmt.Sprintf("secret_set: updated %s %s", p.Path, p.Key)), nil
+	}}
+}
+
+// toolSecretsInit writes the KB's root .sops.yaml creation rule (D2039).
+// Admin only: the recipients decide who can decrypt the KB, an operator's choice
+// (D1191) that no agent token may make. The key is not installed here: it is a
+// file on the operator's machine and credentials_dir is the server's.
+func toolSecretsInit(k *kb.KB) Tool {
+	return Tool{Name: "secrets_init", Description: "Writes the KB's root .sops.yaml with one creation rule (secrets/*.sops.yaml encrypted to the given age public key) and commits it. Admin only. A different existing rule is kept unless force is set; a replaced rule does not re-encrypt the files already under secrets/.", InputSchema: json.RawMessage(`{"type":"object","required":["recipient"],"properties":{"recipient":{"type":"string","description":"age public key (age1...) of the operator who may decrypt"},"force":{"type":"boolean"}}}`), Handler: func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
+		var p struct {
+			Recipient string `json:"recipient"`
+			Force     bool   `json:"force"`
+		}
+		if err := json.Unmarshal(args, &p); err != nil {
+			return errorResult("invalid params: " + err.Error()), nil
+		}
+		if pr := auth.PrincipalFromContext(ctx); pr.ID != "" && !pr.Policy.Admin {
+			return errorResult("secrets_init: choosing who may decrypt the KB is an administrator action"), nil
+		}
+		state, previous, err := sops.InitRule(k.Root, strings.TrimSpace(p.Recipient), p.Force)
+		if err != nil {
+			var exists *sops.RuleExistsError
+			if errors.As(err, &exists) {
+				return errorResult(fmt.Sprintf("secrets_init: the KB already has a different .sops.yaml (recipients: %s); pass force to replace it", strings.Join(previous, ", "))), nil
+			}
+			return errorResult("secrets_init: " + relPathErr(err, k.Root)), nil
+		}
+		msg := "secrets_init: rule " + state
+		res := textResult(msg)
+		if state == sops.RuleReplaced {
+			res = textResult(msg + "; files already under secrets/ keep their old recipients: run sops updatekeys on each")
+		}
+		if state != sops.RuleUnchanged {
+			res.CommitSubject = "chore(secrets): enable secrets, creation rule for 1 recipient"
+		}
+		return res, nil
 	}}
 }
 

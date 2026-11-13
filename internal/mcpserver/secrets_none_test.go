@@ -38,6 +38,7 @@ func TestSecretsNoneTools(t *testing.T) {
 	}{
 		{"secret_resolve", `{"concept_id":"a/b"}`},
 		{"secret_set", `{"path":"secrets/x.sops.yaml","pointer":"/a","value":"v"}`},
+		{"secrets_init", `{"recipient":"age1x"}`},
 		{"service_get", `{"service_id":"s","resolve_secrets":true}`},
 		{"concept_write", `{"id":"a/b","body":"x","frontmatter":{"secret_refs":{"k":"secrets/x.sops.yaml#/a"}}}`},
 		{"concept_write", `{"id":"a/b","body":"---\nsecrets_source: secrets/x.sops.yaml\n---\n"}`},
