@@ -5,7 +5,7 @@ encrypted service values beside its versioned knowledge.
 
 ## Skills
 
-An installed skill lives at `skills/<name>/SKILL.md`. Cartographer validates
+A skill is packaged as a folder with a `SKILL.md` file: an installed skill lives at `skills/<name>/SKILL.md`. Cartographer validates
 the Agent Skills frontmatter (`name` and `description`) and exposes installed
 and binary-bundled skills through `skill_list`. `skill_install` copies a
 bundled skill into the KB.

@@ -1,0 +1,76 @@
+{"q": "how do I install Cartographer and set up my first KB?", "want": ["using-cartographer/getting-started/1-install-the-binary", "using-cartographer/getting-started/2-set-up-meridian-the-first-kb-and-your-agents", "using-cartographer/readme/install", "using-cartographer/readme/quick-start"]}
+{"q": "what gets installed on my machine?", "want": ["using-cartographer/getting-started/what-gets-installed"]}
+{"q": "what happens when two agents write the same page?", "want": ["using-cartographer/faq/what-happens-when-two-agents-write-the-same-page", "internals-contributing/concurrency/optimistic-content-concurrency"]}
+{"q": "why not just use a CLAUDE.md file, Notion or Obsidian?", "want": ["using-cartographer/faq/why-not-just-a-claude-md-or-notion-or-obsidian"]}
+{"q": "can my agent install Cartographer for me?", "want": ["using-cartographer/agent-install", "using-cartographer/agent-install/3-run-it", "using-cartographer/agent-install/1-install-the-binary"]}
+{"q": "what should the agent ask the user before installing anything?", "want": ["using-cartographer/agent-install/0-interview-the-user-one-message-before-any-command"]}
+{"q": "how do I connect Open WebUI or an SDK agent loop to Cartographer?", "want": ["using-cartographer/mcp-clients/connect", "using-cartographer/mcp-clients/hosts", "using-cartographer/mcp-clients"]}
+{"q": "what the model receives from an MCP host", "want": ["using-cartographer/mcp-clients/what-the-model-receives"]}
+{"q": "how do I run Cartographer on Kubernetes with the Helm chart?", "want": ["using-cartographer/deployment/deployment-and-packaging-deployment-scenarios", "using-cartographer/deployment/deployment-and-packaging-components", "using-cartographer/deployment/deployment-and-packaging"]}
+{"q": "how do I back up a server and recover from a disaster?", "want": ["using-cartographer/deployment/backup-and-disaster-recovery"]}
+{"q": "which environment variables configure the server?", "want": ["using-cartographer/deployment/deployment-and-packaging-environment-variables", "using-cartographer/deployment/deployment-and-packaging-configuration-flags-env-yaml", "using-cartographer/deployment/deployment-and-packaging-environment-variables-example-native-local-service-launchd-systemd-cron-sch", "using-cartographer/deployment/deployment-and-packaging-environment-variables-example-single-vm"]}
+{"q": "how do I write a Surveyor connector as a plugin?", "want": ["using-cartographer/surveyor-connectors", "using-cartographer/surveyor-connectors/exec-starlark-or-mcp", "using-cartographer/surveyor-connectors/a-worked-example"]}
+{"q": "what a Surveyor connector cannot do", "want": ["using-cartographer/surveyor-connectors/what-a-connector-cannot-do"]}
+{"q": "what is the protocol between the Surveyor and an exec recipe script?", "want": ["using-cartographer/surveyor-recipes/protocol-v2"]}
+{"q": "how do I test a Surveyor recipe before deploying it?", "want": ["using-cartographer/surveyor-recipes/testing-a-recipe-before-deploying-it"]}
+{"q": "how does workspace binding work?", "want": ["using-cartographer/sync/workspace-scope-d193", "using-cartographer/sync/workspace-scope-d193-project-local-destinations", "using-cartographer/configurator/subcommands-cartographer-connect-provider-all", "using-cartographer/configurator/subcommands-cartographer-connect-provider-all-part-2", "decisions/d193-workspace-scoped-artifact-projection-one-provider"]}
+{"q": "how do I bind a project folder to a KB for one agent client?", "want": ["using-cartographer/sync/workspace-scope-d193", "using-cartographer/sync/workspace-scope-d193-project-local-destinations", "using-cartographer/configurator/subcommands-cartographer-connect-provider-all", "using-cartographer/configurator/subcommands-cartographer-connect-provider-all-part-2"]}
+{"q": "how do I connect an agent client to a Cartographer server?", "want": ["using-cartographer/configurator/subcommands-cartographer-connect-provider-all", "using-cartographer/configurator/subcommands-cartographer-setup", "using-cartographer/configurator/subcommands", "using-cartographer/configurator"]}
+{"q": "how do I run cartographer doctor?", "want": ["using-cartographer/configurator/subcommands-cartographer-doctor", "using-cartographer/configurator/subcommands-cartographer-status"]}
+{"q": "which MCP tools does the server expose?", "want": ["using-cartographer/control-plane/mcp-api", "using-cartographer/control-plane/mcp-api-reading-and-navigation", "using-cartographer/control-plane/mcp-api-writing-and-ingest"]}
+{"q": "how does search ranking and the search index work?", "want": ["using-cartographer/control-plane/search-index", "using-cartographer/control-plane/mcp-api-search"]}
+{"q": "what is an expanded concept and its hierarchy?", "want": ["using-cartographer/data-plane/hierarchy", "using-cartographer/data-plane/filesystem-layout-of-a-kb"]}
+{"q": "what is the anatomy of a concept page?", "want": ["using-cartographer/data-plane/concept-anatomy-of-a-page"]}
+{"q": "how is a skill packaged with SKILL.md?", "want": ["using-cartographer/skills-services-secrets/skills"]}
+{"q": "how are secrets stored encrypted with SOPS in a KB?", "want": ["using-cartographer/skills-services-secrets/sops-files"]}
+{"q": "how does sync detect drift on the client?", "want": ["using-cartographer/sync/on-disk-verification-and-healing-d139", "using-cartographer/sync/detection-and-triggers-layered-model"]}
+{"q": "what are the core concepts of sync: manifest, revision and lockfile?", "want": ["using-cartographer/sync/core-concepts"]}
+{"q": "what are the four hook points?", "want": ["using-cartographer/hooks/the-four-points"]}
+{"q": "what is the failure policy of a hook and its circuit breaker?", "want": ["using-cartographer/hooks/failure-policy-circuit-breaker-dry-run"]}
+{"q": "how do I write my first plugin?", "want": ["using-cartographer/plugins/write-your-first-plugin"]}
+{"q": "which permissions a plugin manifest declares?", "want": ["using-cartographer/plugins/manifest-permissions"]}
+{"q": "how do I keep a runbook current during an incident?", "want": ["using-cartographer/use-cases/maintain-a-runbook-during-an-incident"]}
+{"q": "how do I import an existing folder of notes?", "want": ["using-cartographer/use-cases/import-an-existing-notes-directory"]}
+{"q": "what are the components of the architecture?", "want": ["internals-contributing/overview/components", "internals-contributing/overview/what-it-is"]}
+{"q": "which principles guide the design of Cartographer?", "want": ["internals-contributing/overview/principles"]}
+{"q": "how do changes land in the KB through the single writer?", "want": ["internals-contributing/concurrency/how-changes-land", "internals-contributing/concurrency/writer-boundary"]}
+{"q": "where is a git merge conflict recorded in the conflict registry?", "want": ["internals-contributing/concurrency/conflict-registry"]}
+{"q": "how do bearer tokens and per-KB scopes work?", "want": ["internals-contributing/transport-auth/per-kb-scopes", "internals-contributing/transport-auth/enabling-bearer-authentication"]}
+{"q": "what are the transports of the MCP server, stdio and HTTP?", "want": ["internals-contributing/transport-auth/transports", "internals-contributing/transport-auth/transports-one-routed-topology-d288"]}
+{"q": "what is the operating loop to orient, read and write?", "want": ["internals-contributing/loop/orient-and-read", "internals-contributing/loop/write"]}
+{"q": "why should an agent record unknowns as gaps?", "want": ["internals-contributing/loop/record-unknowns-as-gaps"]}
+{"q": "is Cartographer conformant with OKF?", "want": ["internals-contributing/interoperability/okf-conformance"]}
+{"q": "how does Cartographer handle provider behavior of each agent client?", "want": ["internals-contributing/interoperability/provider-behavior", "internals-contributing/interoperability/multi-provider-configurator"]}
+{"q": "which Codex CLI version is Cartographer aligned with?", "want": ["internals-contributing/harnesses/codex"]}
+{"q": "which agent clients are in the harness ledger?", "want": ["internals-contributing/harnesses/claude", "internals-contributing/harnesses/kiro", "internals-contributing/harnesses/codex", "internals-contributing/harnesses"]}
+{"q": "how do I add a new decision record?", "want": ["internals-contributing/decisions/adding-a-decision"]}
+{"q": "how do I refer to a decision in the docs or the code?", "want": ["internals-contributing/decisions/referring-to-a-decision"]}
+{"q": "which Go style rules does the project enforce?", "want": ["internals-contributing/conventions/go-style"]}
+{"q": "how are settings keys declared in conventions?", "want": ["internals-contributing/conventions/settings"]}
+{"q": "what must pass before I open a pull request?", "want": ["internals-contributing/testing/before-a-pull-request", "internals-contributing/contributing/pull-requests", "internals-contributing/contributing/building-and-testing"]}
+{"q": "what does the image smoke test do?", "want": ["internals-contributing/testing/levels-image-smoke"]}
+{"q": "where is the bibliography of the project?", "want": ["internals-contributing/references/project-foundations", "internals-contributing/references/mcp-protocol"]}
+{"q": "which MCP specification does Cartographer implement?", "want": ["internals-contributing/references/mcp-protocol"]}
+{"q": "what are the colors of the brand palette?", "want": ["internals-contributing/brand-index/palette"]}
+{"q": "what is the voice of the brand?", "want": ["internals-contributing/brand-index/voice"]}
+{"q": "which docs do I read to add an MCP tool, in the quick reading paths?", "want": ["internals-contributing/docs-map/quick-reading-paths"]}
+{"q": "which docs to update when code changes?", "want": ["internals-contributing/docs-map/documentation-maintenance-rules"]}
+{"q": "what problem does Cartographer solve?", "want": ["using-cartographer/readme/why", "using-cartographer/readme/what-you-get", "using-cartographer/readme"]}
+{"q": "what are the four components of Cartographer?", "want": ["using-cartographer/readme/the-four-components"]}
+{"q": "how do I contribute a fix?", "want": ["internals-contributing/contributing/pull-requests", "internals-contributing/contributing/fixes-without-a-plan-maintainers", "internals-contributing/contributing/finding-your-way-around"]}
+{"q": "how do I report a bug with an issue?", "want": ["internals-contributing/contributing/reporting-bugs", "internals-contributing/contributing/issues-bug-idea"]}
+{"q": "why is there a git commit for every logical operation?", "want": ["decisions/d30-git-commit-per-logical-operation-step-1-local-commit"]}
+{"q": "why is a skill not installed in a folder I did not bind?", "want": ["decisions/d193-workspace-scoped-artifact-projection-one-provider", "using-cartographer/sync/workspace-scope-d193", "using-cartographer/sync/workspace-scope-d193-project-local-destinations"]}
+{"q": "why is there a minimal read-only tool profile for agents?", "want": ["decisions/d1184-read-min-access-profile"]}
+{"q": "why can a lint check not be switched off?", "want": ["decisions/d907-the-lint-cannot-be-escaped", "decisions/d371-every-check-active-by-default-inactive-ones-say-why", "using-cartographer/data-plane/naming-and-concept-ids-no-check-can-be-switched-off-d907"]}
+{"q": "why do maintainer changes land in trains?", "want": ["decisions/d1706-trains"]}
+{"q": "why does the hosted demo run on Cloud Run behind a Cloudflare Worker?", "want": ["decisions/d751-the-live-mcp-demo-runs-on-cloud-run-behind-a-cloudflare-worker", "using-cartographer/deployment/deployment-and-packaging-the-embedded-atlas-ui-d227-the-hosted-mcp-demo-d751-d800"]}
+{"q": "how are tokens scoped per KB?", "want": ["decisions/d45-per-kb-r-rw-scope-enforcement-scoped-tokenstore-body", "internals-contributing/transport-auth/per-kb-scopes"]}
+{"q": "why does a workspace binding scope the tools through a local stdio bridge?", "want": ["decisions/d737-workspace-scope-through-a-local-stdio-bridge"]}
+{"q": "why does the client refuse a cleartext server URL?", "want": ["decisions/d1023-refuse-cleartext-server-url"]}
+{"q": "why is the MCP stdio transport hand-rolled instead of using an SDK?", "want": ["decisions/d2-hand-rolled-mcp-stdio-transport-no-sdk"]}
+{"q": "why does Cartographer have graph retrieval tools like graph_context?", "want": ["decisions/d242-graph-retrieval-tools"]}
+{"q": "why is a plugin script written in Starlark?", "want": ["decisions/d1746-plugin-scripts-starlark"]}
+{"q": "why does lint cover the artifacts of a KB and not only its concepts?", "want": ["decisions/d316-lint-covers-the-kbs-artifacts"]}
+{"q": "why does sync restore what diverged on disk?", "want": ["decisions/d139-on-disk-verification-sync-restores-what-diverged"]}
+{"q": "why do paths in a KB use placeholders instead of absolute paths?", "want": ["decisions/d75-path-portability-across-machines-placeholders-auto", "decisions/d263-a-kb-declares-its-path-placeholder-registry"]}

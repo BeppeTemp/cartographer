@@ -2,6 +2,8 @@
 
 ## Transports
 
+The MCP server speaks two transports, stdio and HTTP:
+
 | Transport | Interface | Authorization |
 |---|---|---|
 | stdio | Newline-delimited JSON-RPC 2.0, one session per process | Process/user boundary; no bearer token |

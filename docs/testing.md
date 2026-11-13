@@ -382,6 +382,22 @@ declares every key the pages cite in its `paths.yaml`) or a wiki-link shown in p
 failure is fixed by a generator rule, or in the docs where they are wrong, never by a
 special case for a page.
 
+`TestRetrievalEval` (D9) asks the real read tools, as `cartographer docs` runs them
+in-process, the questions of `internal/docskb/testdata/questions.jsonl` (plain user
+words and the concept ids that answer them, any-of). A question is searched with its
+content words, the question words (`how`, `does`, `the`) dropped, because the index
+matches whole words and ANDs them: a sentence no page holds in full falls back to an
+OR in which the question words outweigh the topic. It passes when a wanted id is among
+the ids `graph_context` shows (its seeds, the top five search hits, plus the first five
+ranked results, which exclude the seeds) and among the first ten `search` hits; both
+numbers are constants of the test, and loosening one is a decision in review, never a
+per-question exception. `TestEvalCoverage` requires at least two questions for every
+page of `docs/index.md`, `README.md` and `CONTRIBUTING.md`, at least twelve about
+decisions, every wanted id to exist and no question twice. A failing question is fixed
+in the docs (a heading, a first sentence in the reader's words, a link), never by a
+special case in the generator or the test; a heading rename changes a concept id and
+fails the eval loudly, and its line is updated in the same change.
+
 ### Helm chart
 
 `make helm-check` runs [`test/helm/run.sh`](https://github.com/BeppeTemp/cartographer/blob/main/test/helm/run.sh) on

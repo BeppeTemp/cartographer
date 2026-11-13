@@ -29,6 +29,8 @@ See [transport-auth.md](transport-auth.md) §Per-KB scopes and §Identity and au
 
 ## What the model receives
 
+What the model receives from Cartographer when an MCP host (a host with no Cartographer client side) connects it:
+
 - **The operating guide in `initialize.instructions`**: the KBs the token can use, how to pass `kb`, orientation and write habits, the procedures (`ingest`, `conflict-resolve`, `import`), how to create the first map on an empty KB and each KB's own `instructions.md`; it says it is the whole guide, so an agent that received it does not call `kb_guide` for it again. A host that does not forward it to the model should paste it into the system prompt.
 - **The `kb_guide` tool**: returns the same guide (including the procedures list) and, with `procedure`, the steps (`ingest`, `conflict-resolve`, `import`) as text the model can read. It is the fallback for a host that does not show `initialize.instructions` (D1100).
 - **A `tools/list` shaped by the token**: only the KBs it reads, and no write tool for a token that cannot write.
