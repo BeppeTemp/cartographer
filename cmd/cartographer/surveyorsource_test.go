@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
+	"github.com/BeppeTemp/cartographer/internal/plugin/star"
 	"github.com/BeppeTemp/cartographer/internal/surveyor"
 	"github.com/BeppeTemp/cartographer/internal/testtree"
 )
@@ -441,5 +443,68 @@ func TestSurveyorSourceOutputStripsControlCharacters(t *testing.T) {
 	m := re.FindStringSubmatch(out.String())
 	if m == nil || m[1] != m[2] {
 		t.Errorf("show block:\n%q", out.String())
+	}
+}
+
+// pinnedStarPlugin vendors a plugin with one Starlark recipe ("feed") into a store
+// and returns the config lines that pin it (plugins_dir, plugins) with the given digest
+// ("" pins the real one).
+func pinnedStarPlugin(t *testing.T, digest string) string {
+	t.Helper()
+	manifest := "schema: 2\nname: acme-wiki\nversion: 1.0.0\ndisplay_name: Wiki\ndescription: A wiki reader.\ncartographer: \">=0.29.0\"\ncomponents:\n  surveyor:\n    sdk: {recipes: 1}\n"
+	script := "def lst(req):\n    return {\"entries\": [{\"key\": \"p1\", \"title\": \"Page\", \"revision\": \"1\", \"change\": \"added\", \"content\": \"x\"}], \"next_cursor\": \"c1\"}\n\nrecipe(\"feed\", lst)\n"
+	files := []core.TreeFile{
+		{Path: core.ManifestFile, Content: []byte(manifest)},
+		{Path: "recipes/feed/instructions.md", Content: []byte("Read the entries.")},
+		{Path: core.SurveyorScript, Content: []byte(script)},
+	}
+	opts := core.Options{RunningVersion: version, CheckScripts: star.Check}
+	p, probs := core.ReadTree(files, opts)
+	if len(probs) != 0 {
+		t.Fatal(probs)
+	}
+	store := t.TempDir()
+	if err := (core.Store{Root: store}).Put("acme-wiki", files, p.Digest, opts); err != nil {
+		t.Fatal(err)
+	}
+	if digest == "" {
+		digest = p.Digest
+	}
+	return "plugins_dir: " + store + "\nplugins:\n  acme-wiki:\n    digest: " + digest + "\n"
+}
+
+func appendToConfig(t *testing.T, path, extra string) {
+	t.Helper()
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(extra); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// #2100: source test loads the pinned plugins like the start does.
+func TestSurveyorSourceTestLoadsPinnedPluginRecipes(t *testing.T) {
+	cfg := sourceCfg(t, "ok", "http://127.0.0.1:1")
+	appendToConfig(t, cfg, pinnedStarPlugin(t, ""))
+	code, out, errs := runSource(t, "test", "--config", cfg, "--recipe", "acme-wiki/feed", "--locator", "wiki:space/ops")
+	if code != 0 || !strings.Contains(out, "recipe:\tacme-wiki/feed") || !strings.Contains(out, "added\tp1\t") {
+		t.Fatalf("exit %d\n%s\n%s", code, out, errs)
+	}
+	// The known list names the plugin recipe next to the operator's.
+	code, _, errs = runSource(t, "test", "--config", cfg, "--recipe", "ghost", "--locator", "l")
+	if code != 2 || !strings.Contains(errs, "known:") || !strings.Contains(errs, "acme-wiki/feed") {
+		t.Errorf("known list: exit %d, %q", code, errs)
+	}
+}
+
+func TestSurveyorSourceTestRefusesAPluginWithAWrongDigest(t *testing.T) {
+	cfg := sourceCfg(t, "ok", "http://127.0.0.1:1")
+	appendToConfig(t, cfg, pinnedStarPlugin(t, strings.Repeat("0", 64)))
+	code, _, errs := runSource(t, "test", "--config", cfg, "--recipe", "acme-wiki/feed", "--locator", "wiki:space/ops")
+	if code != 2 || !strings.Contains(errs, "surveyor config") || !strings.Contains(errs, "plugins.acme-wiki") {
+		t.Errorf("exit %d, %q", code, errs)
 	}
 }

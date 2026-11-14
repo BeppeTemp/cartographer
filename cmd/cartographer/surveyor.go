@@ -242,6 +242,13 @@ func printPrivateGrant(out io.Writer, p *core.Plugin, granted []string) {
 	}
 }
 
+// loadSurveyorPlugins verifies and loads the pinned plugins of a Surveyor config
+// (it fills the plugin recipes); the start and `surveyor source test` share it, so
+// a recipe tried by the second is the one the first runs.
+func loadSurveyorPlugins(cfg *surveyor.Config) error {
+	return cfg.LoadPlugins(core.Options{RunningVersion: version, CheckScripts: star.Check})
+}
+
 // surveyorStartup runs the start-up checks in order; each failure starts nothing.
 // The token and the API keys never reach an error or a log line: they are only
 // handed to the clients.
@@ -255,7 +262,7 @@ func surveyorStartup(ctx context.Context, path string, kinds *surveyor.Kinds, re
 	}
 	// The pinned digest is the only consent: a plugin that does not match stops
 	// the start, before any model client or network call.
-	if err := cfg.LoadPlugins(core.Options{RunningVersion: version, CheckScripts: star.Check}); err != nil {
+	if err := loadSurveyorPlugins(cfg); err != nil {
 		return nil, startFail(surveyorExitStart, "surveyor config %s: %v", path, err)
 	}
 	for _, p := range cfg.Plugins {

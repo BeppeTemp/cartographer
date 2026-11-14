@@ -101,6 +101,9 @@ func cmdSurveyorSourceTest(args []string) int {
 	if err != nil {
 		return usage("%v", err)
 	}
+	if err := loadSurveyorPlugins(cfg); err != nil {
+		return usage("surveyor config %s: %v", *configF, err)
+	}
 	in := surveyor.SourceTestInput{Source: *sourceF, Recipe: *recipeF, Locator: *locatorF, Kind: *kindF, Include: include,
 		Cursor: *cursorF, CursorSet: set["cursor"], Show: *showF}
 	if *sourceF != "" {
