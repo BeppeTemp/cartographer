@@ -295,7 +295,7 @@ func TestRemoveMCPEntries_RemovesEveryManagedEntry(t *testing.T) {
 	if _, _, err := applyMCPEntries(sameEntriesFor([]string{"claude", "codex", "kiro", "opencode"}, entries), []string{"claude", "codex", "kiro", "opencode"}, dir, nil, false, "", false); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := removeMCPEntries("wiki", []string{"a", "b"}, []string{"claude", "codex", "kiro", "opencode"}, dir, nil, false, "", false); err != nil {
+	if _, _, err := removeMCPEntries("wiki", []string{"a", "b"}, []string{"claude", "codex", "kiro", "opencode"}, dir, nil, false, "", false, nil); err != nil {
 		t.Fatal(err)
 	}
 	for _, provider := range []string{"claude", "codex", "kiro", "opencode"} {
@@ -858,7 +858,7 @@ func TestApplyRemoveMCPEntries_EveryDeclaredClaudeDir(t *testing.T) {
 	}
 	// Rename scenario: remove the old name, write the new URL; both files follow.
 	cur, _ := entriesForKBs("wiki", "https://new.example.test/mcp", []string{"b"}, []string{"b"}, "", false)
-	if _, _, err := removeMCPEntries("wiki", []string{"a"}, []string{"claude"}, home, dirs, false, "", false); err != nil {
+	if _, _, err := removeMCPEntries("wiki", []string{"a"}, []string{"claude"}, home, dirs, false, "", false, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := applyMCPEntries(sameEntriesFor([]string{"claude"}, cur), []string{"claude"}, home, dirs, false, "", false); err != nil {

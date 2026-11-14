@@ -47,7 +47,7 @@ func TestCLIAndNoneProvidersHaveNoMCPEntry(t *testing.T) {
 	if err != nil || len(written) != 0 || len(warnings) != 0 {
 		t.Fatalf("applyMCPEntries = %v, %v, %v", written, warnings, err)
 	}
-	removedNames, removed, err := removeMCPEntries("cartographer", cfg.KnownKBs, names[1:], dir, nil, false, "", false)
+	removedNames, removed, err := removeMCPEntries("cartographer", cfg.KnownKBs, names[1:], dir, nil, false, "", false, nil)
 	if err != nil || len(removedNames) != 0 || len(removed) != 0 {
 		t.Fatalf("removeMCPEntries = %v, %v, %v", removedNames, removed, err)
 	}
@@ -123,7 +123,7 @@ func TestGlobMCPProviderIsWrittenAndRemovedThroughTheCommonPath(t *testing.T) {
 			t.Errorf("%s lacks the entry:\n%s", p, b)
 		}
 	}
-	_, removed, err := removeMCPEntries("cartographer", cfg.KnownKBs, []string{"fork-ext"}, home, nil, false, "", false)
+	_, removed, err := removeMCPEntries("cartographer", cfg.KnownKBs, []string{"fork-ext"}, home, nil, false, "", false, nil)
 	if err != nil || !removed["fork-ext"] {
 		t.Fatalf("removeMCPEntries = %v, %v", removed, err)
 	}

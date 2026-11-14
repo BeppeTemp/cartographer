@@ -107,7 +107,7 @@ func TestRemoveMCPEntries_CodexListsOnlyEntriesPresent(t *testing.T) {
 	cfgPath := filepath.Join(dir, ".codex", "config.toml")
 	before, _ := os.ReadFile(cfgPath)
 
-	names, removed, err := removeMCPEntries("wiki", []string{"kb-a", "kb-b"}, []string{"codex"}, dir, nil, false, "", true)
+	names, removed, err := removeMCPEntries("wiki", []string{"kb-a", "kb-b"}, []string{"codex"}, dir, nil, false, "", true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +123,7 @@ func TestRemoveMCPEntries_CodexListsOnlyEntriesPresent(t *testing.T) {
 
 	// Nothing of ours at all: no removal line, whatever KBs are known.
 	empty := t.TempDir()
-	names, _, err = removeMCPEntries("wiki", []string{"kb-a"}, []string{"codex"}, empty, nil, false, "", true)
+	names, _, err = removeMCPEntries("wiki", []string{"kb-a"}, []string{"codex"}, empty, nil, false, "", true, nil)
 	if err != nil || len(names["codex"]) != 0 {
 		t.Errorf("empty home: names=%v err=%v", names, err)
 	}

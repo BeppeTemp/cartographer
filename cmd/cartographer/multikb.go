@@ -970,7 +970,12 @@ func applyMCPEntriesRefusals(entriesByProvider map[string][]mcpEntry, providers 
 // come back joined in the error after the complete results, so a caller that
 // loops providers can report them (errors.Is safewrite.ErrSymlinkDestination)
 // and carry on. Any other error returns at once, without results.
-func removeMCPEntries(baseName string, kbs []string, providers []string, dir string, claudeDirs []string, auth bool, tokenEnv string, dryRun bool) (map[string][]string, map[string]bool, error) {
+//
+// reemit is what each provider is about to be written (nil for disconnect): a
+// name in it is not removed, because the merge replaces a same-named entry
+// whole and drops the other shapes, and deleting it first would erase the
+// on-disk shape D2056 keeps when OpenCode's version is unreadable (#2102).
+func removeMCPEntries(baseName string, kbs []string, providers []string, dir string, claudeDirs []string, auth bool, tokenEnv string, dryRun bool, reemit map[string][]mcpEntry) (map[string][]string, map[string]bool, error) {
 	removed := make(map[string]bool, len(providers))
 	names := make(map[string][]string, len(providers))
 	var refused []error
@@ -995,6 +1000,9 @@ func removeMCPEntries(baseName string, kbs []string, providers []string, dir str
 			}
 		}
 		for _, name := range managedEntryNames(baseName, kbs) {
+			if slices.ContainsFunc(reemit[provider], func(e mcpEntry) bool { return e.Name == name }) {
+				continue
+			}
 			nameRemoved := false
 			for _, base := range providerBaseDirs(provider, dir, claudeDirs) {
 				ok, err := configurator.Remove(&configurator.ServerConfig{Name: name, AuthEnabled: auth, TokenEnv: tokenEnv}, configurator.Provider(provider), base, dryRun)

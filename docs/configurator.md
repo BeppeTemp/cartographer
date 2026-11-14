@@ -1368,7 +1368,7 @@ name (and its bindings) in memory, `sync`/`connect`/`status`/`doctor` print once
 | Claude Code | `.claude.json` (also `<dir>/.claude.json` for each `providers.claude.config_dirs`, D755) | `mcpServers` (JSON) |
 | Codex CLI | `.codex/config.toml` | managed block `[mcp_servers.cartographer]` (TOML, marker `cartographer:mcp:*`) |
 | Kiro | `.kiro/settings/mcp.json` | `mcpServers` (JSON) |
-| OpenCode | `.config/opencode/opencode.json` (an entry left in `opencode.json` by an earlier version is moved, #1172) | `mcp.servers.<name>` (2.x; the V1 `mcp.<name>` on 1.x) |
+| OpenCode | `.config/opencode/opencode.json` (an entry left in `opencode.json` by an earlier version is moved, #1172) | `mcp.servers.<name>` (2.x; the V1 `mcp.<name>` on 1.x; an unreadable version keeps the shape already on disk, and `sync` does not remove an entry it re-emits, #2102, so that holds) |
 | Google Antigravity | `.gemini/config/mcp_config.json` | `mcpServers` (JSON) |
 | Crush | `.config/crush/crush.json` | `mcp` (JSON) |
 | GitHub Copilot (CLI, VS Code) | `.copilot/mcp-config.json` | `mcpServers` (JSON) |

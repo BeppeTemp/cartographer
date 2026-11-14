@@ -129,7 +129,7 @@ func TestSyncClientNamingAnUnregisteredProviderFails(t *testing.T) {
 func TestRemoveMCPEntriesRefusesAnUnregisteredProviderAlone(t *testing.T) {
 	home := pluginFixture(t)
 	freshProcess(t, home)
-	_, removed, err := removeMCPEntries("cartographer", nil, []string{"ghost", "claude"}, home, nil, false, "", true)
+	_, removed, err := removeMCPEntries("cartographer", nil, []string{"ghost", "claude"}, home, nil, false, "", true, nil)
 	if !provisioning.IsRefusal(err) {
 		t.Fatalf("err = %v; want a refusal", err)
 	}

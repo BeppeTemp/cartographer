@@ -1138,7 +1138,7 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 	// (D148): the refusal is a warning, the other providers proceed.
 	var refusalNotes, retainedKBs []string
 	noteOnDiskBridgeCommand(opts.Providers, entriesByProvider, opts.Dir, claudeDirs)
-	if _, _, err := removeMCPEntries(opts.Name, existing.KnownKBs, providersToClear(opts.Providers, entriesByProvider), opts.Dir, claudeDirs, opts.Auth, opts.tokenEnvName(), opts.DryRun); provisioning.IsRefusal(err) {
+	if _, _, err := removeMCPEntries(opts.Name, existing.KnownKBs, providersToClear(opts.Providers, entriesByProvider), opts.Dir, claudeDirs, opts.Auth, opts.tokenEnvName(), opts.DryRun, entriesByProvider); provisioning.IsRefusal(err) {
 		refusalNotes = refusalWarnings(err)
 		// Their stale entries stay, so these KBs stay in known_kbs (as in sync).
 		retainedKBs = refusedEntryKBs(err, opts.Name, existing.KnownKBs)
