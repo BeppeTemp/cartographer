@@ -183,6 +183,30 @@ func TestPluginShowOutOfRangePlugin(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "state: invalid") {
 		t.Fatalf("show: %d\n%s", code, out)
 	}
+	for _, want := range []string{"reason: cartographer: needs Cartographer >=0.28.0", "this is 0.1.0", "fix: run `cartographer plugin update team-forks`"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("plugin show lacks %q:\n%s", want, out)
+		}
+	}
+	code, out = runPlugin(t, "show", "team-forks", "--output", "json")
+	if code != 0 || !strings.Contains(out, `"invalid_reason"`) || !strings.Contains(out, "plugin update team-forks") {
+		t.Errorf("plugin show --output json lacks invalid_reason: %d\n%s", code, out)
+	}
+}
+
+// The start-up warning of an out-of-range plugin says the range, the running
+// version and the fix, not only that the plugin is invalid (#2090).
+func TestStartupWarningOfAnOutOfRangePluginHoldsTheReason(t *testing.T) {
+	srv := healthOnlyServer(t)
+	defer srv.Close()
+	outOfRangeMachine(t, srv.URL)
+	var errw bytes.Buffer
+	registerPluginProviders(&errw)
+	for _, want := range []string{"plugin team-forks is invalid", "needs Cartographer >=0.28.0", "this is 0.1.0", "plugin update team-forks", "not registered this run"} {
+		if !strings.Contains(errw.String(), want) {
+			t.Errorf("warning lacks %q:\n%s", want, errw.String())
+		}
+	}
 }
 
 // doctor names the plugin commands, not disconnect, for such a provider.

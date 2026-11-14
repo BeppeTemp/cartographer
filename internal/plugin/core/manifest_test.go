@@ -303,6 +303,23 @@ func TestParseManifestRunningVersions(t *testing.T) {
 	}
 }
 
+// A release candidate counts as its release version: the message says so only
+// when the running version is a pre-release (#2090).
+func TestParseManifestRangeMessageNotesAReleaseCandidate(t *testing.T) {
+	in := "schema: 2\nname: p\ncartographer: \">=0.28.0 <0.29.0\"\n"
+	_, probs := ParseManifest([]byte(in), Options{RunningVersion: "v0.29.0-rc.20261114"})
+	want := "cartographer: needs Cartographer >=0.28.0 <0.29.0 (this is 0.29.0-rc.20261114; a release candidate counts as its release version, 0.29.0)"
+	if len(probs) != 1 || probs[0] != want {
+		t.Errorf("rc: problems = %q; want %q", probs, want)
+	}
+	for _, run := range []string{"0.29.0", "0.29.0-4-g1a2b3c4"} {
+		_, probs = ParseManifest([]byte(in), Options{RunningVersion: run})
+		if len(probs) != 1 || strings.Contains(probs[0], "release candidate") {
+			t.Errorf("running %q: problems = %q; want no release candidate note", run, probs)
+		}
+	}
+}
+
 func TestParseManifestMalformedRangeIsAManifestError(t *testing.T) {
 	_, probs := ParseManifest([]byte(edit("cartographer", `cartographer: ">=0.28"`)), Options{RunningVersion: "0.1.0"})
 	if len(probs) != 1 || !strings.HasPrefix(probs[0], "cartographer:") || strings.Contains(probs[0], "needs Cartographer") {

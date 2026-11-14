@@ -190,8 +190,9 @@ func ParseManifest(data []byte, opts Options) (Manifest, []string) {
 	}
 	if !opts.IgnoreRange && yaml.Unmarshal(data, &head) == nil && head.Cartographer != "" {
 		if met, err := RangeMet(head.Cartographer, opts.RunningVersion); err == nil && !met {
-			return m, []string{fmt.Sprintf("cartographer: needs Cartographer %s (this is %s)",
-				strings.Join(strings.Fields(head.Cartographer), " "), strings.TrimPrefix(strings.TrimSpace(opts.RunningVersion), "v"))}
+			running := strings.TrimPrefix(strings.TrimSpace(opts.RunningVersion), "v")
+			return m, []string{fmt.Sprintf("cartographer: needs Cartographer %s (this is %s%s)",
+				strings.Join(strings.Fields(head.Cartographer), " "), running, prereleaseNote(running))}
 		}
 	}
 
@@ -219,6 +220,21 @@ func ParseManifest(data []byte, opts Options) (Manifest, []string) {
 	}
 	return m, v.problems
 }
+
+// prereleaseNote is what the range message adds when the running version is a
+// pre-release (0.29.0-rc.1): a range is judged on the X.Y.Z core, so a release
+// candidate counts as its release version, and a range that excludes that
+// version excludes the candidate too. "" for a release, a git describe build
+// (0.29.0-4-g1a2b3c4) or a version that does not parse.
+func prereleaseNote(running string) string {
+	core := coreRe.FindString(running)
+	if core == "" || !prereleaseRe.MatchString(running[len(core):]) {
+		return ""
+	}
+	return "; a release candidate counts as its release version, " + core
+}
+
+var prereleaseRe = regexp.MustCompile(`^-[A-Za-z]`)
 
 // typeProblems turns a strict-decode error into sorted "manifest: ..." problems.
 func typeProblems(err error) []string {
