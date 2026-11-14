@@ -2,10 +2,16 @@ package gitx
 
 import (
 	"bytes"
+	"context"
 	"io"
 	neturl "net/url"
+	"os/exec"
 	"regexp"
+	"sort"
 	"strings"
+	"time"
+
+	"github.com/BeppeTemp/cartographer/internal/procattr"
 )
 
 // RedactRemoteURL strips credential material from a remote URL. For http(s)
@@ -119,8 +125,13 @@ func redactUnparsable(raw string) string {
 // RedactRemoteText replaces every occurrence of the remote in text with its
 // redacted form, so git output that echoes the URL cannot carry its
 // credentials either. git echoes a URL in several shapes: as given, without
-// its userinfo but with the query kept, or already stripped; the first two are
-// replaced. Text that never held the remote is returned unchanged.
+// its userinfo but with the query kept, already stripped, or cut at the host
+// ("could not read Password for 'http://TOKEN@host'"): the first two are
+// replaced whole, then each part of the userinfo (the token-only user, the
+// password, with its percent-decoded form) wherever it still appears. A remote
+// that is a name rather than a URL has nothing to replace here: callers that
+// only hold the name use scrubRepoOutput. Text that never held the remote is
+// returned unchanged.
 func RedactRemoteText(text, remote string) string {
 	remote = strings.TrimSpace(remote)
 	if remote == "" {
@@ -138,6 +149,170 @@ func RedactRemoteText(text, remote string) string {
 	}
 	for _, f := range forms {
 		text = strings.ReplaceAll(text, f, red)
+	}
+	return scrubUserinfo(text, remote)
+}
+
+// minBareSecret is the shortest userinfo part replaced wherever it appears;
+// shorter ones would mangle ordinary words, and are replaced only in their
+// "part@" form.
+const minBareSecret = 4
+
+// userinfoOf returns the raw userinfo of an authority-bearing URL ("" when it
+// has none). The credential may hold "@" or "/", so when net/url cannot be
+// trusted with the value the last "@" before the query splits userinfo from
+// host, as RedactRemoteURL does.
+func userinfoOf(raw string) string {
+	i := strings.Index(raw, "://")
+	if i < 0 {
+		return ""
+	}
+	if j := strings.Index(raw[:i], "::"); j >= 0 {
+		return userinfoOf(raw[j+2:])
+	}
+	rest := raw[i+3:]
+	// The userinfo ends at the last "@" of the authority (up to the first "/",
+	// "?" or "#"): an "@" further right belongs to the path (GitLab's
+	// "/group/@sub/repo").
+	auth := rest
+	if k := strings.IndexAny(auth, "/?#"); k >= 0 {
+		auth = auth[:k]
+	}
+	if at := strings.LastIndex(auth, "@"); at >= 0 {
+		return auth[:at]
+	}
+	// No "@" in the authority: a "/" inside the password may have moved it
+	// into the path ("user:pa/ss@host"); the last "@" before the query then
+	// separates userinfo from host, as RedactRemoteURL reads it.
+	head := rest
+	if q := strings.Index(head, "?"); q >= 0 {
+		head = head[:q]
+	}
+	if at := strings.LastIndex(head, "@"); at >= 0 {
+		return rest[:at]
+	}
+	return ""
+}
+
+func unescaped(v string) string {
+	if d, err := neturl.PathUnescape(v); err == nil {
+		return d
+	}
+	return v
+}
+
+// scrubUserinfo removes the userinfo of remote from text: "userinfo@" goes
+// whole, and the user (http(s) only: an ssh user is not a secret) and the
+// password go wherever they appear, raw and percent-decoded.
+func scrubUserinfo(text, remote string) string {
+	ui := userinfoOf(remote)
+	if ui == "" {
+		return text
+	}
+	user, pass, hasPass := strings.Cut(ui, ":")
+	secrets := []string{ui}
+	if hasPass {
+		secrets = append(secrets, pass)
+	}
+	scheme := strings.ToLower(remote[:strings.Index(remote, "://")])
+	httpLike := strings.HasSuffix(scheme, "http") || strings.HasSuffix(scheme, "https")
+	if httpLike && user != "" {
+		if hasPass {
+			// A user name is no secret by itself and is often a common word
+			// ("github", "oauth2"): it goes only where it is a userinfo.
+			for _, f := range []string{user, unescaped(user)} {
+				text = strings.ReplaceAll(text, "://"+f+"@", "://")
+				text = strings.ReplaceAll(text, "://"+f+":", "://")
+			}
+		} else {
+			// Token-only: the user is the token.
+			secrets = append(secrets, user)
+		}
+	}
+	var all []string
+	for _, v := range secrets {
+		forms := []string{v}
+		if d, err := neturl.PathUnescape(v); err == nil && d != v {
+			forms = append(forms, d)
+		}
+		for _, f := range forms {
+			all = append(all, f)
+			// git cuts a userinfo at an "@" or "/" inside the password and
+			// echoes the tail ("http://tail@host"): every tail is a secret.
+			for i := 0; i < len(f); i++ {
+				if f[i] == '@' || f[i] == '/' {
+					all = append(all, f[i+1:])
+				}
+			}
+		}
+	}
+	// Longest first, so a whole userinfo goes before its parts.
+	sort.Slice(all, func(a, b int) bool { return len(all[a]) > len(all[b]) })
+	for _, v := range all {
+		if v == "" {
+			continue
+		}
+		text = strings.ReplaceAll(text, v+"@", "")
+		if len(v) >= minBareSecret {
+			text = strings.ReplaceAll(text, v, "***")
+		}
+	}
+	return text
+}
+
+// repoRemoteURLs lists every URL (fetch and push, insteadOf rewrites applied)
+// of the repository at dir's remotes. ok is false when git cannot say.
+func repoRemoteURLs(dir string) (urls []string, ok bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := procattr.Hide(exec.CommandContext(ctx, "git", "-C", dir, "remote", "-v"))
+	cmd.Env = gitEnv(nil)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, false
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		_, rest, ok := strings.Cut(strings.TrimRight(line, "\r"), "\t")
+		if !ok {
+			continue
+		}
+		if k := strings.LastIndex(rest, " ("); k >= 0 {
+			rest = rest[:k]
+		}
+		if rest = strings.TrimSpace(rest); rest != "" {
+			urls = append(urls, rest)
+		}
+	}
+	return urls, true
+}
+
+// anyUserinfo matches "://" followed by everything up to the last "@" of the
+// same whitespace-free token: a userinfo, whatever it holds.
+var anyUserinfo = regexp.MustCompile(`://[^\s'"<>]*@`)
+
+// redactAnyUserinfo drops the userinfo of every URL in text, without knowing
+// the remotes: the fail-closed form of the scrub. It also drops an ssh user,
+// which is not a secret: only used when the remote list is unavailable.
+func redactAnyUserinfo(text string) string {
+	return anyUserinfo.ReplaceAllString(text, "://")
+}
+
+// scrubRepoOutput redacts text, git output of a command run in dir, of the
+// credentials of every remote the repository has. A command is named by a
+// remote's name ("origin"), which is not what git echoes: the URL is, and with
+// it a token. Callers use it on the failure path only, the lookup costs a git
+// process.
+func scrubRepoOutput(dir, text string) string {
+	if text == "" || !strings.Contains(text, "@") && !strings.Contains(text, "://") {
+		return text
+	}
+	urls, ok := repoRemoteURLs(dir)
+	if !ok {
+		// git could not list the remotes: fail closed, drop every userinfo.
+		return redactAnyUserinfo(text)
+	}
+	for _, u := range urls {
+		text = RedactRemoteText(text, u)
 	}
 	return text
 }
