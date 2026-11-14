@@ -1414,8 +1414,7 @@ that encrypts them is not in the repository.
 
 #### The hosted MCP demo (D751, D800)
 
-The same KB is served live at `https://cartographer-demo.beppetemp.com/mcp`, so an agent client can try the
-read tools with nothing installed. It is a stateless, read-only Cloud Run service
+The demo's MCP side is a stateless, read-only Cloud Run service
 (`europe-west1`, scale to zero, one instance at most) running the released image plus two KBs
 (`deploy/demo/Dockerfile`):
 
