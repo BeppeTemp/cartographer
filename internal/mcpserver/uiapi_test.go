@@ -94,8 +94,8 @@ func TestUIAPI_OpenModeServesEveryRoute(t *testing.T) {
 		if got := rr.Header().Get("Content-Type"); got != "application/json" {
 			t.Errorf("%s: Content-Type %q", path, got)
 		}
-		if got := rr.Header().Get("Cache-Control"); got != "no-store" {
-			t.Errorf("%s: Cache-Control %q, want no-store", path, got)
+		if got := rr.Header().Get("Cache-Control"); !cacheControlOK(got) {
+			t.Errorf("%s: Cache-Control %q, want no-store (or private, no-cache on a cached body)", path, got)
 		}
 		if got := rr.Header().Get("X-Content-Type-Options"); got != "nosniff" {
 			t.Errorf("%s: X-Content-Type-Options %q", path, got)

@@ -13,6 +13,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/audit"
 	"github.com/BeppeTemp/cartographer/internal/auth"
+	"github.com/BeppeTemp/cartographer/internal/branding"
 	"github.com/BeppeTemp/cartographer/internal/componentproto"
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/feedback"
@@ -344,6 +345,9 @@ type MultiKBServer struct {
 	// extensions are the views, apps and plugins of GET /api/ui/v1/extensions
 	// (uiapi_extensions.go), set once before serving.
 	extensions extensionSet
+
+	// branding is what the Atlas wears (uiapi_branding.go), nil without one.
+	branding *branding.Active
 }
 
 // webMount is the UI surface a server may expose. Static may be nil: the JSON

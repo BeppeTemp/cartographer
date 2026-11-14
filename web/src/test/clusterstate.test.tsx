@@ -75,6 +75,26 @@ describe("the clustered graph's data layer", () => {
     expect(clusterCalls(m)).toEqual([]);
   });
 
+  it("asks the clusters route first, with no flat request, when the KB list already says the KB is large", async () => {
+    const m = stubApi({ "/graph/clusters": () => json(clusters()) });
+    const base = m.getMockImplementation()!;
+    // The overview never answers: the graph must not wait for it (it waits for the
+    // artifacts only, so that they enter with it: ARTIFACTS_WAIT_MS).
+    m.mockImplementation(async (url: string) => {
+      if (url.endsWith("/kbs")) {
+        return json({
+          kbs: [{ name: "kb-a", status: "normal", ready: true, artifacts: true, concepts_total: 30_000, cluster_threshold: 2000 }],
+        });
+      }
+      if (url.includes("/overview")) return new Promise<Response>(() => {});
+      return base(url);
+    });
+    render(<App />);
+    await waitFor(() => expect(clusterCalls(m).length).toBe(1));
+    await screen.findByTestId("graph-view");
+    expect(flatCalls(m)).toEqual([]);
+  });
+
   it("asks the clusters route above it", async () => {
     const m = stubApi({ "/overview": () => json(large), "/graph/clusters": () => json(clusters()) });
     render(<App />);
@@ -104,6 +124,7 @@ describe("the clustered graph's data layer", () => {
   });
 
   it("keeps the unfold set across a live refresh and drops what the server could not unfold", async () => {
+    // An older link may carry a list: only its last stays, and the server drops it if it cannot unfold it.
     window.history.replaceState(null, "", "/ui/?kb=kb-a&unfold=c%3Ainfra%2Fa%2Cc%3Agone");
     const m = stubApi({
       "/overview": () => json(large),
@@ -111,13 +132,13 @@ describe("the clustered graph's data layer", () => {
     });
     render(<App />);
     await waitFor(() => expect(clusterCalls(m).length).toBeGreaterThan(0));
-    expect(params(clusterCalls(m)[0]!).get("unfold")).toBe("c:infra/a,c:gone");
-    await waitFor(() => expect(new URLSearchParams(window.location.search).get("unfold")).toBe("c:infra/a"));
-    await waitFor(() => expect(params(clusterCalls(m).at(-1)!).get("unfold")).toBe("c:infra/a"));
+    expect(params(clusterCalls(m)[0]!).get("unfold")).toBe("c:gone");
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("unfold")).toBeNull());
+    await waitFor(() => expect(params(clusterCalls(m).at(-1)!).get("unfold")).toBeNull());
     const before = clusterCalls(m).length;
     act(() => live.bump());
     await waitFor(() => expect(clusterCalls(m).length).toBe(before + 1));
-    expect(params(clusterCalls(m).at(-1)!).get("unfold")).toBe("c:infra/a");
+    expect(params(clusterCalls(m).at(-1)!).get("unfold")).toBeNull();
   });
 
   it("starts another KB folded", async () => {

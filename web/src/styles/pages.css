@@ -702,6 +702,16 @@ button.row {
   display: none;
 }
 
+.timeline__surveyor {
+  font-size: var(--text-sm);
+  padding: 0 6px;
+  color: var(--text-muted);
+}
+
+.activity-origin {
+  align-items: center;
+}
+
 .timeline__reason {
   overflow: hidden;
   font-size: var(--text-sm);
@@ -1656,7 +1666,7 @@ button.row {
 .hfield {
   display: grid;
   gap: var(--space-3);
-  margin-block-end: var(--space-5, 20px);
+  margin-block-end: var(--space-6);
 }
 
 .pfield__legend {
@@ -1708,7 +1718,7 @@ button.row {
 .pfield {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-3) var(--space-5, 20px);
+  gap: var(--space-3) var(--space-4);
 }
 
 .pfield__map {
@@ -1970,7 +1980,7 @@ button.row {
 }
 
 .health .page__head {
-  margin-block-end: var(--space-5, 20px);
+  margin-block-end: var(--space-6);
 }
 
 /* "What it checks": how checking works, in three steps a newcomer reads first. */
@@ -2045,6 +2055,11 @@ button.row {
 }
 
 /* The page's one sentence, under the header so the header's controls stay on the title line. */
+/* Focus lands here when the view changes: a target, not a control, so no ring. */
+.health__title:focus {
+  outline: none;
+}
+
 .health__lede {
   margin: calc(-1 * var(--space-2)) 0 var(--space-4);
   font-size: var(--text-sm);
@@ -2114,7 +2129,7 @@ button.row {
 
 /* The field and its legend are the overview; the list below is the detail. */
 .hfield {
-  padding-block-end: var(--space-5, 20px);
+  padding-block-end: var(--space-6);
   border-block-end: 1px solid var(--border-subtle);
 }
 
@@ -2213,9 +2228,11 @@ button.row {
   border-radius: var(--radius-card);
 }
 
+/* The title column fits the longest title ("Types and values" with its chevron
+   and mark) on one line: at 16ch it wrapped under the chevron. */
 .rules__head {
   display: grid;
-  grid-template-columns: 16ch minmax(0, 1fr) auto;
+  grid-template-columns: 22ch minmax(0, 1fr) auto;
   gap: var(--space-4);
   align-items: baseline;
   padding: var(--space-3) var(--space-4);
@@ -2228,6 +2245,7 @@ button.row {
 }
 
 .rules__title {
+  white-space: nowrap;
   font-size: var(--text-sm);
   font-weight: 600;
   color: var(--text-primary);
@@ -2442,7 +2460,7 @@ button.row {
 }
 
 .ref-pill--warn {
-  color: var(--warning, inherit);
+  color: var(--sev-warning);
 }
 
 .ref-pill--muted {
@@ -2720,7 +2738,7 @@ button.row {
 
 .surveyors__state[data-state="budget_exhausted"],
 .surveyors__row[data-tone="error"] .surveyors__error {
-  color: var(--status-error, var(--text-primary));
+  color: var(--sev-error);
 }
 
 .surveyors__meta {
@@ -2819,4 +2837,71 @@ button.row {
 .components__health[data-state="degraded"],
 .components__alarm {
   color: var(--sev-error);
+}
+
+/* Health: the way into "What Health checks", and back, as a quiet link. */
+.health__more {
+  margin: var(--space-4) 0 0;
+}
+.health__link {
+  padding: 0;
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.health__link:hover {
+  color: var(--primary);
+  text-decoration: underline;
+}
+
+/* Activity › Surveyor: runs grouped by day, a summary line that opens. */
+.surveyors__day {
+  display: grid;
+  gap: var(--space-1);
+}
+.surveyors__day + .surveyors__day {
+  margin-top: var(--space-2);
+}
+.surveyors__daybtn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  justify-self: start;
+  padding: 2px 0;
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.surveyors__daybtn::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+.surveyors__daybtn[aria-expanded="true"]::before {
+  transform: rotate(45deg);
+}
+.surveyors__daybtn:hover {
+  color: var(--text-primary);
+}
+.surveyors__day > .surveyors__list {
+  padding-inline-start: var(--space-4);
+}
+.source-tile__note {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-xs);
+}
+@media (prefers-reduced-motion: reduce) {
+  .surveyors__daybtn::before {
+    transition: none;
+  }
 }

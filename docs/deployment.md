@@ -1337,7 +1337,7 @@ With `web.enabled` on — the default in HTTP mode — the same binary also serv
   read again when the KB changes, when the revision moves, when the tab becomes visible, and every 10 s while
   the state is unsettled or every minute otherwise (never in a hidden tab). A principal that does not see the
   whole KB, an older server and the static demo get no indicator.
-  The rail holds the panels Atlas, Activity, Work, Health, Components, Artifacts and Settings (D818, D1901), and, only when
+  The rail holds the panels Atlas, Activity, Work, Health, Artifacts and Settings (D818, D1901), and, only when
   an approved plugin declares a view or an app, an "Extensions" group between Artifacts and Settings (D1938): a view opens a page
   (`?panel=ext&ext=<plugin>/<name>`) that reads one public read-only route of the API as the Atlas's own principal and draws it with
   one of four fixed renderers (table, list, stats, key-value); an app is a plain link that opens in a new tab on its own origin.
@@ -1502,26 +1502,36 @@ the network off screen. The view draws only when something moves or changes, at 
 times a second whatever the display's refresh, so an untouched graph at rest
 costs no drawing at all. There is no 2D view: when
 the WebGL context is lost the graph area says so. The view draws up to the graph API's ceiling of concepts.
-On a KB whose overview counts more visible concepts than the threshold of the
-clusters route (2,000), the Atlas reads `/api/ui/v1/kbs/<kb>/graph/clusters`
-instead of `/graph`, unless the URL says `graph=nodes`; until that overview has
-landed, the KB is read flat. The unfolded cluster ids live in the URL
+On a KB whose list row (`GET /kbs`, `concepts_total`) counts more visible concepts than the threshold of the
+clusters route (1,200), the Atlas reads `/api/ui/v1/kbs/<kb>/graph/clusters`
+instead of `/graph`, unless the URL says `graph=nodes`; the mode is known before the
+first graph request, which does not wait for the overview or the artifacts
+(D2077). The unfolded cluster ids live in the URL
 (`unfold=`, emptied on a KB switch); an id the server reports in
 `dropped_unfolds` leaves it, and the selected concept rides every request as
 `focus`, so a live refresh keeps it drawn and opening one that sits in a folded
-cluster asks for it once. A static snapshot always reads the flat graph. In the cluster view each folded community is one sphere,
-sized on a log scale by its concept count and coloured as its members are in the
-flat view, and the links between two clusters are one edge drawn with up to three
-overlaid strokes as it stands for more links (WebGL lines are one pixel wide).
-Clicking a cluster, or zooming in on it near the middle of the canvas (never
-under reduced motion), unfolds it: its members grow out of where it stood, and a
-chip names it with "Showing x of y" when not all of them fit and a **Fold**
-button (Escape on it folds too). On the whole KB's view the legend lists the
-largest clusters and, on request, all of them, each a button that unfolds it
-(the keyboard's way to a cluster; with a concept open or on a Map, the palette's
-pick of a folded concept unfolds its cluster); a notice says how many clusters, concepts and unfolded clusters
-there are; a **Clusters / Nodes** switch beside the camera keeps the flat top
-2,000 at hand; and the growth replay is off until Nodes is chosen. A browser without WebGL
+cluster asks for it once. A static snapshot always reads the flat graph. In the cluster view each folded
+large, dense community is a super-node (D2076; the overview is mixed: the server folds the largest communities of 10
+or more concepts until at most 200 elements are drawn, and every other community stays open as plain concepts with their real edges, so the
+picture says how large the KB is and no cluster is smaller than 10; the small communities are grouped by Map only when they alone exceed the
+budget): a flat, unlit hexagon in its colour (a fixed orientation, always facing the camera; concepts are discs and artifacts diamonds in the same language, every body one camera-facing quad shaped and given a 1.25 px darker border by the fragment shader, one program and no extra draw call), a glyph no concept has, its radius following its concept count (square-root scale, 1.6x to 2x an average concept's),
+named "name · count" on hover (no always-on labels), and
+coloured as its members are in the flat view (a community past the palette, or a Map group, wears its dominant Map's hue, so none is grey).
+The layout treats super-nodes as bodies: each super-edge is one spring, shorter and stiffer as it stands for more links, larger ones repel harder
+across the whole picture, a collision of the glyph's drawn size plus a margin keeps them apart, and a centring (firmest on a cluster with no
+super-edge) keeps the lightly linked ones near the group; the concepts the overview leaves open are held among the glyphs (a short spring to the glyph they link or, with no link to a glyph, to a glyph of their own Map, spread over the Map's glyphs by their id, resting 12 to 30 units outside it, and a firm spring to a linked glyph), never on a ring around them. The links between two clusters are one super-edge drawn with three to eight overlaid strokes as it stands for more
+links (WebGL lines are one pixel wide); a link from a concept of an open cluster to a folded one ends on the super-node.
+At most one cluster is open, an accordion: opening another folds the first, and `?unfold=` holds one id (an older link's list keeps its last).
+Clicking a super-node, or zooming in on it near the middle of the canvas (never under reduced motion), opens it in place, as the simulation's own motion (never a planned move): its
+members are put over the glyph, with their real links, and grow in there while the cluster that was open shrinks into its glyph; nothing else is moved, and the simulation is reheated (0.3 opening, 0.25 folding) and cools at the default rate, so the neighbours adapt only as much as the physics wants; under reduced motion it is laid out at once. There is no hull outline: an open cluster's members mix into the graph by the general forces, with no room of their own, and a folded cluster has a soft hexagonal aura and an inner contour. Every glyph, loose concept and member keeps its normal colour and opacity whether a cluster is open or not, coloured by Map; leaf concepts' colours recede towards the background by weight (tone depth 0.4).
+The camera aims at the predicted rest of the picture for a graph of up to 600 nodes (`predictSettle`) and, for a larger graph still spreading, leads it by its velocity (lookahead), zooming out only as far as the larger picture needs and back in on a fold, never onto the opened zone, also when the page opens with `?unfold=`; the follow of a transition yields to a drag or a wheel of the reader. A breadcrumb at the top left, quiet text without a pill, says where the
+reader is: the KB's name (a link that folds the open cluster back to the overview), a chevron, and the open cluster with its count.
+Folding is Escape, the breadcrumb or the legend's Compact; a click on the background only deselects. In the Nodes view and
+inside an open cluster, past 6,000 links each node keeps its strongest links (towards its best-connected neighbours) and the rest are not
+drawn or laid out. The keyboard and a screen reader reach each folded cluster as a button
+named "cluster <name>, <n> concepts" (with a concept open or on a Map, the palette's
+pick of a folded concept unfolds its cluster). There is no banner and no cluster list: the legend is a fixed-width card of seven rows on a clustered KB, as on a flat one (six Maps and "N more Maps"): three clusters (the open one included), "N more clusters", two Maps of the concepts left open and "N more Maps", counting the KB's concepts and links. On a KB served clustered the legend has one button that cycles Compact (an open cluster folds, and the selected concept is cleared), Expand (label: Show all concepts: the flat `/graph`, `graph=nodes` in the URL, up to 7,500 concepts) and Group (Group into clusters: `/graph/clusters`). The mode is not remembered: a large KB always opens grouped. Expand and Group are a morph between two layouts (the layout is kept per mode), not a rebuild. Above 1,500 nodes the entrance opens as a flower, from the centre outwards and up to 2.6 times longer, the repulsion is coarser (theta 1.2) and applied every other tick at double strength, and a costly simulation runs at most one tick per frame. The graph waits for the KB's artifacts (up to 5 s) so they enter with it. A clustered scene breathes when idle exactly as a flat KB does. The
+growth replay is off in the cluster view. A browser without WebGL
 gets the concept list, search and inspector, with a note where the graph would
 be. The UI follows the system's light or dark scheme until the viewer picks one
 (D233). The reading panel is resizable: drag its left edge, or focus the edge
@@ -1583,10 +1593,10 @@ A selected concept is the orbit's pivot: dragging turns the graph around it,
 while it stays centred in the strip the panels leave visible, and everything
 outside its neighbourhood recedes. The skills, agents and hooks that reference
 concepts are drawn as diamonds linked to them; clicking one opens it on the
-Artifacts panel (D286). The legend colours nodes by community or by Map, never by
+Artifacts panel (D286). The legend colours nodes by Map, as the rail does (there is no community mode), never by
 lint findings: on a real KB a finding colour painted most of the graph one
 colour, and a KB's health is read on the Health panel (D307). The legend folds to its
-switch and counts, remembered per browser (`cartographer.panel.legend`). Ctrl/Cmd+K searches titles and ids at once and, after a
+actions and counts, remembered per browser (`cartographer.panel.legend`). Ctrl/Cmd+K searches titles and ids at once and, after a
 pause in typing, the full text through the `search` tool, showing the excerpt
 that matched; it is the way to a concept, and there is no concept list beside
 the canvas. The brand in the top bar returns to the atlas on *All*, nothing selected; Meridian's version
@@ -1635,11 +1645,16 @@ Under the timeline, the *Journal* section shows the tail of the KB's log
 (`concept_patch: map/id`) is one compact line whose concept opens; an agent's note shows its first line as the lead,
 the rest clamped with a Show more, as written and not rendered as Markdown.
 
-Activity gains a **Surveyor runs** section (D1985) between the timeline and the Journal, only when the
-`components` read has at least one run reported for the KB: the Surveyor, the task, when the server received it, the outcome
-and the tokens, and a link that filters the timeline by the Surveyor's author; each replica's last run follows, labelled "any KB"
-because it is not per KB. Ages are worded against the server's clock (`server.now` of the read), not the browser's. With no run, or when the
-read fails, there is no section, no header and no empty state.
+When the KB has a Surveyor (D1985: at least one run reported for it in the `components` read, or a change made by a
+Surveyor), Activity has two tabs beside the window selector, **Changes** and **Surveyor**; the window is shared. Without a Surveyor there are no
+tabs and the page is the one described above. **Changes** is that page, plus a small **Surveyor** tag on a row whose change a Surveyor made
+(author `surveyor/<perimeter>/<replica>`); nothing else of the Surveyor appears on it. The **Surveyor** tab has its own headline ("<perimeter> ran N times in the last 7 days"),
+tiles for runs ok, failed, sources ingested (ok `ingest` runs), pages created, pages changed and tokens spent, the
+**Runs** list and the feed of the Surveyor's changes only. Pages created and changed are counted from the Surveyor's commits (author `surveyor/<perimeter>/<replica>`), which are durable, so they are right for every window. The run-based tiles (runs ok, failed, sources ingested, tokens) count only the runs the server still keeps (the last 20 per perimeter, in memory): when the window starts before the oldest kept run, or a perimeter holds exactly 20, those tiles carry a muted "since <date of the oldest kept run>" and the headline reads "<perimeter> ran N times since <date>." Within the kept range the wording is the plain one. The **Runs** list is grouped by day, newest first: one row per day ("Nov 12 · 12 runs · 11 ok · 1 failed · 48k tokens", the exact tokens on hover) that expands to that day's runs; today starts expanded, and failed or budget-exhausted runs show under their day even when it is collapsed. After seven days a **Show more** reveals the rest. A line under the section header says that pages are matched to runs by author and time and that overlapping runs may share them. A run row is its report: start (full time on hover), duration, outcome, tokens, the error when it failed,
+and the concepts it created or changed as buttons that open them. Those are the window's changes whose author is a Surveyor and whose time falls inside the run
+(start to start + duration, 5 s of slack for the two clocks); no wire field carries them, so a concept someone changed after the run is listed in the feed, not under the run (the changes
+route keeps each concept's newest change). Ages are worded against the server's clock (`server.now` of the read), not the browser's. The tab is local state, not in the URL.
+Work carries nothing of the Surveyor: its replicas, budgets and alarms are in Health.
 
 Below it, **Report candidates** (D1925) lists what the Surveyors noticed that a person might report to the
 Cartographer project, per Surveyor: the kind in words (tool error, protocol mismatch, contract mismatch), the tool and the
@@ -1647,7 +1662,7 @@ code, how many times it was seen and when it was last seen (the server's stamp, 
 read from `GET /api/ui/v1/feedback/candidates`, which is server-wide and already filtered by what the caller sees whole;
 the Atlas shows the candidates that name the picked KB or none, starts blank when the KB changes, and reads the
 list again every minute while the tab is visible (candidates live in the server's memory and change without a commit). The section stands on
-its own, not inside Surveyor runs: a protocol mismatch can be held with no run reported. Each row has a
+its own, not inside the Surveyor tab: a protocol mismatch can be held with no run reported. Each row has a
 **Draft report** button: it asks `GET /api/ui/v1/feedback/candidates/draft?id=` (a `GET`, pure computation: the Atlas
 stays read-only and no model runs) and opens, under the row, the redacted title and body in read-only fields, the
 duplicate-search link first (GitHub destinations only), then **Open the report form**, a link that opens in a new tab
@@ -1684,23 +1699,26 @@ are empty, and a failing or `404` route leaves the page as it was.
 When the Surveyors hold report candidates for the KB, a line under the strip counts them and points to Activity
 (nothing renders without one, or with feedback off).
 
-The **Components** panel (D1901) is the read-only answer to "what is deployed and healthy" for the active KB: a
-row for Meridian (version, start, the protocol it speaks and the range it serves), then one block per component of
-the `components` read, with its health state, whether the registry expects it, its replicas against `min_replicas`
-(version, protocol and skew in words, tasks, state, last beat, budgets, next window), its recent runs and its
-alarms. Runs and alarms are per replica as reported; an alarm tied to no KB shows its code and time only. With
-nothing deployed or expected it says so and links here. It starts nothing; a Surveyor's configuration is in Settings.
+The components' live status (D1901) is the read-only answer to "what is deployed and healthy", and it sits at the top of
+each component's Settings tab, above its configuration: Meridian (version, start, the protocol it speaks and the range
+it serves), Compass (the machines that reported, their version and last sync) and, for the picked KB, the Surveyor
+(per perimeter tab: its health state, whether the registry expects it, its replicas against `min_replicas` with version,
+protocol and skew in words, tasks, state, last beat, budgets and next window, its recent runs and its alarms; an alarm
+tied to no KB shows its code and time only; with nothing deployed or expected it says so and links here). A read that
+fails or answers `404` (an older server) leaves the block out and the configuration stays. It starts nothing. The old
+`panel=components` link lands on Settings.
 
 The **Health** panel (D338, D365, D947, D948) shows what is wrong with the pages and nothing else: the lint's
-findings. What a person has to answer or decide is in Work. One read-only line under the lede, on *Issues* only, says
+findings. What a person has to answer or decide is in Work. One read-only line under the lede says
 which Surveyor maintains the KB, who repairs it (that Surveyor, or Meridian) and when a doctor session last closed
 ("Maintained by team-a (2 replicas, running) · repairs by team-a · last doctor 2026-01-01 · next due 2026-01-15"); it
 is upkeep, not a finding, and renders only while a live Surveyor names the KB and the caller sees the whole KB. When
 the registry expects a Surveyor that is silent (or short of replicas) a notice line says so, and says that Meridian
 is repairing the KB meanwhile when it has taken the repair back; the rail's Health mark lights too. Neither is in the
 lint report or in the counts. With a Surveyor holding the repair, the findings that fix themselves name it instead of
-Cartographer. Two buttons in the header switch its views, *Issues*
-and *What it checks*.
+Cartographer. The page is about the KB alone, with no tab bar: the issues
+are the page, and a link at the bottom, *What Health checks*, shows *What it checks* in its place, with a link back.
+The components that serve the KB are in Settings.
 
 *Issues*: the title counts the kinds of issue found ("Cartographer found N kinds
 of issues"), the line under it every occurrence and how many pages carry one.
@@ -1727,7 +1745,7 @@ opens the Atlas on it, and the Type and Status filters step aside.
 When nothing is found the page keeps its shape and says what was read instead of what was found: the field
 turns green, one square per page, and under it one row per family of rules says how many of its rules ran and
 found nothing; a family whose rules have nothing to read in this KB (D371) says so instead of claiming a pass.
-A row opens *What it checks*.
+A row opens *What it checks* (the same view the bottom link opens).
 
 *What it checks* (`GET /api/ui/v1/kbs/<kb>/checks`): how checking works in three steps (fixed rules, no AI; the
 sure fixes applied by Cartographer; the rest shown under *Issues*), the result on

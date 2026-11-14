@@ -14,32 +14,22 @@ type Asset struct {
 
 // Meta is what the shell tells the UI: the served names of the images and the
 // logo's alt text. A name is empty when not declared.
-type Meta struct{ Company, LogoLight, LogoDark, Favicon string }
+type Meta struct{ Company, LogoLight, LogoDark string }
 
-// Active is the branding the server wears: the derived palette and its
-// stylesheet, and the images keyed by the name they are served under.
+// Active is the branding the server wears: the images keyed by the name they
+// are served under.
 type Active struct {
-	Plugin  string
-	Palette *Palette // nil without an accent
-	CSS     []byte   // nil without an accent
-	Assets  map[string]Asset
-	Meta    Meta
-	ETag    string
+	Plugin string
+	Assets map[string]Asset
+	Meta   Meta
+	ETag   string
 }
 
-var contentTypes = map[string]string{"svg": "image/svg+xml", "png": "image/png", "ico": "image/x-icon"}
+var contentTypes = map[string]string{"svg": "image/svg+xml", "png": "image/png"}
 
-// NewActive derives the palette and names the assets of a valid Spec. An
-// accent that cannot be shown is an error naming the key.
-func NewActive(plugin string, s *Spec) (*Active, error) {
+// NewActive names the assets of a valid Spec.
+func NewActive(plugin string, s *Spec) *Active {
 	a := &Active{Plugin: plugin, Assets: map[string]Asset{}, Meta: Meta{Company: s.Company}}
-	if s.Accent != "" {
-		p, err := Derive(s.Accent)
-		if err != nil {
-			return nil, fmt.Errorf("plugin %s, branding/%s, accent: %w", plugin, DeclFile, err)
-		}
-		a.Palette, a.CSS = &p, p.CSS()
-	}
 	put := func(base string, f *File) string {
 		if f == nil {
 			return ""
@@ -54,9 +44,7 @@ func NewActive(plugin string, s *Spec) (*Active, error) {
 	} else {
 		a.Meta.LogoDark = a.Meta.LogoLight
 	}
-	a.Meta.Favicon = put("favicon", s.Favicon)
 	h := sha256.New()
-	h.Write(a.CSS)
 	names := make([]string, 0, len(a.Assets))
 	for n := range a.Assets {
 		names = append(names, n)
@@ -68,5 +56,5 @@ func NewActive(plugin string, s *Spec) (*Active, error) {
 		h.Write(a.Assets[n].Data)
 	}
 	a.ETag = fmt.Sprintf(`"%x"`, h.Sum(nil)[:16])
-	return a, nil
+	return a
 }

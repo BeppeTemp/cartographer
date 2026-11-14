@@ -63,9 +63,11 @@ await api("/extensions");
 await api("/feedback/candidates");
 const overview = await api(`${k}/overview`);
 
-// The whole graph, and the graph scoped to each Map the rail offers.
-const graph = await api(`${k}/graph`);
-for (const c of overview.collections) await api(`${k}/graph?scope=${q(c.name)}`);
+// The whole graph, and the graph scoped to each Map the rail offers, as web/src/api/client.ts
+// fetchGraph asks for them (GRAPH_ALL_NODES). /branding is not exported: the demo has none, and
+// the Atlas reads the 404 as "no branding".
+const graph = await api(`${k}/graph?limit=7500`);
+for (const c of overview.collections) await api(`${k}/graph?limit=7500&scope=${q(c.name)}`);
 
 // Every concept the graph draws, plus the search index built from them.
 const index = [];

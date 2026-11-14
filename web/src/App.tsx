@@ -18,7 +18,13 @@ import {
   setToken,
 } from "./api/client";
 import { filterReportByMap } from "./lib/health";
-import { clusterSnapshot, clustersAvailable, DEFAULT_CLUSTER_THRESHOLD, isClusterID, unfoldKey } from "./lib/clusters";
+import {
+  clusterSnapshot,
+  clustersAvailable,
+  DEFAULT_CLUSTER_THRESHOLD,
+  isClusterID,
+  unfoldKey,
+} from "./lib/clusters";
 import type {
   ArtifactList,
   CheckCatalog,
@@ -41,12 +47,11 @@ import { Releases } from "./components/Releases";
 import { Settings } from "./components/Settings";
 import { AuthPrompt } from "./components/AuthPrompt";
 import { CommandPalette } from "./components/CommandPalette";
-import { GraphView, type ClusterView, type GraphLevel } from "./components/GraphView";
+import { GraphView, type ClusterView } from "./components/GraphView";
 import { Inspector } from "./components/Inspector";
 import { LeftRail } from "./components/LeftRail";
 import { useComponents } from "./components/Surveyors";
 import { ExtensionView, useExtensions } from "./components/ExtensionView";
-import { Components } from "./components/Components";
 import { expectedSilent } from "./lib/health";
 import { Sheet, useMediaQuery } from "./components/Sheet";
 import { Splitter } from "./components/Splitter";
@@ -69,7 +74,6 @@ import { initialMotion } from "./lib/graph3d/motion";
 import { hasWebGL } from "./lib/webgl";
 import { useLiveRevision } from "./lib/live";
 import { snapshotCommunities, type Communities } from "./lib/communities";
-import { readColorBy, writeColorBy, type ColorBy } from "./lib/palette";
 import {
   ARTIFACT_PANELS,
   artifactPanel,
@@ -99,6 +103,11 @@ const NO_COMMUNITIES: Communities = { rankOf: new Map(), list: [] };
  *  step with the max-width: 1023px media queries in the stylesheets. */
 const NARROW_QUERY = "(max-width: 1023px)";
 
+/** How long a KB's graph waits for its artifacts before it is drawn without them: long
+ *  enough that they are always drawn with it (an artifact arriving after the entrance pops
+ *  in, live session), the cap only for a server that does not answer. */
+const ARTIFACTS_WAIT_MS = 5000;
+
 export function App() {
   const [phase, setPhase] = useState<Phase>("booting");
   const [authRejected, setAuthRejected] = useState(false);
@@ -119,6 +128,9 @@ export function App() {
   // The KB and Map the snapshot on screen was fetched for: the graph keeps its
   // layout while this holds and starts a fresh one when it changes.
   const [snapshotKey, setSnapshotKey] = useState("");
+  // The KB the graph on screen belongs to, for the data effect below (read, never a dependency).
+  const snapshotKeyNow = useRef("");
+  snapshotKeyNow.current = snapshotKey;
   const [graphError, setGraphError] = useState<unknown>(null);
   const [graphLoading, setGraphLoading] = useState(false);
 
@@ -159,7 +171,6 @@ export function App() {
   const [reloadKey, setReloadKey] = useState(0);
   const [mapContracts, setMapContracts] = useState<MapContract[]>([]);
   const loadedConcept = useRef<string | null>(null);
-  const [colorBy, setColorBy] = useState<ColorBy>(readColorBy);
   const narrow = useMediaQuery(NARROW_QUERY);
   const [sheet, setSheet] = useState<SheetName>(null);
   // The release history (D862) is a sheet on every viewport, opened from the
@@ -247,7 +258,6 @@ export function App() {
     // follow it, as the pre-paint script did on load.
     return onSystemThemeChange(() => applyTheme("system"));
   }, [theme]);
-  useEffect(() => writeColorBy(colorBy), [colorBy]);
   useEffect(() => writePanel("rail", railCollapsed), [railCollapsed]);
   const toggleMotion = useCallback(() => {
     setMotion((on) => {
@@ -399,11 +409,26 @@ export function App() {
   // Above the threshold the graph is clustered, unless the URL asks for the
   // flat one (`graph=nodes`). A KB whose size is not known yet (its overview
   // has not landed) is drawn flat until it is. The server answers the flat
-  // graph in the same envelope when the Map in scope is small.
+  // graph in the same envelope when the Map in scope is small. The size comes
+  // from the KB list the picker already loaded (`concepts_total`), so the mode
+  // is known before the first graph request and the overview is not waited for.
   const clusterThreshold = useRef(DEFAULT_CLUSTER_THRESHOLD);
-  const kbTotal = activeKB ? kbTotals[activeKB] : undefined;
-  const clustered =
-    view.graph !== "nodes" && clustersAvailable() && kbTotal !== undefined && kbTotal > clusterThreshold.current;
+  const activeRow = activeKB ? kbs.find((row) => row.name === activeKB) : undefined;
+  if (activeRow?.cluster_threshold) clusterThreshold.current = activeRow.cluster_threshold;
+  const kbTotal = activeKB ? (kbTotals[activeKB] ?? activeRow?.concepts_total) : undefined;
+  const groupable = clustersAvailable() && kbTotal !== undefined && kbTotal > clusterThreshold.current;
+  // A large KB opens grouped; only the URL (?graph=nodes) shows it whole.
+  const clustered = view.graph !== "nodes" && groupable;
+  // One button, three steps: an open cluster folds first (Compact), then the
+  // grouped KB expands whole (Expand), and the whole one groups again (Group).
+  const toggleGrouping = useCallback(() => {
+    if (!activeKB) return;
+    // What is open is what the server drew (the legend reads the same): a
+    // cluster unfolded for a selected concept counts, though not in the URL.
+    const open = (clusterGraph?.unfolded.length ?? 0) > 0 || view.unfold.length > 0;
+    if (clustered && open) navigate({ unfold: [], concept: null });
+    else navigate({ graph: clustered ? "nodes" : null, unfold: [] });
+  }, [activeKB, clustered, clusterGraph, view.unfold.length, navigate]);
   const unfoldSet = unfoldKey(view.unfold);
   const unfoldNow = useRef(view.unfold);
   unfoldNow.current = view.unfold;
@@ -415,9 +440,10 @@ export function App() {
   useEffect(() => {
     if (!activeKB || phase !== "ready") return;
     const controller = new AbortController();
-    // The layout follows the KB and Map; the cached view also the mode and
-    // the unfold set.
-    const key = `${activeKB}\u0000${view.scope ?? ""}`;
+    // The layout follows the KB, the Map and the mode (grouped or whole: two
+    // layouts of one KB, so switching morphs between them); the cached view
+    // also the unfold set.
+    const key = `${activeKB}\u0000${view.scope ?? ""}\u0000${clustered ? "clusters" : "nodes"}`;
     const cacheKey = clustered ? `${key}\u0000clusters\u0000${unfoldSet}` : key;
     const sideKey = `${activeKB}\u0000${artifactsAllowed}\u0000${reloadKey}\u0000${live}`;
     const sideKnown = sideFetched.current === sideKey && overviewKB.current === activeKB;
@@ -471,7 +497,8 @@ export function App() {
           )
         : Promise.resolve(null);
     // The artifacts do not depend on the graph: a graph that fails still
-    // leaves them to show (the error stays in the graph panel).
+    // leaves them to show (the error stays in the graph panel), and a graph
+    // that arrives first is painted without waiting for them.
     const applyArtifacts = (arts: Awaited<typeof artifactsP>) => {
       if (!artifactsAllowed) {
         setArtifacts(null);
@@ -481,6 +508,23 @@ export function App() {
         setArtifactsError(arts.error);
       }
     };
+    // One picture per KB: while another KB's graph is still on screen, this KB's
+    // artifacts wait for its graph and land with it (a graph drawn with another
+    // KB's artifacts, or without its own, would be pushed to the scene twice and
+    // knocked). The graph waits for them, but only a moment: a slow list is added
+    // when it lands.
+    let deferredArtifacts: Awaited<typeof artifactsP> | undefined;
+    let graphShown = false;
+    const otherKBOnScreen = () => snapshotKeyNow.current !== "" && !snapshotKeyNow.current.startsWith(`${activeKB}\u0000`);
+    const artifactsDone = artifactsP.then((arts) => {
+      if (controller.signal.aborted) return arts;
+      if (otherKBOnScreen() && !graphShown) deferredArtifacts = arts;
+      else applyArtifacts(arts);
+      const entry = viewCache.current.get(cacheKey);
+      if (entry && arts?.data) entry.artifacts = arts.data;
+      setArtifactsLoading(false);
+      return arts;
+    });
     const graphP = clustered
       ? fetchGraphClusters(
           activeKB,
@@ -491,14 +535,21 @@ export function App() {
           return { graph: clusterSnapshot(g), clusters: g };
         })
       : fetchGraph(activeKB, view.scope, controller.signal).then((graph) => ({ graph, clusters: null }));
-    Promise.all([graphP, artifactsP])
-      .then(([{ graph, clusters }, arts]) => {
+    graphP
+      .then(async ({ graph, clusters }) => {
+        if (artifactsAllowed && !cached && !sideKnown) {
+          await Promise.race([artifactsDone, new Promise((resolve) => setTimeout(resolve, ARTIFACTS_WAIT_MS))]);
+        }
+        if (controller.signal.aborted) return;
+        graphShown = true;
+        if (deferredArtifacts !== undefined) applyArtifacts(deferredArtifacts);
+        deferredArtifacts = undefined;
         const prev = viewCache.current.get(cacheKey);
         viewCache.current.set(cacheKey, {
           graph,
           clusters,
           overview: landedOverview?.ov ?? prev?.overview ?? null,
-          artifacts: arts?.data ?? null,
+          artifacts: prev?.artifacts ?? (sideKnown ? artifactsNow.current : null),
         });
         setSnapshot(graph);
         setClusterGraph(clusters);
@@ -515,25 +566,24 @@ export function App() {
           });
         }
         setGraphError(null);
-        applyArtifacts(arts);
-        // Only a clean read of both is remembered: a failed overview or
+        // Only a clean read of all three is remembered: a failed overview or
         // artifacts list is fetched again on the next Map click.
-        void overviewP.then((ov) => {
+        void Promise.all([overviewP, artifactsDone]).then(([ov, arts]) => {
           if (ov && !arts?.error && !controller.signal.aborted) sideFetched.current = sideKey;
         });
         setOffline(false);
       })
-      .catch(async (err) => {
+      .catch((err) => {
         if (controller.signal.aborted) return;
+        graphShown = true;
+        if (deferredArtifacts !== undefined) applyArtifacts(deferredArtifacts);
+        deferredArtifacts = undefined;
         if (handleFailure(err)) return;
         setGraphError(err);
-        const arts = await artifactsP;
-        if (!controller.signal.aborted) applyArtifacts(arts);
       })
       .finally(() => {
         if (controller.signal.aborted) return;
         setGraphLoading(false);
-        setArtifactsLoading(false);
         graphSettled = true;
         showOverview();
       });
@@ -820,8 +870,9 @@ export function App() {
   // concept (focus) is not in the set: folding it lets the concept go too.
   const unfoldCluster = useCallback((id: string) => {
     setView((current) => {
-      if (current.unfold.includes(id)) return current;
-      const next = { ...current, unfold: [...current.unfold, id] };
+      if (current.unfold.length === 1 && current.unfold[0] === id) return current;
+      // An accordion: the cluster opened before folds as this one opens.
+      const next = { ...current, unfold: [id] };
       pushView(next);
       return next;
     });
@@ -848,22 +899,6 @@ export function App() {
           }
         : null,
     [clusterGraph, unfoldCluster, foldCluster],
-  );
-  // The switch is offered only where there is something to cluster: a KB
-  // above the threshold, unless the clusters route answered this Map flat. It
-  // stays while a switch is loading, so focus never drops with it.
-  const graphLevel = useMemo<GraphLevel | undefined>(
-    () =>
-      clustersAvailable() &&
-      kbTotal !== undefined &&
-      kbTotal > clusterThreshold.current &&
-      clusterGraph?.mode !== "nodes"
-        ? {
-            mode: view.graph === "nodes" ? "nodes" : "clusters",
-            onChange: (mode) => navigate({ graph: mode === "nodes" ? "nodes" : null }),
-          }
-        : undefined,
-    [kbTotal, view.graph, navigate, clusterGraph],
   );
 
   const expandConcept = useCallback(
@@ -1059,8 +1094,7 @@ export function App() {
                 else announce(message);
               }}
             />
-          ) : view.panel === "components" && activeKB ? (
-            <Components kb={activeKB} live={live} />
+
           ) : view.panel === "ext" ? (
             extView ? (
               <ExtensionView
@@ -1074,6 +1108,7 @@ export function App() {
           ) : view.panel === "settings" ? (
             <Settings
               reloadKey={`${reloadKey}:${live}`}
+              live={live}
               activeKB={activeKB ?? undefined}
               onRetry={() => setReloadKey((k) => k + 1)}
               onFailure={handleFailure}
@@ -1172,7 +1207,6 @@ export function App() {
                     })
                   }
                   communities={communities}
-                  colorBy={colorBy}
                   selected={view.concept}
                   hiddenIds={hiddenIds}
                   highlighted={preview}
@@ -1185,7 +1219,6 @@ export function App() {
                   onExpand={expandConcept}
                   onUnavailable={markWebglLost}
                   clusterView={clusterView}
-                  graphLevel={graphLevel}
                 >
                   {/* A small floating card over the canvas: the legend on the
                       whole KB, never beside an open concept; a Map's contract
@@ -1208,11 +1241,9 @@ export function App() {
                   {!readingOpen && !scopedMap && (
                     <Legend
                       snapshot={snapshot}
-                      communities={communities}
-                      colorBy={colorBy}
-                      onColorBy={setColorBy}
                       clusters={clusterView?.clusters}
-                      onUnfold={unfoldCluster}
+                      open={clusterView?.unfolded}
+                      grouping={groupable ? { grouped: clustered, onToggle: toggleGrouping } : undefined}
                     />
                   )}
                 </GraphView>

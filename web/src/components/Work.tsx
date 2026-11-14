@@ -5,7 +5,6 @@ import { reviewInfo } from "../lib/review";
 import { collectionVar } from "../lib/palette";
 import { ErrorState } from "./States";
 import { ReportCandidatesBadge } from "./Candidates";
-import { SurveyorsStrip } from "./Surveyors";
 import type { ComponentRow } from "../api/types";
 import { Icon } from "./Icon";
 import {
@@ -96,7 +95,6 @@ export function Work({
   kb,
   collections = [],
   live = 0,
-  components = [],
   onOpen,
 }: {
   kb: string;
@@ -212,7 +210,6 @@ export function Work({
         }
       />
 
-      <SurveyorsStrip kb={kb} live={live ?? 0} components={components} onOpen={onOpen} />
       <ReportCandidatesBadge kb={kb} live={live ?? 0} />
 
       {data && !empty && (

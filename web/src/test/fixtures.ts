@@ -226,6 +226,8 @@ export function stubApi(overrides: Record<string, () => Response> = {}) {
     if (url.includes("/feedback/candidates")) {
       return json({ error: { code: "feedback_off", message: "feedback reports are switched off" } }, 404);
     }
+    // No branding plugin: the Atlas keeps its own look (the Atlas branding decision).
+    if (url.endsWith("/branding")) return json({ error: { code: "not_found", message: "not found" } }, 404);
     // Plugin views and apps (D1938): none unless a test stubs them.
     if (url.endsWith("/extensions")) return json({ views: [], apps: [], plugins: [] });
     throw new Error(`unstubbed request: ${url}`);

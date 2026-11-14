@@ -9,7 +9,7 @@
  */
 
 export type Panel =
-  "atlas" | "activity" | "work" | "health" | "components" | "artifacts" | "instructions" | "templates" | "secrets" | "settings" | "ext";
+  "atlas" | "activity" | "work" | "health" | "artifacts" | "instructions" | "templates" | "secrets" | "settings" | "ext";
 
 /** The panels of the Artifacts section, one tab each. */
 export const ARTIFACT_PANELS: Panel[] = ["artifacts", "instructions", "templates", "secrets"];
@@ -36,7 +36,7 @@ export interface ViewState {
   ext: string | null;
   /** `nodes` forces the flat graph on a KB above the cluster threshold; absent is clusters. */
   graph: "nodes" | null;
-  /** The unfolded cluster ids, in the order they were unfolded. */
+  /** The open cluster's id: at most one, opening another folds the first. */
   unfold: string[];
 }
 
@@ -58,10 +58,11 @@ export function readViewState(search: string = window.location.search): ViewStat
             ? "work"
             : param === "paths"
               ? "settings"
-              : param === "activity" ||
+              : param === "components"
+                ? "settings"
+                : param === "activity" ||
                   param === "work" ||
                   param === "health" ||
-                  param === "components" ||
                   param === "artifacts" ||
                   param === "instructions" ||
                   param === "templates" ||
@@ -86,7 +87,8 @@ export function readViewState(search: string = window.location.search): ViewStat
     hmap: panel === "health" ? params.get("hmap") : null,
     ext: panel === "ext" ? params.get("ext") : null,
     graph: params.get("graph") === "nodes" ? "nodes" : null,
-    unfold: [...new Set((params.get("unfold") ?? "").split(",").filter((id) => id.startsWith("c:")))],
+    // At most one cluster is open (an accordion): a list from an older link keeps its last.
+    unfold: (params.get("unfold") ?? "").split(",").filter((id) => id.startsWith("c:")).slice(-1),
   };
 }
 

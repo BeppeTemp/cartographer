@@ -40,18 +40,19 @@ describe("links from removed panels", () => {
   });
 });
 
-describe("the Components panel", () => {
-  it("round-trips", () => {
-    expect(readViewState("?kb=kb-a&panel=components").panel).toBe("components");
-    expect(viewStateToSearch(readViewState("?kb=kb-a&panel=components"))).toBe("?kb=kb-a&panel=components");
+describe("an old Components link", () => {
+  it("opens Health", () => {
+    // Components was folded into Health: an old link lands there.
+    expect(readViewState("?kb=kb-a&panel=components").panel).toBe("settings");
+    expect(viewStateToSearch(readViewState("?kb=kb-a&panel=components"))).toBe("?kb=kb-a&panel=settings");
   });
 });
 
 describe("the cluster view's state", () => {
-  it("round-trips the graph mode and the unfold set, in unfold order", () => {
+  it("round-trips the graph mode and the one open cluster; an older list keeps its last", () => {
     const view = readViewState("?kb=kb-a&graph=nodes&unfold=c%3Ainfra%2Fb%2Cc%3A~tail");
     expect(view.graph).toBe("nodes");
-    expect(view.unfold).toEqual(["c:infra/b", "c:~tail"]);
+    expect(view.unfold).toEqual(["c:~tail"]);
     expect(readViewState(viewStateToSearch(view))).toEqual(view);
   });
 

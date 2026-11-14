@@ -33,6 +33,36 @@ type SettingsReport struct {
 	// Placeholders are the {{repo:…}} and {{path:…}} keys the connected KBs
 	// cite, as the last sync resolved them on this machine.
 	Placeholders []ReportPlaceholder `json:"placeholders"`
+	// Plugins are the plugins installed on this machine, as `plugin list`
+	// shows them (D2079). Filled by the caller, which
+	// owns the plugin store. Always a list, possibly empty, on a client that
+	// knows the field: an absent field means an older client, not "none".
+	Plugins []ReportPlugin `json:"plugins"`
+}
+
+// ReportPlugin is one installed plugin: what `plugin list` prints, and
+// nothing of the plugin's content or settings.
+type ReportPlugin struct {
+	Name        string `json:"name"`
+	Version     string `json:"version,omitempty"`
+	DisplayName string `json:"display_name,omitempty"`
+	// State is the state `plugin list` computes: active, pending approval,
+	// disabled, not fetched, modified, invalid.
+	State string `json:"state"`
+	// Approved and Installed are the digests of the approved and the
+	// installed tree (a hash, not content); the Atlas shortens them.
+	Approved  string `json:"approved,omitempty"`
+	Installed string `json:"installed,omitempty"`
+	// Source is the source as `plugin list` prints it, credentials redacted.
+	Source string `json:"source,omitempty"`
+	// Description is the manifest's one-line description.
+	Description string `json:"description,omitempty"`
+	// Contributions counts what the plugin adds per extension point
+	// (providers, skills, agents, views…), as `plugin list` does.
+	Contributions map[string]int `json:"contributions,omitempty"`
+	// Permissions names the permission kinds the manifest declares (kb, net,
+	// files, env), never their values.
+	Permissions []string `json:"permissions,omitempty"`
 }
 
 // ReportProvider is one connected agent client.

@@ -10,6 +10,12 @@ export interface SetDataCall {
   replace: boolean;
   morph: boolean;
   restore: unknown;
+  /** The ids a local settle moves alone (a cluster opening or closing), if any. */
+  local?: string[];
+  /** The open clusters' hulls it got. */
+  hulls?: { id: string; members: string[] }[];
+  /** The ids it got flagged as a cluster glyph. */
+  glyphs: string[];
   /** The links it got, as `source>target`. */
   links: string[];
 }
@@ -19,7 +25,10 @@ export const sceneStub = {
   /** The callbacks the last on-screen scene was built with: a test clicks a node through them. */
   callbacks: null as { onSelect(id: string | null): void } | null,
   /** What the on-screen scene answers for a node's screen position and radius (default: off screen, 1). */
-  view: {} as { project?(id: string): { x: number; y: number } | null; radius?: number },
+  view: {} as {
+    project?(id: string): { x: number; y: number } | null;
+    radius?: number;
+  },
   /** The on-screen scene, so a test can run its frame listeners. */
   scene: null as { frame(): void } | null,
   frame() {
@@ -75,11 +84,11 @@ export class LivingScene {
     sceneStub.offline.seeded++;
   }
   setData(
-    nodes: { id: string; x?: number; y?: number; z?: number }[],
+    nodes: { id: string; x?: number; y?: number; z?: number; cluster?: boolean }[],
     links: { source: string; target: string }[] = [],
     _warmup?: number,
     replace = false,
-    opts: { morph?: boolean; restore?: unknown } = {},
+    opts: { morph?: boolean; restore?: unknown; local?: Set<string>; hulls?: { id: string; members: string[] }[] } = {},
   ): void {
     this.nodes = nodes;
     this.links = links;
@@ -89,6 +98,9 @@ export class LivingScene {
       replace,
       morph: !!opts.morph,
       restore: opts.restore,
+      local: opts.local ? [...opts.local] : undefined,
+      hulls: opts.hulls,
+      glyphs: nodes.filter((n) => n.cluster).map((n) => n.id),
       links: links.map((l) => `${l.source}>${l.target}`),
     });
   }

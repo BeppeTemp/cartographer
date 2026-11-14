@@ -59,7 +59,7 @@ test("the Surveyor at work: sources, a run, new concepts, a failed feed", async 
     await beat(800);
 
     // 1. Settings -> Surveyor: no Surveyor yet, and the Sources the KB declares.
-    const surveyorTab = page.getByRole("tab", { name: "Surveyor", exact: true });
+    const surveyorTab = page.getByRole("tab", { name: /^Surveyor\b/ });
     const sources = page.getByRole("list", { name: "Sources by status" });
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await until("the Settings tabs show", (timeout) => expect(surveyorTab).toBeVisible({ timeout }));
@@ -89,6 +89,9 @@ test("the Surveyor at work: sources, a run, new concepts, a failed feed", async 
     const from = Date.now();
     for (let probe = 0; ; probe++) {
       try {
+        // The page's Surveyor tab exists only once a Surveyor has reported (it is a segmented button).
+        const tab = page.getByRole("group", { name: "Activity of" }).getByRole("button", { name: "Surveyor", exact: true });
+        if (await tab.isVisible()) await tab.click();
         await expect(runs).toBeVisible({ timeout: 1000 });
         break;
       } catch (error) {
@@ -131,11 +134,10 @@ test("the Surveyor at work: sources, a run, new concepts, a failed feed", async 
     await page.keyboard.press("Escape");
     await beat(300);
 
-    // 6. Work: the feed that failed, beside the Surveyor that reported it. The film ends here.
+    // 6. Work: the Surveyor strip left Work (the failed feed shows in Settings, step 4); the page opens on its own work. The film ends here.
     await work.click();
-    const feeds = page.getByRole("list", { name: "Feeds in error" });
-    await until("the failed feed shows in Work", (timeout) => expect(feeds).toBeVisible({ timeout }));
-    await expect(feeds).toContainText("503");
+    await until("Work shows", (timeout) => expect(page.getByRole("region", { name: "Open work" })).toBeVisible({ timeout }));
+    await expect(page.getByRole("region", { name: "Surveyors and feeds" })).toHaveCount(0);
     await beat(3200);
 
     // Every turn of the script was used, and none was refused.

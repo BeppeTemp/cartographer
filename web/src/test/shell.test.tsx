@@ -146,10 +146,9 @@ describe("narrow layout", () => {
 });
 
 describe("colour legend", () => {
-  it("is a card over the canvas: what is drawn, the colour switch, the key and the replay", async () => {
+  it("is a card over the canvas: what is drawn, the Map key and the replay", async () => {
     viewport(false);
     stubApi();
-    const user = userEvent.setup();
     render(<App />);
 
     const legend = await screen.findByRole("region", { name: /graph legend/i });
@@ -157,18 +156,13 @@ describe("colour legend", () => {
     expect(screen.getByTestId("graph-view").contains(legend)).toBe(true);
     expect(screen.queryByRole("region", { name: "Graph context" })).toBeNull();
     expect(within(legend).getByText("3 concepts · 2 links")).toBeInTheDocument();
-    const community = within(legend).getByRole("button", { name: "Community" });
-    const map = within(legend).getByRole("button", { name: "Map" });
-    expect(community).toHaveAttribute("aria-pressed", "true");
+    expect(within(legend).queryByRole("button", { name: "Community" })).toBeNull();
+    expect(within(legend).queryByRole("button", { name: "Map" })).toBeNull();
+    expect(within(legend).getByText("infra")).toBeInTheDocument();
     expect(within(legend).getByRole("button", { name: "Replay growth" })).toBeInTheDocument();
     // The rail no longer repeats the community key.
     const rail = screen.getByRole("navigation", { name: /atlas navigation/i });
     expect(within(rail).queryByRole("heading", { name: "Communities" })).toBeNull();
-
-    await user.click(map);
-    expect(map).toHaveAttribute("aria-pressed", "true");
-    expect(within(legend).getByText("infra")).toBeInTheDocument();
-    expect(localStorage.getItem("cartographer.colorBy")).toBe("map");
 
     // Lint problems are not a colour mode (D307): the Health panel reads them.
     expect(within(legend).queryByRole("button", { name: "Health" })).not.toBeInTheDocument();

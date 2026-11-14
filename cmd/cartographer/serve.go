@@ -769,6 +769,7 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 		if err := multi.SetAtlasPlugins(atlasPlugins); err != nil {
 			log.Fatal(err)
 		}
+		multi.SetBranding(serverBranding)
 		multi.SetReleasesSource(serverReleasesSource(settingsCfg, version))
 		// serverInfo.name (D102) identifies the mounted KB only when more than
 		// one is mounted — a single-KB HTTP server keeps the historical bare
@@ -862,6 +863,10 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 			log.Printf("routed mount enabled at %s (%d KB(s), one copy of the tools, kb as a tool argument)",
 				mcpserver.RoutedMountPath, len(names))
 		}
+
+		// The first open of a KB in the Atlas answers from a cache filled now,
+		// in the background (D2077).
+		multi.WarmUI()
 
 		// The read-only Atlas UI (D227). Mounted only in HTTP mode and only when
 		// enabled: with web.enabled off, /ui/ and /api/ui/v1 are not routed at all

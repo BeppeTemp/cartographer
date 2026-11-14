@@ -591,7 +591,7 @@ function ValueRows({
         const label = shown ? "Hide value" : "Reveal value";
         const used = e.referenced_by.filter((c) => c !== except);
         return (
-          <li key={`${file.path}#${e.pointer}`} className="secrets__row">
+          <li key={`${file.path}#${e.pointer}`} className="secrets__row" data-revealed={shown || undefined}>
             <div className="secrets__what">
               <code className="secrets__pointer" title={`${file.path}#${e.pointer}`}>
                 <span className="secrets__prefix">

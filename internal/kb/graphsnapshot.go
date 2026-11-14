@@ -16,8 +16,8 @@ import (
 // explicitly truncated answer.
 const (
 	DefaultGraphNodeLimit = 2000
-	MaxGraphNodeLimit     = 5000
-	MaxGraphEdges         = 20000
+	MaxGraphNodeLimit     = 7500
+	MaxGraphEdges         = 30000
 )
 
 // GraphNode is one concept in a snapshot. InDegree and OutDegree count links

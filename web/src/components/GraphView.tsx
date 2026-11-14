@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ClusterEdge, ClusterUnfold, GraphCluster, GraphSnapshot } from "../api/types";
-import { isClusterID } from "../lib/clusters";
+import { radiusOf as layoutRadius } from "../lib/graph3d/clusterlayout";
+import { anchorGlyphs, budgetEdges, clusterSlot, isClusterID, unfoldedMemberIds } from "../lib/clusters";
 import { communitySlot, type Communities } from "../lib/communities";
 import { fade } from "../lib/encoding";
 import type { Pose } from "../lib/graph3d/camera";
@@ -30,10 +31,10 @@ import { GraphSeed } from "./States";
 import { Icon } from "./Icon";
 
 /** The 3D view draws every visible concept up to this many (D234): the graph
- *  API's own ceiling (kb.MaxGraphNodeLimit; the UI asks for the default 2,000,
- *  and a truncated graph already says so). Above it the view says so and
+ *  API's own ceiling (kb.MaxGraphNodeLimit, which the UI asks for: GRAPH_ALL_NODES;
+ *  a truncated graph already says so). Above it the view says so and
  *  points at the filters -- never a silent sample. */
-export const MAX_3D_NODES = 5_000;
+export const MAX_3D_NODES = 7_500;
 /** A selected node and its best-connected neighbours carry a name, up to
  *  this many: enough to read the neighbourhood, few enough not to cover it. */
 const LABEL_LIMIT = 12;
@@ -83,7 +84,8 @@ interface Props {
   /** Overlays drawn over the canvas (the legend card, a Map's contract). */
   children?: ReactNode;
   communities: Communities;
-  colorBy: ColorBy;
+  /** Colour is the Map's (the default): the rail, the legend and the graph agree. Community colouring is kept for the renderer's tests only. */
+  colorBy?: ColorBy;
   selected: string | null;
   hiddenIds: Set<string>;
   /** Changes with the theme: colours are re-resolved, the layout is kept. */
@@ -105,8 +107,6 @@ interface Props {
   onUnavailable?(): void;
   /** The clustered graph, when the snapshot is the unfolded part of one. */
   clusterView?: ClusterView | null;
-  /** The Clusters / Nodes switch; absent where the KB is small enough to draw whole. */
-  graphLevel?: GraphLevel;
 }
 
 /** The clustered graph's folded communities and what reaches them
@@ -123,16 +123,12 @@ export interface ClusterView {
   onFold(id: string): void;
 }
 
-/** The Clusters / Nodes switch, offered on a KB above the cluster threshold. */
-export interface GraphLevel {
-  mode: "clusters" | "nodes";
-  onChange(mode: "clusters" | "nodes"): void;
-}
-
 const NO_CLUSTERS: GraphCluster[] = [];
 const NO_CLUSTER_EDGES: ClusterEdge[] = [];
-/** How large a cluster's sphere may be against its share of concepts: a log
- *  scale, so a 20,000-member cluster does not swallow the scene. */
+const NO_UNFOLDED: ClusterUnfold[] = [];
+/** How large a super-node may be against its share of concepts: a square-root
+ *  scale (its area follows its member count), floored so a small cluster is
+ *  still a thing to click. */
 const CLUSTER_MIN_WEIGHT = 0.35;
 /** A cluster unfolds when a zoom brings it this large in the view (its
  *  radius over its distance from the camera) near the middle of the canvas. */
@@ -140,14 +136,15 @@ const UNFOLD_APPARENT_SIZE = 0.09;
 const UNFOLD_ZOOM_WINDOW_MS = 700;
 
 export function clusterWeight(size: number, maxSize: number): number {
-  return CLUSTER_MIN_WEIGHT + (1 - CLUSTER_MIN_WEIGHT) * (Math.log1p(size) / Math.log1p(Math.max(1, maxSize)));
+  return CLUSTER_MIN_WEIGHT + (1 - CLUSTER_MIN_WEIGHT) * Math.sqrt(Math.min(1, size / Math.max(1, maxSize)));
 }
 
-/** How many strokes draw an edge of this weight: WebGL lines are one pixel
- *  wide whatever the material says, so a heavier edge is drawn by overlaying
- *  its stroke, up to three times on a log scale (1, 4+, 32+ links). */
+/** How many strokes draw a super-edge of this weight: WebGL lines are one
+ *  pixel wide whatever the material says, so a heavier edge is drawn by
+ *  overlaying its stroke (and a lone link already by three, to read between
+ *  super-nodes at the default zoom): 3, 5 from 4 links, 8 from 32. */
 export function edgeStrokes(weight: number): number {
-  return weight >= 32 ? 3 : weight >= 4 ? 2 : 1;
+  return weight >= 32 ? 8 : weight >= 4 ? 5 : 3;
 }
 
 const plural = (n: number, one: string) => `${n.toLocaleString("en")} ${one}${n === 1 ? "" : "s"}`;
@@ -203,7 +200,7 @@ function View({
   loadBirths,
   kbName = "Knowledge base",
   communities,
-  colorBy,
+  colorBy = "map",
   selected,
   hiddenIds: filtered,
   themeKey,
@@ -215,7 +212,6 @@ function View({
   onSelect,
   onUnavailable,
   clusterView = null,
-  graphLevel,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const labelsRef = useRef<HTMLDivElement | null>(null);
@@ -375,13 +371,19 @@ function View({
   onOpenArtifactRef.current = onOpenArtifact;
   const clusterViewRef = useRef(clusterView);
   clusterViewRef.current = clusterView;
+  // While the growth replay is open (playing or paused) the graph is a film,
+  // not a map: a click opens nothing.
+  const growingRef = useRef(false);
+  growingRef.current = growth !== null;
   const clusterList = clusterView?.clusters ?? NO_CLUSTERS;
   const clusterEdges = clusterView?.edges ?? NO_CLUSTER_EDGES;
+  const unfolded = clusterView?.unfolded ?? NO_UNFOLDED;
   const clusterLabels = useRef(new Map<string, string>());
   clusterLabels.current = new Map(clusterList.map((c) => [c.id, `${c.label} · ${plural(c.size, "concept")}`]));
   // The members each cluster unfolded into, as first drawn: folding it again
   // brings the cluster back where they are, not from a seed.
   const membersOf = useRef(new Map<string, string[]>());
+  const local = useRef<Set<string> | null>(null);
   const liveRef = useRef(live);
   liveRef.current = live;
   const occludedRef = useRef({ left: occludedLeft, right: occludedRight });
@@ -442,7 +444,14 @@ function View({
   // Set for the first data a new scene receives: only then is a remembered
   // camera restored.
   const restoreNext = useRef<LayoutMemory | null>(null);
+  // This memo moves the node store along and decides what the next layout moves
+  // alone and where the camera goes, so it must not run twice for one input:
+  // StrictMode calls it twice in development, and the second call would see the
+  // store already advanced and decide nothing. Same inputs, same answer.
+  const nodesMemo = useRef<{ deps: unknown[]; value: Map<string, SceneNode> } | null>(null);
   const nodes = useMemo(() => {
+    const deps = [snapshot, layoutKey, clusterList, unfolded, clusterEdges];
+    if (nodesMemo.current && nodesMemo.current.deps.every((d, i) => d === deps[i])) return nodesMemo.current.value;
     const store = nodeStore.current.nodes;
     const max = Math.max(1, ...snapshot.nodes.map((n) => n.in_degree + n.out_degree));
     const placed = store.size > 0;
@@ -459,6 +468,7 @@ function View({
     const clusterIds = new Set(clusterList.map((c) => c.id));
     const opened = [...store.keys()].filter((id) => isClusterID(id) && !clusterIds.has(id));
     const openedFrom = opened.length === 1 ? store.get(opened[0]!) : undefined;
+    const openedRadius = openedFrom ? layoutRadius(openedFrom) : 0;
     const newMembers: string[] = [];
     for (const n of snapshot.nodes) {
       const weight = Math.sqrt((n.in_degree + n.out_degree) / max);
@@ -471,13 +481,26 @@ function View({
       const anchor =
         openedFrom ?? (placed ? (adjacent.get(n.id) ?? []).map((id) => store.get(id)).find(Boolean) : undefined);
       if (openedFrom) newMembers.push(n.id);
-      next.set(n.id, {
-        id: n.id,
-        weight,
-        ...(anchor ? beside(anchor, n.id) : seedPosition(n.id, snapshot.nodes.length, 3)),
-      });
+      // An opening cluster's members start on a small sphere around it (so
+      // they do not begin inside one another), settling from there.
+      const start = openedFrom
+        ? (() => {
+            // On a small sphere inside the glyph, to expand from outward only.
+            const s = seedPosition(n.id, Math.min(snapshot.nodes.length, 400), 3);
+            const reach = Math.max(1, Math.hypot(s.x, s.y, s.z));
+            const k = (openedRadius * 0.9) / reach;
+            return { x: (openedFrom.x ?? 0) + s.x * k, y: (openedFrom.y ?? 0) + s.y * k, z: (openedFrom.z ?? 0) + s.z * k };
+          })()
+        : anchor
+          ? beside(anchor, n.id)
+          : seedPosition(n.id, snapshot.nodes.length, 3);
+      next.set(n.id, { id: n.id, weight, ...start });
     }
     if (openedFrom && newMembers.length > 0) membersOf.current.set(opened[0]!, newMembers);
+    // What the next layout moves alone: an opening cluster's members, or a
+    // closing one's cluster (the cluster super-nodes decision); anything else
+    // lays the whole graph out as before.
+    local.current = openedFrom && newMembers.length > 0 ? new Set(newMembers) : null;
     const maxSize = Math.max(1, ...clusterList.map((c) => c.size));
     const total = snapshot.nodes.length + clusterList.length;
     for (const c of clusterList) {
@@ -485,6 +508,8 @@ function View({
       const kept = store.get(c.id);
       if (kept) {
         kept.weight = weight;
+        // A remembered layout keeps positions only: the flag that makes it a glyph is set again here.
+        kept.cluster = true;
         next.set(c.id, kept);
         continue;
       }
@@ -497,11 +522,32 @@ function View({
             z: members.reduce((sum, m) => sum + (m.z ?? 0), 0) / members.length,
           }
         : seedPosition(c.id, total, 3);
-      next.set(c.id, { id: c.id, weight, ...at });
+      next.set(c.id, { id: c.id, weight, cluster: true, ...at });
+      if (members.length) {
+        (local.current ??= new Set()).add(c.id);
+      }
+    }
+    for (const u of unfolded) {
+      const ids = unfoldedMemberIds(u, snapshot);
+      if (ids.length) membersOf.current.set(u.id, ids);
+    }
+    // The concepts the overview leaves open, with no link to a glyph, are tied to
+    // the glyph of their Map for the layout.
+    const anchors = anchorGlyphs(
+      snapshot.nodes,
+      clusterList,
+      clusterEdges,
+      new Set(unfolded.flatMap((u) => unfoldedMemberIds(u, snapshot))),
+      snapshot.edges,
+    );
+    for (const n of snapshot.nodes) {
+      const node = next.get(n.id);
+      if (node) node.anchor = anchors.get(n.id);
     }
     nodeStore.current.nodes = next;
+    nodesMemo.current = { deps, value: next };
     return next;
-  }, [snapshot, layoutKey, clusterList]);
+  }, [snapshot, layoutKey, clusterList, unfolded, clusterEdges]);
 
   // Artifact nodes: kept across toggles and refreshes like concept nodes, so
   // a diamond shown again returns to its place.
@@ -542,6 +588,10 @@ function View({
             container,
             {
               onSelect: (id) => {
+                // A click ends the hover: the tooltip of a node that is about to
+                // open, close or move must not stay where the cursor was.
+                if (tooltipRef.current) tooltipRef.current.hidden = true;
+                if (growingRef.current) return;
                 if (id?.startsWith(ARTIFACT_PREFIX)) {
                   const ref = id.slice(ARTIFACT_PREFIX.length);
                   const slash = ref.indexOf("/");
@@ -553,9 +603,13 @@ function View({
                   clusterViewRef.current?.onUnfold(id);
                   return;
                 }
+                // A click on the background clears the selection only: an open
+                // cluster has no drawn outline to click outside of, it folds by
+                // Escape, the breadcrumb or the legend's Compact.
                 onSelectRef.current(id);
               },
               onExpand: (id) => {
+                if (growingRef.current) return;
                 if (!id.startsWith(ARTIFACT_PREFIX) && !isClusterID(id)) onExpandRef.current?.(id);
               },
               onHover: (id, x, y) => {
@@ -615,6 +669,7 @@ function View({
       }
       leaving?.dispose();
       sceneRef.current = null;
+      lastPushed.current = "";
     };
     // Built once: a new snapshot -- a refresh, or another KB or Map -- goes
     // through setData below and keeps the scene and the camera, so a switch
@@ -624,6 +679,7 @@ function View({
   // The visible set.
   const lastVisible = useRef(new Set<string>());
   const lastLayout = useRef("");
+  const lastPushed = useRef("");
   useEffect(() => {
     const scene = sceneRef.current;
     if (!scene || !ready) return;
@@ -659,9 +715,12 @@ function View({
       visible.push(nodes.get(c.id)!);
       ids.add(c.id);
     }
-    const links: SceneLink[] = snapshot.edges
-      .filter((e) => ids.has(e.source) && ids.has(e.target))
-      .map((e) => ({ source: e.source, target: e.target }));
+    const degreeOf = new Map(snapshot.nodes.map((n) => [n.id, n.in_degree + n.out_degree]));
+    const links: SceneLink[] = budgetEdges(
+      snapshot.edges.filter((e) => ids.has(e.source) && ids.has(e.target)),
+      (id) => degreeOf.get(id) ?? 0,
+      snapshot.nodes.length,
+    ).map((e) => ({ source: e.source, target: e.target }));
     for (const e of clusterEdges) {
       if (!ids.has(e.source) || !ids.has(e.target)) continue;
       for (let k = 0; k < edgeStrokes(e.weight); k++) links.push({ source: e.source, target: e.target });
@@ -675,11 +734,29 @@ function View({
     // settling it in view. Without the burst (reduced motion) it opens
     // nearly settled instead.
     const budget = reducedMotion ? 600_000 : 300_000;
-    const warmup = Math.round(Math.max(60, Math.min(reducedMotion ? 300 : 150, budget / Math.max(1, visible.length))));
+    // A few heavy bodies (a folded KB) need more ticks to spread than thousands of light nodes.
+    const warmupCap = reducedMotion || visible.length < 120 ? 300 : 150;
+    const warmup = Math.round(Math.max(60, Math.min(warmupCap, budget / Math.max(1, visible.length))));
+    // The other clusters move too: an opening cluster takes their room.
+    const settle = local.current && new Set([...local.current, ...clusterList.map((c) => c.id)]);
+    local.current = null;
+    // The scene is pushed what is new, once: the same picture again (a filter or a
+    // KB switch that re-ran this effect while the data still belonged to the old
+    // KB, say) would only knock it. A new layout, a morph, a restore, a local move
+    // or a replay always goes through.
+    const signature = pictureSignature(layoutKey, visible, links, unfolded.map((u) => u.id));
+    if (signature === lastPushed.current && !replace && !morph && !restore && !settle && !growth && !closedReplay) {
+      return;
+    }
+    lastPushed.current = signature;
     scene.setData(visible, links, warmup, replace, {
       morph,
+      local: settle && !replace ? settle : undefined,
+      hulls: unfolded.map((u) => ({ id: u.id, members: unfoldedMemberIds(u, snapshot) })),
       restore: restore ? { pose: restore.pose, shift: restore.shift } : undefined,
     });
+    // The camera keeps the whole graph in frame, centred, in every state: the scene eases
+    // it once, to the fit of the picture as the transition leaves it.
     // The replay closed: the whole graph is back, and the camera, which
     // framed only what was out, goes back to the fit of all of it.
     if (closedReplay && !replace) scene.followFit(0, 0, GROWTH_SETTLE_MS);
@@ -690,7 +767,7 @@ function View({
       frame = requestAnimationFrame(() => setDrawn(true));
     });
     return () => cancelAnimationFrame(frame);
-  }, [ready, snapshot, hiddenIds, nodes, drawnArtifacts, clusterList, clusterEdges]);
+  }, [ready, snapshot, hiddenIds, nodes, drawnArtifacts, clusterList, clusterEdges, unfolded]);
 
   // A selection hidden by a filter stays selected (the URL and the Inspector
   // keep it), but the graph draws the filtered set as if nothing were (D240).
@@ -712,14 +789,23 @@ function View({
       for (const n of scene.neighboursOf(focal)) near.add(n.id);
     }
     const drawn = snapshot.nodes.filter((n) => !hiddenIds.has(n.id));
+    // An open cluster's members, like the concepts the overview leaves open,
+    // are coloured as concepts are in the flat view, by Map.
+    const openMembers = new Set<string>();
+    for (const u of unfolded) for (const id of unfoldedMemberIds(u, snapshot)) openMembers.add(id);
     const colours = drawn.map((n) => {
-      const base =
-        slots[colorBy === "community" ? communitySlot(communities, n.id) : collectionHue(n.collection ?? "")]!;
+      const byMap = slots[collectionHue(n.collection ?? "")]!;
+      const community = colorBy === "community" ? communitySlot(communities, n.id) : 0;
+      const base = !clusterView
+        ? slots[colorBy === "community" ? communitySlot(communities, n.id) : collectionHue(n.collection ?? "")]!
+        : colorBy === "community" && community > 0 && !openMembers.has(n.id)
+          ? slots[community]!
+          : byMap;
       return !focal || near.has(n.id) ? base : fade(base, RECEDED, canvas);
     });
     // A cluster wears its community's colour, as its members do in the flat view.
     for (const c of clusterList) {
-      const base = slots[colorBy === "community" ? c.slot : collectionHue(c.collection ?? "")]!;
+      const base = slots[clusterSlot(c)]!;
       colours.push(!focal || near.has(c.id) ? base : fade(base, RECEDED, canvas));
     }
     // Diamonds wear the signal colour: an artifact is not in any community
@@ -735,7 +821,7 @@ function View({
       signal: cssVar("--graph-signal"),
       ring: cssVar("--graph-ring"),
     });
-  }, [ready, snapshot, hiddenIds, colorBy, communities, themeKey, shown, drawnArtifacts, clusterList]);
+  }, [ready, snapshot, hiddenIds, colorBy, communities, themeKey, shown, drawnArtifacts, clusterList, unfolded, clusterView]);
 
   // Zooming in on a cluster unfolds it: the one nearest the middle of the
   // canvas, once it looks large enough. Only a zoom the reader made counts
@@ -776,6 +862,20 @@ function View({
       off();
     };
   }, [ready, clusterList, reducedMotion]);
+
+  // What folds an open cluster from the keyboard: Escape, one at a time, the last opened first.
+  useEffect(() => {
+    if (unfolded.length === 0) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, [role='dialog'], [role='menu'], [role='listbox']")) return;
+      event.preventDefault();
+      clusterViewRef.current?.onFold(unfolded[unfolded.length - 1]!.id);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [unfolded]);
 
   // Motion on or off.
   useEffect(() => {
@@ -914,6 +1014,40 @@ function View({
         <div ref={labelsRef} className="graph3d__labels" aria-hidden="true" />
         <span ref={tooltipRef} className="graph3d__label graph3d__tooltip" aria-hidden="true" hidden />
       </div>
+      {clusterView && unfolded.length > 0 && (
+        // Where the reader is, as quiet text: the KB (a link back to the
+        // overview) then the cluster opened last.
+        <nav className="graph__crumbs" aria-label="Open cluster">
+          <button
+            type="button"
+            className="graph__crumb-root"
+            onClick={() => unfolded.forEach((u) => clusterView.onFold(u.id))}
+          >
+            {kbName}
+          </button>
+          <span className="graph__crumb-sep" aria-hidden="true">
+            &rsaquo;
+          </span>
+          <span className="graph__crumb-current" aria-current="location">
+            {unfolded[unfolded.length - 1]!.label} &middot; {unfolded[unfolded.length - 1]!.total.toLocaleString("en")}
+          </span>
+        </nav>
+      )}
+      {clusterView && (
+        <>
+          {/* Folded clusters, for the keyboard and a screen reader: the canvas
+              is not in the tree. Visible only while one has focus. */}
+          <ul className="graph__clusters-a11y" aria-label="Clusters">
+            {clusterList.map((c) => (
+              <li key={c.id}>
+                <button type="button" onClick={() => clusterView.onUnfold(c.id)}>
+                  {`cluster ${c.label}, ${plural(c.size, "concept")}`}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
       {/* Kept through the fade-out; visibility: hidden then drops it from the tree. */}
       <div className="graph__loading" data-drawn={drawn}>
         <GraphSeed label={`Charting ${snapshot.nodes.length} concepts`} />
@@ -1012,65 +1146,7 @@ function View({
           onExport={exp.supported ? exp.openDialog : undefined}
         />
       )}
-      {graphLevel && (
-        <div className="graph__level" role="group" aria-label="Graph level">
-          {(
-            [
-              ["clusters", "Clusters"],
-              ["nodes", "Nodes"],
-            ] as const
-          ).map(([mode, label]) => (
-            <button
-              key={mode}
-              type="button"
-              className="legend__option"
-              aria-pressed={graphLevel.mode === mode}
-              onClick={() => graphLevel.onChange(mode)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      )}
-      {clusterView && clusterView.unfolded.length > 0 && (
-        <ul className="graph__unfolded" aria-label="Unfolded clusters">
-          {clusterView.unfolded.map((u) => (
-            <li key={u.id} className="graph__unfold">
-              <span className="graph__unfold-label">{u.label}</span>
-              {u.shown < u.total && (
-                <span className="graph__unfold-count">
-                  Showing {u.shown.toLocaleString("en")} of {u.total.toLocaleString("en")}
-                </span>
-              )}
-              <button
-                type="button"
-                className="legend__option"
-                aria-label={`Fold ${u.label}`}
-                onClick={() => clusterView.onFold(u.id)}
-                onKeyDown={(event) => {
-                  if (event.key !== "Escape") return;
-                  // Handled here: the page's own Escape would drop the selection.
-                  event.preventDefault();
-                  clusterView.onFold(u.id);
-                }}
-              >
-                Fold
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      {clusterView ? (
-        <div className="graph__banner banner" role="status">
-          <span className="banner__glyph">
-            <Icon name="info" size={16} />
-          </span>
-          <span>
-            {plural(clusterView.clusters.length, "cluster")}, {plural(clusterView.totalNodes, "concept")};{" "}
-            {clusterView.unfolded.length.toLocaleString("en")} unfolded
-          </span>
-        </div>
-      ) : snapshot.truncated && (
+      {clusterView ? null : snapshot.truncated && (
         <div className="graph__banner banner" role="status">
           <span className="banner__glyph">
             <Icon name="info" size={16} />
@@ -1173,10 +1249,11 @@ function placeLabels(
   named: SceneNode[],
   selected: SceneNode | null,
   name: (id: string) => string,
+  extra = "",
 ) {
   const els = named.map((n) => {
     const el = document.createElement("span");
-    el.className = n === selected ? "graph3d__label graph3d__label--selected" : "graph3d__label";
+    el.className = `${n === selected ? "graph3d__label graph3d__label--selected" : "graph3d__label"} ${extra}`.trim();
     el.textContent = name(n.id);
     layer.appendChild(el);
     return el;
@@ -1195,3 +1272,21 @@ function placeLabels(
     els.forEach((el) => el.remove());
   };
 }
+
+/** What the scene would be drawing: the layout, the drawn bodies (with their size) and links, the open clusters. */
+function pictureSignature(
+  layoutKey: string,
+  nodes: readonly { id: string; weight: number; cluster?: boolean; artifact?: boolean }[],
+  links: readonly { source: unknown; target: unknown }[],
+  open: readonly string[],
+): string {
+  let h = 2166136261;
+  const mix = (text: string) => {
+    for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 16777619);
+  };
+  for (const n of nodes) mix(`${n.id}${n.weight.toFixed(2)}${n.cluster ? "c" : ""}${n.artifact ? "a" : ""}`);
+  for (const l of links) mix(`${endpointId(l.source)}>${endpointId(l.target)}`);
+  return `${layoutKey}|${nodes.length}|${links.length}|${open.join(",")}|${h >>> 0}`;
+}
+
+const endpointId = (end: unknown): string => (typeof end === "object" && end !== null ? (end as { id: string }).id : String(end));

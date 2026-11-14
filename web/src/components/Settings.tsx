@@ -2,7 +2,9 @@ import { createContext, useContext, useEffect, useState, type CSSProperties } fr
 import { SourceFile } from "./SourceFile";
 import { fetchExtensions, fetchPlaceholders, fetchSettings, fetchWhoami } from "../api/client";
 import { PluginsPanel } from "./Plugins";
+import { age, exactTime } from "../lib/time";
 import { SourcesBlock } from "./Surveyors";
+import { CompassStatus, MeridianStatus, SurveyorStatus } from "./Components";
 import type {
   Extensions,
   PlaceholderList,
@@ -60,13 +62,18 @@ function isWide(list: readonly string[] | null): boolean {
   return !!list && (list.length > TALL_LIST || list.some((v) => tildify(v).length > WIDE_ITEM));
 }
 
+/** A sha256/sha1 digest is unreadable whole: its first 12 hex, the rest in the tooltip. */
+function shortDigest(text: string): string {
+  return text.replace(/\b([0-9a-f]{12})[0-9a-f]{28,}\b/g, "$1…");
+}
+
 /** One item of a list: a `key: value` or `key → value` entry shows its key
  *  muted before the value, so a long path wraps under itself. */
 function Item({ text }: { text: string }) {
-  const t = useHome()(text);
+  const t = shortDigest(useHome()(text));
   const m = /^([^\s:→]+(?::[^\s:→]+)?)(: | → )(.+)$/.exec(t);
   return (
-    <span className="settings__item">
+    <span className="settings__item" title={t === text ? undefined : text}>
       {m ? (
         <>
           <span className="settings__item-key">{`${m[1]}${(m[2] ?? "").trimEnd()}`}</span>{" "}
@@ -154,12 +161,15 @@ type Mode = "readable" | "yaml";
  */
 export function Settings({
   reloadKey,
+  live = 0,
   activeKB,
   onRetry,
   onFailure,
 }: {
   /** Changes when the server moves under the page: the settings are read again. */
   reloadKey: string;
+  /** Bumps on a live event: the components' status is read again. */
+  live?: number;
   /** The KB picked in the top bar: its tab comes first after the server's. */
   activeKB?: string;
   onRetry(): void;
@@ -315,17 +325,20 @@ export function Settings({
         subtitle={
           <>
             {plugins
-              ? "The plugins installed on each component, read-only: approval is a command on the component (cartographer plugin approve on Compass; headless components approve by digest in their own config)"
+              ? "What each component has installed. Approval happens on the component."
               : surveyor !== undefined
               ? surveyor
-                ? `Surveyor${surveyor.version ? ` ${surveyor.version}` : ""} · ${surveyor.replicas} replica${surveyor.replicas === 1 ? "" : "s"} · ${surveyor.kbs.join(", ")} · reported ${new Date(surveyor.received_at).toLocaleString("en")} · read-only`
-                : "No Surveyor has reported: every key at its default, read-only"
+                ? <>{`Surveyor${surveyor.version ? ` ${surveyor.version}` : ""} · ${surveyor.replicas} replica${surveyor.replicas === 1 ? "" : "s"} · ${surveyor.kbs.length > 3 ? `${surveyor.kbs.length} KBs` : surveyor.kbs.join(", ")} · reported `}
+                  <Reported at={surveyor.received_at} />
+                </>
+                : "No Surveyor has reported: every key at its default"
               : client
-                ? `Compass ${client.version} · reported ${new Date(client.received_at).toLocaleString("en")} · read-only`
+                ? <>{`Compass ${client.version} · reported `}<Reported at={client.received_at} /></>
                 : kb
                   ? "This Knowledge Base's configuration, read-only"
                   : "The configuration Meridian runs with, read-only"}
-            {who && (
+            {/* Who is looking: not on Plugins or a Surveyor, whose header is about another principal. */}
+            {who && !plugins && surveyor === undefined && (
               <>
                 {" · "}
                 <Who who={who} />
@@ -345,7 +358,7 @@ export function Settings({
       <div className="settings__bar">
         <div className="inspector__tabs settings__tabs" role="tablist" aria-label="Settings of">
           {clients.length === 0 ? (
-            <Tab id="client" current={current === "client"} onSelect={setTab}>
+            <Tab id="client" current={current === "client"} onSelect={setTab} role="client">
               Compass
             </Tab>
           ) : (
@@ -355,12 +368,13 @@ export function Settings({
                 id={`client:${c.machine}`}
                 current={current === `client:${c.machine}`}
                 onSelect={setTab}
+                role="client"
               >
                 {clients.length === 1 ? "Compass" : `Compass · ${c.machine}`}
               </Tab>
             ))
           )}
-          <Tab id="server" current={current === "server"} onSelect={setTab}>
+          <Tab id="server" current={current === "server"} onSelect={setTab} role="server">
             Meridian
           </Tab>
           {selected && (
@@ -371,7 +385,7 @@ export function Settings({
           {(surveyors.length ? surveyors : [null]).map((w, i) => {
             const id = w ? `surveyor:${i}` : "surveyor";
             return (
-              <Tab key={id} id={id} current={current === id} onSelect={setTab}>
+              <Tab key={id} id={id} current={current === id} onSelect={setTab} role="agent">
                 {w && surveyors.length > 1 ? `Surveyor · ${w.perimeter}` : "Surveyor"}
               </Tab>
             );
@@ -387,10 +401,13 @@ export function Settings({
           <PluginsPanel extensions={extensions} error={extError} onRetry={() => setExtTry((n) => n + 1)} operatorOnly={!who?.admin} />
         ) : surveyor !== undefined ? (
           <>
+            {selected && <SurveyorStatus kb={selected.name} live={live} perimeter={surveyor?.perimeter} />}
             <SurveyorPanel surveyor={surveyor} template={view.surveyor_template} mode={mode} query={query} />
-            <SourcesBlock kb={selected?.name ?? null} />
+            <SourcesBlock kb={selected?.name ?? null} live={live} />
           </>
         ) : client !== undefined ? (
+          <>
+          <CompassStatus machines={client ? [client] : clients} />
           <ClientValues.Provider value={true}>
             <ClientPanel
               client={client}
@@ -401,26 +418,35 @@ export function Settings({
               activeKB={selected?.name}
             />
           </ClientValues.Provider>
+          </>
         ) : kb ? (
           <KBPanel kb={kb} mode={mode} query={query} />
         ) : (
-          <ServerPanel entries={view.server} yaml={view.server_yaml} mode={mode} query={query} />
+          <>
+            {selected && <MeridianStatus kb={selected.name} live={live} />}
+            <ServerPanel entries={view.server} yaml={view.server_yaml} mode={mode} query={query} />
+          </>
         )}
       </div>
     </Page>
   );
 }
 
-/** A tab, with how many keys it holds. */
+/**
+ * A tab: the component's name, and under it what it is (client, server…), so a
+ * reader who does not know the names Compass and Meridian still finds the side.
+ */
 function Tab({
   id,
   current,
   onSelect,
+  role,
   children,
 }: {
   id: string;
   current: boolean;
   onSelect(id: string): void;
+  role?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -429,11 +455,22 @@ function Tab({
       role="tab"
       id={`settings-tab-${id}`}
       aria-selected={current}
-      className="inspector__tab"
+      className={role ? "inspector__tab settings__tab" : "inspector__tab"}
       onClick={() => onSelect(id)}
     >
-      {children}
+      <span>{children}</span>
+      {role && " "}
+      {role && <span className="settings__tab-role">{role}</span>}
     </button>
+  );
+}
+
+/** When a component last reported: its age, with the exact local time in the tooltip. */
+function Reported({ at }: { at: string }) {
+  return (
+    <time dateTime={at} title={exactTime(at)}>
+      {age(at)}
+    </time>
   );
 }
 
@@ -966,6 +1003,8 @@ function MapTable({ entries, label }: { entries: [string, unknown][]; label: str
     const kbs =
       map && map.length === 1 && map[0]![0] === "kbs" && Array.isArray(map[0]![1]) ? (map[0]![1] as unknown[]) : null;
     const list = kbs ?? (Array.isArray(v) ? v : null);
+    if (list && list.length > FOLD_CHIPS && list.every((x) => !asMap(x)))
+      return <FoldedChips list={list.map((x) => formatValue(x))} noun={kbs ? "KB" : "item"} />;
     if (list)
       return list.length === 0 ? (
         <span className="settings__map-none">(none)</span>
@@ -984,14 +1023,7 @@ function MapTable({ entries, label }: { entries: [string, unknown][]; label: str
           )}
         </span>
       );
-    if (map)
-      return (
-        <span className="settings__map-chips">
-          {map.map(([k, y]) => (
-            <Item key={k} text={`${k}: ${formatValue(y)}`} />
-          ))}
-        </span>
-      );
+    if (map) return <FoldedMap entries={map} />;
     return <span className="settings__map-text">{home(formatValue(v))}</span>;
   };
   return (
@@ -1004,7 +1036,7 @@ function MapTable({ entries, label }: { entries: [string, unknown][]; label: str
       ))}
       {entries.length > MAP_FOLD && (
         <div className="settings__map-more">
-          <button type="button" className="chip chip--more" onClick={() => setAll(!all)}>
+          <button type="button" className="chip chip--more" aria-expanded={all} onClick={() => setAll(!all)}>
             {all ? "Show less" : `Show all ${entries.length}`}
           </button>
         </div>
@@ -1012,6 +1044,186 @@ function MapTable({ entries, label }: { entries: [string, unknown][]; label: str
     </dl>
   );
 }
+
+/** Past this many chips a map cell shows a count and the first few; the rest open on demand. */
+const FOLD_CHIPS = 6;
+
+/** A long list in a map cell: its count and first chips, the whole list one click away. */
+function FoldedChips({ list, noun }: { list: string[]; noun: string }) {
+  const [open, setOpen] = useState(false);
+  const shown = open ? list : list.slice(0, 3);
+  return (
+    <span className="settings__map-chips">
+      {shown.map((x, i) => (
+        <Item key={i} text={x} />
+      ))}
+      <button type="button" className="chip chip--more" aria-expanded={open} onClick={() => setOpen(!open)}>
+        {open ? "Show less" : `+${list.length - shown.length} · ${list.length} ${noun}s`}
+      </button>
+    </span>
+  );
+}
+
+/**
+ * A map value in a map table (a provider): one summary line — its plain
+ * values, and how many entries each list holds — that opens to the whole of
+ * it. Seven providers each with a dozen KBs and workspaces read as seven lines.
+ */
+function FoldedMap({ entries }: { entries: [string, unknown][] }) {
+  const home = useHome();
+  const [open, setOpen] = useState(false);
+  const scalar = entries.filter(([, y]) => !Array.isArray(y) && !asMap(y));
+  const lists = entries.filter(([, y]) => Array.isArray(y) || asMap(y));
+  return (
+    <div className="settings__folded" data-open={open || undefined}>
+      <button type="button" className="settings__folded-head" aria-expanded={open} onClick={() => setOpen(!open)}>
+        {scalar.map(([k, y]) => {
+          const full = home(formatValue(y));
+          const short = shortDigest(full);
+          return (
+            <span key={k} className="settings__nested-tag" title={short === full ? undefined : full}>
+              <span className="settings__nested-key">{k}</span> {short}
+            </span>
+          );
+        })}
+        {lists.map(([k, y]) => {
+          const n = Array.isArray(y) ? y.length : asMap(y)!.length;
+          return (
+            <span key={k} className="settings__nested-tag">
+              <strong>{n}</strong> <span className="settings__nested-key">{k}</span>
+            </span>
+          );
+        })}
+      </button>
+      {open && lists.length > 0 && <NestedMap entries={lists} />}
+    </div>
+  );
+}
+
+/** The field a list of records is read by: its path, else its name, else its id. */
+const HEAD_KEYS = ["path", "name", "id", "kb"];
+
+/**
+ * A map value inside a map table (a provider's {kbs, scope, workspaces}): one
+ * line per key, the key muted, so nothing is flattened into one run of text. A
+ * list of records (workspaces) becomes a list, one record a line, read by its
+ * path with the rest beside it.
+ */
+function NestedMap({ entries }: { entries: [string, unknown][] }) {
+  const home = useHome();
+  const scalar = entries.filter(([, y]) => !Array.isArray(y) && !asMap(y));
+  const rest = entries.filter(([, y]) => Array.isArray(y) || asMap(y));
+  return (
+    <div className="settings__nested">
+      {scalar.length > 0 && (
+        <span className="settings__nested-tags">
+          {scalar.map(([k, y]) => (
+            <span key={k} className="settings__nested-tag">
+              <span className="settings__nested-key">{k}</span> {home(formatValue(y))}
+            </span>
+          ))}
+        </span>
+      )}
+      {rest.map(([k, y]) => {
+        const list = Array.isArray(y) ? y : null;
+        const records = list && list.length > 0 && list.every((x) => asMap(x)) ? (list as Record<string, unknown>[]) : null;
+        return (
+          <div key={k} className="settings__nested-row">
+            <span className="settings__nested-key">
+              {k}
+              {list && <span className="settings__nested-count">{list.length}</span>}
+            </span>
+            {records ? (
+              <Records records={records} />
+            ) : list ? (
+              list.length === 0 ? (
+                <span className="settings__map-none">(none)</span>
+              ) : list.length > FOLD_CHIPS ? (
+                <FoldedChips list={list.map((z) => formatValue(z))} noun={k === "kbs" ? "KB" : "item"} />
+              ) : (
+                <span className="settings__map-chips">
+                  {list.map((z, j) => (
+                    <Item key={j} text={formatValue(z)} />
+                  ))}
+                </span>
+              )
+            ) : (
+              <span className="settings__map-chips">
+                {asMap(y)!.map(([h, z]) => (
+                  <Item key={h} text={`${h}: ${formatValue(z)}`} />
+                ))}
+              </span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Past this many records (workspaces) a list shows its first RECORDS_FOLDED and a button for the rest. */
+const RECORDS_FOLD = 10;
+const RECORDS_FOLDED = 8;
+
+/**
+ * A list of records (a provider's workspaces) as compact rows: the record's
+ * head (its path) on the left, cut with an ellipsis and whole in the tooltip
+ * with the long metadata (a remote); its lists as folded chips beside it.
+ */
+function Records({ records }: { records: Record<string, unknown>[] }) {
+  const home = useHome();
+  const [all, setAll] = useState(false);
+  const folded = !all && records.length > RECORDS_FOLD;
+  return (
+    <div className="settings__records-wrap">
+      <ul className="settings__records">
+        {(folded ? records.slice(0, RECORDS_FOLDED) : records).map((r, i) => {
+          const head = HEAD_KEYS.find((h) => typeof r[h] === "string");
+          const others = Object.entries(r).filter(([h]) => h !== head);
+          const lists = others.filter(([, x]) => Array.isArray(x));
+          const meta = others.filter(([, x]) => !Array.isArray(x));
+          const tip = [head ? home(String(r[head])) : "", ...meta.map(([h, x]) => `${h} ${home(formatValue(x))}`)]
+            .filter(Boolean)
+            .join("\n");
+          return (
+            <li key={i} className="settings__record">
+              <code className="settings__record-head" title={tip}>
+                {head ? home(String(r[head])) : "—"}
+              </code>
+              <span className="settings__record-body">
+                {lists.map(([h, x]) => {
+                  const l = (x as unknown[]).map((z) => formatValue(z));
+                  return l.length > FOLD_CHIPS ? (
+                    <FoldedChips key={h} list={l} noun={h === "kbs" ? "KB" : "item"} />
+                  ) : (
+                    <span key={h} className="settings__map-chips">
+                      {l.map((z, j) => (
+                        <Item key={j} text={z} />
+                      ))}
+                    </span>
+                  );
+                })}
+                {meta.length > 0 && (
+                  <span className="settings__record-meta" title={tip}>
+                    {meta.map(([h]) => h).join(" · ")}
+                  </span>
+                )}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+      {records.length > RECORDS_FOLD && (
+        <button type="button" className="chip chip--more" aria-expanded={all} onClick={() => setAll(!all)}>
+          {all ? "Show less" : `Show all ${records.length}`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** A wide list under its row shows this many chips; the count of the rest follows. */
+const WIDE_FOLD = 12;
 
 /** The value as a chip: a switch for a boolean, chips for a list, a muted word for nothing. */
 function Value({ entry: e }: { entry: SettingEntry }) {
@@ -1041,8 +1253,9 @@ function Value({ entry: e }: { entry: SettingEntry }) {
     );
   const list = items(e.value);
   if (list && list.length > 0) {
-    // A list that drops under the description has the width to show all of it.
-    const shown = isWide(list) ? list : list.slice(0, 3);
+    // A list that drops under the description has the width to show more of it:
+    // up to WIDE_FOLD, the rest behind a count.
+    const shown = isWide(list) ? list.slice(0, WIDE_FOLD) : list.slice(0, 3);
     return (
       <span className="settings__value settings__value--list" aria-label={label}>
         {shown.map((v, i) => (

@@ -5,7 +5,6 @@ import { GraphView } from "../components/GraphView";
 import { Legend } from "../components/Legend";
 import type { GraphNode, GraphSnapshot } from "../api/types";
 import { snapshotCommunities } from "../lib/communities";
-import type { ColorBy } from "../lib/palette";
 import { sceneStub } from "./sceneStub";
 
 const node = (id: string, title: string, community: number): GraphNode =>
@@ -22,67 +21,46 @@ function snap(nodes: GraphNode[], edges: GraphSnapshot["edges"] = []): GraphSnap
 }
 
 const full = snap([node("agents/scout", "Scout Agent", 0), node("infra/lab", "Lab", 1)]);
-// A Map's snapshot: the whole-KB communities, but only that Map's nodes.
-const scoped = snap([node("infra/lab", "Lab", 1), node("infra/x", "X", 0)]);
 
 function labels() {
   return [...document.querySelectorAll(".legend__label")].map((e) => e.textContent);
 }
 
-function card(s: GraphSnapshot, colorBy: ColorBy = "community", onColorBy: (v: ColorBy) => void = () => {}) {
-  return <Legend snapshot={s} communities={snapshotCommunities(s)} colorBy={colorBy} onColorBy={onColorBy} />;
+function card(s: GraphSnapshot, grouping?: { grouped: boolean; onToggle(): void }) {
+  return <Legend snapshot={s} grouping={grouping} />;
 }
 
-describe("the community legend", () => {
-  it("names communities by the anchor's title even when a Map's snapshot lacks the anchor node", () => {
-    const { rerender } = render(card(full));
-    const all = labels();
-    expect(all).toContain("Scout Agent");
-    rerender(card(scoped));
-    expect(labels()).toEqual(all);
-    expect(screen.queryByText("scout")).toBeNull();
-  });
-
-  it("says what is drawn, its concepts and its links, not the KB the picker names", () => {
+describe("the legend", () => {
+  it("keys the Maps, by the Map's colour, and says what is drawn", () => {
     render(card(snap([node("agents/scout", "Scout Agent", 0), node("infra/lab", "Lab", 1)], [{ source: "agents/scout", target: "infra/lab" }])));
     const legend = screen.getByRole("region", { name: "Graph legend" });
     expect(within(legend).queryByText("kb-a")).toBeNull();
     expect(within(legend).getByText("2 concepts · 1 link")).toBeInTheDocument();
+    expect(labels()).toEqual(["agents", "infra"]);
   });
 
-  it("summarises the communities past the sixth, and the neutral tail, in one closing row", () => {
-    const many = Array.from({ length: 8 }, (_, i) => ({
-      rank: i,
-      size: 10 - i,
-      anchor: `k/c${i}`,
-      anchor_title: `Group ${i}`,
-      slot: i + 1,
-    }));
-    const nodes = many.map((_, i) => node(`k/c${i}`, `Group ${i}`, i));
-    const s: GraphSnapshot = { nodes, edges: [], total_nodes: 8, total_edges: 0, limit: 2000, communities: many };
-    render(card(s));
-    expect(labels()).toEqual(["Group 0", "Group 1", "Group 2", "Group 3", "Group 4", "Group 5", "Smaller groups"]);
+  it("has no colour switch: colour is the Map's", () => {
+    render(card(full));
+    expect(screen.queryByRole("group", { name: "Colour nodes by" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Community" })).toBeNull();
+  });
+
+  it("summarises the Maps past the sixth in one closing row", () => {
+    const maps = snap(["a", "b", "c", "d", "e", "f", "g", "h"].map((m) => node(`${m}/x`, m, 0)));
+    render(card(maps));
+    expect(labels()).toEqual(["a", "b", "c", "d", "e", "f", "2 more Maps"]);
     expect(document.querySelector(".legend__row--rest .legend__count")?.textContent).toBe("2");
   });
-});
 
-describe("the colour switch", () => {
-  it("offers Community and Map, reports the choice and keys the Maps when asked", async () => {
-    const onColorBy = vi.fn();
-    const maps = snap(
-      ["a", "b", "c", "d", "e", "f", "g", "h"].map((m) => node(`${m}/x`, m, 0)),
-    );
-    const { rerender } = render(card(maps, "community", onColorBy));
-    const switcher = screen.getByRole("group", { name: "Colour nodes by" });
-    expect(within(switcher).getByRole("button", { name: "Community" })).toHaveAttribute("aria-pressed", "true");
-    expect(within(switcher).getByRole("button", { name: "Map" })).toHaveAttribute("aria-pressed", "false");
-    await userEvent.click(within(switcher).getByRole("button", { name: "Map" }));
-    expect(onColorBy).toHaveBeenCalledWith("map");
-
-    rerender(card(maps, "map", onColorBy));
-    // Six Maps keyed, the rest summed: the card stays a key, not a second list.
-    expect(labels()).toEqual(["a", "b", "c", "d", "e", "f", "Other Maps"]);
-    expect(document.querySelector(".legend__row--rest .legend__count")?.textContent).toBe("2");
+  it("offers the grouping switch only when given one, and reports the click", async () => {
+    const onToggle = vi.fn();
+    const { rerender } = render(card(full));
+    expect(screen.queryByRole("button", { name: /Show all concepts|Group into clusters/ })).toBeNull();
+    rerender(card(full, { grouped: true, onToggle }));
+    await userEvent.click(screen.getByRole("button", { name: "Show all concepts" }));
+    expect(onToggle).toHaveBeenCalledTimes(1);
+    rerender(card(full, { grouped: false, onToggle }));
+    expect(screen.getByRole("button", { name: "Group into clusters" })).toBeInTheDocument();
   });
 });
 

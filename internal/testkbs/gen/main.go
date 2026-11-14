@@ -1,8 +1,8 @@
 // Command gen writes the testkbs fleet to a data directory: one subdirectory
 // per KB (`go run ./internal/testkbs/gen <dir>`),
 // and beside them the client settings report of an imaginary workstation
-// (client-report.json, not a KB). `make dev` runs it when no DATA is given
-// (D818).
+// (client-report.json, not a KB) and the bodies of a synthetic
+// Surveyor (surveyor-*.json). `make dev` runs it (D818).
 package main
 
 import (
@@ -27,6 +27,10 @@ func main() {
 		os.Exit(1)
 	}
 	if err := testkbs.WriteClientReport(dir); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if err := testkbs.WriteSurveyor(dir, time.Now()); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

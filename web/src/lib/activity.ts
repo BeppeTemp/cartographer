@@ -121,3 +121,41 @@ export function journalShape(body: string): JournalShape {
   const lead = first.replace(/^\d{4}-\d{2}-\d{2}(\s*\([^)]*\))?\s*[—–-]\s*/, "");
   return { kind: "note", lead: lead || first, details: rest.join("\n").replace(/^\n+|\s+$/g, "") };
 }
+
+/** A change author that is a Surveyor: its commits are `surveyor/<perimeter>/<replica>`. */
+export function isSurveyorAuthor(author: string): boolean {
+  return author === "surveyor" || author.startsWith("surveyor/");
+}
+
+/** The change has a Surveyor among its authors. */
+export function bySurveyor(c: Pick<ConceptChange, "authors">): boolean {
+  return (c.authors ?? []).some(isSurveyorAuthor);
+}
+
+/** Slack around a run's own clock: the Surveyor's and the server's stamps are two clocks. */
+const RUN_SLACK_MS = 5000;
+
+/**
+ * The concepts a Surveyor run changed: the changes of a Surveyor author named by
+ * the run's replica (the exact path segment, w-1 is not w-10) whose time falls
+ * inside the run (start to start + duration). A run never overlaps another of
+ * its own replica, so the window is exact for what the timeline still shows as
+ * the Surveyor's: a concept someone changed after the run is listed under that
+ * author, not here (the changes route keeps each concept's newest change only).
+ */
+export function touchedByRun(
+  run: { replica: string; started_at: string; duration_ms: number },
+  changes: ConceptChange[],
+): ConceptChange[] {
+  const from = Date.parse(run.started_at) - RUN_SLACK_MS;
+  const to = Date.parse(run.started_at) + run.duration_ms + RUN_SLACK_MS;
+  if (Number.isNaN(from)) return [];
+  return changes.filter((c) => {
+    const at = Date.parse(changedAt(c));
+    return (
+      at >= from &&
+      at <= to &&
+      (c.authors ?? []).some((a) => isSurveyorAuthor(a) && a.split("/").slice(1).includes(run.replica))
+    );
+  });
+}

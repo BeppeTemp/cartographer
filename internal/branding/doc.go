@@ -1,10 +1,8 @@
 // Package branding parses and judges the branding/ folder of a plugin's atlas
-// side: one accent colour, a company logo (light and dark) and a favicon, all
-// data. A strict declaration names the images, every file is judged by its
+// side: a company logo (light and dark) and a company name, all data.
+// A branding.yaml that declares an accent or a favicon is refused: the branding
+// changes no colour and the tab keeps Cartographer's favicon. A strict declaration names the images, every file is judged by its
 // bytes and caps, and an SVG is refused if it holds active content or
-// references outside the file. It derives from the accent the dark and light
-// theme tokens of the Atlas, verified against the contrast thresholds
-// web/src/test/contrast.test.ts audits, and renders them as the text of a
-// stylesheet. It imports only the standard library and yaml: internal/plugin/core
+// references outside the file. It imports only the standard library and yaml: internal/plugin/core
 // carries its Spec and internal/pluginserver loads it.
 package branding

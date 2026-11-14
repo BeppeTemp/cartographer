@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   CheckCatalog,
   CollectionSummary,
@@ -21,22 +21,23 @@ import {
   rowSize,
   type CheckGroup,
 } from "../lib/health";
-import { Bone, BoldCount, Page, PageHeader, PageSection, Quiet, Segmented, TitleBone, HealthSkeleton } from "./Page";
+import { Bone, BoldCount, Page, PageHeader, PageSection, Quiet, TitleBone, HealthSkeleton } from "./Page";
 import { collectionVar } from "../lib/palette";
 import { Icon } from "./Icon";
 import { ErrorState } from "./States";
 import { MaintainedBy, useMaintenanceSummary } from "./Surveyors";
 
 /**
- * Health (D338, D365, D704, D947): what Cartographer found, and on a second tab
- * what it checks. A lint finding is a problem, and Health shows only those.
+ * Health (D338, D365, D704, D947): what Cartographer found, and behind a link
+ * at the bottom of the list what it checks. A lint finding is a problem, and Health shows only those.
  * *Issues* counts the kinds of problem and their occurrences, shows a page
  * field (one square per page, clustered by Map, painted with the colours of
  * the categories of its problems) and lists one row per lint check under its
  * category, the largest first; an open row says what it is and how to fix it. The
  * doctor's other proposals (the kb_review items, observations included) are
- * decisions, not problems: they are Work's (D948). *What it checks* explains
- * the rules by category, with the result on this KB.
+ * decisions, not problems: they are Work's (D948). *What Health checks* explains
+ * the rules by category, with the result on this KB. The page is about the KB
+ * alone: the components that serve it are Settings'.
  *
  * Like the rest of the Atlas it reads and never writes: a fix happens in a
  * cartographer-kb-doctor session the operator starts from an agent.
@@ -90,10 +91,18 @@ export function Health({
   onReveal(concept: string | null, message: string): void;
   onRetry(): void;
 }) {
-  // The agenda is the page; what the checks look for is a tab beside it (D365).
-  const [tab, setTab] = useState<"agenda" | "checks">("agenda");
-  // Another KB may have no catalogue: the tab it had no longer exists.
-  const effectiveTab = checks ? tab : "agenda";
+  // The issues list is the page; what the checks look for opens in its place from a link below it (D365).
+  const [showChecks, setShowChecks] = useState(false);
+  // Another KB may have no catalogue: the view it had no longer exists.
+  const view = showChecks && checks ? "checks" : "agenda";
+  // Switching views removes the link that was pressed: focus goes to the new view's heading, not to the body.
+  const headingRef = useRef<HTMLSpanElement>(null);
+  const shownView = useRef(view);
+  useEffect(() => {
+    if (shownView.current === view) return;
+    shownView.current = view;
+    headingRef.current?.focus();
+  }, [view]);
   // Who repairs the KB: the maintenance summary says, and a handed-over KB
   // names the Surveyor where it used to say Cartographer.
   const summary = useMaintenanceSummary(kb, live);
@@ -147,9 +156,10 @@ export function Health({
       <PageHeader
         eyebrow="Health"
         title={
-          !settled ? (
+          <span ref={headingRef} tabIndex={-1} className="health__title">
+          {!settled ? (
             <TitleBone label="Reading the KB's health" />
-          ) : effectiveTab === "checks" ? (
+          ) : view === "checks" ? (
             <>What Cartographer checks</>
           ) : allClear ? (
             <>
@@ -162,21 +172,8 @@ export function Health({
             </>
           ) : (
             <>No issues found{where}</>
-          )
-        }
-        actions={
-          (checks && settled) || !settled ? (
-            <Segmented<"agenda" | "checks">
-              label="Health view"
-              value={effectiveTab}
-              options={[
-                ["agenda", "Issues"],
-                ["checks", "What it checks"],
-              ]}
-              // Before the checks arrive the switch only holds its place.
-              onChange={(t) => settled && setTab(t)}
-            />
-          ) : undefined
+          )}
+          </span>
         }
         help={
           <p>
@@ -194,7 +191,7 @@ export function Health({
       )}
       {settled && (
         <p className="health__lede">
-          {effectiveTab === "checks"
+          {view === "checks"
             ? "Every page is read against fixed rules. This is what they look for, and what they found here."
             : allClear
               ? clearLede(pages, rules)
@@ -204,10 +201,16 @@ export function Health({
         </p>
       )}
 
-      {effectiveTab === "agenda" && kb && <MaintainedBy components={components} summary={summary} />}
+      {kb && <MaintainedBy components={components} summary={summary} part="line" />}
+      {view === "agenda" && kb && <MaintainedBy components={components} summary={summary} part="notices" />}
 
-      {effectiveTab === "checks" && checks && settled ? (
-        <Coverage catalog={checks} report={report} />
+      {view === "checks" && checks && settled ? (
+        <>
+          <button type="button" className="health__link" onClick={() => setShowChecks(false)}>
+            ← Back to issues
+          </button>
+          <Coverage catalog={checks} report={report} />
+        </>
       ) : (
         <>
           {/* Over the whole KB, not the chosen Map: a clean Map must not take
@@ -250,7 +253,7 @@ export function Health({
             ) : null
           ) : issues === 0 ? (
             allClear && checks ? (
-              <AllClear catalog={checks} onOpen={() => setTab("checks")} />
+              <AllClear catalog={checks} onOpen={() => setShowChecks(true)} />
             ) : (
               <Quiet>{scopeTitle ? `${scopeTitle} passes every check.` : "This KB passes every check."}</Quiet>
             )
@@ -275,6 +278,15 @@ export function Health({
           )}
 
           {!!conflicts?.length && <GitConflicts items={conflicts} onReveal={onReveal} />}
+
+          {/* The all-clear state already offers this entry, on its own row. */}
+          {checks && settled && !allClear && (
+            <p className="health__more">
+              <button type="button" className="health__link" onClick={() => setShowChecks(true)}>
+                What Health checks →
+              </button>
+            </p>
+          )}
         </>
       )}
     </Page>

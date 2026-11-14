@@ -6,7 +6,9 @@ import type { ClusterGraph, GraphSnapshot } from "../api/types";
 import { clusterWeight, edgeStrokes, GraphView, type ClusterView } from "../components/GraphView";
 import { Legend } from "../components/Legend";
 import { snapshotCommunities } from "../lib/communities";
-import { beside } from "../lib/graph3d/physics";
+import { springsOf } from "../lib/graph3d/physics";
+import { budgetEdges, clusterSlot, EDGE_BUDGET } from "../lib/clusters";
+import { collectionHue } from "../lib/palette";
 import { graph, json, overview, stubApi } from "./fixtures";
 import { sceneStub } from "./sceneStub";
 
@@ -51,21 +53,60 @@ const lastData = () => sceneStub.calls.data.at(-1)!;
 describe("the cluster view", () => {
   beforeEach(() => sceneStub.reset());
 
-  it("sizes clusters on a log scale and draws heavier edges with more strokes", () => {
+  it("sizes clusters on a square-root scale and draws heavier edges with more strokes", () => {
     expect(clusterWeight(20_000, 20_000)).toBe(1);
     expect(clusterWeight(1, 20_000)).toBeGreaterThan(0.35);
     expect(clusterWeight(200, 20_000)).toBeLessThan(clusterWeight(2000, 20_000));
-    expect([1, 3, 4, 31, 32, 9999].map(edgeStrokes)).toEqual([1, 1, 2, 2, 3, 3]);
+    // Square-root scale: a quarter of the members, half of the span above the floor.
+    expect(clusterWeight(5000, 20_000)).toBeCloseTo(0.35 + 0.65 * 0.5);
+    expect([1, 3, 4, 31, 32, 9999].map(edgeStrokes)).toEqual([3, 3, 5, 5, 8, 8]);
+  });
+
+  it("colours every super-node by its dominant Map, so the legend, the rail and the graph agree", () => {
+    expect(clusterSlot(clusters[0]!)).toBe(collectionHue("infra"));
+    expect(clusterSlot(clusters[1]!)).toBe(collectionHue(""));
+  });
+
+  it("thins a hairball to the edge budget, every node keeping its strongest links", () => {
+    // A hub (n0) linked to 300 leaves, each leaf also linked to the next ten: 3,300 links.
+    const edges: { source: string; target: string }[] = [];
+    for (let i = 1; i <= 300; i++) {
+      edges.push({ source: "n0", target: `n${i}` });
+      for (let d = 1; d <= 10; d++) edges.push({ source: `n${i}`, target: `n${((i + d - 1) % 300) + 1}` });
+    }
+    const degree = (id: string) => (id === "n0" ? 300 : 11);
+    expect(budgetEdges(edges, degree, 301, 6000)).toBe(edges);
+    const thin = budgetEdges(edges, degree, 301, 1000);
+    expect(thin.length).toBeLessThanOrEqual(1000);
+    expect(thin.length).toBeGreaterThan(300);
+    // Every leaf keeps its link to the hub, the best-connected neighbour.
+    expect(thin.filter((e) => e.source === "n0")).toHaveLength(300);
+    expect(EDGE_BUDGET).toBe(6000);
+  });
+
+  it("makes one weighted spring of the repeated strokes of a super-edge", () => {
+    const nodes = new Map([["a", { id: "a", weight: 1 }], ["b", { id: "b", weight: 1 }]]);
+    const links = [
+      { source: "a", target: "b" },
+      { source: "b", target: "a" },
+      { source: "a", target: "b" },
+    ];
+    const springs = springsOf(links, nodes);
+    expect(springs).toHaveLength(1);
+    expect(springs[0]!.weight).toBe(3);
+    // The strokes drawn are given their nodes, the link force never sees them.
+    expect(links.every((l) => typeof l.source === "object" && typeof l.target === "object")).toBe(true);
   });
 
   it("draws every cluster beside the unfolded concepts, and a weighted edge as overlaid strokes", async () => {
     render(<GraphView {...props(members, { clusterView: view() })} />);
     await waitFor(() => expect(sceneStub.calls.data.length).toBeGreaterThan(0));
     expect([...lastData().positions.keys()]).toEqual(["infra/a", "infra/b", "c:infra/a", "c:~tail"]);
-    // Weight 40: three strokes of the one edge.
-    expect(lastData().links.filter((l) => l === "c:infra/a>c:~tail")).toHaveLength(3);
+    // Weight 40: eight strokes of the one edge.
+    expect(lastData().links.filter((l) => l === "c:infra/a>c:~tail")).toHaveLength(8);
     expect(lastData().links).toContain("infra/a>infra/b");
-    expect(screen.getByText("2 clusters, 30,000 concepts; 0 unfolded")).toBeInTheDocument();
+    // No banner: the graph says nothing about being clustered.
+    expect(document.querySelector(".graph__banner")).toBeNull();
     // One colour per drawn thing, in the order the scene got them.
     expect(sceneStub.calls.colours.at(-1)).toHaveLength(lastData().positions.size);
   });
@@ -82,6 +123,18 @@ describe("the cluster view", () => {
     expect(onSelect).toHaveBeenCalledWith("infra/a");
   });
 
+  it("a layout recalled after leaving the Atlas keeps its cluster glyphs flagged", async () => {
+    const first = render(<GraphView {...props({ ...members, nodes: [], edges: [] }, { clusterView: view() })} />);
+    await waitFor(() => expect(sceneStub.calls.data.length).toBeGreaterThan(0));
+    await new Promise((r) => setTimeout(r, 60));
+    first.unmount();
+    sceneStub.reset();
+    render(<GraphView {...props({ ...members, nodes: [], edges: [] }, { clusterView: view() })} />);
+    await waitFor(() => expect(sceneStub.calls.data.length).toBeGreaterThan(0));
+    expect(lastData().restore).toBeTruthy();
+    expect(lastData().glyphs.sort()).toEqual(["c:infra/a", "c:~tail"]);
+  });
+
   it("grows a cluster's members out of where it stood", async () => {
     const { rerender } = render(<GraphView {...props({ ...members, nodes: [], edges: [] }, { clusterView: view() })} />);
     await waitFor(() => expect(sceneStub.calls.data.length).toBeGreaterThan(0));
@@ -89,41 +142,77 @@ describe("the cluster view", () => {
     const opened = view({
       clusters: clusters.slice(1),
       edges: [],
-      unfolded: [{ id: "c:infra/a", label: "Alpha", shown: 2, total: 3400 }],
+      unfolded: [{ id: "c:infra/a", label: "Alpha", shown: 2, total: 3400, slot: 1, collection: "infra", members: [0, 1] }],
     });
     rerender(<GraphView {...props(members, { clusterView: opened })} />);
     await waitFor(() => expect(lastData().positions.has("infra/a")).toBe(true));
-    expect(lastData().positions.get("infra/a")).toEqual(beside(at, "infra/a"));
+    // Around the cluster, not at a seed of the layout, and settled alone.
+    const m = lastData().positions.get("infra/a")!;
+    expect(Math.hypot(m.x! - at.x!, m.y! - at.y!, m.z! - at.z!)).toBeLessThan(60);
+    // The members settle alone with the folded clusters, which make room; the
+    // camera goes to the hull, and the hull is the scene's to draw.
+    expect(lastData().local?.sort()).toEqual(["c:~tail", "infra/a", "infra/b"]);
+    expect(lastData().hulls).toEqual([{ id: "c:infra/a", members: ["infra/a", "infra/b"] }]);
+    // Closing it again brings the cluster back, alone, where its members were.
+    rerender(<GraphView {...props({ ...members, nodes: [], edges: [] }, { clusterView: view() })} />);
+    await waitFor(() => expect(lastData().positions.has("c:infra/a")).toBe(true));
+    expect(lastData().local?.sort()).toEqual(["c:infra/a", "c:~tail"]);
+    expect(lastData().hulls).toEqual([]);
   });
 
-  it("says how much of an unfolded cluster is shown, and folds it from its chip or Escape", async () => {
-    const v = view({ unfolded: [{ id: "c:infra/a", label: "Alpha", shown: 120, total: 3400 }] });
+  it("names a folded cluster for the keyboard and unfolds it from there", async () => {
+    const v = view();
     render(<GraphView {...props(members, { clusterView: v })} />);
-    const chips = screen.getByRole("list", { name: "Unfolded clusters" });
-    expect(chips).toHaveTextContent("Showing 120 of 3,400");
-    const fold = within(chips).getByRole("button", { name: "Fold Alpha" });
-    await userEvent.setup().click(fold);
-    expect(v.onFold).toHaveBeenCalledTimes(1);
-    fold.focus();
-    await userEvent.setup().keyboard("{Escape}");
-    expect(v.onFold).toHaveBeenCalledTimes(2);
+    const list = screen.getByRole("list", { name: "Clusters" });
+    await userEvent.setup().click(within(list).getByRole("button", { name: "cluster Alpha, 3,400 concepts" }));
+    expect(v.onUnfold).toHaveBeenCalledWith("c:infra/a");
   });
 
-  it("offers the level switch only when asked, and the replay is off in the cluster view", async () => {
-    const onChange = vi.fn();
+  it("names the open cluster in a breadcrumb that folds it: the KB and Escape, never the background", async () => {
+    const unfolded = [
+      { id: "c:infra/a", label: "Alpha", shown: 2, total: 3400, slot: 1, collection: "infra", members: [0, 1] },
+      { id: "c:infra/b", label: "Beta", shown: 2, total: 400, slot: 2, collection: "infra", members: [0, 1] },
+    ];
+    const v = view({ unfolded });
+    const onSelect = vi.fn();
+    render(<GraphView {...props(members, { clusterView: v, onSelect, kbName: "kb-a" })} />);
+    await waitFor(() => expect(sceneStub.callbacks).not.toBeNull());
+    const crumbs = screen.getByRole("navigation", { name: "Open cluster" });
+    // The last opened, the KB a link back to the overview. No ring, no chip.
+    expect(crumbs).toHaveTextContent("kb-a›Beta · 400");
+    expect(document.querySelector(".graph3d__open")).toBeNull();
+    const user = userEvent.setup();
+    await user.click(within(crumbs).getByRole("button", { name: "kb-a" }));
+    expect(v.onFold).toHaveBeenCalledWith("c:infra/a");
+    expect(v.onFold).toHaveBeenCalledWith("c:infra/b");
+    // Escape folds the last opened, one at a time.
+    (v.onFold as ReturnType<typeof vi.fn>).mockClear();
+    await user.keyboard("{Escape}");
+    expect(v.onFold).toHaveBeenCalledTimes(1);
+    expect(v.onFold).toHaveBeenCalledWith("c:infra/b");
+    // A click on the background only deselects: an open cluster folds by Escape, the breadcrumb or Compact.
+    const cb = sceneStub.callbacks as unknown as { onSelect(id: string | null): void };
+    (v.onFold as ReturnType<typeof vi.fn>).mockClear();
+    act(() => cb.onSelect(null));
+    expect(onSelect).toHaveBeenCalledWith(null);
+    expect(v.onFold).not.toHaveBeenCalled();
+  });
+
+  it("draws no always-on names on the super-nodes: the tooltip and the open chip name them", async () => {
+    render(<GraphView {...props(members, { clusterView: view() })} />);
+    await waitFor(() => expect(sceneStub.calls.data.length).toBeGreaterThan(0));
+    expect(document.querySelector(".graph3d__label--cluster")).toBeNull();
+  });
+
+  it("has no level switch, and the replay is off in the cluster view", async () => {
     const loadBirths = () => Promise.resolve({});
-    const { rerender } = render(
-      <GraphView {...props(members, { clusterView: view(), loadBirths, graphLevel: { mode: "clusters", onChange } })}>
-        <Legend snapshot={members} communities={snapshotCommunities(members)} colorBy="community" onColorBy={() => {}} />
+    render(
+      <GraphView {...props(members, { clusterView: view(), loadBirths })}>
+        <Legend snapshot={members} />
       </GraphView>,
     );
-    const level = screen.getByRole("group", { name: "Graph level" });
-    expect(within(level).getByRole("button", { name: "Clusters" })).toHaveAttribute("aria-pressed", "true");
-    await userEvent.setup().click(within(level).getByRole("button", { name: "Nodes" }));
-    expect(onChange).toHaveBeenCalledWith("nodes");
-    expect(screen.getByRole("button", { name: "Replay growth" })).toBeDisabled();
-    rerender(<GraphView {...props(members, { loadBirths })} />);
     expect(screen.queryByRole("group", { name: "Graph level" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Replay growth" })).toBeDisabled();
   });
 
   describe("zooming in on a cluster", () => {
@@ -176,21 +265,43 @@ describe("the cluster view", () => {
     });
   });
 
-  it("lists the clusters in the legend, each a button that unfolds it", async () => {
-    const onUnfold = vi.fn();
+  it("lists the clusters in the legend, largest first, then the open concepts, with a count of the rest", () => {
+    const many = Array.from({ length: 9 }, (_, i) => ({
+      id: `c:m/x${i}`,
+      label: `Cluster ${i}`,
+      collection: "m",
+      size: 100 - i,
+      slot: 1,
+      internal_edges: 0,
+    }));
     render(
       <Legend
-        snapshot={members}
-        communities={snapshotCommunities(members)}
-        colorBy="community"
-        onColorBy={() => {}}
-        clusters={clusters}
-        onUnfold={onUnfold}
+        snapshot={{ ...members, nodes: [], edges: [], total_nodes: 4300, total_edges: 9100 }}
+        clusters={many}
       />,
     );
-    expect(screen.getByText(/2 clusters · 3 concepts/)).toBeInTheDocument();
-    await userEvent.setup().click(screen.getByRole("button", { name: "Unfold Alpha, 3,400 concepts" }));
-    expect(onUnfold).toHaveBeenCalledWith("c:infra/a");
+    expect(screen.getByText(/4,300 concepts · 9,100 links/)).toBeInTheDocument();
+    expect(screen.getByText("Cluster 0")).toBeInTheDocument();
+    // Three clusters and a summary: with two Maps and theirs, the card has the flat view's seven rows.
+    expect(screen.getByText("Cluster 2")).toBeInTheDocument();
+    expect(screen.queryByText("Cluster 3")).toBeNull();
+    expect(screen.getByText("6 more clusters")).toBeInTheDocument();
+    // No open concepts in this snapshot: no loose rows either.
+    expect(screen.queryByText(/Smaller groups|Other Maps/)).toBeNull();
+    expect(screen.queryByRole("button", { name: /Unfold|Show all/ })).toBeNull();
+  });
+
+  it("holds the clustered card to three cluster rows, two Maps and their summaries", () => {
+    const many = Array.from({ length: 5 }, (_, i) => ({ id: `c:m/x${i}`, label: `Cluster ${i}`, collection: "m", size: 50 - i, slot: 1, internal_edges: 0 }));
+    const loose = ["m1", "m2", "m3", "m4", "m5"].map((c, i) => ({ ...members.nodes[0]!, id: `${c}/a`, collection: c, title: `T${i}` }));
+    const { container } = render(
+      <Legend snapshot={{ ...members, nodes: loose, edges: [], total_nodes: 400, total_edges: 10 }} clusters={many} />,
+    );
+    expect(screen.getByText("Cluster 2")).toBeInTheDocument();
+    expect(screen.queryByText("Cluster 3")).toBeNull();
+    expect(screen.getByText("2 more clusters")).toBeInTheDocument();
+    expect(screen.getByText("3 more Maps")).toBeInTheDocument();
+    expect(container.querySelectorAll(".legend__row")).toHaveLength(7);
   });
 });
 
@@ -206,7 +317,7 @@ describe("the cluster view in the Atlas", () => {
   const large = { ...overview, concepts: { ...overview.concepts, total: 30_000 } };
   const answer: ClusterGraph = {
     mode: "clusters",
-    threshold: 2000,
+    threshold: 1200,
     clusters,
     nodes: [],
     edges: [{ source: "c:infra/a", target: "c:~tail", weight: 5 }],
@@ -217,77 +328,151 @@ describe("the cluster view in the Atlas", () => {
     total_edges: 90_000,
   };
 
-  it("draws a fully folded KB, unfolds into the URL and keeps the Nodes choice there", async () => {
+  it("explodes and folds a super-node again and again, the URL following both ways", async () => {
+    const m = stubApi({ "/overview": () => json(large) });
+    const route = m.getMockImplementation()!;
+    m.mockImplementation(async (url: string) => {
+      if (!url.includes("/graph/clusters")) return route(url);
+      const open = (new URL(url, "http://x").searchParams.get("unfold") ?? "").split(",").includes("c:infra/a");
+      return json(
+        open
+          ? {
+              ...answer,
+              clusters: clusters.slice(1),
+              edges: [],
+              nodes: graph.nodes.slice(0, 2),
+              unfolded: [{ id: "c:infra/a", label: "Alpha", shown: 2, total: 3400, slot: 1, collection: "infra", members: [0, 1] }],
+            }
+          : answer,
+      );
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByTestId("graph-view");
+    await waitFor(() => expect(lastData().positions.has("c:infra/a")).toBe(true));
+    const unfoldParam = () => new URLSearchParams(window.location.search).get("unfold");
+    for (let cycle = 0; cycle < 3; cycle++) {
+      act(() => sceneStub.callbacks!.onSelect("c:infra/a"));
+      await waitFor(() => expect(unfoldParam()).toBe("c:infra/a"));
+      await waitFor(() => expect(lastData().positions.has("infra/a")).toBe(true));
+      expect(lastData().positions.has("c:infra/a")).toBe(false);
+      // The way back: the breadcrumb's KB, or Escape, alternately.
+      if (cycle % 2 === 0) await user.click(within(await screen.findByRole("navigation", { name: "Open cluster" })).getByRole("button"));
+      else await user.keyboard("{Escape}");
+      await waitFor(() => expect(unfoldParam()).toBeNull());
+      await waitFor(() => expect(lastData().positions.has("c:infra/a")).toBe(true));
+      expect(lastData().positions.has("infra/a")).toBe(false);
+    }
+  });
+
+  it("opening another cluster folds the one open: an accordion, the URL holding one id", async () => {
+    const m = stubApi({ "/overview": () => json(large) });
+    const route = m.getMockImplementation()!;
+    const two = [
+      { id: "c:infra/a", label: "Alpha", collection: "infra", size: 3400, slot: 1, internal_edges: 9000 },
+      { id: "c:infra/b", label: "Beta", collection: "infra", size: 900, slot: 2, internal_edges: 40 },
+    ];
+    m.mockImplementation(async (url: string) => {
+      if (!url.includes("/graph/clusters")) return route(url);
+      const open = new URL(url, "http://x").searchParams.get("unfold");
+      const sel = two.find((c) => c.id === open);
+      return json({
+        ...answer,
+        clusters: two.filter((c) => c !== sel),
+        edges: [],
+        nodes: sel ? graph.nodes.slice(0, 2) : [],
+        unfolded: sel ? [{ id: sel.id, label: sel.label, shown: 2, total: sel.size, slot: sel.slot, members: [0, 1] }] : [],
+      });
+    });
+    render(<App />);
+    await screen.findByTestId("graph-view");
+    await waitFor(() => expect(lastData().positions.has("c:infra/a")).toBe(true));
+    const unfoldParam = () => new URLSearchParams(window.location.search).get("unfold");
+    act(() => sceneStub.callbacks!.onSelect("c:infra/a"));
+    await waitFor(() => expect(unfoldParam()).toBe("c:infra/a"));
+    await waitFor(() => expect(lastData().positions.has("infra/a")).toBe(true));
+    // Opening the other folds the first: one id in the URL, Alpha a glyph again.
+    act(() => sceneStub.callbacks!.onSelect("c:infra/b"));
+    await waitFor(() => expect(unfoldParam()).toBe("c:infra/b"));
+    await waitFor(() => expect(lastData().positions.has("c:infra/a")).toBe(true));
+    expect(lastData().hulls?.map((h) => h.id)).toEqual(["c:infra/b"]);
+    expect(screen.getByRole("navigation", { name: "Open cluster" })).toHaveTextContent("Beta");
+  });
+
+  it("draws a fully folded KB and unfolds into the URL, with no switch or banner", async () => {
     stubApi({ "/overview": () => json(large), "/graph/clusters": () => json(answer) });
     render(<App />);
     await screen.findByTestId("graph-view");
     await waitFor(() => expect(sceneStub.callbacks).not.toBeNull());
     await waitFor(() => expect(lastData().positions.has("c:~tail")).toBe(true));
+    expect(screen.queryByRole("group", { name: "Graph level" })).toBeNull();
+    expect(screen.queryByText(/unfolded/)).toBeNull();
     act(() => sceneStub.callbacks!.onSelect("c:~tail"));
     await waitFor(() => expect(new URLSearchParams(window.location.search).get("unfold")).toBe("c:~tail"));
-    const level = await screen.findByRole("group", { name: "Graph level" });
-    await userEvent.setup().click(within(level).getByRole("button", { name: "Nodes" }));
+  });
+
+  it("offers all concepts and grouping on a clustered KB only, asking /graph/clusters or /graph, and opens grouped again", async () => {
+    const m = stubApi({ "/overview": () => json(large), "/graph/clusters": () => json(answer) });
+    const user = userEvent.setup();
+    const { unmount } = render(<App />);
+    await screen.findByTestId("graph-view");
+    const legend = await screen.findByRole("region", { name: /graph legend/i });
+    expect(within(legend).queryByRole("button", { name: "Community" })).toBeNull();
+    expect(within(legend).queryByRole("group", { name: /colour nodes by/i })).toBeNull();
+    const asked = (part: string) => m.mock.calls.filter(([u]) => String(u).includes(part)).length;
+    await waitFor(() => expect(asked("/graph/clusters")).toBeGreaterThan(0));
+    await user.click(await within(legend).findByRole("button", { name: "Show all concepts" }));
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("graph")).toBe("nodes"));
+    await waitFor(() => expect(m.mock.calls.some(([u]) => /\/graph(\?|$)/.test(String(u)))).toBe(true));
+    expect(await within(await screen.findByRole("region", { name: /graph legend/i })).findByRole("button", { name: "Group into clusters" })).toBeInTheDocument();
+    // Not remembered: a fresh visit with a bare URL opens a large KB grouped.
+    unmount();
+    window.history.replaceState(null, "", "/ui/");
+    m.mockClear();
+    render(<App />);
+    await waitFor(() => expect(asked("/graph/clusters")).toBeGreaterThan(0));
+    expect(await screen.findByRole("button", { name: "Show all concepts" })).toBeInTheDocument();
+  });
+
+  it("morphs between the grouped and the whole layout: Expand and Group keep the concepts both draw", async () => {
+    const withNodes: ClusterGraph = { ...answer, nodes: graph.nodes.slice(0, 2).map((n) => ({ ...n })), edges: [] };
+    stubApi({ "/overview": () => json(large), "/graph/clusters": () => json(withNodes) });
+    const user = userEvent.setup();
+    render(<App />);
+    const legend = await screen.findByRole("region", { name: /graph legend/i });
+    await waitFor(() => expect(sceneStub.calls.data.length).toBeGreaterThan(0));
+    expect(sceneStub.calls.data[0]).toMatchObject({ replace: false, morph: false });
+    const before = sceneStub.calls.data.length;
+    await user.click(await within(legend).findByRole("button", { name: "Show all concepts" }));
+    await waitFor(() => expect(sceneStub.calls.data.length).toBeGreaterThan(before));
+    // A second layout of the same KB (its key carries the mode), not a rebuild from the centre.
+    expect(sceneStub.calls.data[before]).toMatchObject({ replace: true, morph: true });
+    expect(sceneStub.calls.data[before]!.glyphs).toEqual([]);
+  });
+
+  it("folds an open cluster first (Compact), then expands the whole KB", async () => {
+    window.history.replaceState(null, "", "/ui/?kb=kb-a&unfold=c%3A~tail");
+    const tailOpen = {
+      ...answer,
+      unfolded: [{ id: "c:~tail", label: "Tail", shown: 0, total: 3, slot: 1, collection: "infra", members: [] }],
+    };
+    let folded = false;
+    stubApi({ "/overview": () => json(large), "/graph/clusters": () => json(folded ? answer : tailOpen) });
+    const user = userEvent.setup();
+    render(<App />);
+    const legend = await screen.findByRole("region", { name: /graph legend/i });
+    folded = true;
+    await user.click(await within(legend).findByRole("button", { name: "Fold the open cluster" }));
+    await waitFor(() => expect(new URLSearchParams(window.location.search).get("unfold")).toBeNull());
+    expect(new URLSearchParams(window.location.search).get("graph")).toBeNull();
+    await user.click(await within(legend).findByRole("button", { name: "Show all concepts" }));
     await waitFor(() => expect(new URLSearchParams(window.location.search).get("graph")).toBe("nodes"));
   });
 
-  it("keeps the switch, and its focus, while the clusters answer is on its way", async () => {
-    window.history.replaceState(null, "", "/ui/?kb=kb-a&graph=nodes");
-    let release!: () => void;
-    const slow = new Promise<void>((r) => (release = r));
-    const m = stubApi({ "/overview": () => json(large) });
-    const route = m.getMockImplementation()!;
-    m.mockImplementation(async (url: string) => {
-      if (!url.includes("/graph/clusters")) return route(url);
-      await slow;
-      return json(answer);
-    });
-    const user = userEvent.setup();
+  it("offers no grouping control on a KB that is not clustered", async () => {
+    stubApi();
     render(<App />);
-    const level = await screen.findByRole("group", { name: "Graph level" });
-    const clustersButton = within(level).getByRole("button", { name: "Clusters" });
-    await user.click(clustersButton);
-    await waitFor(() => expect(new URLSearchParams(window.location.search).get("graph")).toBeNull());
-    expect(screen.getByRole("group", { name: "Graph level" })).toBeInTheDocument();
-    expect(document.activeElement).toBe(clustersButton);
-    release();
-  });
-
-  it("offers no level switch over a Map the server answers flat", async () => {
-    window.history.replaceState(null, "", "/ui/?kb=kb-a&scope=infra");
-    stubApi({
-      "/overview": () => json(large),
-      "/graph/clusters": () => json({ ...answer, mode: "nodes", clusters: [], edges: [], nodes: graph.nodes }),
-    });
-    render(<App />);
-    await screen.findByTestId("graph-view");
-    await waitFor(() => expect(sceneStub.calls.data.length).toBeGreaterThan(0));
-    expect(screen.queryByRole("group", { name: "Graph level" })).toBeNull();
-  });
-});
-
-describe("the legend's cluster list", () => {
-  it("lists every cluster on request: the keyboard's way to each one", async () => {
-    const many = Array.from({ length: 9 }, (_, i) => ({
-      id: `c:m/x${i}`,
-      label: `Cluster ${i}`,
-      size: 100 - i,
-      slot: 1,
-      internal_edges: 0,
-    }));
-    render(
-      <Legend
-        snapshot={members}
-        communities={snapshotCommunities(members)}
-        colorBy="community"
-        onColorBy={() => {}}
-        clusters={many}
-        onUnfold={() => {}}
-      />,
-    );
-    expect(screen.getAllByRole("button", { name: /^Unfold / })).toHaveLength(6);
-    expect(screen.getByText("Other clusters")).toBeInTheDocument();
-    await userEvent.setup().click(screen.getByRole("button", { name: "Show all 9 clusters" }));
-    expect(screen.getAllByRole("button", { name: /^Unfold / })).toHaveLength(9);
-    expect(screen.queryByText("Other clusters")).toBeNull();
+    const legend = await screen.findByRole("region", { name: /graph legend/i });
+    expect(within(legend).queryByRole("button", { name: /Show all concepts|Group into clusters/ })).toBeNull();
   });
 });

@@ -1,6 +1,7 @@
 package testkbs
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/componentproto"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 )
@@ -276,5 +278,101 @@ func TestWriteClientReport(t *testing.T) {
 	var r clientconfig.SettingsReport
 	if err := json.Unmarshal(data, &r); err != nil || r.Machine != "dev-laptop" || len(r.Entries) == 0 {
 		t.Errorf("unreadable report: %v, machine %q, %d entries", err, r.Machine, len(r.Entries))
+	}
+}
+
+// The synthetic Surveyor writes three bodies that decode with their own types,
+// speak the protocol of this build, stay inside the perimeter of the fleet and
+// use only the closed vocabularies of componentproto; the routes themselves
+// accept them in TestSurveyorPayloadsOfTheTestKBsAreAcceptedByTheRoutes (mcpserver).
+func TestSurveyorPayloads(t *testing.T) {
+	dir := t.TempDir()
+	if err := WriteSurveyor(dir, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	read := func(file string, into any) {
+		t.Helper()
+		data, err := os.ReadFile(filepath.Join(dir, file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		dec := json.NewDecoder(bytes.NewReader(data))
+		if err := dec.Decode(into); err != nil {
+			t.Fatalf("%s: %v", file, err)
+		}
+	}
+	var beat beatBody
+	var set struct {
+		Component string `json:"component"`
+		Protocol  int    `json:"protocol"`
+		Sources   []any  `json:"sources"`
+		Entries   []any  `json:"entries"`
+	}
+	var runs runsBody
+	read(SurveyorHeartbeatFile, &beat)
+	read(SurveyorSettingsFile, &set)
+	read(SurveyorRunsFile, &runs)
+	if beat.Protocol != componentproto.Protocol || set.Protocol != componentproto.Protocol || runs.Protocol != componentproto.Protocol {
+		t.Errorf("protocols %d %d %d", beat.Protocol, set.Protocol, runs.Protocol)
+	}
+	if set.Component != componentproto.KindSurveyor || len(set.Sources) == 0 || len(set.Entries) == 0 {
+		t.Errorf("settings: component %q, %d sources, %d entries", set.Component, len(set.Sources), len(set.Entries))
+	}
+	fleet := map[string]bool{}
+	for _, s := range Fleet() {
+		fleet[s.Name] = true
+	}
+	for _, k := range beat.KBs {
+		if !fleet[k] {
+			t.Errorf("the perimeter names %q, not a KB of the fleet", k)
+		}
+	}
+	for _, r := range runs.Runs {
+		if !fleet[r.KB] || !contains(componentproto.Outcomes(), r.Outcome) || !contains(componentproto.TaskKinds(), r.Task) {
+			t.Errorf("run %+v", r)
+		}
+	}
+	for _, a := range runs.Alarms {
+		if !contains(componentproto.ReportedAlarms(), a.Code) {
+			t.Errorf("alarm %+v", a)
+		}
+	}
+	if len(runs.Candidates) == 0 || len(runs.Candidates) > componentproto.MaxCandidatesPerPost {
+		t.Errorf("%d candidates", len(runs.Candidates))
+	}
+	for _, c := range runs.Candidates {
+		if !contains(componentproto.CandidateKinds(), c.Kind) {
+			t.Errorf("candidate %+v", c)
+		}
+	}
+}
+
+// A KB of the Surveyor's perimeter has commits by the Surveyor, and the runs of
+// the file cover them: the Atlas joins a run to what it changed by author and time.
+func TestSurveyorRunsCoverItsCommits(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	now := time.Now()
+	if err := Generate(filepath.Join(dir, SurveyorKBs()[0]), Spec{Name: SurveyorKBs()[0], Concepts: 40, Seed: 11}, now); err != nil {
+		t.Fatal(err)
+	}
+	times := surveyorCommitTimes(dir)[SurveyorKBs()[0]]
+	if len(times) != len(surveyorCommitOffsets) {
+		t.Fatalf("surveyor commits %v, want %d", times, len(surveyorCommitOffsets))
+	}
+	p, err := surveyorWith(now, map[string][]time.Time{SurveyorKBs()[0]: times})
+	if err != nil {
+		t.Fatal(err)
+	}
+	covered := 0
+	for _, r := range p.Runs.(runsBody).Runs {
+		for _, c := range times {
+			if !c.Before(r.StartedAt) && !c.After(r.StartedAt.Add(time.Duration(r.DurationMS)*time.Millisecond)) {
+				covered++
+			}
+		}
+	}
+	if covered != len(times) {
+		t.Errorf("runs cover %d of %d commits", covered, len(times))
 	}
 }

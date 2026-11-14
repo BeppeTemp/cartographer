@@ -230,7 +230,7 @@ test("Health lists the issues on one tab and what it checks on the other (D365, 
   const health = page.getByRole("region", { name: "Health" });
   await expect(health.locator("#check-broken_link")).toContainText("Broken links");
 
-  await health.getByRole("group", { name: "Health view" }).getByRole("button", { name: "What it checks" }).click();
+  await health.getByRole("button", { name: /What Health checks/ }).click();
   const checks = health.getByRole("region", { name: "Checks" });
   await expect(checks.getByRole("list", { name: "How checking works" })).toBeVisible();
   // Every category starts folded; the one that found the broken link opens on click.
@@ -239,7 +239,7 @@ test("Health lists the issues on one tab and what it checks on the other (D365, 
   await group.locator("summary").click();
   await expect(group.getByText("Broken links")).toBeVisible();
 
-  await health.getByRole("group", { name: "Health view" }).getByRole("button", { name: "Issues" }).click();
+  await health.getByRole("button", { name: /Back to issues/ }).click();
   await expect(health.locator("#check-broken_link")).toBeVisible();
 });
 

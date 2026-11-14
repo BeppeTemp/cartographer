@@ -86,7 +86,12 @@ describe("Health with nothing to fix", () => {
     expect(rows[2]).toHaveTextContent("1 rule, all clear");
   });
 
-  it("opens What it checks from a family row", () => {
+  it("offers What Health checks once: the bottom link is hidden when the rows already open it", () => {
+    render(page());
+    expect(screen.queryByRole("button", { name: /What Health checks/ })).toBeNull();
+  });
+
+  it("opens What Health checks from a family row", () => {
     render(page());
     fireEvent.click(screen.getByRole("button", { name: /Links/ }));
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("What Cartographer checks");
