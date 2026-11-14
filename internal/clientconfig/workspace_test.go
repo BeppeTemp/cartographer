@@ -436,3 +436,41 @@ func TestWorktreesOption(t *testing.T) {
 		t.Fatalf("key written while off:\n%s", raw)
 	}
 }
+
+// #2105: a bound directory that cannot be read (macOS TCC over SSH) is
+// reported as unreadable, not as a changed remote with `found ""`.
+func TestCheckWorkspaceRemote_UnreadableIsNotAChangedRemote(t *testing.T) {
+	dir := t.TempDir()
+	withFakeRemote(t, map[string]string{dir: ""})
+	prev := dirReadErrFn
+	dirReadErrFn = func(string) error { return os.ErrPermission }
+	t.Cleanup(func() { dirReadErrFn = prev })
+
+	err := CheckWorkspaceRemote(WorkspaceBinding{Path: dir, Remote: "example.com/org/repo"})
+	if err == nil || !strings.Contains(err.Error(), "cannot be read") || strings.Contains(err.Error(), "remote changed") {
+		t.Fatalf("err = %v", err)
+	}
+
+	// A readable directory whose remote is gone is still a changed remote.
+	dirReadErrFn = prev
+	err = CheckWorkspaceRemote(WorkspaceBinding{Path: dir, Remote: "example.com/org/repo"})
+	if err == nil || !strings.Contains(err.Error(), "remote changed") {
+		t.Fatalf("readable: err = %v", err)
+	}
+}
+
+// #2105: a declared repository whose clone cannot be read says so instead of
+// "no origin or another remote".
+func TestDeriveBindings_UnreadableCloneIsNotAnotherRemote(t *testing.T) {
+	dir := t.TempDir()
+	withFakeRemote(t, map[string]string{dir: ""})
+	prev := dirReadErrFn
+	dirReadErrFn = func(string) error { return os.ErrPermission }
+	t.Cleanup(func() { dirReadErrFn = prev })
+
+	decl := DeclaredRepo{KB: "kb-a", Key: "repo-x", Remote: "example.com/org/repo"}
+	_, bad := DeriveBindings([]DeclaredRepo{decl}, func(DeclaredRepo) (string, error) { return dir, nil })
+	if len(bad) != 1 || !strings.Contains(bad[0].Reason, "cannot be read") || strings.Contains(bad[0].Reason, "another remote") {
+		t.Fatalf("bad = %+v", bad)
+	}
+}

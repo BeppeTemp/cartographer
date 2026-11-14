@@ -182,6 +182,12 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 		if p.Problem != "" {
 			fmt.Printf("  cannot sync: %s\n", p.Problem)
 		}
+		for _, r := range p.DriftReason {
+			fmt.Printf("  out of sync, nothing itemized: %s (run `cartographer sync`)\n", escapeControl(r))
+		}
+		if p.Problem == "" && len(p.DriftReason) == 0 && len(p.Diverged)+len(p.Added)+len(p.Updated)+len(p.Removed) == 0 {
+			fmt.Println("  no itemized difference: run `cartographer sync`; if it stays, report `status --output json`")
+		}
 		printBindingLine(p)
 		printWorkspaceLines(p.Workspaces)
 		if p.Kinds != "" {

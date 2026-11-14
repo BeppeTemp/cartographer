@@ -250,7 +250,7 @@ func TestStatusWorkspaceHookWithoutDestinationIsNotDrift(t *testing.T) {
 	if len(skipped) != 1 || skipped[0].Artifact != "hook/guard" || !strings.Contains(skipped[0].Reason, "no workspace destination") {
 		t.Fatalf("skipped = %+v", skipped)
 	}
-	pm, d, _ := workspaceProviderDiff(&clientconfig.Config{}, ps, manifests, resolved, provisioning.LockFile{Providers: map[string]provisioning.Lock{}}, t.TempDir())
+	pm, d, _, _ := workspaceProviderDiff(&clientconfig.Config{}, ps, manifests, resolved, provisioning.LockFile{Providers: map[string]provisioning.Lock{}}, t.TempDir())
 	if len(pm.Artifacts) != 0 || len(d.Added) != 0 || len(d.Updated) != 0 || len(d.Removed) != 0 {
 		t.Errorf("manifest=%v diff=%+v", pm.Artifacts, d)
 	}

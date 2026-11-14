@@ -518,6 +518,10 @@ that skill is not materialized, with a warning naming it, and the rest of the sy
 
 `knowledge_bases.<kb>.artifacts: false` (D1408) applies inside every projection too: a KB bound to a folder (explicitly or by derivation, D1019) still reaches it with its MCP tools and its routing sentence, with no artifact files.
 
+`status` judges a workspace-scoped provider projection by projection and ANDs the verdicts, while its header prints the global revision and lock only: a workspace projection that was never applied, or whose revision differs from its lock's, is drift with equal header revisions and nothing itemized. Each such projection is named in the provider's `drift_reason` (`workspace <path>: never applied (manifest <rev>)` or the two revisions), with `cartographer sync` as the fix (#2105).
+
+A bound or declared directory the process cannot list (macOS privacy protection over SSH) is reported as `cannot be read: <error>`, never as a changed remote: the remote guard compares only what it could read (#2105).
+
 By default a provider has **one** catalogue, under the user's home, shared by every session of
 that provider on the machine. A provider that works in two perimeters therefore sees both
 perimeters' skills everywhere, and chooses between them from name and description alone — the

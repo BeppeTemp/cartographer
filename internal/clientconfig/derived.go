@@ -306,6 +306,10 @@ func DeriveBindings(decls []DeclaredRepo, resolve func(DeclaredRepo) (string, er
 			unresolved("declared, no local clone")
 			continue
 		}
+		if err := dirReadErrFn(path); err != nil {
+			unresolved(fmt.Sprintf("declared, but the clone at %s cannot be read: %v", path, err))
+			continue
+		}
 		actual := gitRemoteFn(path)
 		if actual == "" || remoteHostPath(actual) != remoteHostPath(d.Remote) {
 			unresolved(fmt.Sprintf("declared, but the clone at %s has no origin or another remote", path))

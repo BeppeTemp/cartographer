@@ -51,6 +51,10 @@ type providerStatus struct {
 	// bound workspace that is gone, or a provider that cannot be scoped to a
 	// workspace. Empty otherwise.
 	Problem string `json:"problem,omitempty"`
+	// DriftReason names each projection that is out of sync with nothing to
+	// list under it: a revision that differs from the lock's, or a projection
+	// sync never applied (#2105). Additive; empty when the drift is itemized.
+	DriftReason []string `json:"drift_reason,omitempty"`
 	// ShadowedInstructions names the provider-owned file that takes precedence
 	// over the instructions file Cartographer manages, when one exists (D189).
 	// A block written correctly into a file the provider does not read is not
@@ -533,6 +537,7 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		var pm contract.Manifest
 		var d provisioning.Diff
 		var wsDiverged []provisioning.DriftFinding
+		var reasons []string
 		if perr := projectionErr[p.Name]; perr != nil {
 			// Sync would refuse this provider (a bound workspace is gone, or
 			// the provider cannot be scoped to a workspace): not in sync, and
@@ -543,7 +548,7 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 			continue
 		}
 		if cfg.WorkspaceScope(p.Name) == clientconfig.ScopeWorkspace {
-			pm, d, wsDiverged = workspaceProviderDiff(cfg, provProjections[p.Name], manifests, resolved, lockFile, dir)
+			pm, d, wsDiverged, reasons = workspaceProviderDiff(cfg, provProjections[p.Name], manifests, resolved, lockFile, dir)
 		} else {
 			if r, ok := resolved[p.Name]; ok {
 				pm = r.Manifest
@@ -552,6 +557,9 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 			}
 			diffLock := statusLock(lockFile.ForProvider(p.Name), cfg, pm)
 			d = provisioning.ComputeDiffResolved(pm, diffLock, statusResolveOptions(cfg, p.Name, manifests[p.Name]))
+			if r := unitemizedDrift("", pm, diffLock, d); r != "" {
+				reasons = append(reasons, r)
+			}
 		}
 		p.MCPNotReceived = snapshotMCPNotReceived(provProjections[p.Name], manifests, cfg.ApprovedMCPHashes(), dir)
 		p.Revision = pm.Revision
@@ -600,6 +608,7 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 			continue
 		}
 		p.State = "drift"
+		p.DriftReason = reasons
 		p.Added, p.Updated, p.Removed = snapshotArtifacts(d.Added, cfg), snapshotArtifacts(d.Updated, cfg), snapshotRemoved(d.Removed)
 		p.Updated = append(p.Updated, snapshotArtifacts(held, cfg)...)
 		tagHookSettings(p.Added, provProjections[p.Name], manifests)
@@ -649,12 +658,14 @@ func statusResolveOptions(cfg *clientconfig.Config, provider string, m contract.
 // workspaceProviderDiff judges a workspace-scoped provider the way sync applies
 // it (D193): the global projection against the bundle only, each workspace
 // against its own manifest and lock. It returns the global manifest (for the
-// revision and the kind counts), one merged Diff, and the on-disk findings of
-// the workspace locks.
-func workspaceProviderDiff(cfg *clientconfig.Config, ps []syncProjection, manifests map[string]contract.Manifest, resolved map[string]contract.ProjectionResult, lockFile provisioning.LockFile, dir string) (contract.Manifest, provisioning.Diff, []provisioning.DriftFinding) {
+// revision and the kind counts), one merged Diff, the on-disk findings of
+// the workspace locks, and the reason of each projection that is out of sync
+// with nothing itemized (the header shows only the global revisions, #2105).
+func workspaceProviderDiff(cfg *clientconfig.Config, ps []syncProjection, manifests map[string]contract.Manifest, resolved map[string]contract.ProjectionResult, lockFile provisioning.LockFile, dir string) (contract.Manifest, provisioning.Diff, []provisioning.DriftFinding, []string) {
 	var global contract.Manifest
 	merged := provisioning.Diff{InSync: true}
 	var diverged []provisioning.DriftFinding
+	var reasons []string
 	for _, sp := range ps {
 		provider := configurator.Provider(sp.Provider)
 		lock := lockFile.ForProjection(sp.Key())
@@ -689,13 +700,35 @@ func workspaceProviderDiff(cfg *clientconfig.Config, ps []syncProjection, manife
 		merged.Updated = append(merged.Updated, d.Updated...)
 		merged.Removed = append(merged.Removed, d.Removed...)
 		merged.InSync = merged.InSync && d.InSync
+		if r := unitemizedDrift(sp.Workspace, pm, diffLock, d); r != "" {
+			reasons = append(reasons, r)
+		}
 		if sp.Workspace == "" {
 			global = pm
 			continue
 		}
 		diverged = append(diverged, provisioning.VerifyManaged(lock, provider, provisioning.LockBaseDir(lock, dir))...)
 	}
-	return global, merged, diverged
+	return global, merged, diverged, reasons
+}
+
+// unitemizedDrift says why one projection is out of sync when the diff lists
+// nothing under it: ComputeDiff sets InSync=false on a revision mismatch alone,
+// and a workspace projection's revision is not the one the header prints.
+// workspace is "" for the global projection. "" when the projection is in sync
+// or its difference is itemized.
+func unitemizedDrift(workspace string, m contract.Manifest, lock provisioning.Lock, d provisioning.Diff) string {
+	if d.InSync || len(d.Added)+len(d.Updated)+len(d.Removed) > 0 {
+		return ""
+	}
+	who := "global projection"
+	if workspace != "" {
+		who = "workspace " + workspace
+	}
+	if lock.AppliedRevision == "" {
+		return fmt.Sprintf("%s: never applied (manifest %s)", who, m.Revision)
+	}
+	return fmt.Sprintf("%s: manifest %s, lock %s", who, m.Revision, lock.AppliedRevision)
 }
 
 // snapshotStaleBridge reports the provider's bridge entry when its command is

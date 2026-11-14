@@ -1,7 +1,10 @@
 package clientconfig
 
 import (
+	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -68,6 +71,24 @@ type WorkspaceBinding struct {
 // gitRemoteFn is indirected for tests: a bind must work in a temp dir with no
 // git at all, and a test must be able to fake a remote without a real clone.
 var gitRemoteFn = gitRemoteOrigin
+
+// dirReadErrFn is indirected for tests. It reports why a directory that exists
+// cannot be listed (a permission refusal, macOS TCC over SSH): git then prints
+// nothing, and "" must not read as "another remote" (#2105). A missing
+// directory is not an error here: callers have their own word for it.
+var dirReadErrFn = dirReadErr
+
+func dirReadErr(dir string) error {
+	f, err := os.Open(dir)
+	if err == nil {
+		_, err = f.Readdirnames(1)
+		_ = f.Close()
+	}
+	if err == nil || errors.Is(err, io.EOF) || errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	return err
+}
 
 // gitRemoteOrigin returns the normalized `origin` URL of the repository
 // containing dir, or "" when dir is not in a git repository (which is a legal
@@ -359,6 +380,12 @@ func (c *Config) ResolveWorkspace(provider, dir string) (WorkspaceBinding, bool,
 func CheckWorkspaceRemote(w WorkspaceBinding) error {
 	if w.Remote == "" {
 		return nil
+	}
+	if err := dirReadErrFn(w.Path); err != nil {
+		return &WorkspaceLookupError{
+			Path: w.Path, Reason: "bound directory cannot be read",
+			Detail: fmt.Sprintf("%v — its git remote cannot be checked; grant the process access to it (macOS: Files and Folders, or Full Disk Access) and retry", err),
+		}
 	}
 	if got := gitRemoteFn(w.Path); got != w.Remote {
 		return &WorkspaceLookupError{
