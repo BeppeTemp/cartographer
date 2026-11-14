@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -310,14 +311,23 @@ func TestCallBatchUnboundFolderIsReadOnly(t *testing.T) {
 }
 
 func TestCallBatchTimeoutAnswersTheRest(t *testing.T) {
+	// The deadline covers the whole invocation, setup included, so a short one
+	// can expire before the first fast call under host load (#2110). The slow
+	// call therefore holds until the test releases it, never for a fixed
+	// time: the timeout can be generous and the slow call still outlasts it.
+	release := make(chan struct{})
+	var once sync.Once
+	free := func() { once.Do(func() { close(release) }) }
+	t.Cleanup(free) // runs before the server closes, which waits for its handlers
 	cs, _, ws := newCallEnv(t, func(method string, p map[string]any) any {
 		if p["name"] == "slow" {
-			time.Sleep(1500 * time.Millisecond)
+			<-release
 		}
 		return textResult("ok", false)
 	})
 	in := `{"tool":"fast"}` + "\n" + `{"tool":"slow"}` + "\n" + `{"tool":"fast"}` + "\n" + `{"tool":"fast"}`
-	code, res, _, _ := batchLines(t, in, "--provider", "claude", "--dir", ws, "--timeout", "500ms")
+	code, res, _, _ := batchLines(t, in, "--provider", "claude", "--dir", ws, "--timeout", "5s")
+	free()
 	if code != 2 || len(res) != 3 || res[0]["ok"] != true || errCode(res[1]) != 2 || errCode(res[2]) != 2 {
 		t.Fatalf("exit %d %v", code, res)
 	}
@@ -325,11 +335,13 @@ func TestCallBatchTimeoutAnswersTheRest(t *testing.T) {
 		t.Errorf("message %q", m)
 	}
 	posts := 0
+	cs.mu.Lock() // the slow handler may still be recording while the batch has answered
 	for _, r := range cs.reqs {
 		if r.Method == http.MethodPost {
 			posts++
 		}
 	}
+	cs.mu.Unlock()
 	if posts != 2 {
 		t.Errorf("%d requests sent; line 3 is answered without being sent", posts)
 	}
