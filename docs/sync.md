@@ -400,6 +400,7 @@ Verification scope per kind, decided by what is verifiable:
 | `agent` | the single materialized file's bytes |
 | `mcp`, `instructions` | **presence only** of the managed key or marker block: the file is shared with the user, so its other content is never compared and never rewritten; a marker block that is not exactly one begin and one end is an `error` finding, not `unregistered` (a heal would append a second block) |
 | `hook` on claude | also: every `settings.json` command registered for it can run — not a backslash path on Windows, not an absolute path to a file that is not there. One that cannot is `unrunnable`, with the command and the reason in the finding's detail, and the next `sync` re-registers it (D267) |
+| `hook` on claude, codex, antigravity, kiro | also: a registration that is simply absent (deleted by hand from `settings.json`, `hooks.json` or `.kiro/hooks/cartographer.json`) is `unregistered`, and the next `sync` re-registers the hook (#2101). Only when the registrar would have registered it: a `hook.json` that does not load, or an event the client does not fire, leaves no registration by design and is no finding. A Claude Code entry in `settings.local.json` counts as registered |
 | `hook` on codex | also: no registration of it left in `.codex/config.toml` — one there is `unregistered`, so the next `sync` rewrites the hook and migrates the registration to `hooks.json` even when its content did not change (D236) |
 
 Findings are `missing`, `modified`, `unregistered`, `unrunnable`, `unknown`, or `foreign`. **Existence and content are

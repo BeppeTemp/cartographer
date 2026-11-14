@@ -339,6 +339,23 @@ func verifyArtifact(mf ManagedFile, provider configurator.Provider, baseDir stri
 		}
 	}
 
+	// A hook whose files are intact but whose registration was deleted never
+	// fires, and nothing else reports it (#2101). Drift only when the registrar
+	// would have registered it: a hook.json that does not load, or an event the
+	// client never fires, leaves no registration by design and must not read as
+	// drift forever.
+	if mf.Kind == "hook" && hookRegistrationExpected(provider, full) {
+		managedN, _, err := HookRegistrationsScoped(baseDir, provider, scope, mf.Name)
+		switch {
+		case err != nil:
+			finding.Reason, finding.Detail = DriftError, err.Error()
+			return finding, true
+		case managedN == 0:
+			finding.Reason = DriftUnregistered
+			return finding, true
+		}
+	}
+
 	// Only the content comparison needs a hash: a pre-D138 entry whose files
 	// are present stays unknown and is never rewritten.
 	if mf.MaterializedHash == "" {
@@ -487,4 +504,31 @@ func managedEntryPresent(mf ManagedFile, provider configurator.Provider, baseDir
 		return false, nil
 	}
 	return true, nil
+}
+
+// hookRegistrationExpected reports whether the registrar of provider would
+// register the materialized hook in hookDir: only for the providers
+// HookRegistrationsScoped counts reliably, and only when hook.json loads and
+// its event is one the client fires.
+//
+// It must mirror the skip rules of the registrars, or a hook the registrar
+// leaves out is drift forever (or a registered one is never noticed):
+// registerHookSettings (claude-code), registerCodexHook, registerKiroHook, and
+// the Antigravity registrar with antigravityHookEvents. A change to one of
+// them changes this function.
+func hookRegistrationExpected(provider configurator.Provider, hookDir string) bool {
+	switch provider {
+	case configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderKiro:
+	case configurator.ProviderAntigravity:
+		spec, err := loadHookSpec(hookDir)
+		return err == nil && antigravityHookEvents[spec.Event]
+	default:
+		return false
+	}
+	spec, err := loadHookSpec(hookDir)
+	if err != nil {
+		return false
+	}
+	_, skip := hookEventWarning("", provider, spec.Event)
+	return !skip
 }

@@ -129,6 +129,15 @@ func TestRunDoctor_Checks(t *testing.T) {
 			check: "managed-files", severity: doctorError, wantFix: "cartographer sync",
 		},
 		{
+			name: "hook registration deleted", provider: "claude", installed: []string{"claude"},
+			break_: func(t *testing.T, dir string) {
+				if err := os.Remove(filepath.Join(dir, ".claude", "settings.json")); err != nil {
+					t.Fatal(err)
+				}
+			},
+			check: "managed-files", severity: doctorError, wantFix: "cartographer sync",
+		},
+		{
 			name: "v1 lockfile", provider: "claude", installed: []string{"claude"},
 			break_: func(t *testing.T, dir string) {
 				raw := `{"applied_revision":"r1","provider":"claude","managed":[]}`
