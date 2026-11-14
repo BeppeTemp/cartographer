@@ -361,7 +361,10 @@ project hook.UserPromptSubmit absent
 
 ## opencode
 
-- **Aligned with**: `2.2.5` — 2026-11-06, MCP tool visibility (#1714): Code Mode is on by default for MCP
+- **Aligned with**: `2.3.0` — 2026-11-13, MCP config shapes probed (#2055, D2056): `mcp.servers` is
+  the native V2 section `opencode mcp add` writes, the V1 flat `mcp.<name>` is still normalized on
+  load, `enabled` becomes the inverse `disabled`, and when both shapes hold the same name the
+  native one wins. `2.2.5` — 2026-11-06, MCP tool visibility (#1714): Code Mode is on by default for MCP
   servers; `codemode` is per server (a flat `mcp.<name>` entry keeps it since 2.2.0); the inline catalog is
   2 000 tokens, shortest signatures first, with no MCP pin (anomalyco/opencode#62316); server instructions
   are shown under "use through `execute`". `2.0.30` — 2026-10-17, probed: project agents in `.opencode/agents/`
@@ -393,10 +396,14 @@ project hook.UserPromptSubmit absent
     (D59; shape per installed major, 1.x and 2.x, D359: 2.x rejects the 1.x shape; an unreadable version writes the newest shape with a warning, D719; both shapes bind the command to a JS `const` and run ``sh -c ${command}``, so a backtick or `${VAR}` in it reaches the shell untouched;
     sources `opencode.ai/v2/docs/build/plugins/` and `/migrate-v1`), files kept in `~/.opencode/hooks/` (never discovered by the client, run by path); sync layer 1 is the documented
     `session.created` event. A hook command whose executable has a character outside `[A-Za-z0-9_./:@%+=,-]` is single-quoted on a POSIX host in every registrar (`'\''` for an apostrophe); Kiro on Windows keeps the host's spelling, its command shell (PowerShell or cmd.exe) not being verified.
-  - `mcp` under the `mcp` key of `~/.config/opencode/opencode.json`, the global
-    config file of both majors (D1172: `$HOME/opencode.json` is only a project
-    file found by walking up from the session folder, and 1.x stops at the git
-    root); `instructions` in `~/.config/opencode/AGENTS.md` (both documented).
+  - `mcp` in `~/.config/opencode/opencode.json`, the global config file of both
+    majors, under `mcp.servers.<name>` on 2.x and the V1 flat `mcp.<name>` on 1.x
+    (probed on 2.3.0; D1172: `$HOME/opencode.json` is only a project file found
+    by walking up from the session folder, and 1.x stops at the git root).
+    2.x still normalizes the V1 shape, and a native entry wins over a flat one of
+    the same name, which is why Cartographer writes the native shape on 2.x and
+    converges a file that holds both (D2056). `instructions` in
+    `~/.config/opencode/AGENTS.md` (both documented).
 - **Probed on 2.0.25** (2026-10-09):
   - **the former global `skill` and `agent` cells were not loaded** (moved by
     D360): a skill in `~/.opencode/skills/` is missing from the skill tool ("Unable to load skill"),
@@ -417,16 +424,18 @@ project hook.UserPromptSubmit absent
     server's sync-state block with a newline; the subcommand reads both values.
   - `opencode --version` prints `opencode v2.0.25` (seen on both streams); the major parser reads it (D719). A sync run without `opencode` on `PATH` (a timer's) reads the version as unknown: it keeps the installed write-findings plugin with a warning and removes it only on a version read as < 2 (#1715). `session.created` delivery to `ctx.event.subscribe` is not yet probed.
   - 2.x `opencode.json` is translated on load (`mcp` → `mcp.servers`,
-    `permission` map → `permissions` list), so the 1.x shape still works.
+    `permission` map → `permissions` list), so the 1.x shape still works; the
+    native value wins when both forms name the same server (probe 2026-11-13,
+    2.3.0).
 - **Watch items**: the project skill cell (`.opencode/skills`) loads on 2.2.5
   (probe 2026-11-05). On 2.2.5 project agents load from both `.opencode/agent/` (the
   matrix cell) and `.opencode/agents/`, so the two no longer disagree. `session.idle`
-  never reached a plugin in `opencode run`: `hook.Stop` stays unverified, and the
-  global MCP cell was not probed (`opencode mcp list` failed against the background
-  service of the real install).
+  never reached a plugin in `opencode run`: `hook.Stop` stays unverified.
 - **Probe notes**: 2.x has no `opencode agent list`: use `opencode debug agents`
   (JSON) and `opencode debug paths`. A background service caches the
-  configuration: run `opencode reload` after changing a file. `opencode run -m
+  configuration: run `opencode reload` after changing a file, and a first
+  `opencode mcp list` right after the service starts can answer "No MCP servers
+  configured" while the second one is correct. `opencode run -m
   opencode/big-pickle` works without credentials, but the free tier refuses some
   custom primary agents ("can only be used from within OpenCode").
 - **Capabilities**: one line per scope and id, `<scope> <id> <status> [<probe-date> <recipe>]`; the Go table is
@@ -434,7 +443,7 @@ project hook.UserPromptSubmit absent
 
 ```capabilities
 global skill verified 2026-11-05 opencode-scratch-xdg
-global mcp unverified
+global mcp verified 2026-11-13 opencode-scratch-xdg
 global agent.delegate verified 2026-11-05 opencode-scratch-xdg
 global agent.invoke verified 2026-11-05 opencode-scratch-xdg
 global hook.PostInvocation absent

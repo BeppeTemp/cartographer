@@ -135,6 +135,10 @@ func TestMain(m *testing.M) {
 	// Nor the developer's global git identity, which connect and sync would
 	// write into HTTP entries (D904).
 	globalIdentFn = func() (string, bool) { return "", false }
+	// Nor the OpenCode installed on the machine: the MCP shape it decides
+	// (D2056) is the newest one, as on a runner without the client; a test
+	// about the 1.x shape sets the variable itself.
+	openCodeMajorForEmit = func() int { return 0 }
 	// Nor the server of the developer's client config, which an import would
 	// ask to reindex; the dedicated import test overrides it.
 	reindexAfterImportFn = func(string) bool { return false }

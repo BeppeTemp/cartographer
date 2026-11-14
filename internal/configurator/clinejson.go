@@ -21,7 +21,7 @@ import (
 const ClineConfigPath = ".cline/data/settings/cline_mcp_settings.json"
 
 // emitClineServer generates the cline_mcp_settings.json entry for name/spec.
-func emitClineServer(name string, spec ServerSpec) (*EmitResult, error) {
+func emitClineServer(name string, spec ServerSpec, _ EmitOptions) (*EmitResult, error) {
 	entry := map[string]any{}
 	switch spec.Type {
 	case "http":

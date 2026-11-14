@@ -137,14 +137,10 @@ func ForgetCreated(baseDir, rel string) error {
 
 // ServerNamesIn returns the MCP server names a provider config's JSON holds
 // under any of the server-map keys: the owners a register looks for.
-func ServerNamesIn(root map[string]any) map[string]bool {
+func ServerNamesIn(root map[string]any, provider Provider) map[string]bool {
 	out := map[string]bool{}
-	for _, key := range mcpServerKeys {
-		if servers, ok := root[key].(map[string]any); ok {
-			for n := range servers {
-				out[n] = true
-			}
-		}
+	for _, name := range MCPServerNames(root, provider) {
+		out[name] = true
 	}
 	return out
 }

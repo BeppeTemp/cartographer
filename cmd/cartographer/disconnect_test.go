@@ -199,6 +199,36 @@ func TestDoDisconnect_RoundTripPreservesServerURL(t *testing.T) {
 	}
 }
 
+// #2055: OpenCode 2.x writes the native mcp.servers shape itself, and that is
+// the entry it reads, so a disconnect that removes only the V1 flat one leaves
+// the server connected.
+func TestDoDisconnect_RemovesTheNativeOpenCodeEntry(t *testing.T) {
+	dir := setupDisconnectFixture(t, "opencode")
+	path := openCodeConfig(t, dir)
+	const native = `{"$schema":"https://opencode.ai/config.json","mcp":{"servers":{"wiki":{"type":"remote","url":"https://second.example.com/mcp"}}}}`
+	if err := os.WriteFile(path, []byte(native), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := doDisconnect(disconnectOptions{Providers: []string{"opencode"}, Dir: dir}); err != nil {
+		t.Fatalf("doDisconnect: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return // the file held nothing but our entry: it left with it
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	var root map[string]any
+	if err := json.Unmarshal(data, &root); err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	if _, ok := configurator.MCPServerEntry(root, configurator.ProviderOpenCode, "wiki"); ok {
+		t.Errorf("the native entry survived disconnect: %s", data)
+	}
+}
+
 func TestDoDisconnect_Idempotent(t *testing.T) {
 	dir := setupDisconnectFixture(t, "claude")
 
@@ -226,9 +256,17 @@ func TestDoDisconnect_KeepsOtherProviders(t *testing.T) {
 		t.Fatalf("doDisconnect: %v", err)
 	}
 
-	// opencode's config entry is untouched.
-	mcp := mcpServersOf(t, openCodeConfig(t, dir), "mcp")
-	if _, ok := mcp["wiki"]; !ok {
+	// opencode's config entry is untouched (in the shape its major reads: the
+	// native mcp.servers on 2.x).
+	data, err := os.ReadFile(openCodeConfig(t, dir))
+	if err != nil {
+		t.Fatalf("read opencode config: %v", err)
+	}
+	var root map[string]any
+	if err := json.Unmarshal(data, &root); err != nil {
+		t.Fatalf("parse opencode config: %v", err)
+	}
+	if _, ok := configurator.MCPServerEntry(root, configurator.ProviderOpenCode, "wiki"); !ok {
 		t.Error("opencode's wiki entry should be untouched")
 	}
 

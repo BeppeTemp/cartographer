@@ -761,11 +761,16 @@ func appendUnique(list []string, extra ...string) []string {
 // cannot represent, D69; a duplicate table adopted from a Codex rewrite, D99),
 // for the caller to render.
 // emitMCPEntry generates the configurator.EmitResult for one MCP entry and provider.
+//
+// openCodeMajorForEmit tells the emitter which OpenCode MCP shape this machine
+// reads (D2056). Every emission of one run takes it from the same place, so
+// the entry written and the unchanged-entry comparison cannot disagree.
 func emitMCPEntry(provider string, entry mcpEntry, auth bool, tokenEnv string) (*configurator.EmitResult, string, error) {
+	opts := configurator.ForOpenCodeMajor(openCodeMajorFor(provider))
 	if entry.Bridge {
 		spec, err := bridgeServerSpec(provider, auth, tokenEnv)
 		if err == nil {
-			r, err := configurator.EmitServer(entry.Name, spec, configurator.Provider(provider))
+			r, err := configurator.EmitServer(entry.Name, spec, configurator.Provider(provider), opts)
 			return r, "", err
 		}
 		w := fmt.Sprintf("%s: %v; its workspace bindings do not narrow the tools, and its plugin tools are not served, until `cartographer` is on PATH and `cartographer sync` runs again; an existing entry is kept as it is", provider, err)
@@ -775,11 +780,32 @@ func emitMCPEntry(provider string, entry mcpEntry, auth bool, tokenEnv string) (
 		if entry.URL == "" {
 			return nil, w, nil
 		}
-		r, err := configurator.Emit(&configurator.ServerConfig{Name: entry.Name, URL: entry.URL, AuthEnabled: auth, TokenEnv: tokenEnv, Author: entry.Author}, configurator.Provider(provider))
+		r, err := configurator.Emit(&configurator.ServerConfig{Name: entry.Name, URL: entry.URL, AuthEnabled: auth, TokenEnv: tokenEnv, Author: entry.Author}, configurator.Provider(provider), opts)
 		return r, w, err
 	}
-	r, err := configurator.Emit(&configurator.ServerConfig{Name: entry.Name, URL: entry.URL, AuthEnabled: auth, TokenEnv: tokenEnv, Author: entry.Author}, configurator.Provider(provider))
+	r, err := configurator.Emit(&configurator.ServerConfig{Name: entry.Name, URL: entry.URL, AuthEnabled: auth, TokenEnv: tokenEnv, Author: entry.Author}, configurator.Provider(provider), opts)
 	return r, "", err
+}
+
+// openCodeMajorForEmit reports the installed OpenCode's major version to the
+// emitter, which writes the MCP shape that client reads. It is a variable so the
+// tests state a version instead of depending on the machine (TestMain pins it,
+// and an unreadable version is the newest shape, D719). The probe is asked once
+// per process: one connect or sync emits several entries and writes the MCP
+// artifacts of every projection, and `opencode --version` starts the client's
+// runtime.
+var openCodeMajorForEmit = sync.OnceValue(provisioning.OpenCodeMajor)
+
+// openCodeMajorFor is openCodeMajorForEmit only for a client that writes
+// OpenCode's MCP section — OpenCode itself or a plugin provider based on it.
+// No other client's config depends on it, and the probe starts whatever binary
+// is named `opencode` on PATH, which a sync from a hook must not do for a
+// Claude-only machine.
+func openCodeMajorFor(provider string) int {
+	if configurator.MCPShapeProvider(configurator.Provider(provider)) != configurator.ProviderOpenCode {
+		return 0
+	}
+	return openCodeMajorForEmit()
 }
 
 // snapshotMCPConfigFiles reads and records the raw bytes of every configuration
@@ -856,18 +882,12 @@ func isEntryUnchangedIn(provider string, d configurator.Descriptor, entries []mc
 	if json.Unmarshal(data, &existing) != nil || json.Unmarshal(r.Content, &emit) != nil {
 		return false
 	}
-	return reflect.DeepEqual(extractMCPServer(existing, e.Name), extractMCPServer(emit, e.Name))
-}
-
-func extractMCPServer(m map[string]any, name string) any {
-	for _, key := range []string{"mcpServers", "mcp"} {
-		if servers, ok := m[key].(map[string]any); ok {
-			if v, found := servers[name]; found {
-				return v
-			}
-		}
+	if r.MCPShapeUnknown {
+		configurator.AdaptUnknownShape(existing, emit, configurator.Provider(provider), r.MCPServerPath)
 	}
-	return nil
+	got, _ := configurator.MCPServerEntry(existing, configurator.Provider(provider), e.Name)
+	want, _ := configurator.MCPServerEntry(emit, configurator.Provider(provider), e.Name)
+	return reflect.DeepEqual(got, want)
 }
 
 // applyMCPEntries applies every provider's MCP entries to its configuration

@@ -44,7 +44,7 @@ const crushSchemaURL = "https://charm.land/crush.json"
 const CrushConfigPath = ".config/crush/crush.json"
 
 // emitCrushServer generates the ~/.config/crush/crush.json entry for name/spec.
-func emitCrushServer(name string, spec ServerSpec) (*EmitResult, error) {
+func emitCrushServer(name string, spec ServerSpec, _ EmitOptions) (*EmitResult, error) {
 	entry := map[string]any{}
 	switch spec.Type {
 	case "http":

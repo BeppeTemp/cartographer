@@ -483,10 +483,8 @@ func managedEntryPresent(mf ManagedFile, provider configurator.Provider, baseDir
 	if err != nil {
 		return false, fmt.Errorf("parse %s: %w", mf.Path, err)
 	}
-	servers, ok := settings[mcpServerKey(provider)].(map[string]interface{})
-	if !ok {
+	if _, present := configurator.MCPServerEntry(settings, provider, mf.Name); !present {
 		return false, nil
 	}
-	_, present := servers[mf.Name]
-	return present, nil
+	return true, nil
 }

@@ -246,9 +246,12 @@ python3 - "$OPENCODE_CFG" "$SERVER_URL" <<'PY'
 import json, sys
 path, url = sys.argv[1], sys.argv[2]
 cfg = json.load(open(path))
-cfg["mcp"]["cartographer"]["url"] = url
+# The runner has no OpenCode, so the newest shape (mcp.servers) is written; a
+# 1.x machine holds the flat map: edit whichever section holds the entry (D2056).
+servers = cfg["mcp"].get("servers", cfg["mcp"])
+servers["cartographer"]["url"] = url
 for kb in ("alpha", "beta", "gamma"):
-    cfg["mcp"]["cartographer-" + kb] = {"enabled": True, "type": "remote", "url": url + "?kb=" + kb}
+    servers["cartographer-" + kb] = {"type": "remote", "url": url + "?kb=" + kb}
 json.dump(cfg, open(path, "w"), indent=2)
 PY
 if run_client "${DIR}/sync.log" sync; then
@@ -259,7 +262,7 @@ fi
 assert_file_contains "$OPENCODE_CFG" "/mcp/routed?kbs=alpha,beta"
 assert_file_not_contains "$OPENCODE_CFG" "cartographer-alpha"
 assert_file_not_contains "$OPENCODE_CFG" "cartographer-gamma"
-ENTRIES="$(python3 -c "import json,sys; print(len(json.load(open(sys.argv[1]))['mcp']))" "$OPENCODE_CFG")"
+ENTRIES="$(python3 -c "import json,sys; c = json.load(open(sys.argv[1]))['mcp']; print(len(c.get('servers', c)))" "$OPENCODE_CFG")"
 if [[ "$ENTRIES" == "1" ]]; then
     _assert_pass "one sync left exactly one entry and no orphan"
 else
@@ -272,13 +275,14 @@ python3 - "$OPENCODE_CFG" "$ROUTED_URL" <<'PY'
 import json, sys
 path, url = sys.argv[1], sys.argv[2]
 cfg = json.load(open(path))
-cfg["mcp"]["cartographer"]["url"] = url + "?kbs=alpha,beta"
+servers = cfg["mcp"].get("servers", cfg["mcp"])
+servers["cartographer"]["url"] = url + "?kbs=alpha,beta"
 json.dump(cfg, open(path, "w"), indent=2)
 PY
 assert_file_not_contains "$OPENCODE_CFG" "provisioned=1"
 run_client "${DIR}/sync-marker.log" sync || _assert_fail "cartographer sync failed: $(cat "${DIR}/sync-marker.log")"
 assert_file_contains "$OPENCODE_CFG" "provisioned=1"
-ENTRIES="$(python3 -c "import json,sys; print(len(json.load(open(sys.argv[1]))['mcp']))" "$OPENCODE_CFG")"
+ENTRIES="$(python3 -c "import json,sys; c = json.load(open(sys.argv[1]))['mcp']; print(len(c.get('servers', c)))" "$OPENCODE_CFG")"
 if [[ "$ENTRIES" == "1" ]]; then
     _assert_pass "the marker was healed with still one entry"
 else

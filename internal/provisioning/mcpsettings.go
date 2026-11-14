@@ -5,11 +5,11 @@
 // in the same file without stepping on each other.
 //
 // Mirror of hooksettings.go: claude/opencode/kiro are a JSON merge (via
-// loadJSONObject/saveJSONObject, mcpServers/mcp key for the server name);
-// codex is a per-name marker-delimited TOML block (blocktext), distinct from
-// the un-named "cartographer:mcp:begin/end" block internal/configurator
-// writes for the Cartographer server itself via `cartographer connect` — no
-// collision, different text.
+// loadJSONObject/saveJSONObject and configurator.MergeMCPEmission, which knows
+// the shape each provider reads); codex is a per-name marker-delimited TOML
+// block (blocktext), distinct from the un-named "cartographer:mcp:begin/end"
+// block internal/configurator writes for the Cartographer server itself via
+// `cartographer connect` — no collision, different text.
 
 package provisioning
 
@@ -26,16 +26,6 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
-// mcpServerKey is the top-level JSON key the provider uses to hold its map of
-// MCP server entries, read from the provider descriptor (D137).
-func mcpServerKey(provider configurator.Provider) string {
-	d, ok := configurator.Lookup(provider)
-	if !ok {
-		return "mcpServers"
-	}
-	return d.MCPServerKey
-}
-
 // mcpServerMarkers returns the begin/end comment markers that delimit name's
 // own managed block in Codex's config.toml — distinct per server name, so
 // registering/removing one KB-sourced MCP server never disturbs another's
@@ -51,8 +41,8 @@ func mcpServerMarkers(name string) (begin, end string) {
 // `cartographer connect` itself writes Cartographer's own "cartographer" entry
 // into (see DestDir(kind:"mcp", ...)) — plus any non-fatal warnings from
 // EmitServer (e.g. a header codex cannot represent, D69 WP3).
-func registerMCPServer(baseDir, name string, spec configurator.ServerSpec, provider configurator.Provider, scope contract.Scope) (relPath string, warnings []string, err error) {
-	r, err := configurator.EmitServer(name, spec, provider)
+func registerMCPServer(baseDir, name string, spec configurator.ServerSpec, provider configurator.Provider, scope contract.Scope, openCodeMajor int) (relPath string, warnings []string, err error) {
+	r, err := configurator.EmitServer(name, spec, provider, configurator.ForOpenCodeMajor(openCodeMajor))
 	if err != nil {
 		return "", nil, err
 	}
@@ -82,7 +72,7 @@ func registerMCPServer(baseDir, name string, spec configurator.ServerSpec, provi
 	if !createdFile {
 		// A ledger entry whose owners are gone from the file is stale: this
 		// file is somebody else's now (configurator.ReconcileCreated).
-		names := configurator.ServerNamesIn(settings)
+		names := configurator.ServerNamesIn(settings, provider)
 		if err := configurator.ReconcileCreated(baseDir, r.FilePath, func(o string) bool { return names[o] }); err != nil {
 			return "", nil, err
 		}
@@ -92,15 +82,12 @@ func registerMCPServer(baseDir, name string, spec configurator.ServerSpec, provi
 		return "", nil, fmt.Errorf("provisioning: decode mcp emission %s: %w", name, err)
 	}
 
-	key := mcpServerKey(provider)
-	servers, _ := settings[key].(map[string]interface{})
-	if servers == nil {
-		servers = map[string]interface{}{}
+	// One merge, in every shape the provider reads: an entry of another shape
+	// with the same name is removed, or it would shadow the one just written
+	// (D2056).
+	if err := configurator.MergeMCPEmissionShaped(settings, incoming, provider, r.MCPServerPath, r.MCPShapeUnknown); err != nil {
+		return "", nil, fmt.Errorf("provisioning: mcp %s in %s: %w", name, r.FilePath, err)
 	}
-	if incomingServers, ok := incoming[key].(map[string]interface{}); ok {
-		servers[name] = incomingServers[name]
-	}
-	settings[key] = servers
 	// OpenCode's "$schema" hint (see configurator's emitOpenCodeServer): keep
 	// whatever is already there, only add it if this is a brand-new file.
 	if schema, ok := incoming["$schema"]; ok {
@@ -152,19 +139,10 @@ func removeMCPServer(baseDir, name string, provider configurator.Provider, fileP
 		return err
 	}
 
-	key := mcpServerKey(provider)
-	servers, ok := settings[key].(map[string]interface{})
-	if !ok {
+	// Any shape the provider reads: a native entry left by the client itself
+	// would otherwise stay registered after its artifact is gone (D2056).
+	if !configurator.RemoveMCPServer(settings, provider, name) {
 		return nil
-	}
-	if _, ok := servers[name]; !ok {
-		return nil
-	}
-	delete(servers, name)
-	if len(servers) == 0 {
-		delete(settings, key)
-	} else {
-		settings[key] = servers
 	}
 
 	if d, ok := configurator.Lookup(provider); ok && configurator.MayDeleteEmpty(d, baseDir, filePath) && isEmptyMCPProviderShell(settings) {
@@ -185,8 +163,9 @@ func removeMCPServer(baseDir, name string, provider configurator.Provider, fileP
 
 // isEmptyMCPProviderShell reports whether settings has nothing left worth
 // keeping — no keys at all, or, for OpenCode, only its "$schema" hint — mirrors
-// configurator's own (unexported) isEmptyProviderShell, duplicated here for the
-// same reason mcpServerKey is.
+// configurator's own (unexported) isEmptyProviderShell, duplicated here because
+// provisioning must not decide a file's fate from a value the configurator does
+// not export.
 func isEmptyMCPProviderShell(settings map[string]interface{}) bool {
 	for k := range settings {
 		if k == "$schema" {

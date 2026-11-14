@@ -159,15 +159,10 @@ func MCPServerEntryNames(baseDir string, provider configurator.Provider) ([]stri
 		}
 		return nil, fmt.Errorf("parse %s: %w", d.ConfigPath(), err)
 	}
-	servers, ok := settings[d.MCPServerKey].(map[string]interface{})
-	if !ok {
+	names := configurator.MCPServerNames(settings, provider)
+	if len(names) == 0 {
 		return nil, nil
 	}
-	names := make([]string, 0, len(servers))
-	for name := range servers {
-		names = append(names, name)
-	}
-	sort.Strings(names)
 	return names, nil
 }
 

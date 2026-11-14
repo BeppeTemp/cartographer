@@ -916,6 +916,7 @@ func materializeForProviders(manifests map[string]contract.Manifest, projections
 			Scope:              p.Scope,
 			DryRun:             dryRun,
 			NoHeal:             noHeal,
+			OpenCodeMajor:      openCodeMajorFor(p.Provider),
 			ApprovedMCP:        approvedMCP,
 			MCPLauncher:        mcpLauncher,
 			MCPLauncherEnv:     mcpLauncherEnv,

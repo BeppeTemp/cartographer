@@ -218,6 +218,13 @@ type ApplyOptions struct {
 	// the token variable of the client configuration.
 	MCPLauncher    string
 	MCPLauncherEnv []string
+	// OpenCodeMajor is the installed OpenCode's major version, 0 when the caller
+	// did not read it (D2056). The MCP section a KB descriptor is written in
+	// depends on it: 2 and later read the native "mcp"."servers", 1.x the V1
+	// flat "mcp", and 0 writes the newest shape. Only the client
+	// (cmd/cartographer) sets it; an internal caller keeps the native shape.
+	OpenCodeMajor int
+
 	// Unplaced are the KB skills and agents this projection has no file for
 	// (UnplacedArtifacts, computed by the caller on the manifest before
 	// ProjectManifest drops them): the instructions block names them and how to
@@ -1687,8 +1694,20 @@ hookLoop:
 							"mcp %q: %s has no headers for MCP servers, served through `cartographer mcp exec` (bridge)", a.Name, d.Provider))
 					}
 				}
-				rp, warnings, regErr := registerMCPServer(opts.BaseDir, a.Name, spec, opts.Provider, opts.Scope)
+				rp, warnings, regErr := registerMCPServer(opts.BaseDir, a.Name, spec, opts.Provider, opts.Scope, opts.OpenCodeMajor)
 				if regErr != nil {
+					if errors.Is(regErr, configurator.ErrMCPNameUnrepresentable) || errors.Is(regErr, configurator.ErrMCPSectionUnusable) {
+						// The client cannot carry this name without ambiguity: skip the
+						// one artifact with a warning, never fail the whole sync
+						// (D69's rule for a part of the spec a provider cannot hold).
+						// An entry an earlier run wrote stays as it is, and stays owned,
+						// so a prune, a disconnect or a revocation can still reach it
+						// (the same rule as the missing-launcher skip above).
+						result.Warnings = append(result.Warnings, fmt.Sprintf("%v; skipped here", regErr))
+						result.Unsupported = append(result.Unsupported, a)
+						carryManaged(a)
+						continue
+					}
 					if refuseArtifact(a, regErr) {
 						continue
 					}

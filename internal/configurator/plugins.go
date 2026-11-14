@@ -141,6 +141,7 @@ func buildPlugin(spec PluginSpec) (pluginEntry, error) {
 	d := base
 	d.MCPConfigGlob = ""
 	d.Provider = name
+	d.Base = base.Provider
 	d.DisplayName = spec.DisplayName
 	if d.DisplayName == "" {
 		d.DisplayName = spec.Name
@@ -190,11 +191,11 @@ func buildPlugin(spec PluginSpec) (pluginEntry, error) {
 	// base would make the fork look installed.
 	d.EnvConfigDirs, d.AppDirs, d.InstructionsPrecedence, d.HookPluginMajors = nil, nil, nil, nil
 	baseEmit := base.emit
-	d.emit = func(n string, s ServerSpec) (*EmitResult, error) {
+	d.emit = func(n string, s ServerSpec, o EmitOptions) (*EmitResult, error) {
 		if d.MCPConfigPath == "" && d.MCPConfigGlob == "" {
 			return nil, fmt.Errorf("plugin provider %q writes no MCP entry (mode %s)", name, d.MCPMode)
 		}
-		r, err := baseEmit(n, s)
+		r, err := baseEmit(n, s, o)
 		if err != nil {
 			return nil, err
 		}

@@ -94,6 +94,7 @@ var capabilityProbed = map[configurator.Provider]map[Scope]map[Capability]CapSta
 	configurator.ProviderOpenCode: {
 		ScopeGlobal: {
 			CapSkill:         CapVerified,
+			CapMCP:           CapVerified,
 			CapAgentDelegate: CapVerified,
 			CapAgentInvoke:   CapVerified,
 			Capability(HookCapPrefix + "SessionStart"): CapVerified,
