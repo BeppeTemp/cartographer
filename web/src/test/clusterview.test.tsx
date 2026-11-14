@@ -461,8 +461,9 @@ describe("the cluster view in the Atlas", () => {
     const user = userEvent.setup();
     render(<App />);
     const legend = await screen.findByRole("region", { name: /graph legend/i });
+    const fold = await within(legend).findByRole("button", { name: "Fold the open cluster" });
     folded = true;
-    await user.click(await within(legend).findByRole("button", { name: "Fold the open cluster" }));
+    await user.click(fold);
     await waitFor(() => expect(new URLSearchParams(window.location.search).get("unfold")).toBeNull());
     expect(new URLSearchParams(window.location.search).get("graph")).toBeNull();
     await user.click(await within(legend).findByRole("button", { name: "Show all concepts" }));
