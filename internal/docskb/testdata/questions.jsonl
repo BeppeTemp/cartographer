@@ -1,4 +1,4 @@
-{"q": "how do I install Cartographer and set up my first KB?", "want": ["using-cartographer/getting-started/1-install-the-binary", "using-cartographer/getting-started/2-set-up-meridian-the-first-kb-and-your-agents", "using-cartographer/readme/install", "using-cartographer/readme/quick-start"]}
+{"q": "how do I install Cartographer and set up my first KB?", "want": ["using-cartographer/getting-started/1-install-the-binary", "using-cartographer/getting-started/2-set-up-meridian-the-first-kb-and-your-agents", "using-cartographer/readme/install-and-quick-start"]}
 {"q": "what gets installed on my machine?", "want": ["using-cartographer/getting-started/what-gets-installed"]}
 {"q": "what happens when two agents write the same page?", "want": ["using-cartographer/faq/what-happens-when-two-agents-write-the-same-page", "internals-contributing/concurrency/optimistic-content-concurrency"]}
 {"q": "why not just use a CLAUDE.md file, Notion or Obsidian?", "want": ["using-cartographer/faq/why-not-just-a-claude-md-or-notion-or-obsidian"]}
