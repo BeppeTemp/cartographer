@@ -151,42 +151,86 @@ func templateBoilerplate(templates []string) map[string]bool {
 	return out
 }
 
-// archivalBanner is the factLines key of the banner the harvest writes at the
-// top of an archived entry (kb-doctor step 5b: `> Archived YYYY-MM-DD: no
-// durable lessons.`, or the KB's translation of it): the first blockquote line
-// of the body above its first H2, code spans intact (the factLines key); ""
-// when there is none. On an
-// archived entry it is a status line whose wording the procedure fixes, not a
-// fact the entries repeat, so repeated_fact skips it like template boilerplate
-// (#1194). Callers check the status: the same line on a live page is prose.
-func archivalBanner(body string) string {
+// leadingLines are the factLines keys of a page's own status line, code spans
+// intact: banner is the first blockquote line of the body above its first H2
+// (the archival banner `> Archived YYYY-MM-DD: no durable lessons.` of kb-doctor
+// step 5b, an index page's `> Index page. ...`), first the first line of the
+// first paragraph above the first H2 that is neither a heading nor a
+// blockquote (a closed task's "Closed without running it on <date> ..."). Either
+// is "" when absent.
+func leadingLines(body string) (banner, first string) {
 	orig := strings.Split(body, "\n")
+	decided := false // the first content line is seen: a plain paragraph line or not
 	for i, line := range strings.Split(kb.MaskCodeSpans(body), "\n") {
 		t := strings.Join(strings.Fields(line), " ")
 		if strings.HasPrefix(t, "## ") {
-			return ""
+			break
+		}
+		if t == "" || strings.HasPrefix(t, "#") {
+			continue
+		}
+		if i < len(orig) {
+			t = strings.Join(strings.Fields(orig[i]), " ")
 		}
 		if strings.HasPrefix(t, ">") {
-			if i < len(orig) {
-				return strings.Join(strings.Fields(orig[i]), " ")
+			if banner == "" {
+				banner = t
 			}
-			return t
+		} else if !decided {
+			// Only a plain paragraph line records the outcome: a list item,
+			// table row, code fence or HTML line is content and stays a fact.
+			decided = true
+			if !strings.HasPrefix(t, "|") && !strings.HasPrefix(t, "<") &&
+				!strings.HasPrefix(t, "```") && !strings.HasPrefix(t, "~~~") && !listItemRe.MatchString(t) {
+				first = t
+			}
 		}
 	}
-	return ""
+	return banner, first
 }
 
-// isArchived reports whether a concept's status is the reserved archived.
-func isArchived(status string) bool { return strings.TrimSpace(status) == kb.StatusArchived }
+// terminalOutcomes are finished states deliberately in no value family
+// (docs/data-plane.md: distinct or KB-specific states), English and Italian.
+var terminalOutcomes = map[string]bool{
+	"cancelled": true, "canceled": true, "rejected": true, "abandoned": true, "wontfix": true, "merged": true,
+	"annullato": true, "annullata": true, "scartato": true, "scartata": true, "rifiutato": true, "rifiutata": true,
+}
 
-// conceptFactLines is factLines of one concept: without its archival banner
-// when the concept is archived (#1194).
-func conceptFactLines(body, status string, boilerplate map[string]bool) map[string]string {
+// terminalStatus reports whether a page's status is a finished one: retired
+// (kb.IsRetired), in the done, resolved or deprecated family (the map
+// contract's value_synonyms extend the families), or one of terminalOutcomes.
+// closedPhase has no terminal notion to reuse: it is the complement of
+// openPhase for a contract's open field, which a status line does not read.
+func terminalStatus(status string, contract *kb.MapContract) bool {
+	n := NormValue(status)
+	if kb.IsRetired(n) || terminalOutcomes[n] {
+		return true
+	}
+	fam, ok := familiesFor(contract).member(n)
+	return ok && (fam == "done" || fam == "resolved" || fam == "deprecated")
+}
+
+// statusLines are the factLines keys that record the page's own state and so
+// are not facts the pages repeat (#2072, #1194): its leading blockquote
+// whatever the status, and on a finished page also its first paragraph line
+// above the first H2. The same line after an H2 is still a fact.
+func statusLines(body, status string, contract *kb.MapContract) []string {
+	banner, first := leadingLines(body)
+	var out []string
+	if banner != "" {
+		out = append(out, banner)
+	}
+	if first != "" && terminalStatus(status, contract) {
+		out = append(out, first)
+	}
+	return out
+}
+
+// conceptFactLines is factLines of one concept without its status lines.
+func conceptFactLines(body, status string, contract *kb.MapContract, boilerplate map[string]bool) map[string]string {
 	lines := factLines(body, boilerplate)
-	if isArchived(status) {
-		if b := archivalBanner(body); b != "" {
-			delete(lines, b)
-		}
+	for _, l := range statusLines(body, status, contract) {
+		delete(lines, l)
 	}
 	return lines
 }
@@ -202,7 +246,7 @@ func repeatedFactItems(concepts []*reviewConcept, templates []string, contracts 
 		if contracts[c.mapName].Kind == "journal" {
 			continue
 		}
-		for line, shown := range conceptFactLines(c.body, c.status, boilerplate) {
+		for line, shown := range conceptFactLines(c.body, c.status, contractPtr(contracts, c.mapName), boilerplate) {
 			owners[line] = append(owners[line], string(c.id))
 			if _, ok := originals[line]; !ok {
 				originals[line] = shown
@@ -281,4 +325,12 @@ func readHotspotItems(concepts []*reviewConcept, links kb.Links) []ReviewItem {
 		})
 	}
 	return out
+}
+
+// contractPtr is the map's contract, nil when it has none.
+func contractPtr(contracts map[string]kb.MapContract, name string) *kb.MapContract {
+	if c, ok := contracts[name]; ok {
+		return &c
+	}
+	return nil
 }

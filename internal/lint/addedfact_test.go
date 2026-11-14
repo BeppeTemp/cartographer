@@ -137,10 +137,10 @@ func TestAddedRepeatedFactsArchivalBanner(t *testing.T) {
 	if got, _ := AddedRepeatedFacts(k, "m/c", "# T\n", banner+"\n\n# T\n", 20, allLookup(t, k, nil)); len(got) != 0 {
 		t.Fatalf("the banner of an archived entry was reported: %+v", got)
 	}
-	// A live page writing the same line: the archived candidates' banners own nothing.
+	// #2072: a live page's leading banner is a status line too.
 	writeFile(t, k.DataRoot(), "m/c.md", "---\ntype: Note\ntitle: c\n---\n"+banner+"\n")
 	if got, _ := AddedRepeatedFacts(k, "m/c", "", banner+"\n", 20, allLookup(t, k, nil)); len(got) != 0 {
-		t.Fatalf("archived banners counted as owners: %+v", got)
+		t.Fatalf("a leading banner was reported: %+v", got)
 	}
 }
 
