@@ -1,16 +1,18 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
+	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/service"
 )
 
 // The seams of connect's WSL awareness, beside servicewsl.go's.
 var (
-	wslServerRunsFn = func(d string) bool { return service.NewManager().WslServerRuns(d) }
+	wslServerRunsFn = func(d string) error { return service.NewManager().WslServerRuns(d) }
 )
 
 // refuseIPv6LoopbackForWsl refuses http://[::1]:<port> on Windows when the
@@ -34,8 +36,10 @@ func refuseIPv6LoopbackForWsl(serverURL string) error {
 // that answered: with no marker and no native server task, the server must be
 // in a WSL distro, and the one whose `cartographer service status` exits 0 is
 // recorded, so the service verbs act on it. Only running distros are asked
-// (never start one), and a machine without WSL hears nothing.
-func recordWslServerOwner(w io.Writer) {
+// (never start one). A machine without WSL, one with no running distro, a
+// marker already set and a non-Windows host hear nothing; every other exit
+// that records nothing prints one line to errw saying why (#2093).
+func recordWslServerOwner(w, errw io.Writer) {
 	if serviceGOOS != "windows" {
 		return
 	}
@@ -43,17 +47,38 @@ func recordWslServerOwner(w io.Writer) {
 		return
 	}
 	running, err := wslListFn(true)
-	if err != nil || len(running) == 0 || serveTaskInstalledFn() {
+	if errors.Is(err, service.ErrNoWsl) {
 		return
 	}
+	if err != nil {
+		wslOwnerNote(errw, "wsl listing failed ("+err.Error()+")")
+		return
+	}
+	if len(running) == 0 {
+		return
+	}
+	if serveTaskInstalledFn() {
+		wslOwnerNote(errw, "native Serve task registered")
+		return
+	}
+	var failed []string
 	for _, d := range running {
-		if wslServerRunsFn(d) {
-			if writeWslMarkerFn(d) == nil {
-				fmt.Fprintf(w, "server: WSL distro %s\n", d)
-			}
+		if err := wslServerRunsFn(d); err != nil {
+			failed = append(failed, d+": service status failed ("+err.Error()+")")
+			continue
+		}
+		if err := writeWslMarkerFn(d); err != nil {
+			wslOwnerNote(errw, "marker not written ("+err.Error()+")")
 			return
 		}
+		fmt.Fprintf(w, "server: WSL distro %s\n", d)
+		return
 	}
+	wslOwnerNote(errw, strings.Join(failed, "; "))
+}
+
+func wslOwnerNote(w io.Writer, reason string) {
+	fmt.Fprintf(w, "note: WSL server owner not recorded: %s\n", reason)
 }
 
 // printWslServerHint runs on Windows when the loopback server does not
