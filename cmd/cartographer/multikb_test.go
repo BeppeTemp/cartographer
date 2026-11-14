@@ -1096,8 +1096,8 @@ func TestCmdSync_ASymlinkedProviderConfigDoesNotStopTheOtherProviders(t *testing
 	if err := os.Symlink(target, openCodeConfig(t, dir)); err != nil {
 		t.Fatal(err)
 	}
-	if code := cmdSync(nil); code != 0 {
-		t.Fatalf("sync = %d, want the refusal as a warning", code)
+	if code := cmdSync(nil); code != exitPartiallyConnected {
+		t.Fatalf("sync = %d, want 3 (a refused write, #2099) and the other providers still written", code)
 	}
 	data, err := os.ReadFile(filepath.Join(dir, ".claude.json"))
 	if err != nil || !strings.Contains(string(data), "wiki-alpha") || !strings.Contains(string(data), "wiki-beta") {
@@ -1136,8 +1136,8 @@ func TestCmdSync_ARefusedStaleEntryRemovalKeepsItsKBInKnownKBs(t *testing.T) {
 	}
 	before, _ := os.ReadFile(target)
 
-	if code := cmdSync(nil); code != 0 {
-		t.Fatalf("sync = %d, want the refusal as a warning", code)
+	if code := cmdSync(nil); code != exitPartiallyConnected {
+		t.Fatalf("sync = %d, want 3 (a refused write, #2099) and the other providers still written", code)
 	}
 	if after, _ := os.ReadFile(target); string(after) != string(before) {
 		t.Errorf("the link target changed:\n%s", after)
@@ -1181,8 +1181,8 @@ func TestCmdSync_OnlyTheKBsWhoseEntryWasRefusedAreRetained(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if code := cmdSync(nil); code != 0 {
-		t.Fatalf("sync = %d, want the refusal as a warning", code)
+	if code := cmdSync(nil); code != exitPartiallyConnected {
+		t.Fatalf("sync = %d, want 3 (a refused write, #2099) and the other providers still written", code)
 	}
 	got, err := clientconfig.Load(dir)
 	if err != nil {
@@ -1330,8 +1330,8 @@ func TestCmdSync_ARefusedProviderDirectoryDoesNotStopTheBootstrapOfTheOthers(t *
 		t.Fatal(err)
 	}
 	elsewhere := symlinkedCodexDir(t, dir)
-	if code := cmdSync(nil); code != 0 {
-		t.Fatalf("sync = %d, want the refusal as a warning", code)
+	if code := cmdSync(nil); code != exitPartiallyConnected {
+		t.Fatalf("sync = %d, want 3 (a refused write, #2099) and the other providers still written", code)
 	}
 	assertBootstrapOnlyForClaude(t, dir, elsewhere)
 }

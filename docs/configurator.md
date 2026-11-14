@@ -998,7 +998,7 @@ cartographer connect claude --no-input \
 - The token is the variable `--token-env` names. `connect` copies it to `~/.cartographer-token` (`0600`) so a run without the variable still authenticates, but **the agent's own process must export the same variable**, because the MCP entry references it.
 - A plain `http://` URL on a non-loopback host is refused unless `--allow-insecure-http` (§Transport security).
 
-**One-shot `sync`.** `cartographer sync` is idempotent, exits 0 on success and 2 when a KB failed, and checks the token variable or file before any network call. It has no daemon, watch or interval flag: periodicity comes from `service sync-timer`, from the agent's session-start hook where one exists, or from the host's own scheduler.
+**One-shot `sync`.** `cartographer sync` is idempotent, exits 0 on success, 2 when a KB failed (it wins over 3) and 3 when the symlink guard refused a write (an MCP entry or an artifact, as `connect`; one stderr line names provider and parts, which tells it from 3 as "client lock denied"; not on `--dry-run`; a refused hook registration or removal stays a warning; D2118), and checks the token variable or file before any network call. It has no daemon, watch or interval flag: periodicity comes from `service sync-timer`, from the agent's session-start hook where one exists, or from the host's own scheduler.
 
 **Headless always-on host** (a VM, or a container with an init system). Install the binary with `install.sh` (`CARTOGRAPHER_INSTALL_DIR` for a path that is not root's; `CARTOGRAPHER_INSTALL_TAG` pins the tag of the Server and avoids version skew), run `connect` as above, then `cartographer service sync-timer install --interval 30m`. On Linux that is a systemd **user** timer, so the host also needs `loginctl enable-linger <user>` to survive logout, as for the Server's user service. Where there is no user manager, a scheduler or a loop runs `cartographer sync`.
 
@@ -1951,7 +1951,7 @@ The refusal is **per provider** (and, in a sync, per artifact):
   refused: `MCP entry`, `bootstrap hook`, `write-findings hook`, and the kinds of artifact (`skills`, `agents`, `hooks`,
   `instructions`). A refused *removal* (`<kind>/<name> not removed`) stays a warning and does not count as a skipped part: the provider is still wired. `wrote MCP entry <name>` is printed (by `connect` and `sync`) only for an entry that was written. **`connect`
   exits 3** when at least one provider ended partially or not connected; the others are still wired, so 3 is the signal, not an
-  abort (0 and 1 keep their meaning, 2 stays configuration/operational); `reconnect` exits 3 the same way. The bootstrap and write-findings hooks are no exception: a provider whose
+  abort (0 and 1 keep their meaning, 2 stays configuration/operational); `reconnect` exits 3 the same way, and so does a real `sync` that was refused a write (#2099). The bootstrap and write-findings hooks are no exception: a provider whose
   destination for them is behind a link gets a `<provider>: bootstrap hook not installed: …` warning and the
   others are still set up. A refused write of a new artifact is not recorded as installed, a refused update keeps the previous
   lockfile entry (its files on disk are still ours), and one whose removal was refused stays in the
