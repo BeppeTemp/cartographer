@@ -355,7 +355,7 @@ non-loopback host are refused. Exit codes: 2 for a usage error or a ref that is 
 
 Without a `cartographer` command on `PATH` a descriptor that needs the launcher is skipped with a warning, and so is a descriptor of a plugin (a non-KB source) that needs it: the launcher reads `mcp/<slug>.json` of a KB, which a plugin has none of.
 
-**`cartographer mcp probe [--json] [--timeout <d>] <kb>/<slug>` (diagnose an MCP descriptor).** For an approved MCP descriptor it reports, without a client, the transport and target, the `${VAR}` references unset or empty in the shell that runs it (a client started from another shell or the dock may see another environment; `${secret:...}` is the launcher's, never listed) and, for an `http` descriptor, a DNS + TCP + TLS dial with a 15 s limit that classifies the failure (`dns`, `refused`, `timeout`, `tls_unknown_authority` with the hint to serve the full chain or set `NODE_EXTRA_CA_CERTS`, `tls_other`). When those pass it runs the session: it resolves the descriptor exactly as `mcp exec` does (`mcpexec.Resolve`: the descriptor read from the server, the approval checked, `${VAR}` and `${secret:...}` expanded, in this process), starts the command or reaches the URL with the resolved headers, runs `initialize` and `tools/list` within `--timeout` (default 20 s) and prints the protocol, the server and the first 10 tool names. A stdio child that exits before answering reports the last 20 lines of its stderr, with every resolved value replaced by `<redacted>`. A network or TLS fault met by the session keeps its class (exit `4`/`5`). A bare `<slug>` works when one KB ships it. Values are never printed. Exit codes: `0` ok, `1` the server is not usable (the descriptor cannot be resolved, `initialize` or `tools/list` failed, the child died), `2` usage error, descriptor not found, ambiguous or not approved, `3` unresolved `${VAR}`, `4` network (DNS, refused, timeout), `5` TLS. A descriptor with `requires: <label>` whose host did not answer (dns, refused, timeout) reads `needs <label>: <host> did not answer` and sets `needs` in `--json`. `--json` prints one stable object. Why: [D2042](decisions/D2042-mcp-probe-and-requires.md).
+**`cartographer mcp probe [--json] [--timeout <d>] (<kb>/<slug> | <slug>)` (diagnose an MCP descriptor).** For an approved MCP descriptor it reports, without a client, the transport and target, the `${VAR}` references unset or empty in the shell that runs it (a client started from another shell or the dock may see another environment; `${secret:...}` is the launcher's, never listed) and, for an `http` descriptor, a DNS + TCP + TLS dial with a 15 s limit that classifies the failure (`dns`, `refused`, `timeout`, `tls_unknown_authority` with the hint to serve the full chain or set `NODE_EXTRA_CA_CERTS`, `tls_other`). When those pass it runs the session: it resolves the descriptor exactly as `mcp exec` does (`mcpexec.Resolve`: the descriptor read from the server, the approval checked, `${VAR}` and `${secret:...}` expanded, in this process), starts the command or reaches the URL with the resolved headers, runs `initialize` and `tools/list` within `--timeout` (default 20 s) and prints the protocol, the server and the first 10 tool names. A stdio child that exits before answering reports the last 20 lines of its stderr, with every resolved value replaced by `<redacted>`. A network or TLS fault met by the session keeps its class (exit `4`/`5`). A bare `<slug>` works when one KB ships it. Values are never printed. Exit codes: `0` ok, `1` the server is not usable (the descriptor cannot be resolved, `initialize` or `tools/list` failed, the child died), `2` usage error, descriptor not found, ambiguous or not approved, `3` unresolved `${VAR}`, `4` network (DNS, refused, timeout), `5` TLS. A descriptor with `requires: <label>` whose host did not answer (dns, refused, timeout) reads `needs <label>: <host> did not answer` and sets `needs` in `--json`. `--json` prints one stable object. Why: [D2042](decisions/D2042-mcp-probe-and-requires.md).
 
 **`cartographer call` (no MCP).** For an agent that has a shell but cannot use MCP,
 `cartographer call --provider <p> <tool> [key=value…] [--json '<object>'|-]` sends one stateless
@@ -860,6 +860,10 @@ The bootstrap hook and the scheduled timer deliberately do **not** run it: it is
 and running every check on every session start is exactly the background cost D60 avoided by keeping
 the bootstrap script silent and deterministic.
 
+### `cartographer kb rename <old> <new> [--data <dir>] [--config <path>] [--restart]`
+
+Renames a KB's **mount point** offline and local (D177, D754): the directory, the matching `kbs[]` entry when there is one, the KB's credential files, an alias `{from: <old>, to: <new>}` in the server state file, and this machine's client bindings, together or neither. It never contacts a server, a client or a git remote, and the git `origin` is untouched; a cross-filesystem move fails rather than copying. Details, the alias rules and `--restart` are in [deployment.md](deployment.md); `kb unmount` is its inverse.
+
 ### `cartographer kb repair <kb> [--apply] [--json | --revert <sha> [--reason <text>]]`
 
 The unattended half of KB upkeep (D299), schedulable by the operator (cron, launchd, a CI job); nothing
@@ -889,13 +893,13 @@ Exit codes: `0` nothing left to do, `3` only judgement work or checks that are n
 `2` error. `--json` prints the report as an object (`checks`, `review_total`, `review_by_kind`,
 `remaining`). Not to be confused with `cartographer doctor`, which checks Compass's provisioning.
 
-### `cartographer kb secrets init <kb> --recipient <age-pub> [--key-file <path>] [--force]`
+### `cartographer kb secrets init <kb> --recipient <age-pub> [--key-file <path>] [--force] [--data <dir>] [--config <path>] [--local]`
 
 Enables secrets on a KB with one command (#1911). The creation rule of the root `.sops.yaml` (`secrets/.*\.sops\.yaml$`, one age recipient) is written through the running server by the admin-only `secrets_init` tool and committed in the normal write flow; the key is installed here, on the server machine, as `<credentials_dir>/<kb>.age` with mode `0600`, because `--key-file` is a path of the operator's machine and no MCP call writes a credential (D2039). Like `kb reauthor` it is local (`--data`, `--config`, `--local`, D177) and needs a token that is an administrator's. **It needs no restart**: the server resolves the key on each read, so `kb_status` `capabilities.secrets` reads `enabled` on the next call.
 
 Everything that needs no write is checked first: the recipient has the shape of an age public key, `--key-file` is an age identity (size capped, never printed) that holds the recipient, and the target `<kb>.age` is a regular file. A different existing rule or key is refused without `--force`, before anything is written; the same rule or key is a no-op (`unchanged`). `--force` replaces the whole `.sops.yaml` and the key file but does **not** re-encrypt the files already under `secrets/`: the output says to run `sops updatekeys` on them. Without `--key-file` only the rule is written, and the output names the file still to add. The command is idempotent: if the key install fails after the rule is committed, run it again. Output is one line per effect (`rule: created|unchanged|replaced`, `key: installed|unchanged|replaced|not given`). Exit `0` done or unchanged, `1` refusal or failure, `2` usage.
 
-### `cartographer kb reauthor <kb> [--apply] [--json]`
+### `cartographer kb reauthor <kb> [--apply] [--json] [--data <dir>] [--config <path>]`
 
 Recovery for a push a remote refused because of who authored or committed its commits (a membership
 push rule, a private-email rule; D1063). It re-authors, under the identity the server file configures
@@ -926,7 +930,7 @@ is only local must be proven against the remote); the branch has no upstream; it
 upstream); the commits ahead hold a merge or a root commit; or any of them is already reachable from
 another remote ref (published history is never rewritten). Exit `0` is done or nothing to re-author.
 
-### `cartographer kb attach <kb> --remote <url>`
+### `cartographer kb attach <kb> --remote <url> [--data <dir>] [--config <path>]`
 
 Gives a KB created with `--no-remote` (D134) the origin it lacks: it adds `origin`, checks the remote (fetching without tags) and pushes the KB's current branch with `git push -u`, never forced. Like `kb reauthor` it is offline and local (`--data`, `--config`, `--local`, D177) and takes the KB's advisory process lock, so a running service does not have to be stopped, **and needs no restart**: the remote of a KB lives only in the git config of its clone, nothing is written to the server file, and the server reads it at its next sync decision, so the KB syncs on its next read or write. `sync_status` and `kb_status.push_state` stop saying `no_remote` as soon as the clone has an `origin`.
 
@@ -1194,7 +1198,7 @@ source `index.md` is still rejected as a reserved destination filename. `--commi
 the scaffold (`_map.md`, `index.md`, `log.md`) created for each new destination map; on partial
 write failures it commits only successful paths and reports that the batch had errors.
 
-### `cartographer surveyor source test --config <file> (--source <id> [--kb <kb>] | --recipe <name> --locator <loc>)`
+### `cartographer surveyor source test --config <file> (--source <id> [--kb <kb>] | --recipe <name> --locator <loc> [--kind <source_kind>] [--include <glob>]...) [--cursor <c>] [--show <key>]`
 
 The dry run of a Surveyor recipe: the listing the Surveyor will run, printed, with nothing written and no model called
 (exit `0` listed, `1` the poll would record a `feed_error`, `2` could not start, `3` a system recipe's check
