@@ -8,7 +8,7 @@
   <b>Shared memory for your team's AI agents — one wiki they all read and grow, and none of them can break.</b><br>
   What a colleague's agent works out on Monday, yours already knows on Tuesday — even on another client.<br>
   Cartographer is the platform: <b>Meridian</b> (server), <b>Compass</b> (client), <b>Atlas</b> (web UI) and <b>Surveyor</b> (maintenance agent), one Go binary, git underneath.<br>
-  Claude Code, Codex, OpenCode and [any MCP client](docs/mcp-clients.md).
+  Claude Code, Codex, OpenCode, Kiro, Antigravity, Crush, Copilot, Pi, Cline and [any MCP client](docs/mcp-clients.md).
 </p>
 
 <p align="center">
@@ -83,18 +83,18 @@ One binary, deployed as four components that you pick from:
 | Component | What it is | Command | Deploy it when |
 |---|---|---|---|
 | **Meridian** | The server: the only writer of a KB, MCP over HTTP (or stdio for one local client) | `cartographer serve` | Always: it holds the KBs |
-| **Compass** | The client next to the agent: configures every agent client, syncs, runs the local bridge, hosts client plugins | `cartographer connect`, `sync` | On every machine where an agent runs |
-| **Atlas** | The read-only web UI, served by Meridian | none (a switch of Meridian) | You want to see the graph, the changes and the findings |
 | **Surveyor** | A headless maintenance agent for one perimeter of KBs | `cartographer surveyor` | You want the wiki kept in order without a person asking |
+| **Atlas** | The read-only web UI, served by Meridian | none (a switch of Meridian) | You want to see the graph, the changes and the findings |
+| **Compass** | The client next to the agent: configures every agent client, syncs, runs the local bridge, hosts client plugins | `cartographer connect`, `sync` | On every machine where an agent runs |
 
 Three rules hold them together: components talk only through documented interfaces; each does only its
 job; you deploy only what you need. Details: [`docs/deployment.md`](docs/deployment.md#components).
 
 <p align="center">
-  <img alt="The deployment film: three deployment profiles, each lighting the components it runs on one diagram. A laptop runs Meridian, Atlas and Compass; a team VM adds a Surveyor and bearer tokens; a Kubernetes cluster runs Meridian with Atlas and one Surveyor per perimeter; a lone Compass is pointed at a remote Meridian, because the client does not belong in a cluster." src="https://raw.githubusercontent.com/BeppeTemp/cartographer/readme-film/deployment.webp" width="100%">
+  <img alt="The deployment film: the four components with their role, then everyone with their own installation, many people on one server, any MCP agent with no client, and all together: one KB cloned by several servers, with people and agents on each." src="https://raw.githubusercontent.com/BeppeTemp/cartographer/readme-film/deployment.webp" width="100%">
 </p>
 
-<p align="center"><sub>Three profiles: a laptop, a team VM and Kubernetes. See the <a href="docs/deployment.md#deployment-scenarios">deployment scenarios</a>.</sub></p>
+<p align="center"><sub>Four scenarios: everyone on their own laptop, a team on one server, any MCP agent with no client, and all of them around one KB. See the <a href="docs/deployment.md#deployment-scenarios">deployment scenarios</a>.</sub></p>
 
 ## Why
 
@@ -156,10 +156,10 @@ through MCP tools**, behind a server that enforces the rules, and the same knowl
 ### Extend it with plugins
 
 - 🔌 **Plugins**<br>
-  A plugin is a git repository or a folder that adds clients, skills, subagents, hooks, commands and MCP tools to Compass, and connectors to the Surveyor. It is installed with one command, pinned to a commit and enabled only after you approve what it does.
+  A plugin is a git repository or a folder that extends every component: clients, skills, subagents, hooks, commands and script tools on Compass; roles and presets on Meridian; recipes and connectors on the Surveyor; branding, views and apps in the Atlas. It is installed with one command, pinned to a commit and enabled only after you approve what it does.
 
 <p align="center">
-  <img alt="The plugins film: a plugin is validated, installed, approved and run, and the same plugin stops when one byte of its script changes." src="https://raw.githubusercontent.com/BeppeTemp/cartographer/readme-film/plugins.webp" width="100%">
+  <img alt="The plugins film: a plugin adds to each component; one plugin for a company; installed with a preview, approved per version, and stopped when one byte of a script changes." src="https://raw.githubusercontent.com/BeppeTemp/cartographer/readme-film/plugins.webp" width="100%">
 </p>
 
 ## Quick start
@@ -197,7 +197,7 @@ My first knowledge base is at: `<git remote URL>`
 | Instructions | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Skills | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Subagents | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ | — | ✓ |
-| Hooks | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ | ✓ | ✓ |
+| Hooks | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 Subagents and hooks are **translated**, not copied. Every `—` is a gap declared for a stated reason,
 never a silent omission. Cartographer re-syncs at session start (or on a timer where a client has

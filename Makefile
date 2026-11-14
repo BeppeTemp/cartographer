@@ -1,4 +1,4 @@
-.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke docker-surveyor docker-surveyor-smoke clean e2e e2e-upgrade demo-image demo-smoke demo-worker-test demo-tf-check helm-check test-install test-linux worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap settings-example openapi web web-test web-perf web-check e2e-web hero film-transcripts vulncheck lint-workflows signoff signoff-platform web-gate check check-run check-hosted ready land land-status test-rerun
+.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke docker-surveyor docker-surveyor-smoke clean e2e e2e-upgrade demo-image demo-smoke demo-worker-test demo-tf-check helm-check test-install test-linux worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap settings-example openapi web web-test web-perf web-check e2e-web hero vulncheck lint-workflows signoff signoff-platform web-gate check check-run check-hosted ready land land-status test-rerun
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
 # gofmt takes paths, and `gofmt -l .` walks every hidden directory — including
@@ -133,11 +133,6 @@ else ifeq ($(SPEC),)
 else
 	$(error SPEC must be empty or surveyor)
 endif
-
-# Rewrites the terminal text the films show (film/transcripts/*.txt) from the real binary: run after a change of
-# CLI output that scenario 31_film_transcripts reports, then look at the film (film/README.md).
-film-transcripts: build ## Regenerate film/transcripts/*.txt from bin/cartographer (e2e 26 checks them)
-	@for s in film/transcripts/*.sh; do bash "$$s" || exit 1; done
 
 docker: ## Build the Docker image
 	docker build -t cartographer .

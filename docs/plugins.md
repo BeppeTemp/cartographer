@@ -7,7 +7,7 @@ It is installed with one command, pinned to a commit, and enabled only after the
 by version. This page describes the manifest, the version ranges it speaks, the contribution points, the tree
 reader, the store, the plugin commands, the script model and a worked example.
 
-![The plugins film: validate, install, approve, run, and the plugin that stops when one byte of its script changes](https://raw.githubusercontent.com/BeppeTemp/cartographer/readme-film/plugins.webp)
+![The plugins film: what a plugin adds to each component, one plugin for a company, and its install: a preview, the approval, and the stop when one byte of a script changes](https://raw.githubusercontent.com/BeppeTemp/cartographer/readme-film/plugins.webp)
 
 The code is two packages. `internal/plugin/core` holds what Meridian and the Surveyor link: the manifest, the
 families and the point registry, `ReadTree` and its digest, the pinned store and the provider descriptor with its

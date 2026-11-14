@@ -151,8 +151,7 @@ func TestEveryMakeTargetIsRunByCIOrDeclaredLocal(t *testing.T) {
 	root := repoRoot(t)
 	local := map[string]bool{
 		"help": true, "build": true, "run": true, "run-http": true, "dev": true, "clean": true,
-		// film-transcripts rewrites film/transcripts/*.txt after a CLI output change; CI checks them with e2e 31_film_transcripts.
-		"fmt": true, "hero": true, "film-transcripts": true, "web": true, "worktree-add": true, "worktree-rm": true, "worktree-clean": true,
+		"fmt": true, "hero": true, "web": true, "worktree-add": true, "worktree-rm": true, "worktree-clean": true,
 		"decisions-index": true, "decisions-new": true, "changelog-areas": true, "codemap": true,
 		"settings-example": true, "openapi": true, "demo-kb": true, "demo-image": true,
 		"signoff": true, "signoff-platform": true, "web-gate": true,
