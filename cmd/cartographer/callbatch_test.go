@@ -53,6 +53,9 @@ func TestCallInstructions(t *testing.T) {
 		if method == "initialize" {
 			return map[string]any{"protocolVersion": "x", "instructions": "Guide for kb-a"}
 		}
+		if method == "tools/list" {
+			return map[string]any{"tools": []any{map[string]any{"name": "kb_status", "description": "d", "inputSchema": map[string]any{"type": "object"}}}}
+		}
 		return textResult("ok", false)
 	})
 	code, out, e := runCall(t, "", "--provider", "claude", "--dir", ws, "--instructions")
@@ -66,12 +69,48 @@ func TestCallInstructions(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "\n  \"instructions\": \"Guide for kb-a\"") {
 		t.Errorf("json: %d %q", code, out)
 	}
+	// initialize carries no _meta (the fake refuses _meta without the header).
+	sawInit := false
+	for _, b := range cs.bodies {
+		if b["method"] != "initialize" {
+			continue
+		}
+		sawInit = true
+		if pm, _ := b["params"].(map[string]any); pm["_meta"] != nil {
+			t.Errorf("initialize carries _meta: %v", b)
+		}
+	}
+	if !sawInit {
+		t.Error("no initialize seen")
+	}
 	// A normal call keeps the marker.
 	cs.mu.Lock()
-	cs.reqs = nil
+	cs.reqs, cs.bodies = nil, nil
 	cs.mu.Unlock()
 	if code, _, e := runCall(t, "", "--provider", "claude", "--dir", ws, "kb_status"); code != 0 || cs.reqs[0].URL.Query().Get("provisioned") != "1" {
 		t.Errorf("a tool call lost the provisioned marker: %d %s %v", code, e, cs.reqs)
+	}
+	// tools/call and tools/list keep _meta and the header.
+	for i, b := range cs.bodies {
+		if m, _ := b["method"].(string); m == "tools/call" {
+			pm, _ := b["params"].(map[string]any)
+			if pm["_meta"] == nil || cs.reqs[i].Header.Get("Mcp-Protocol-Version") == "" {
+				t.Errorf("tools/call lost _meta or the header: %v", b)
+			}
+		}
+	}
+	if code, _, e := runCall(t, "", "--provider", "claude", "--dir", ws, "--list"); code != 0 {
+		t.Errorf("--list: %d %s", code, e)
+	}
+	listed := false
+	for i, b := range cs.bodies {
+		if b["method"] == "tools/list" {
+			pm, _ := b["params"].(map[string]any)
+			listed = pm["_meta"] != nil && cs.reqs[i].Header.Get("Mcp-Protocol-Version") != ""
+		}
+	}
+	if !listed {
+		t.Error("tools/list lost _meta or the header")
 	}
 	for _, args := range [][]string{{"--instructions", "x"}, {"--instructions", "--list"}, {"--instructions", "--describe", "a"}, {"--instructions", "--batch", "-"}} {
 		if code, _, _ := runCall(t, "", append([]string{"--provider", "claude", "--dir", ws}, args...)...); code != 2 {
