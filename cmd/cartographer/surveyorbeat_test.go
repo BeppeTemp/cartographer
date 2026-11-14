@@ -92,46 +92,45 @@ func TestSurveyorBeatEndToEnd(t *testing.T) {
 		t.Fatalf("settings surveyors = %+v", st)
 	}
 
-	// No call yet: idle since the server started. A person's call resets it; the surveyor's does not.
-	d0, known, _ := b.IdleFor(context.Background(), "kb-a")
-	if !known {
+	// No call yet: idle since the server started. A person's call sets the
+	// server's activity marker; the surveyor's does not. The assertions are on
+	// that marker, not on durations: the idle time is a difference of server
+	// wall-clock stamps, which a clock step (WSL2 time sync) breaks (#2126).
+	if _, known, _ := b.IdleFor(context.Background(), "kb-a"); !known {
 		t.Fatal("idle must be known against this server")
 	}
 	time.Sleep(30 * time.Millisecond)
 	wc := client.New(srv.URL+"/mcp", "surveyor-tok").WithInsecureHTTP(true).WithKB("kb-a")
 	_, _ = wc.Call("kb_status", map[string]any{})
-	d1 := beatAndIdle(t, b, sb, 1)
-	if d1 < d0 {
-		t.Fatalf("a surveyor call moved the idle signal: %v < %v", d1, d0)
+	a1 := beatAndAnswer(t, b, sb, 1)
+	if at := a1.KBs["kb-a"].LastActivityAt; at != nil {
+		t.Fatalf("a surveyor call set the activity marker: %v", at)
 	}
 	pc := client.New(srv.URL+"/mcp", "person-tok").WithInsecureHTTP(true).WithKB("kb-a")
 	before := time.Now()
 	if _, err := pc.Call("kb_status", map[string]any{}); err != nil {
 		t.Fatal(err)
 	}
-	d2 := beatAndIdle(t, b, sb, 2)
-	if d2 >= d1 {
-		t.Fatalf("a person's call did not reset idle: %v >= %v", d2, d1)
+	a2 := beatAndAnswer(t, b, sb, 2)
+	at := a2.KBs["kb-a"].LastActivityAt
+	if at == nil {
+		t.Fatal("a person's call did not set the activity marker")
 	}
-	// The server runs in-process on this clock: the idle time cannot exceed what
-	// has passed since the call. Up to a margin: the idle is a difference of wall-clock
-	// timestamps that crossed JSON (no monotonic reading left), `el` a monotonic one,
-	// and on Windows the two drift apart by microseconds (#2032: 353.3708ms against
-	// 353.3686ms). One tick of the default Windows timer, 16 ms, keeps the check meaningful:
-	// an idle that was not reset is at least the 30 ms slept above.
-	if el := time.Since(before); d2 > el+16*time.Millisecond {
-		t.Fatalf("idle after a person's call = %v, more than the %v since the call", d2, el)
+	// A bound on the test's own wall clock that a step of seconds cannot break.
+	if at.Before(before.Add(-time.Second)) {
+		t.Fatalf("activity marker %v is older than the person's call at %v", at, before)
 	}
 }
 
 // slowBeat delays every heartbeat, as a loaded gate does: the answer a test
 // reads must not depend on the beat being quick. It also remembers the last
-// heartbeat error, because the Beater only logs it and keeps the old answer,
+// heartbeat answer and error, because the Beater only logs it and keeps the old answer,
 // which would let an idle assertion pass without a fresh answer.
 type slowBeat struct {
 	surveyor.BeatAPI
 	mu  sync.Mutex
 	err error
+	ans *client.HeartbeatAnswer
 }
 
 func (s *slowBeat) Heartbeat(report any, timeout time.Duration) (*client.HeartbeatAnswer, error) {
@@ -139,6 +138,7 @@ func (s *slowBeat) Heartbeat(report any, timeout time.Duration) (*client.Heartbe
 	a, err := s.BeatAPI.Heartbeat(report, timeout)
 	s.mu.Lock()
 	s.err = err
+	s.ans = a
 	s.mu.Unlock()
 	return a, err
 }
@@ -150,23 +150,28 @@ func (s *slowBeat) failure() error {
 	return s.err
 }
 
-// beatAndIdle refreshes the beater's answer synchronously and reads the idle
-// time from it: Beat sends at once when the last run's time changes, so n (a
-// strictly increasing counter) makes this beat a send, and the answer it reads
-// is the one just received, whatever the load. The interval stays the default,
-// so the answer is never stale; a failed beat or an unknown idle fails the test.
-func beatAndIdle(t *testing.T, b *surveyor.Beater, sb *slowBeat, n int) time.Duration {
+// answer is the last heartbeat answer.
+func (s *slowBeat) answer() *client.HeartbeatAnswer {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ans
+}
+
+// beatAndAnswer beats synchronously and returns the answer just received: Beat
+// sends at once when the last run's time changes, so n (a strictly increasing
+// counter) makes this beat a send. A failed beat or a missing answer fails the test.
+func beatAndAnswer(t *testing.T, b *surveyor.Beater, sb *slowBeat, n int) *client.HeartbeatAnswer {
 	t.Helper()
 	b.Beat(context.Background(), surveyor.State{
 		Run:     surveyor.StateWaiting,
 		LastRun: surveyor.LastRun{At: time.Unix(1_700_000_000+int64(n), 0)},
 	})
 	if err := sb.failure(); err != nil {
-		t.Fatalf("heartbeat %d failed, the idle answer is stale: %v", n, err)
+		t.Fatalf("heartbeat %d failed, the answer is stale: %v", n, err)
 	}
-	d, known, _ := b.IdleFor(context.Background(), "kb-a")
-	if !known {
-		t.Fatal("idle unknown right after a beat")
+	a := sb.answer()
+	if a == nil {
+		t.Fatalf("heartbeat %d returned no answer", n)
 	}
-	return d
+	return a
 }
