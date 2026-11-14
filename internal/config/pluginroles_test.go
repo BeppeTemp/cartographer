@@ -95,3 +95,25 @@ func TestExpandPluginRolesAppliesTheProxyCeiling(t *testing.T) {
 		t.Fatalf("the same role on a plain token is valid: %v", err)
 	}
 }
+
+// A token whose expires_at passed while configured must not stop the start:
+// serve expands the plugin roles with the zero time (D-new-expired-token-at-start),
+// while a caller that passes a real instant still refuses a past expiry.
+func TestExpandPluginRolesZeroTimeKeepsAnExpiredToken(t *testing.T) {
+	plugins := []*core.Plugin{pluginWithRole("team-data", core.RoleRule{Access: "r"})}
+	a := AuthConfig{
+		Roles: []RoleSpec{{Name: "r", From: "team-data/editor", KBs: []string{"kb-a"}}},
+		Tokens: []TokenSpec{{Token: "tok-aaaa-0123456789", ID: "old", Kind: "client", Roles: []string{"r"},
+			ExpiresAt: "2020-01-01T00:00:00Z"}},
+	}
+	out, err := ExpandPluginRoles(a, plugins, time.Time{})
+	if err != nil {
+		t.Fatalf("zero time must accept a past expires_at: %v", err)
+	}
+	if len(out.Tokens) != 1 {
+		t.Errorf("the expired token must stay in the set, got %d", len(out.Tokens))
+	}
+	if _, err := ExpandPluginRoles(a, plugins, time.Now()); err == nil || !strings.Contains(err.Error(), "already past") {
+		t.Errorf("a real instant must still refuse it, err = %v", err)
+	}
+}

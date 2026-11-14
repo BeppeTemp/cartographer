@@ -32,7 +32,7 @@ func reloadFixture(t *testing.T, body string) (*authReloader, *auth.TokenStore, 
 	}
 	write(body)
 	load := func() (config.AuthConfig, error) {
-		c, err := loadServeConfigAt(serveFlagSet(), config.FlagOverrides{}, path, time.Time{})
+		c, err := loadServeConfigAt(serveFlagSet(), config.FlagOverrides{}, path, true)
 		if err != nil {
 			return config.AuthConfig{}, err
 		}

@@ -143,7 +143,7 @@ func cmdServe(args []string) int {
 		log.Fatal(err)
 	}
 	atlasPlugins = atlasOnes
-	if cfg.Auth, err = config.ExpandPluginRoles(cfg.Auth, serverPlugins, time.Now()); err != nil {
+	if cfg.Auth, err = config.ExpandPluginRoles(cfg.Auth, serverPlugins, time.Time{}); err != nil {
 		log.Fatal(err)
 	}
 	serverPresets = presetEntries(serverPlugins)
@@ -162,7 +162,7 @@ func cmdServe(args []string) int {
 	runServe(cfg, &authReload{
 		Path: configPath,
 		Load: func() (config.AuthConfig, error) {
-			c, err := loadServeConfigAt(fs, overrides, *configFlag, time.Time{})
+			c, err := loadServeConfigAt(fs, overrides, *configFlag, true)
 			if err != nil {
 				return config.AuthConfig{}, err
 			}
@@ -176,14 +176,21 @@ func cmdServe(args []string) int {
 // YAML (if a config path is given) → env overrides → explicit flag overrides.
 // Flags are applied only for those actually passed on the command line
 // (fs.Visit), so unset flags never clobber env/YAML values.
+//
+// A token whose expires_at is already past does not stop the start (D2110):
+// it stays in the set, the store refuses it at lookup and logExpiredTokens
+// names it, so a pod restarting after an expiry is not a crash loop and an
+// all-expired set still enforces authentication. An unparseable expires_at
+// stays an error.
 func loadServeConfig(fs *flag.FlagSet, overrides config.FlagOverrides, configFlagVal string) (*config.Config, error) {
-	return loadServeConfigAt(fs, overrides, configFlagVal, time.Now())
+	return loadServeConfigAt(fs, overrides, configFlagVal, false)
 }
 
-// loadServeConfigAt is loadServeConfig with the instant a token's expires_at is
-// judged against. A reload passes the zero time: a token that expired after
-// startup is not a reason to refuse the file (see authReloader.dropExpired).
-func loadServeConfigAt(fs *flag.FlagSet, overrides config.FlagOverrides, configFlagVal string, now time.Time) (*config.Config, error) {
+// loadServeConfigAt is loadServeConfig with a reload flag. Neither start nor
+// reload judges expires_at against the clock (zero time, see above; the reload
+// drops it, authReloader.dropExpired). A reload also drops a token of an
+// unpinned plugin instead of refusing the file.
+func loadServeConfigAt(fs *flag.FlagSet, overrides config.FlagOverrides, configFlagVal string, reload bool) (*config.Config, error) {
 	configPath := envFallback(configFlagVal, "CARTOGRAPHER_CONFIG")
 
 	var cfg *config.Config
@@ -229,7 +236,7 @@ func loadServeConfigAt(fs *flag.FlagSet, overrides config.FlagOverrides, configF
 	// set, after the overrides. A reload (zero time) drops the token instead of
 	// refusing the file: unpinning a plugin must revoke its token at once, not
 	// leave it valid until restart behind a refused reload.
-	if now.IsZero() {
+	if reload {
 		var dropped []string
 		cfg.Auth.Tokens, dropped = config.DropUnpinnedPluginTokens(cfg.Auth.Tokens, cfg.Plugins)
 		for _, d := range dropped {
@@ -238,7 +245,7 @@ func loadServeConfigAt(fs *flag.FlagSet, overrides config.FlagOverrides, configF
 	} else if err := config.PluginTokensPinned(cfg.Auth.Tokens, cfg.Plugins); err != nil {
 		return nil, fmt.Errorf("config: auth: %w", err)
 	}
-	if err := config.ValidateAuthAt(cfg.Auth, now); err != nil {
+	if err := config.ValidateAuthAt(cfg.Auth, time.Time{}); err != nil {
 		return nil, fmt.Errorf("config: auth: %w", err)
 	}
 	// A configuration that asks for the server git profile, or still names a
@@ -677,6 +684,7 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 		scoped := scopedTokensWithRoles(authCfg.Tokens, authCfg.Roles)
 		proxy := proxyConfigFrom(authCfg.ProxyIdentity, authCfg.Roles)
 		store = auth.NewScopedTokenStore(scoped).SetProxy(proxy).RequireAuth()
+		logExpiredTokens(scoped, time.Now())
 		logExpiringTokens(scoped, time.Now())
 		if store.TokenCount() == 0 {
 			log.Fatal("auth is enabled but no usable token was configured (see auth.tokens, CARTOGRAPHER_TOKENS or --tokens)")
@@ -1092,6 +1100,17 @@ func proxyConfigFrom(spec *config.ProxyIdentitySpec, roles []config.RoleSpec) *a
 		pc.GroupPolicies[g] = auth.Policy{Permissions: rolePermissions(byName, names)}
 	}
 	return pc
+}
+
+// logExpiredTokens names (id and date, never a value) each token whose
+// expires_at is already past at start: the store refuses it with a 401, and
+// the operator is told to remove or renew it.
+func logExpiredTokens(tokens []auth.ScopedToken, now time.Time) {
+	for _, t := range tokens {
+		if !t.ExpiresAt.IsZero() && !t.ExpiresAt.After(now) {
+			log.Printf("auth: token %q expired at %s, refused until renewed or removed from auth.tokens", t.Principal, t.ExpiresAt.UTC().Format(time.RFC3339))
+		}
+	}
 }
 
 // logExpiringTokens names (id and date, never a value) each token that expires

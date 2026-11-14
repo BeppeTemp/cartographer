@@ -336,8 +336,7 @@ stops startup rather than being reinterpreted (D179). Refused:
 - an environment/flag entry with a scope separator but no token (`|kb:docs:r`);
 - a reference to an undeclared role, a duplicate principal id, an unknown auth
   mode;
-- an unknown token `kind`, an `expires_at` that is not an RFC 3339 timestamp or
-  is not in the future (a typo must not silently disable a token), and the
+- an unknown token `kind`, an `expires_at` that is not an RFC 3339 timestamp, and the
   non-human rules of §Token kinds and expiry.
 
 Validation runs for every mode, `off` included, so a latent typo does not become
@@ -453,6 +452,14 @@ which. The server logs it once per token, by id, and logs at startup each token
 that expires within 14 days (id and date, never a value), and again on a
 reload that applies.
 
+A token whose `expires_at` is already past at start does not stop the server: a
+pod that restarts after an expiry must come up, not crash-loop. The token stays
+in the set, is refused at lookup like any expired one, and the start logs it by
+id and date (never the value) so it can be removed or renewed. It still counts as
+configured: an `auto` or `on` configuration whose tokens are all expired starts
+with authentication enforced and answers every request 401, never open. An
+`expires_at` that is not an RFC 3339 timestamp still refuses the start.
+
 The two non-human kinds follow one rule, the minimal one the code allows, not
 "read-only": both kinds write legitimately (a Surveyor commits content, a client
 is what an agent writes through). A `surveyor` or `client` token must declare
@@ -489,7 +496,7 @@ result in whole: a request already past authentication finishes with the
 principal it resolved, the next one sees the new set, and a removed token's open
 MCP session fails on its next request (the transport is stateless).
 
-A token whose `expires_at` passed after startup is left out of the new set with a
+A token whose `expires_at` is past is left out of the new set with a
 log line instead of failing the reload, so removing a leaked token is never
 blocked by one that ran out. A reload that does not apply keeps the tokens in force and logs why, never a
 value: the file is unreadable or deleted, fails validation (the poll retries the same content
