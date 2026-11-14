@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"slices"
 	"sort"
@@ -94,7 +95,8 @@ func cmdSync(args []string) int {
 		return 0
 	}
 
-	if _, err := runSync(dir, cfg, syncOptions{DryRun: *dryRun, NoHeal: *noHeal, Clients: clients, RepairService: true, Locked: locked, Unlock: unlock}); err != nil {
+	res, err := runSync(dir, cfg, syncOptions{DryRun: *dryRun, NoHeal: *noHeal, Clients: clients, RepairService: true, Locked: locked, Unlock: unlock})
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return syncFailureExit(err)
 	}
@@ -102,8 +104,24 @@ func cmdSync(args []string) int {
 		// A brew upgrade runs neither connect nor upgrade-repair: the scheduled
 		// sync is what reaches those clients (D704).
 		removeLegacyDoctorTimer()
+		// The same refusals connect exits 3 for (D1722, #2099): a link that
+		// stays refused fails every run, so a timer or a script sees it. The
+		// line tells it from 3 as "client lock denied". A dry run writes
+		// nothing and reports none.
+		return syncRefusedExit(os.Stderr, res)
 	}
 	return 0
+}
+
+// syncRefusedExit is exitPartiallyConnected when the run refused to write
+// something, 0 otherwise; its line names provider and parts, which is what tells
+// it from the same code as "client lock denied" (#2099, D1722).
+func syncRefusedExit(w io.Writer, res syncResult) int {
+	if len(res.Refused) == 0 {
+		return 0
+	}
+	fmt.Fprintf(w, "Error: sync refused to write: %s (replace the link, or list it under providers.<client>.allow_symlinks)\n", notWired(slices.Sorted(maps.Keys(res.Refused)), res.Refused))
+	return exitPartiallyConnected
 }
 
 // exitClientDirDenied is the exit code of a sync that cannot open its client
@@ -179,6 +197,10 @@ type syncResult struct {
 	// Applied is the outcome per projection key, as materializeForProviders
 	// returned it.
 	Applied map[string]provisioning.AppliedResult
+	// Refused is, per provider, what this run refused to write (an MCP entry,
+	// a kind of artifact): skippedParts, as connect reports it (#2099). Hook
+	// registrations stay warnings.
+	Refused map[string][]string
 }
 
 // runSync is the single in-process sync implementation: reconcile the
@@ -360,6 +382,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		return syncResult{}, fmt.Errorf("%w (no configuration was modified)", partialSyncError{Failures: pullFailures, Skipped: skipped, Providers: providerFailures})
 	}
 
+	var refusedMCP []string
 	if healthErr == nil {
 		// removeMCPEntries is fed the UNION of every known KB, never a
 		// provider's filtered binding (D170): managedEntryNames derives the
@@ -383,7 +406,8 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 			return syncResult{}, err
 		}
 		authorWarnings := setEntryAuthors(cfg, entriesByProvider, globalIdentFn)
-		_, warnings, refusedMCP, err := applyMCPEntriesRefusals(entriesByProvider, targets, dir, claudeDirs, cfg.Auth, cfg.TokenEnv(), opts.DryRun)
+		var warnings []string
+		_, warnings, refusedMCP, err = applyMCPEntriesRefusals(entriesByProvider, targets, dir, claudeDirs, cfg.Auth, cfg.TokenEnv(), opts.DryRun)
 		if err != nil {
 			return syncResult{}, err
 		}
@@ -493,10 +517,16 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		}
 		firePluginEvent(cfg, eventSyncAfter, eventFields(eventSyncAfter, targets, lockedBefore, results, errs), errw)
 	}
-	if len(pullFailures) > 0 || len(providerFailures) > 0 {
-		return syncResult{Revision: commonRevision(results, targets), Applied: results}, partialSyncError{Failures: pullFailures, Skipped: skipped, Providers: providerFailures}
+	refused := skippedParts(refusedMCP, nil, results)
+	for p, parts := range refused {
+		if len(parts) == 0 {
+			delete(refused, p)
+		}
 	}
-	return syncResult{Revision: commonRevision(results, targets), Applied: results}, nil
+	if len(pullFailures) > 0 || len(providerFailures) > 0 {
+		return syncResult{Revision: commonRevision(results, targets), Applied: results, Refused: refused}, partialSyncError{Failures: pullFailures, Skipped: skipped, Providers: providerFailures}
+	}
+	return syncResult{Revision: commonRevision(results, targets), Applied: results, Refused: refused}, nil
 }
 
 // partialSyncError reports a sync that went ahead without some KBs (#350):
