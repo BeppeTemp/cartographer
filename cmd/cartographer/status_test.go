@@ -593,7 +593,7 @@ func TestWorkspaceProviderDiff_DerivedTrackedInstructionsAreNotPending(t *testin
 	manifests := map[string]contract.Manifest{projectionKey(sp): m}
 	var lf provisioning.LockFile
 
-	_, d, _ := workspaceProviderDiff(&clientconfig.Config{}, []syncProjection{sp}, manifests, nil, lf, t.TempDir())
+	_, d, _, _ := workspaceProviderDiff(&clientconfig.Config{}, []syncProjection{sp}, manifests, nil, lf, t.TempDir())
 	if len(d.Added) != 0 || len(d.Updated) != 0 || len(d.Removed) != 0 {
 		t.Errorf("a deliberately unwritten projection is not drift: %+v", d)
 	}
@@ -601,7 +601,7 @@ func TestWorkspaceProviderDiff_DerivedTrackedInstructionsAreNotPending(t *testin
 	// The same projection with the file untracked is written, so absent from
 	// the lock it is pending: the filter is the skip, not the kind.
 	sp.InstructionsSkipped = ""
-	_, d, _ = workspaceProviderDiff(&clientconfig.Config{}, []syncProjection{sp}, manifests, nil, lf, t.TempDir())
+	_, d, _, _ = workspaceProviderDiff(&clientconfig.Config{}, []syncProjection{sp}, manifests, nil, lf, t.TempDir())
 	if len(d.Added) != 1 {
 		t.Errorf("an instructions block that will be written is pending: %+v", d)
 	}

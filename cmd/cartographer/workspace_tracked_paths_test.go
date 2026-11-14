@@ -57,7 +57,7 @@ func syncExplicitCodex(t *testing.T, repo string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, d, _ := workspaceProviderDiff(cfg, projs, manifests, nil, lockFile, target); !d.InSync {
+	if _, d, _, _ := workspaceProviderDiff(cfg, projs, manifests, nil, lockFile, target); !d.InSync {
 		t.Errorf("status after the sync must be in sync, not drift forever: %+v", d)
 	}
 	results, err := materializeForProviders(manifests, projs, target, "", false, false, portability, nil)

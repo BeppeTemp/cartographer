@@ -626,7 +626,8 @@ cartographer status
 Exit code: `0` all providers in sync, `1` at least one provider in drift, `2` error (no
 `.cartographer.yaml`, server unreachable, ...). For every provider it also prints per-kind
 counts (`provisioning.KindCounts`), e.g. `skill 4/5 · agent 2/2 · hook 1/1`. On drift it
-prints the diff (added/updated/removed, with a `trust` state: `built_in`, `verified`, `trusted`,
+names a projection that is out of sync with nothing to list under it (`drift_reason` in `--output json`, #2105): a workspace projection sync never applied, or whose manifest revision differs from its lock's, which the header's global revisions do not show; a drift with no itemized cause at all says so and points to `cartographer sync`. On
+drift it also prints the diff (added/updated/removed, with a `trust` state: `built_in`, `verified`, `trusted`,
 `approved`, `approval_stale`, `needs_approval` or `plugin` (an artifact a plugin contributes: gated by the plugin's own approval, never a per-artifact one) — see [D115](decisions/D115-mcp-allow-list-and-hash-bound-local-approval.md)
 for the MCP-specific approval states; an unsigned KB artifact that is not an MCP descriptor, a hook or an executable file is `trusted`: it is installed,
 D906). Artifacts in `needs_approval`/`approval_stale` get their own
