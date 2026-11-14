@@ -137,14 +137,11 @@ func AdaptUnknownShape(existing, emitted map[string]any, p Provider, at []string
 		conv["enabled"] = true
 		moved[name] = conv
 	}
-	if len(moved) == 0 {
+	// Only a batch that moves whole is written flat; a mixed one (the emitter
+	// writes one server per file today) stays native, src untouched, so no
+	// converted entry is lost.
+	if len(moved) == 0 || len(moved) != len(src) {
 		return at
-	}
-	for name := range moved {
-		delete(src, name)
-	}
-	if len(src) > 0 {
-		return at // mixed batch: the emitter writes one server per file
 	}
 	emitted["mcp"] = moved
 	return flat
