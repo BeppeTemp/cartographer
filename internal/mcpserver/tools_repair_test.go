@@ -1071,3 +1071,22 @@ func TestKBRepairBOMFileUntouched(t *testing.T) {
 		t.Fatalf("BOM file rewritten: %q", got)
 	}
 }
+
+// D-new-map-slash-link: kb_repair turns [[map/]] into the map's own link,
+// keeping alias and anchor, and leaves [[nomap/]] alone.
+func TestKBRepairMapSlashLink(t *testing.T) {
+	t.Parallel()
+	k, s := repairKB(t, 0)
+	body := "---\ntype: Note\ntitle: MS\nupdated: 2026-01-02\n---\nSee [[ops/]], [[ops/|Ops]], [[ops/#x]] and [[nomap/]].\n"
+	if err := os.WriteFile(filepath.Join(k.DataRoot(), "ops", "ms.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	repairCall(t, s, `{"check":"broken_link","dry_run":false}`)
+	cd, err := k.ReadConcept("ops/ms")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "See [[ops]], [[ops|Ops]], [[ops#x]] and [[nomap/]].\n"; cd.Body != want {
+		t.Fatalf("after repair:\n%q\nwant\n%q", cd.Body, want)
+	}
+}

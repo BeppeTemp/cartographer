@@ -861,6 +861,10 @@ func linkFindings(k *kb.KB, id okf.ConceptID, relPath, linkBase, body string, ex
 		preExpBase := strings.TrimSuffix(linkBase, "/index.md") + ".md"
 		rebasable = brokenLinkRebaseFixes(body, linkBase, preExpBase, id, exists)
 	}
+	wikiTargets := map[string]bool{}
+	for _, m := range wikiLinkPat.FindAllStringSubmatch(kb.MaskCodeSpans(body), -1) {
+		wikiTargets[m[1]] = true
+	}
 	for _, target := range kb.ExtractLinks(body, linkBase, k.AssetExists) {
 		targetPath := okf.IDToPath(target)
 		if !exists(target) {
@@ -873,6 +877,12 @@ func linkFindings(k *kb.KB, id okf.ConceptID, relPath, linkBase, body string, ex
 				f.Message += "; fix: rebase relative to the expanded index"
 				if fix.To == "" {
 					f.Message = fmt.Sprintf("link to the concept's own page (%s) — drop the link, keep the label", targetPath)
+				}
+			}
+			if f.Fix == nil {
+				if fix := mapSlashFix(k, target, wikiTargets, exists); fix != nil {
+					f.Fix = fix
+					f.Message += "; fix: link the map itself"
 				}
 			}
 			emit(f)
@@ -1137,6 +1147,21 @@ func indexLinkForms(body, linkBase string, exists func(okf.ConceptID) bool) []Fi
 		}))
 	}
 	return out
+}
+
+// mapSlashFix is the repair of a wiki-link spelled [[map/]] (D2084):
+// the ID "map/" resolves to nothing, but a map with its index is the concept
+// "map" (D310), so the canonical link is [[map]]. A name that is no map, or a
+// map without its index, gets no fix.
+func mapSlashFix(k *kb.KB, target okf.ConceptID, wikiTargets map[string]bool, exists func(okf.ConceptID) bool) *Fix {
+	m, ok := strings.CutSuffix(string(target), "/")
+	if !ok || m == "" || strings.Contains(m, "/") || !wikiTargets[string(target)] || !exists(okf.ConceptID(m)) {
+		return nil
+	}
+	if _, err := k.ReadArchiveMeta(m); err != nil {
+		return nil
+	}
+	return &Fix{Kind: FixRewriteWikiLink, Field: string(target), To: m}
 }
 
 // brokenLinkRebaseFixes computes, for an expanded concept, which broken

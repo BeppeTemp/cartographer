@@ -144,7 +144,7 @@ var registry = []CheckSpec{
 	{Name: "legacy_path", Level: LevelConcept, OnWrite: true, FixKinds: []string{FixReplacePrefix}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryPages},
 
 	// Links and the graph (ScopedCheck on the write path).
-	{Name: "broken_link", Level: LevelGraph, OnWrite: true, FixKinds: []string{FixRebaseLink}, CrossConcept: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryLinks},
+	{Name: "broken_link", Level: LevelGraph, OnWrite: true, FixKinds: []string{FixRebaseLink, FixRewriteWikiLink}, CrossConcept: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryLinks},
 	{Name: "duplicate_link", Level: LevelGraph, OnWrite: true, FixKinds: []string{FixDropLinkItem, FixRewriteLinkItem}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryLinks},
 	{Name: "reciprocal_link_item", Level: LevelGraph, OnWrite: true, FixKinds: []string{FixDropLinkItem}, CrossConcept: true, AvoidableAtWrite: true, Category: CategoryLinks},
 	{Name: "bare_link_list", Level: LevelGraph, OnWrite: true, Judgement: true, AvoidableAtWrite: true, Category: CategoryLinks},
