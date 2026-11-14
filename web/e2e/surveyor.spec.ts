@@ -103,6 +103,9 @@ test("the Surveyor at work: sources, a run, new concepts, a failed feed", async 
         await activity.click();
       }
     }
+    // The list collapses a run's day to one summary button; a day that is not today's (or the film's) opens on a click, today's already shows its rows.
+    const day = runs.getByRole("button", { expanded: false }).first();
+    if (await day.isVisible()) await day.click();
     await expect(runs).toContainText("field-notes");
     await beat(2800);
 
