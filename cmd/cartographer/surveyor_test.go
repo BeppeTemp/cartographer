@@ -30,7 +30,7 @@ func fakeServer(t *testing.T, kbs []string, bootstrapping *atomic.Int32) *httpte
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authed := r.Header.Get("Authorization") == "Bearer "+surveyorCanary+"-token"
 		if r.URL.Path == "/health" {
-			resp := map[string]any{"status": "ok", "ready": true}
+			resp := map[string]any{"status": "ok", "version": "test", "ready": true}
 			if bootstrapping != nil && bootstrapping.Add(-1) >= 0 {
 				resp["bootstrapping"], resp["ready"] = true, false
 			} else if authed && kbs != nil {

@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
@@ -74,6 +75,8 @@ type Bridge struct {
 	outMu sync.Mutex
 	logMu sync.Mutex // logf is called from the read loop and from plugin calls
 	pl    pluginState
+
+	serverVerified int32 // atomic: /health identified the server (authorize)
 
 	mu         sync.Mutex // guards the fields below
 	scope      *Scope
@@ -677,8 +680,8 @@ func (b *Bridge) newRequest(ctx context.Context, scope Scope, reqURL string, raw
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
-	if b.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+b.Token)
+	if err := b.authorize(req); err != nil {
+		return nil, err
 	}
 	b.mu.Lock()
 	sid, proto := b.sessionID, b.protocol
@@ -721,6 +724,28 @@ func (b *Bridge) responseRewriter(scope Scope, m message, unboundNote bool) func
 	case m.Method == "tools/list" && len(b.Plugins) > 0:
 		return func(body []byte) []byte { return b.mergePluginTools(scope, m, body) }
 	}
+	return nil
+}
+
+// verifyServer is client.VerifyServer; a variable so the package's own tests,
+// whose stub servers are not /health-aware, can step over it.
+var verifyServer = client.VerifyServer
+
+// authorize attaches the bearer token once an anonymous /health identified the
+// configured server as a Cartographer server (client.VerifyServer); until then
+// the request fails unsent. The /health shape is not authentication: the trust
+// in the destination is the configured URL.
+func (b *Bridge) authorize(req *http.Request) error {
+	if b.Token == "" {
+		return nil
+	}
+	if atomic.LoadInt32(&b.serverVerified) == 0 {
+		if err := verifyServer(b.Cfg.ServerURL, b.Cfg.InsecureHTTPAllowed(), b.HTTP); err != nil {
+			return err
+		}
+		atomic.StoreInt32(&b.serverVerified, 1)
+	}
+	req.Header.Set("Authorization", "Bearer "+b.Token)
 	return nil
 }
 
@@ -903,8 +928,8 @@ func (b *Bridge) closeSession() {
 		return
 	}
 	req.Header.Set("Mcp-Session-Id", sid)
-	if b.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+b.Token)
+	if err := b.authorize(req); err != nil {
+		return
 	}
 	if resp, err := client.HTTPClient(b.HTTP, b.Cfg.InsecureHTTPAllowed()).Do(req); err == nil {
 		resp.Body.Close()

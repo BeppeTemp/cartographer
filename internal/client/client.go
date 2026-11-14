@@ -158,6 +158,11 @@ type MCPClient struct {
 	// showed the server predates it (a 0.28 server): the two reports that were
 	// released then go straight to their 0.28 routes afterwards.
 	legacyComponents int32
+
+	// serverVerified is set (atomically) once an anonymous /health identified
+	// the configured URL as a Cartographer server: only then does a request of
+	// this client carry the bearer token (see authorize).
+	serverVerified int32
 }
 
 // Health is the additive subset of the server's /health response that clients
@@ -495,8 +500,8 @@ func (c *MCPClient) doCtx(ctx context.Context, method string, params any) (json.
 			httpReq.Header.Set(AuthorHeader, EncodeAuthor(c.Author))
 		}
 	}
-	if c.Token != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+c.Token)
+	if err := c.authorize(httpReq); err != nil {
+		return nil, err
 	}
 
 	resp, err := HTTPClient(c.HTTP, c.AllowInsecureHTTP).Do(httpReq)
@@ -636,11 +641,96 @@ func AtlasURL(serverURL string) (string, error) {
 	return u.String(), nil
 }
 
+// ErrNotCartographerServer is wrapped by the error of a request that was not
+// sent because the configured URL did not answer /health as a Cartographer
+// server. Matches with errors.Is.
+var ErrNotCartographerServer = errors.New("the address does not answer as a Cartographer server")
+
+// authorize is the one place the bearer token is attached to a request to the
+// configured server (MCP calls and component routes alike), so no caller can
+// forget the check: the token is sent only after an anonymous /health
+// identified the URL as a Cartographer server (IsServer), and the request
+// fails, unsent, otherwise. A client without a token needs no check. The
+// verdict is kept for the client's life; a failed probe is asked again.
+//
+// TRAP: the /health shape is not authentication, a listener can forge it. The
+// trust in the destination is the configured URL; this stops the token going
+// to a process that merely holds the port (D259-style foreign listener).
+func (c *MCPClient) authorize(req *http.Request) error {
+	if c.Token == "" {
+		return nil
+	}
+	if atomic.LoadInt32(&c.serverVerified) == 0 {
+		if err := c.verifyServer(); err != nil {
+			return err
+		}
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Token)
+	return nil
+}
+
+func (c *MCPClient) verifyServer() error {
+	if err := VerifyServer(c.ServerURL, c.AllowInsecureHTTP, c.HTTP); err != nil {
+		return err
+	}
+	atomic.StoreInt32(&c.serverVerified, 1)
+	return nil
+}
+
+// VerifyServer asks the anonymous /health of the server behind serverURL and
+// returns nil only when it answers as a Cartographer server (IsServer). It is
+// the check every sender of the bearer token makes first (MCPClient does it
+// itself; the stdio bridge calls it), so the token never goes to a program
+// that merely listens on the configured address.
+func VerifyServer(serverURL string, allowInsecure bool, hc *http.Client) error {
+	if err := CheckServerURL(serverURL, allowInsecure); err != nil {
+		return err
+	}
+	u, err := ServerBase(serverURL)
+	if err != nil {
+		return err
+	}
+	u.Path += "/health"
+	if hc == nil {
+		hc = &http.Client{}
+	}
+	probe := *HTTPClient(hc, allowInsecure)
+	probe.Timeout = 10 * time.Second
+	c := &MCPClient{ServerURL: serverURL, AllowInsecureHTTP: allowInsecure}
+	h, final, err := c.healthOnce(&probe, u, "")
+	var re *RemoteError
+	starting := errors.As(err, &re) && re.Code == CodeStarting
+	switch {
+	case err != nil && !starting:
+		return err
+	case final == nil || !strings.EqualFold(final.Host, u.Host) || (final.Scheme != u.Scheme && final.Scheme != "https"):
+		// The answer came from another host (a redirect): not the configured server.
+		return &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
+			Message: fmt.Sprintf("%s was redirected away from the configured server; the token was not sent", u.Redacted()),
+			Cause:   ErrNotCartographerServer}
+	case starting:
+		// A bootstrapping server answered as one (healthOnce checked its shape).
+		return nil
+	case !h.IsServer():
+		return &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
+			Message: fmt.Sprintf("%s does not answer as a Cartographer server; the token was not sent", u.Redacted()),
+			Cause:   ErrNotCartographerServer}
+	}
+	return nil
+}
+
 // Health fetches GET /health for the configured MCP endpoint. serverURL
 // normally ends in /mcp; only that terminal path segment is stripped, leaving
 // deployments whose endpoint is rooted elsewhere intact. Like Ping, timeout
 // applies only to this call and does not mutate the client shared by later
 // sync_pull requests.
+//
+// TRAP: /health is public, so the first request never carries the token: a
+// process that merely listens on the configured port must not receive it. Only
+// when that anonymous answer has a Cartographer server's shape (IsServer) and
+// the client has a token is /health asked again with it, because the KB list
+// follows the caller's token (D1096). The authenticated request follows no
+// redirect: Go keeps Authorization on a same-host one.
 func (c *MCPClient) Health(timeout time.Duration) (*Health, error) {
 	if err := CheckServerURL(c.ServerURL, c.AllowInsecureHTTP); err != nil {
 		return nil, err
@@ -653,48 +743,75 @@ func (c *MCPClient) Health(timeout time.Duration) (*Health, error) {
 
 	hc := *HTTPClient(c.HTTP, c.AllowInsecureHTTP)
 	hc.Timeout = timeout
+	h, final, err := c.healthOnce(&hc, u, "")
+	if err != nil {
+		return nil, err
+	}
+	if c.Token == "" || !h.IsServer() {
+		return h, nil
+	}
+	// The token goes to the URL that answered, on the same host as the
+	// configured one, and follows no further redirect.
+	if final == nil || !strings.EqualFold(final.Host, u.Host) || (final.Scheme != u.Scheme && final.Scheme != "https") {
+		return h, nil
+	}
+	hc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	h, _, err = c.healthOnce(&hc, final, c.Token)
+	if err != nil {
+		return nil, err
+	}
+	return h, nil
+}
+
+// healthOnce is one GET of /health, with the bearer token only when token is
+// not empty.
+func (c *MCPClient) healthOnce(hcp *http.Client, u *url.URL, token string) (*Health, *url.URL, error) {
+	hc := *hcp
 	req, err := http.NewRequest(http.MethodGet, u.String(), nil)
 	if err != nil {
-		return nil, fmt.Errorf("client: build health request: %w", err)
+		return nil, nil, fmt.Errorf("client: build health request: %w", err)
 	}
-	if c.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.Token)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
 	resp, err := hc.Do(req)
 	if err != nil {
-		return nil, &RemoteError{State: RemoteUnavailable, Code: classifyDialErr(err),
+		return nil, nil, &RemoteError{State: RemoteUnavailable, Code: classifyDialErr(err),
 			Message: fmt.Sprintf("could not reach %s", u), Cause: err}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode == http.StatusUnauthorized {
-			return nil, &RemoteError{State: RemoteUnavailable, Code: CodeUnauthorized,
+			return nil, nil, &RemoteError{State: RemoteUnavailable, Code: CodeUnauthorized,
 				Message: fmt.Sprintf("%s rejected the request", u), Cause: c.unauthorizedCauseFor()}
 		}
 		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 8*1024*1024))
 		if readErr != nil {
-			return nil, &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
+			return nil, nil, &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
 				Message: fmt.Sprintf("could not read response from %s", u), Cause: readErr}
 		}
 		msg := fmt.Sprintf("%s returned HTTP %d", u, resp.StatusCode)
 		if resp.StatusCode == http.StatusNotFound {
 			msg += mcpSubpathHint(c.ServerURL)
 		}
-		return nil, &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
+		return nil, nil, &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
 			Message: msg, Cause: fmt.Errorf("%s", Escape(string(body))), HTTPStatus: resp.StatusCode}
 	}
 
 	var health Health
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 8*1024*1024)).Decode(&health); err != nil {
-		return nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
+		return nil, nil, &RemoteError{State: RemoteFailed, Code: CodeMCPFailed,
 			Message: fmt.Sprintf("invalid health response from %s", u), Cause: err}
 	}
-	if health.Bootstrapping {
-		return nil, &RemoteError{State: RemoteUnavailable, Code: CodeStarting,
+	// Only a Cartographer server's own shape (status ok and a version, as the
+	// bootstrapping answer carries) is honoured as bootstrapping; any other
+	// body is returned as it is, for the caller's IsServer to refuse.
+	if health.Bootstrapping && health.IsServer() {
+		return &health, resp.Request.URL, &RemoteError{State: RemoteUnavailable, Code: CodeStarting,
 			Message: "server is bootstrapping its KBs, retry shortly"}
 	}
-	return &health, nil
+	return &health, resp.Request.URL, nil
 }
 
 // ReportUsage posts a usage report (a JSON-encodable list of entries) for one
@@ -863,8 +980,8 @@ func (c *MCPClient) apiCallInto(method, route, kbName string, body, out any, tim
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if c.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.Token)
+	if err := c.authorize(req); err != nil {
+		return err
 	}
 	resp, err := hc.Do(req)
 	if err != nil {

@@ -239,8 +239,9 @@ func TestClientTargetNeverPrintsTheToken(t *testing.T) {
 	}
 }
 
-// The production probe sends the token once, to /health of the server_url
-// base, under the client's own URL rules.
+// The production probe asks /health of the server_url base anonymously, then
+// once more with the token (the answer is a Cartographer server's), under the
+// client's own URL rules.
 func TestProbeClient(t *testing.T) {
 	var gotAuth atomic.Value
 	var gotPath atomic.Value
@@ -259,7 +260,7 @@ func TestProbeClient(t *testing.T) {
 		if err != nil || h == nil || h.Version != "9" {
 			t.Fatalf("%q: %v %+v", c.suffix, err, h)
 		}
-		if hits.Load() != 1 || gotAuth.Load() != "Bearer "+secretToken || gotPath.Load() != c.path {
+		if hits.Load() != 2 || gotAuth.Load() != "Bearer "+secretToken || gotPath.Load() != c.path {
 			t.Errorf("%q: hits=%d auth=%v path=%v", c.suffix, hits.Load(), gotAuth.Load(), gotPath.Load())
 		}
 	}

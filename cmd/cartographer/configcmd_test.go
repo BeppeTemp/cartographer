@@ -24,6 +24,10 @@ func configDir(t *testing.T, serverURL string) string {
 
 func TestConfigShowsClientOriginsAndServerSection(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			_, _ = w.Write([]byte(`{"status":"ok","version":"test"}`))
+			return
+		}
 		if r.URL.Path != "/api/ui/v1/settings" {
 			http.NotFound(w, r)
 			return

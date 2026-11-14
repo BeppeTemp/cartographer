@@ -19,6 +19,10 @@ func TestComponentCalls(t *testing.T) {
 	var settings map[string]any
 	status := http.StatusOK
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			_, _ = w.Write([]byte(`{"status":"ok","version":"test"}`))
+			return
+		}
 		got = append(got, r.URL.Path+"?"+r.URL.RawQuery)
 		if r.URL.Path == componentproto.SettingsPath {
 			body, _ := io.ReadAll(r.Body)
@@ -69,6 +73,10 @@ func TestReportsFallBackToThe028Routes(t *testing.T) {
 	var got []string
 	var settings map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			_, _ = w.Write([]byte(`{"status":"ok","version":"test"}`))
+			return
+		}
 		got = append(got, r.URL.Path)
 		switch r.URL.Path {
 		case componentproto.LegacyUsagePath:

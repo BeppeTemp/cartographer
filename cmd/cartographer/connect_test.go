@@ -8,11 +8,13 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -174,22 +176,109 @@ func TestProbeServer_Success(t *testing.T) {
 	}
 }
 
+// healthRecorder is a listener whose /health is public, like the server's, and
+// that records the Authorization header of every request it gets. shape is the
+// /health body it answers.
+func healthRecorder(t *testing.T, shape string) (*httptest.Server, func() []string) {
+	t.Helper()
+	var mu sync.Mutex
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		seen = append(seen, r.Header.Get("Authorization"))
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(shape))
+	}))
+	t.Cleanup(srv.Close)
+	return srv, func() []string { mu.Lock(); defer mu.Unlock(); return append([]string(nil), seen...) }
+}
+
+const serverShape = `{"status":"ok","version":"v1.2.3","kbs":[]}`
+
 func TestProbeServer_TokenOnlyWhenAuthEnabled(t *testing.T) {
-	srv := pingServer(t, "sekret")
-	defer srv.Close()
 	t.Setenv("PROBE_TOKEN", "sekret")
 
-	// Auth enabled: token read from the env var, probe succeeds.
-	state, err := probeServer(connectOptions{ServerURL: srv.URL, Auth: true, Token: "${PROBE_TOKEN}"})
-	if err != nil || state != probeReady {
+	// Auth enabled: the first /health is anonymous, the token goes only to a
+	// listener whose answer is a Cartographer server's.
+	srv, seen := healthRecorder(t, serverShape)
+	if _, err := probeServer(connectOptions{ServerURL: srv.URL, Auth: true, Token: "${PROBE_TOKEN}"}); err != nil {
 		t.Fatalf("probeServer with auth: %v", err)
+	}
+	if got := seen(); len(got) != 2 || got[0] != "" || got[1] != "Bearer sekret" {
+		t.Errorf("Authorization headers = %q, want an anonymous probe then the token", got)
 	}
 
 	// Auth disabled: no Authorization header is sent even though the env var
-	// is set (same rule as resolveToken in clientsync.go) → the server 401s.
-	_, err = probeServer(connectOptions{ServerURL: srv.URL, Auth: false, Token: "${PROBE_TOKEN}"})
-	if !errors.Is(err, client.ErrUnauthorized) {
-		t.Fatalf("expected ErrUnauthorized without auth, got %v", err)
+	// is set (same rule as resolveToken in clientsync.go).
+	srv, seen = healthRecorder(t, serverShape)
+	if _, err := probeServer(connectOptions{ServerURL: srv.URL, Auth: false, Token: "${PROBE_TOKEN}"}); err != nil {
+		t.Fatalf("probeServer without auth: %v", err)
+	}
+	if got := seen(); len(got) != 1 || got[0] != "" {
+		t.Errorf("Authorization headers = %q, want one anonymous probe", got)
+	}
+}
+
+// A listener that is not a Cartographer server never receives the token, from
+// any caller that probes /health.
+func TestHealthProbes_ForeignListenerGetsNoToken(t *testing.T) {
+	t.Setenv("PROBE_TOKEN", "sekret")
+	srv, seen := healthRecorder(t, `{"status":"ok"}`)
+
+	if _, err := probeServer(connectOptions{ServerURL: srv.URL, Auth: true, Token: "${PROBE_TOKEN}"}); err != nil {
+		t.Fatalf("probeServer: %v", err)
+	}
+	if _, err := enumerateKBs(srv.URL, true, "${PROBE_TOKEN}", false); err != nil {
+		t.Fatalf("enumerateKBs: %v", err)
+	}
+	if _, note := fetchSettings(&clientconfig.Config{ServerURL: srv.URL, Auth: true, Token: "${PROBE_TOKEN}"}); note == "" {
+		t.Error("fetchSettings on a foreign listener should say it is not a server")
+	}
+	for i, h := range seen() {
+		if h != "" {
+			t.Errorf("request %d carried Authorization %q to a foreign listener", i, h)
+		}
+	}
+}
+
+// The callers that go on to token-carrying calls after a /health that said
+// nothing against the listener (sync with named KBs, reindex, kb repair,
+// kb secrets, surveyor ping, usage and settings reports) get no token to the
+// foreign listener either: the client refuses to send it.
+func TestForeignListenerGetsNoTokenFromTheCallersAfterHealth(t *testing.T) {
+	srv, seen := healthRecorder(t, `{"status":"ok"}`)
+	cfg := clientconfig.Default()
+	cfg.ServerURL = srv.URL + "/mcp"
+	cfg.Auth, cfg.Token = true, "sekret"
+	cfg.UsageScan = true
+
+	token := "sekret"
+	newClient := func() *client.MCPClient { return client.New(cfg.ServerURL, token).WithInsecureHTTP(true) }
+	health, err := newClient().Health(time.Second)
+	if err != nil {
+		t.Fatalf("Health: %v", err)
+	}
+	targets, err := resolveKBTargets(health, []string{"kb-a"})
+	if err != nil {
+		t.Fatalf("resolveKBTargets: %v", err)
+	}
+	if _, err := callTool(newClient().WithKB(targets[0].Name), targets[0], "reindex", map[string]any{}); err == nil {
+		t.Error("reindex call reached a foreign listener")
+	}
+	if _, err := callTool(repairCaller(cfg, token, targets[0], t.TempDir(), io.Discard).c, targets[0], "kb_repair", map[string]any{}); err == nil {
+		t.Error("kb repair call reached a foreign listener")
+	}
+	if err := newClient().Ping(time.Second); err == nil {
+		t.Error("surveyor ping reached a foreign listener")
+	}
+	if err := newClient().ReportUsage("kb-a", []int{}, time.Second); err == nil {
+		t.Error("usage report reached a foreign listener")
+	}
+	for i, h := range seen() {
+		if h != "" {
+			t.Errorf("request %d carried Authorization %q to a foreign listener", i, h)
+		}
 	}
 }
 

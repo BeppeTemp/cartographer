@@ -163,7 +163,7 @@ func TestSurveyorSourceNeverPrintsTheSecret(t *testing.T) {
 func TestSurveyorSourceAgainstAServer(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/health" {
-			w.Write([]byte(`{"status":"ok"}`))
+			w.Write([]byte(`{"status":"ok","version":"test"}`))
 			return
 		}
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -247,7 +247,7 @@ type mcpMock struct {
 
 func (m *mcpMock) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/health" {
-		w.Write([]byte(`{"status":"ok"}`))
+		w.Write([]byte(`{"status":"ok","version":"test"}`))
 		return
 	}
 	if r.Header.Get("Authorization") != "Bearer "+m.token {

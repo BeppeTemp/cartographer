@@ -271,6 +271,10 @@ func TestRun_EventsCarryNoContent(t *testing.T) {
 func TestRun_EndToEnd(t *testing.T) {
 	var deleted atomic.Int32
 	mcp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			_, _ = w.Write([]byte(`{"status":"ok","version":"test"}`))
+			return
+		}
 		var req struct {
 			Method string `json:"method"`
 			Params struct {
