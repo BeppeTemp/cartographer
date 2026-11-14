@@ -369,6 +369,11 @@ func nonstandardFieldFindings(in conceptInput) []Finding {
 		if in.Contract != nil && contractNamesField(*in.Contract, conceptType, key) {
 			continue
 		}
+		// A field a keyed type owns (IngestPlan.sources, IngestUnit.source: D1201)
+		// is that type's own key, never a synonym of provenance.
+		if kb.IsKeyedField(conceptType, key) {
+			continue
+		}
 		// A timestamp synonym such as "data" or "date" is an ordinary English
 		// word: only a date-shaped value makes it a stand-in for the timestamp.
 		if std == "timestamp" {

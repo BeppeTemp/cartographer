@@ -580,7 +580,7 @@ A write response carries these checks for the concept it wrote, plus the body, l
 
 Lint also compares a KB with the standard fields the server reads, not only with the contracts the KB declared. Like every finding they are problems (D947), and a check fires only on a field the KB actually has.
 
-- `nonstandard_field`: a frontmatter key that is a known synonym of a standard field. Standard field absent: the finding carries the fix `rename_field <synonym> → <standard>`. Standard field also present: the finding says so and has no fix, since merging values is a judgement. A field the page's own map contract names (`required_fields` or `field_values`, for the page's type or `*`) is not reported: the contract is explicit, so the page keeps that name and the repair never renames it. Keys match case-insensitively. A `lint_ignore` key on a concept is reported here too, with the fix `drop_field`: D907 removed every way to silence a finding, so the key does nothing and the repair drops it. The synonym table (`StandardFieldSynonyms` in `internal/lint/conformance.go`):
+- `nonstandard_field`: a frontmatter key that is a known synonym of a standard field. Standard field absent: the finding carries the fix `rename_field <synonym> → <standard>`. Standard field also present: the finding says so and has no fix, since merging values is a judgement. A field the page's own map contract names (`required_fields` or `field_values`, for the page's type or `*`) is not reported: the contract is explicit, so the page keeps that name and the repair never renames it. The fields a keyed type owns, `sources` of `IngestPlan` and `source` of `IngestUnit` (D1201), are never reported either, whatever the map says: the Surveyor's poll reads them under that name (`internal/kb/keyedtype.go`, D2108). Keys match case-insensitively. A `lint_ignore` key on a concept is reported here too, with the fix `drop_field`: D907 removed every way to silence a finding, so the key does nothing and the repair drops it. The synonym table (`StandardFieldSynonyms` in `internal/lint/conformance.go`):
 
   | Standard field | Known synonyms |
   |---|---|
@@ -1049,7 +1049,7 @@ validate a nested per-type grammar.
 - **Ingest plan and units (D1201).** An ingest campaign is concepts, so it can be
   resumed, extended with new sources and executed by several agents at once.
   `IngestPlan` (one per campaign) has required `status`
-  (`open` \| `in-progress` \| `done`) and optional `sources`, `maps`, `timestamp`;
+  (`open` \| `in-progress` \| `done`) and optional `sources`, `maps`, `timestamp` (`sources` and `source` below are the types' own keys: lint never renames them to `provenance`);
   its body holds the Map layout, the subject-ownership table and the extraction
   rules. `IngestUnit` (one per unit of work) has required `source` (a Source
   ID), `targets` (concept IDs to patch or create), `extract` and `verify`

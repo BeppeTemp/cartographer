@@ -338,3 +338,29 @@ func TestMissingValueContract_SHAFieldSkipped(t *testing.T) {
 		t.Error("a field with a non-SHA value must still fire")
 	}
 }
+
+// D1201 keys: IngestPlan.sources and IngestUnit.source are those types' own
+// fields, never synonyms of provenance; any other type keeps the rename.
+func TestNonstandardField_KeyedFieldsAreNotSynonyms(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "kb-a/plan.md", "---\ntype: IngestPlan\ntitle: P\nstatus: open\nsources: [s1]\nprovenance: [p]\n---\nx\n")
+	writeFile(t, k.DataRoot(), "kb-a/unit.md", "---\ntype: IngestUnit\ntitle: U\nstatus: open\nSource: s1\n---\nx\n")
+	writeFile(t, k.DataRoot(), "kb-a/note.md", "---\ntype: Note\ntitle: N\nsources: [s1]\n---\nx\n")
+	writeFile(t, k.DataRoot(), "kb-a/src.md", "---\ntype: Source\ntitle: S\nsource: s1\n---\nx\n")
+	writeFile(t, k.DataRoot(), "kb-a/plan-other.md", "---\ntype: IngestPlan\ntitle: P2\nstatus: open\nrefs: [r]\n---\nx\n")
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{"kb-a/plan.md", "kb-a/unit.md"} {
+		if hasCheck(findings, p, "nonstandard_field") {
+			t.Errorf("%s: keyed field reported: %+v", p, findingFor(findings, p, "nonstandard_field"))
+		}
+	}
+	for _, p := range []string{"kb-a/note.md", "kb-a/src.md", "kb-a/plan-other.md"} {
+		if f := findingFor(findings, p, "nonstandard_field"); f == nil || f.Fix == nil || f.Fix.Kind != FixRenameField {
+			t.Errorf("%s: want the rename, got %+v", p, f)
+		}
+	}
+}

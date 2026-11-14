@@ -50,3 +50,19 @@ func IsKeyedType(t string) bool {
 	return IsSourceType(t) || IsContradictionType(t) || IsServiceType(t) || IsDigestType(t) ||
 		IsIngestPlanType(t) || IsIngestUnitType(t)
 }
+
+// keyedFields are the frontmatter keys a keyed type owns (D1201): the server
+// reads them under that exact name, so lint never treats them as synonyms of a
+// standard field (D2108). Only these keys: the other
+// keyed types keep every rename.
+var keyedFields = map[string]string{
+	IngestPlanType: "sources",
+	IngestUnitType: "source",
+}
+
+// IsKeyedField reports whether key is a field the keyed type t owns: the type
+// matched exactly, the key in any case.
+func IsKeyedField(t, key string) bool {
+	f, ok := keyedFields[t]
+	return ok && strings.EqualFold(f, key)
+}
