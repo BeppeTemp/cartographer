@@ -548,7 +548,7 @@ func TestRemoveMCPEntries_ASymlinkedConfigIsReportedAfterTheOtherProvidersArePro
 	elsewhere := linkCodexDir(t, dir)
 	before := readTree(t, elsewhere)
 
-	_, removed, err := removeMCPEntries("wiki", nil, []string{"codex", "claude"}, dir, nil, false, "", false)
+	_, removed, err := removeMCPEntries("wiki", nil, []string{"codex", "claude"}, dir, nil, false, "", false, nil)
 	if !errors.Is(err, safewrite.ErrSymlinkDestination) {
 		t.Fatalf("removeMCPEntries = %v, want ErrSymlinkDestination", err)
 	}

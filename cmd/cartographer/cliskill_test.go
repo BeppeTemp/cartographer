@@ -107,7 +107,7 @@ func TestCLIProviderHasNoMCPEntry(t *testing.T) {
 	if err != nil || len(written) != 0 || len(warnings) != 0 {
 		t.Fatalf("applyMCPEntries = %v, %v, %v", written, warnings, err)
 	}
-	names, removed, err := removeMCPEntries("cartographer", cfg.KnownKBs, []string{"codex"}, dir, nil, false, "", false)
+	names, removed, err := removeMCPEntries("cartographer", cfg.KnownKBs, []string{"codex"}, dir, nil, false, "", false, nil)
 	if err != nil || len(names) != 0 || len(removed) != 0 {
 		t.Fatalf("removeMCPEntries = %v, %v, %v", names, removed, err)
 	}

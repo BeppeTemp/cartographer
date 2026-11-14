@@ -215,7 +215,7 @@ func doDisconnectLocked(opts disconnectOptions) (disconnectResult, error) {
 	for _, p := range opts.Providers {
 		pr := disconnectProviderResult{Provider: p}
 
-		_, removed, err := removeMCPEntries(cfg.ServerName, cfg.KnownKBs, []string{p}, opts.Dir, claudeDirs, cfg.Auth, cfg.TokenEnv(), opts.DryRun)
+		_, removed, err := removeMCPEntries(cfg.ServerName, cfg.KnownKBs, []string{p}, opts.Dir, claudeDirs, cfg.Auth, cfg.TokenEnv(), opts.DryRun, nil)
 		if provisioning.IsRefusal(err) {
 			// One provider's symlinked config does not stop the others.
 			pr.Refused = refusalWarnings(err)

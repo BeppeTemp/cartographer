@@ -1233,7 +1233,7 @@ func TestDryRunPlanCoversRemovalsAndKnownKBs(t *testing.T) {
 	}
 	// An MCP entry for the KB that disappeared, so there is something real to
 	// report as removed.
-	if _, _, err := removeMCPEntries(cfg.ServerName, cfg.KnownKBs, []string{"claude"}, dir, nil, false, "", false); err != nil {
+	if _, _, err := removeMCPEntries(cfg.ServerName, cfg.KnownKBs, []string{"claude"}, dir, nil, false, "", false, nil); err != nil {
 		t.Fatal(err)
 	}
 	entries, err := entriesByProviderForKBs(cfg, []string{"claude"}, cfg.ServerName, cfg.ServerURL, []string{"one", "gone"}, "")

@@ -124,7 +124,7 @@ func TestBridgeEntryReplacesTheHTTPOne(t *testing.T) {
 	if _, _, err := applyMCPEntries(http, []string{"claude"}, dir, nil, true, "CARTOGRAPHER_TOKEN", false); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := removeMCPEntries("cartographer", []string{"kb-a"}, []string{"claude"}, dir, nil, true, "CARTOGRAPHER_TOKEN", false); err != nil {
+	if _, _, err := removeMCPEntries("cartographer", []string{"kb-a"}, []string{"claude"}, dir, nil, true, "CARTOGRAPHER_TOKEN", false, nil); err != nil {
 		t.Fatal(err)
 	}
 	bridge := map[string][]mcpEntry{"claude": {{Name: "cartographer", Bridge: true}}}

@@ -56,7 +56,7 @@ func readProviderConfig(t *testing.T, dir, provider string) []byte {
 func syncRound(t *testing.T, dir string, entries map[string][]mcpEntry, providers []string) []string {
 	t.Helper()
 	noteOnDiskBridgeCommand(providers, entries, dir, nil)
-	if _, _, err := removeMCPEntries("cartographer", []string{"kb-a"}, providersToClear(providers, entries), dir, nil, false, "", false); err != nil {
+	if _, _, err := removeMCPEntries("cartographer", []string{"kb-a"}, providersToClear(providers, entries), dir, nil, false, "", false, nil); err != nil {
 		t.Fatal(err)
 	}
 	_, warnings, err := applyMCPEntries(entries, providers, dir, nil, false, "", false)
