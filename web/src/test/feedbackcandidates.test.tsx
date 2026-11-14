@@ -48,15 +48,23 @@ function open(panel: string) {
 
 afterEach(() => vi.unstubAllGlobals());
 
+/** The first wait of a test that mounts <App />: the first mount of the file pays the cold module and fetch chain,
+ *  which on a loaded gate can outlast Testing Library's 1000 ms default. Own budget, nothing raised globally
+ *  (fixtures.ts, bootedVersionButton): each such test sets `{ timeout: 10_000 }` so this wait fits vitest's 5 s. */
+function booted(role: "list" | "region" | "text", name: string | RegExp): Promise<HTMLElement> {
+  const opts = { timeout: 4000 };
+  return role === "text" ? screen.findByText(name, undefined, opts) : screen.findByRole(role, { name }, opts);
+}
+
 describe("Activity: Report candidates", () => {
   beforeEach(() => open("activity"));
 
-  it("lists this KB's candidates per Surveyor, in words, and none of another KB's", async () => {
+  it("lists this KB's candidates per Surveyor, in words, and none of another KB's", { timeout: 10_000 }, async () => {
     stubApi({
       [LIST]: list(cand(), cand({ id: "c2", kind: "contract_mismatch", surveyor: "w-2", tool: "kb_status", code: "unknown" }), cand({ id: "c3", kb: "kb-b" }), cand({ id: "c4", kb: undefined, kind: "protocol_mismatch", tool: undefined, code: "protocol", count: 1 })),
     });
     render(<App />);
-    const one = await screen.findByRole("list", { name: "Report candidates of w-1" });
+    const one = await booted("list", "Report candidates of w-1");
     expect(within(one).getAllByRole("listitem")).toHaveLength(2);
     expect(within(one).getByText(/tool error · concept_read · internal error/)).toBeInTheDocument();
     expect(within(one).getByText(/seen 3 times/)).toBeInTheDocument();
@@ -65,38 +73,38 @@ describe("Activity: Report candidates", () => {
     expect(screen.getByRole("heading", { name: /Report candidates/ })).toHaveTextContent("3");
   });
 
-  it("words the age against the server's clock, not the browser's", async () => {
+  it("words the age against the server's clock, not the browser's", { timeout: 10_000 }, async () => {
     stubApi({
       [LIST]: list(cand()),
       "/components": () => json({ ...componentsAnswer(componentRow({}, [{}])), server: { version: "test", started_at: "2026-01-01T00:00:00Z", now: NOW } }),
     });
     render(<App />);
-    const one = await screen.findByRole("list", { name: "Report candidates of w-1" });
+    const one = await booted("list", "Report candidates of w-1");
     await waitFor(() => expect(within(one).getByText(/last seen 3 h ago/)).toBeInTheDocument());
   });
 
-  it("is absent with no candidate for the KB", async () => {
+  it("is absent with no candidate for the KB", { timeout: 10_000 }, async () => {
     stubApi({ [LIST]: list(cand({ kb: "kb-b" })) });
     render(<App />);
-    await screen.findByRole("region", { name: /activity/i });
+    await booted("region", /activity/i);
     await waitFor(() => expect((globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.some(([u]) => String(u).includes(LIST))).toBe(true));
     expect(screen.queryByRole("heading", { name: /Report candidates/ })).not.toBeInTheDocument();
   });
 
-  it("is absent when the operator switched feedback off (404 feedback_off)", async () => {
+  it("is absent when the operator switched feedback off (404 feedback_off)", { timeout: 10_000 }, async () => {
     const fetchMock = stubApi();
     render(<App />);
-    await screen.findByRole("region", { name: /activity/i });
+    await booted("region", /activity/i);
     await waitFor(() => expect(fetchMock.mock.calls.some(([u]) => String(u).includes(LIST))).toBe(true));
     expect(screen.queryByRole("heading", { name: /Report candidates/ })).not.toBeInTheDocument();
   });
 
-  it("drafts a report with a GET and shows it read-only, the duplicate search first, then the form link", async () => {
+  it("drafts a report with a GET and shows it read-only, the duplicate search first, then the form link", { timeout: 10_000 }, async () => {
     const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
     const fetchMock = stubApi({ [DRAFT]: () => json(draft()), [LIST]: list(cand()) });
     const user = userEvent.setup();
     render(<App />);
-    const row = (await screen.findByRole("list", { name: "Report candidates of w-1" })).querySelector("li")!;
+    const row = (await booted("list", "Report candidates of w-1")).querySelector("li")!;
     expect(screen.queryByRole("group", { name: "Draft report" })).not.toBeInTheDocument();
     await user.click(within(row).getByRole("button", { name: "Draft report" }));
     const group = await screen.findByRole("group", { name: "Draft report" });
@@ -131,11 +139,11 @@ describe("Activity: Report candidates", () => {
     expect(screen.queryByRole("group", { name: "Draft report" })).not.toBeInTheDocument();
   });
 
-  it("offers a copy button when the link carries the title only, and no duplicate search for a custom destination", async () => {
+  it("offers a copy button when the link carries the title only, and no duplicate search for a custom destination", { timeout: 10_000 }, async () => {
     stubApi({ [DRAFT]: () => json(draft({ body_in_url: false, search_url: "", destination: "custom" })), [LIST]: list(cand()) });
     const user = userEvent.setup();
     render(<App />);
-    const row = (await screen.findByRole("list", { name: "Report candidates of w-1" })).querySelector("li")!;
+    const row = (await booted("list", "Report candidates of w-1")).querySelector("li")!;
     await user.click(within(row).getByRole("button", { name: "Draft report" }));
     const group = await screen.findByRole("group", { name: "Draft report" });
     expect(within(group).queryByRole("link", { name: "search the existing issues" })).not.toBeInTheDocument();
@@ -144,17 +152,17 @@ describe("Activity: Report candidates", () => {
     expect(await navigator.clipboard.readText()).toBe(draft().body);
   });
 
-  it("never follows a link that is not a web address", async () => {
+  it("never follows a link that is not a web address", { timeout: 10_000 }, async () => {
     stubApi({ [DRAFT]: () => json(draft({ url: "javascript:alert(1)", search_url: "data:text/html,x" })), [LIST]: list(cand()) });
     const user = userEvent.setup();
     render(<App />);
-    const row = (await screen.findByRole("list", { name: "Report candidates of w-1" })).querySelector("li")!;
+    const row = (await booted("list", "Report candidates of w-1")).querySelector("li")!;
     await user.click(within(row).getByRole("button", { name: "Draft report" }));
     const group = await screen.findByRole("group", { name: "Draft report" });
     expect(within(group).queryAllByRole("link")).toHaveLength(0);
   });
 
-  it("says a vanished candidate is gone, and lets the person try again", async () => {
+  it("says a vanished candidate is gone, and lets the person try again", { timeout: 10_000 }, async () => {
     let calls = 0;
     stubApi({
       [DRAFT]: () => (++calls === 1 ? json({ error: { code: "not_found", message: "not found" } }, 404) : json(draft())),
@@ -162,7 +170,7 @@ describe("Activity: Report candidates", () => {
     });
     const user = userEvent.setup();
     render(<App />);
-    const row = (await screen.findByRole("list", { name: "Report candidates of w-1" })).querySelector("li")!;
+    const row = (await booted("list", "Report candidates of w-1")).querySelector("li")!;
     await user.click(within(row).getByRole("button", { name: "Draft report" }));
     expect(await within(row).findByRole("alert")).toHaveTextContent(/no longer held/);
     await user.click(within(row).getByRole("button", { name: "Draft report" }));
@@ -170,22 +178,22 @@ describe("Activity: Report candidates", () => {
     expect(within(row).queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("keeps the list through a transient failure and recovers", async () => {
+  it("keeps the list through a transient failure and recovers", { timeout: 10_000 }, async () => {
     retry.baseMs = 10;
     let calls = 0;
     stubApi({ [LIST]: () => (++calls === 1 ? json({ error: { code: "internal", message: "boom" } }, 500) : json({ candidates: [cand()], destination: "github" })) });
     render(<App />);
-    expect(await screen.findByRole("list", { name: "Report candidates of w-1" })).toBeInTheDocument();
+    expect(await booted("list", "Report candidates of w-1")).toBeInTheDocument();
     expect(calls).toBeGreaterThan(1);
     retry.baseMs = 5000;
   });
 
-  it("retries a 404 that is not feedback_off (a restart) instead of switching off for good", async () => {
+  it("retries a 404 that is not feedback_off (a restart) instead of switching off for good", { timeout: 10_000 }, async () => {
     retry.baseMs = 10;
     let calls = 0;
     stubApi({ [LIST]: () => (++calls === 1 ? json({ error: { code: "not_found", message: "not found" } }, 404) : json({ candidates: [cand()], destination: "github" })) });
     render(<App />);
-    expect(await screen.findByRole("list", { name: "Report candidates of w-1" })).toBeInTheDocument();
+    expect(await booted("list", "Report candidates of w-1")).toBeInTheDocument();
     retry.baseMs = 5000;
   });
 });
@@ -193,16 +201,16 @@ describe("Activity: Report candidates", () => {
 describe("Work: report candidates badge", () => {
   beforeEach(() => open("work"));
 
-  it("counts this KB's candidates, once", async () => {
+  it("counts this KB's candidates, once", { timeout: 10_000 }, async () => {
     stubApi({ "/work": () => json(work), [LIST]: list(cand(), cand({ id: "c2" }), cand({ id: "c3", kb: "kb-b" })) });
     render(<App />);
-    expect(await screen.findByText(/2 report candidates from the Surveyors/)).toBeInTheDocument();
+    expect(await booted("text", /2 report candidates from the Surveyors/)).toBeInTheDocument();
   });
 
-  it("is absent with none, and when feedback is off", async () => {
+  it("is absent with none, and when feedback is off", { timeout: 10_000 }, async () => {
     stubApi({ "/work": () => json(work) });
     render(<App />);
-    await screen.findByRole("region", { name: "Open work" });
+    await booted("region", "Open work");
     expect(screen.queryByText(/report candidate/)).not.toBeInTheDocument();
   });
 });
