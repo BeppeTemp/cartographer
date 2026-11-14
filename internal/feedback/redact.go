@@ -282,28 +282,69 @@ func (r *redactor) paths(s string) string {
 
 func (r *redactor) pathForms(s, p, to string) string {
 	fold := len(p) > 1 && (p[1] == ':' || strings.HasPrefix(p, `\\`)) // a Windows path
-	for _, form := range []string{p, strings.ReplaceAll(p, `\`, "/"), strings.ReplaceAll(p, "/", `\`)} {
-		s = r.token(s, form, fold, "", func(string) string { r.sum.Paths++; return to })
+	fwd, back := strings.ReplaceAll(p, `\`, "/"), strings.ReplaceAll(p, "/", `\`)
+	count := func(string) string { r.sum.Paths++; return to }
+	for _, form := range []string{p, fwd, back} {
+		s = r.token(s, form, fold, "", count)
+	}
+	// Encodings of the same path that glue it to other text.
+	pct := strings.NewReplacer("/", "%2F", `\`, "%5C", ":", "%3A")
+	for _, form := range []string{pct.Replace(fwd), pct.Replace(back), strings.ReplaceAll(back, `\`, `\\`)} {
+		if form != p && form != fwd && form != back {
+			s = r.tokenB(s, form, true, "", isAlnum, count)
+		}
+	}
+	// Agent clients name a project folder after its path: every character that
+	// is not a letter or a digit becomes "-" (or "_"): -Users-alice-work-app.
+	for _, sep := range []byte{'-', '_'} {
+		if enc := dashForm(p, sep); enc != "" {
+			s = r.tokenB(s, enc, true, "", isAlnum, count)
+		}
 	}
 	return s
+}
+
+// dashForm is p with every non-alphanumeric byte replaced by sep and the
+// leading separators dropped; "" when fewer than two components remain, which
+// would match ordinary words ("root").
+func dashForm(p string, sep byte) string {
+	b := []byte(p)
+	for i, c := range b {
+		if !isAlnum(c) {
+			b[i] = sep
+		}
+	}
+	e := strings.TrimLeft(string(b), string(sep))
+	if !strings.ContainsRune(strings.Trim(e, string(sep)), rune(sep)) {
+		return ""
+	}
+	return e
 }
 
 // user replaces the account name: whole-token from 3 characters, otherwise only
 // in "name@" and in the home-directory forms of the three platforms.
 func (r *redactor) user(s string) string {
 	u := strings.TrimSpace(r.k.User)
+	if i := strings.LastIndex(u, `\`); i >= 0 { // DOMAIN\name, as Windows reports it
+		u = strings.TrimSpace(u[i+1:])
+	}
 	if u == "" || u == "user" {
 		return s
 	}
 	if len(u) >= 3 {
-		return r.token(s, u, true, "", func(string) string { r.sum.Users++; return "user" })
+		// A percent-encoded separator ("%2Falice-x") ends in a letter: it is a boundary too.
+		for _, sep := range []string{"%2F", "%5C", "%3A"} {
+			s = r.tokenB(s, sep+u, true, "", isAlnum, func(m string) string { r.sum.Users++; return m[:3] + "user" })
+		}
+		return r.tokenB(s, u, true, "", isAlnum, func(string) string { r.sum.Users++; return "user" })
 	}
-	for _, f := range []string{u + "@", "/Users/" + u, "/home/" + u, `\Users\` + u} {
+	for _, f := range []string{u + "@", "/Users/" + u, "/home/" + u, `\Users\` + u, "-Users-" + u, "-home-" + u,
+		"%2FUsers%2F" + u, "%2Fhome%2F" + u, "%5CUsers%5C" + u} {
 		keep := len(f) - len(u)
 		if f[len(f)-1] == '@' {
 			keep = 0
 		}
-		s = r.token(s, f, true, "", func(string) string {
+		s = r.tokenB(s, f, true, "", isAlnum, func(string) string {
 			r.sum.Users++
 			if f[len(f)-1] == '@' {
 				return "user@"
@@ -378,6 +419,11 @@ func longestFirst(in []string) []string {
 // A needle that starts or ends in a non-word byte ("ab@", "/home/ab") needs no
 // boundary on that side. A suffix (".md") right after a match is consumed.
 func (r *redactor) token(s, needle string, fold bool, suffix string, repl func(string) string) string {
+	return r.tokenB(s, needle, fold, suffix, isWord, repl)
+}
+
+// tokenB is token with the bytes that continue a name given by word.
+func (r *redactor) tokenB(s, needle string, fold bool, suffix string, word func(byte) bool, repl func(string) string) string {
 	if needle == "" {
 		return s
 	}
@@ -398,7 +444,7 @@ func (r *redactor) token(s, needle string, fold bool, suffix string, repl func(s
 		if suffix != "" && strings.HasPrefix(s[e:], suffix) {
 			m += len(suffix)
 		}
-		if i < last || isWord(nd[0]) && i > 0 && isWord(s[i-1]) || isWord(nd[len(nd)-1]) && m < len(s) && isWord(s[m]) {
+		if i < last || word(nd[0]) && i > 0 && word(s[i-1]) || word(nd[len(nd)-1]) && m < len(s) && word(s[m]) {
 			continue
 		}
 		b.WriteString(s[last:i] + repl(s[i:e]))
@@ -411,6 +457,10 @@ func (r *redactor) token(s, needle string, fold bool, suffix string, repl func(s
 // isWord reports a byte that continues a name: ASCII alphanumeric, _ or -.
 func isWord(c byte) bool {
 	return c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '_' || c == '-'
+}
+
+func isAlnum(c byte) bool {
+	return c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
 }
 
 func asciiLower(s string) string {

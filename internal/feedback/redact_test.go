@@ -178,3 +178,42 @@ func TestRedactSecretKindsInEitherOrder(t *testing.T) {
 		}
 	}
 }
+
+// The account name and the paths also leak glued to "-" or "_" (an agent
+// client's per-project folder), percent-encoded and JSON-escaped (#2097).
+func TestRedactEncodedPathForms(t *testing.T) {
+	t.Parallel()
+	posix := Known{User: "alice", Home: "/Users/alice", Workspaces: []string{"/Users/alice/work/app"}}
+	win := Known{User: "alice", Home: `C:\Users\alice`, Workspaces: []string{`C:\Users\alice\work\app`}}
+	domain := Known{User: `EXAMPLE-PC\alice`, Home: `C:\Users\alice`}
+	short := Known{User: "al", Home: "/home/al"}
+	for _, c := range []struct {
+		name, in, want string
+		k              Known
+	}{
+		{"user in a dash path", "dir /x/-Users-alice-Documents/y", "dir /x/-$HOME-Documents/y", posix},
+		{"user before underscore", "name:alice_x", "name:user_x", posix},
+		{"workspace dash form with a tail", "~/.claude/projects/-Users-alice-work-app-sub/a.txt", "~/.claude/projects/-$HOME/project-sub/a.txt", posix},
+		{"windows dash form", "C--Users-alice-work-app", "$HOME/project", win},
+		{"underscore form", "_Users_alice_work_app", "_$HOME/project", posix},
+		{"percent", "file%3A%2F%2F%2FUsers%2Falice%2Fx and %2fusers%2fALICE%2f", "file%3A%2F%2F$HOME%2Fx and $HOME%2f", posix},
+		{"percent with dash tail", "%2FUsers%2Falice-Documents%2Fx", "$HOME-Documents%2Fx", posix},
+		{"percent user with underscore tail", "%2Fhome%2Falice_x", "%2Fhome%2Fuser_x", Known{User: "alice", Home: "/srv/other"}},
+		{"percent short user", "%2Fhome%2Fal-x", "%2Fhome%2Fuser-x", Known{User: "al"}},
+		{"empty name after the domain", `a@b /Users/x EXAMPLE-PC\`, `a@b /Users/x EXAMPLE-PC\`, Known{User: `EXAMPLE-PC\`}},
+		{"placeholder name after the domain", "user alice", "user alice", Known{User: `EXAMPLE-PC\user`}},
+		{"json backslashes", `{"p":"C:\\Users\\alice\\x"}`, `{"p":"$HOME\\x"}`, win},
+		{"domain user", "owner alice on EXAMPLE-PC", "owner user on EXAMPLE-PC", domain},
+		{"short user", "-home-al-x", "-$HOME-x", short},
+		{"no false positive", "malice alicex Users-bob", "malice alicex Users-bob", posix},
+		{"single component has no dash form", "run as root, --root", "run as root, --root", Known{User: "bob", Home: "/root"}},
+	} {
+		got, _ := Redact(c.in, c.k)
+		if got != c.want {
+			t.Errorf("%s: %q -> %q, want %q", c.name, c.in, got, c.want)
+		}
+		if again, _ := Redact(got, c.k); again != got {
+			t.Errorf("%s: not idempotent: %q -> %q", c.name, got, again)
+		}
+	}
+}
