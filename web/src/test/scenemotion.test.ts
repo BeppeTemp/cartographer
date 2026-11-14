@@ -20,6 +20,7 @@ vi.mock("three", async (original) => {
   return { ...three, WebGLRenderer: FakeRenderer };
 });
 
+import { Matrix4, Vector3, type InstancedMesh } from "three";
 import { LivingScene, type SceneNode } from "../lib/graph3d/scene";
 import { radiusOf } from "../lib/graph3d/clusterlayout";
 
@@ -171,6 +172,139 @@ describe("graph motion", () => {
       for (let i = 0; i < 200; i++) inner.step((now += 16), 1, true);
       expect(inner.sim.alpha()).toBeLessThan(0.01);
       expect(inner.sim.alphaDecay()).toBeCloseTo(1 - 0.001 ** (1 / 300), 4);
+      scene.dispose();
+    });
+  });
+
+  describe("a transition interrupted by another starts from what is drawn", () => {
+    type Drawn = {
+      nodes: SceneNode[];
+      slot: number[];
+      ghosts: { node: SceneNode; slot: number; halo?: number }[];
+      nodeMesh: InstancedMesh;
+      haloMesh: InstancedMesh;
+      haloSlot: Map<SceneNode, number>;
+      clock: () => number;
+      sync(now: number): void;
+    };
+    const glyphs = Array.from({ length: 4 }, (_, i) => node(`c:g${i}`, Math.cos(i) * 80, { cluster: true, weight: 0.8 }));
+    const kids = (tag: string, at: SceneNode) => Array.from({ length: 20 }, (_, i) => node(`${tag}${i}`, (at.x ?? 0) + i * 2, { weight: 0.3 }));
+    const scaleAt = (mesh: InstancedMesh, slot: number) => {
+      const m = new Matrix4();
+      mesh.getMatrixAt(slot, m);
+      return new Vector3().setFromMatrixScale(m).x;
+    };
+    /** The scale every node and leaver is drawn at, by id; a glyph by its hexagon. */
+    const drawn = (scene: LivingScene) => {
+      const s = scene as unknown as Drawn;
+      const out = new Map<string, number>();
+      s.nodes.forEach((n, i) => out.set(n.id, n.cluster ? scaleAt(s.haloMesh, s.haloSlot.get(n)!) : scaleAt(s.nodeMesh, s.slot[i]!)));
+      for (const g of s.ghosts) out.set(g.node.id, g.node.cluster ? scaleAt(s.haloMesh, g.halo!) : scaleAt(s.nodeMesh, g.slot));
+      return out;
+    };
+    const setup = () => {
+      let t = 1000;
+      const scene = new LivingScene(document.createElement("div"), callbacks, { live: false, reducedMotion: false });
+      const s = scene as unknown as Drawn;
+      s.clock = () => t;
+      scene.setData(glyphs, [], 10, false, {});
+      // The first graph's bloom is over by then: only the transitions are measured.
+      const at = (ms: number) => {
+        t = 60000 + ms;
+        s.sync(t);
+      };
+      // The call at `ms`: what is drawn the instant before and after it.
+      const call = (ms: number, list: SceneNode[], specs: { id: string; members: SceneNode[] }[], local: string) => {
+        at(ms);
+        const before = drawn(scene);
+        scene.setData(list, [], 10, false, { local: new Set([local]), hulls: specs.map((x) => ({ id: x.id, members: x.members.map((m) => m.id) })) });
+        return { before, after: drawn(scene) };
+      };
+      return { scene, s, at, call };
+    };
+    const jump = (a: Map<string, number>, b: Map<string, number>) => {
+      let worst = 0;
+      for (const [id, v] of a) if (b.has(id)) { worst = Math.max(worst, Math.abs(b.get(id)! - v)); }
+      return worst;
+    };
+    const without = (...gone: SceneNode[]) => glyphs.filter((g) => !gone.includes(g));
+
+    it("folds in the middle of an opening: nothing jumps, the opening glyph's hexagon fades out of where it was", () => {
+      const { scene, at, call } = setup();
+      const m = kids("a", glyphs[1]!);
+      const open = call(1000, [...without(glyphs[1]!), ...m], [{ id: glyphs[1]!.id, members: m }], "a0");
+      expect(open.after.get(glyphs[1]!.id)).toBeGreaterThan(0.9);
+      at(1260);
+      const mid = drawn(scene);
+      expect(mid.get("a0")!).toBeGreaterThan(0.05);
+      expect(mid.get("a0")!).toBeLessThan(mid.get(glyphs[1]!.id)!);
+      const fold = call(1260, glyphs, [], glyphs[1]!.id);
+      expect(jump(fold.before, fold.after)).toBeLessThan(1e-6);
+      // The members are leavers now, still drawn at the size they had.
+      expect(fold.after.get("a0")).toBeCloseTo(mid.get("a0")!, 5);
+      scene.dispose();
+    });
+
+    it("opens in the middle of a fold: the shrinking members stay and keep shrinking, the glyph grows on from its size", () => {
+      const { scene, s, at, call } = setup();
+      const m = kids("a", glyphs[1]!);
+      call(1000, [...without(glyphs[1]!), ...m], [{ id: glyphs[1]!.id, members: m }], "a0");
+      at(2000);
+      const fold = call(2000, glyphs, [], glyphs[1]!.id);
+      at(2180);
+      const mid = drawn(scene);
+      expect(mid.get("a0")!).toBeLessThan(fold.after.get("a0")!);
+      expect(mid.get("a0")!).toBeGreaterThan(0);
+      const m3 = kids("b", glyphs[3]!);
+      const where = () => {
+        const g = s.ghosts.find((x) => x.node.id === "a0")!;
+        const m = new Matrix4();
+        s.nodeMesh.getMatrixAt(g.slot, m);
+        return new Vector3().setFromMatrixPosition(m);
+      };
+      const placed = where();
+      const open = call(2180, [...without(glyphs[3]!), ...m3], [{ id: glyphs[3]!.id, members: m3 }], "b0");
+      expect(jump(open.before, open.after)).toBeLessThan(1e-6);
+      // A member still being pulled into its glyph is drawn where it was, not back at its own place.
+      expect(where().distanceTo(placed)).toBeLessThan(1e-6);
+      // The earlier leavers are still there, and still shrinking.
+      expect(s.ghosts.some((g) => g.node.id === "a0")).toBe(true);
+      expect(open.after.get("a0")).toBeCloseTo(mid.get("a0")!, 5);
+      at(2300);
+      expect(drawn(scene).get("a0")!).toBeLessThan(mid.get("a0")!);
+      // The glyph of g3 leaves as a ghost with a hexagon, not a cut.
+      const ghost = s.ghosts.find((g) => g.node.id === glyphs[3]!.id)!;
+      expect(ghost.halo).toBeDefined();
+      expect(drawn(scene).get(glyphs[3]!.id)!).toBeLessThan(open.before.get(glyphs[3]!.id)!);
+      scene.dispose();
+    });
+
+    it("three transitions in a row: no node jumps at any of the calls, and the last one ends clean", () => {
+      const { scene, s, at, call } = setup();
+      const m1 = kids("a", glyphs[1]!);
+      const m2 = kids("b", glyphs[2]!);
+      call(1000, [...without(glyphs[1]!), ...m1], [{ id: glyphs[1]!.id, members: m1 }], "a0");
+      const second = call(1250, [...without(glyphs[1]!, glyphs[2]!), ...m1, ...m2], [{ id: glyphs[1]!.id, members: m1 }, { id: glyphs[2]!.id, members: m2 }], "b0");
+      expect(jump(second.before, second.after)).toBeLessThan(1e-6);
+      const third = call(1500, [...without(glyphs[2]!), glyphs[1]!, ...m2], [{ id: glyphs[2]!.id, members: m2 }], glyphs[1]!.id);
+      expect(jump(third.before, third.after)).toBeLessThan(1e-6);
+      at(1500 + 5000);
+      expect(s.ghosts).toHaveLength(0);
+      expect(s.haloMesh.count).toBe(s.nodes.filter((n) => n.cluster).length);
+      scene.dispose();
+    });
+
+    it("gives a glyph that leaves a hexagon instance that shrinks with it", () => {
+      const { scene, s, at, call } = setup();
+      const m = kids("a", glyphs[1]!);
+      call(1000, [...without(glyphs[1]!), ...m], [{ id: glyphs[1]!.id, members: m }], "a0");
+      const ghost = s.ghosts.find((g) => g.node.id === glyphs[1]!.id)!;
+      expect(ghost.halo).toBeGreaterThanOrEqual(s.nodes.filter((n) => n.cluster).length);
+      expect(s.haloMesh.count).toBeGreaterThan(s.nodes.filter((n) => n.cluster).length);
+      at(1100);
+      const a = drawn(scene).get(glyphs[1]!.id)!;
+      at(1400);
+      expect(drawn(scene).get(glyphs[1]!.id)!).toBeLessThan(a);
       scene.dispose();
     });
   });
