@@ -747,6 +747,8 @@ tasks:                            # in priority order
     model: cloud
 ```
 
+`server_url` is the server's `/mcp` URL or, on a routed server, its `/mcp/routed` URL: the Surveyor asks `/health`, and when the server is routed it talks to the advertised routed endpoint with `?kbs=<the config's kbs>` whichever of the two is written, and names the KB of each call as the `kb` tool argument (D2109). A `server_url` with `?kb=<name>` keeps the per-KB addressing and reaches that one KB. A start-up check that fails with 401 or 403 reports a rejected token; any other status is reported as it is, and a `400 kb parameter required` names the URL to use.
+
 The key table is `internal/surveyorconfig`. A task `kind` must be registered in the binary; a config can
 name only the kinds the binary registers: `ingest` (D1260), `poll` (§The `poll` task), `prompt` (§Prompt tasks), `synthesis` (D1263), `doctor` (§The `doctor` task) and `repair` (§The `repair` task).
 
