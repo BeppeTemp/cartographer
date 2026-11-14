@@ -59,13 +59,15 @@ func AddedRepeatedFacts(k *kb.KB, id okf.ConceptID, prevBody, newBody string, bu
 	boilerplate := templateBoilerplate(k.TemplateTexts())
 	prev := factLines(prevBody, boilerplate)
 	cur := factLines(newBody, boilerplate)
-	// The archival banner of an archived entry is not a fact (#1194). The
-	// status is read only when the body has a banner-shaped line.
-	if b := archivalBanner(newBody); b != "" {
-		if _, ok := cur[b]; ok {
-			if data, err := k.ReadConcept(id); err == nil && isArchived(fmStatus(data.FrontmatterRaw)) {
-				delete(cur, b)
-			}
+	// The page's status lines are not facts (#1194, #2072). The status is
+	// read only when the body has such a line.
+	if banner, first := leadingLines(newBody); banner != "" || first != "" {
+		status := ""
+		if data, err := k.ReadConcept(id); err == nil {
+			status = fmStatus(data.FrontmatterRaw)
+		}
+		for _, l := range statusLines(newBody, status, mapContract(k, id)) {
+			delete(cur, l)
 		}
 	}
 	if len(cur) == 0 {
@@ -110,7 +112,7 @@ func AddedRepeatedFacts(k *kb.KB, id okf.ConceptID, prevBody, newBody string, bu
 			lines, ok := bodies[cand]
 			if !ok {
 				if data, err := k.ReadConcept(cand); err == nil {
-					lines = conceptFactLines(data.Body, fmStatus(data.FrontmatterRaw), boilerplate)
+					lines = conceptFactLines(data.Body, fmStatus(data.FrontmatterRaw), mapContract(k, cand), boilerplate)
 				}
 				bodies[cand] = lines
 			}
@@ -158,4 +160,14 @@ func fmStatus(raw string) string {
 	}
 	s, _ := frontmatterValue(parsed, "status").(string)
 	return s
+}
+
+// mapContract is the contract of the map holding id, nil when unreadable.
+func mapContract(k *kb.KB, id okf.ConceptID) *kb.MapContract {
+	name, _, _ := strings.Cut(string(id), "/")
+	c, err := k.ReadMapContract(name)
+	if err != nil {
+		return nil
+	}
+	return &c
 }

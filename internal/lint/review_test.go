@@ -1448,12 +1448,52 @@ func TestRepeatedFact_ArchivalBannerExempt(t *testing.T) {
 	if got := itemsOf(review(t, k), ReviewRepeatedFact); len(got) != 0 {
 		t.Fatalf("the archival banner of archived entries is not a repeated fact: %+v", got)
 	}
+	// #2072: the leading blockquote is the page's status line whatever the status.
 	for i := 0; i < 3; i++ {
 		writeFile(t, k.DataRoot(), fmt.Sprintf("m/p%d.md", i), fmt.Sprintf("---\ntype: Note\ntitle: P%d\n---\n%s\n", i, banner))
 	}
+	if got := itemsOf(review(t, k), ReviewRepeatedFact); len(got) != 0 {
+		t.Fatalf("a leading banner on live pages is not a repeated fact: %+v", got)
+	}
+	// Below an H2 the same line is a fact again.
+	for i := 0; i < 3; i++ {
+		writeFile(t, k.DataRoot(), fmt.Sprintf("m/p%d.md", i), fmt.Sprintf("---\ntype: Note\ntitle: P%d\n---\n## Notes\n\n%s\n", i, banner))
+	}
 	got := itemsOf(review(t, k), ReviewRepeatedFact)
 	if len(got) != 1 || strings.Join(got[0].Concepts, ",") != "m/p0,m/p1,m/p2" {
-		t.Fatalf("the line on three live pages is still a repeated fact, owned by them only: %+v", got)
+		t.Fatalf("the line after an H2 on three pages is still a repeated fact: %+v", got)
+	}
+}
+
+// #2072: a finished page's first paragraph line above the first H2 records its
+// outcome; the same line mid-body, or on live pages, is still a fact.
+func TestRepeatedFact_OutcomeLineExempt(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
+	line := "Closed without running it on 2026-01-02 by the user's decision."
+	put := func(status, body string) {
+		for i := 0; i < 3; i++ {
+			writeFile(t, k.DataRoot(), fmt.Sprintf("m/t%d.md", i), fmt.Sprintf("---\ntype: Task\ntitle: T%d\nstatus: %s\n---\n%s", i, status, body))
+		}
+	}
+	for _, st := range []string{"done", "superseded", "archived", "cancelled", "rejected", "merged", "dismesso"} {
+		put(st, "# T\n\n"+line+"\n\n## Notes\n\nBody.\n")
+		if got := itemsOf(review(t, k), ReviewRepeatedFact); len(got) != 0 {
+			t.Fatalf("status %s: the outcome line is not a repeated fact: %+v", st, got)
+		}
+	}
+	put("done", "# T\n\n## Notes\n\n"+line+"\n")
+	if got := itemsOf(review(t, k), ReviewRepeatedFact); len(got) != 1 {
+		t.Fatalf("the line after an H2 is still a repeated fact: %+v", got)
+	}
+	put("done", "# T\n\n- "+line+"\n")
+	if got := itemsOf(review(t, k), ReviewRepeatedFact); len(got) != 1 {
+		t.Fatalf("a list item is not an outcome line, it is still a fact: %+v", got)
+	}
+	put("open", "# T\n\n"+line+"\n")
+	if got := itemsOf(review(t, k), ReviewRepeatedFact); len(got) != 1 {
+		t.Fatalf("on an open page the first line is a fact: %+v", got)
 	}
 }
 
