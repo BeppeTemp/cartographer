@@ -120,13 +120,22 @@ func cmdUpgradeRepair(args []string) int {
 		fmt.Fprintf(os.Stderr, "Warning: could not tell which binary the service runs (%s) — not checking it\n", st.ServiceBinWarning)
 	}
 	switched := false
-	if st.ServiceBinPath != "" && !repairSameBinaryFn(st.ServiceBinPath) {
+	// The definition is also re-rendered when its arguments differ from the
+	// ones this binary renders, not only when the program differs (#2094): a
+	// task a release candidate wrote passes a flag the previous stable does not
+	// know.
+	differentBinary := st.ServiceBinPath != "" && !repairSameBinaryFn(st.ServiceBinPath)
+	if differentBinary || st.ServiceArgsStale {
 		if err := repairCheckBinaryFn(); err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
 			fmt.Fprintf(os.Stderr, "native service runs %s; refusing to point it at this binary. Run `cartographer service install` from the installed binary you want it to run, then retry `cartographer upgrade-repair`\n", st.ServiceBinPath)
 			return exitRepairServiceFailure
 		}
-		fmt.Printf("native service runs %s, this binary is %s — switching the service definition to it\n", st.ServiceBinPath, st.BinPath)
+		if differentBinary {
+			fmt.Printf("native service runs %s, this binary is %s — switching the service definition to it\n", st.ServiceBinPath, st.BinPath)
+		} else {
+			fmt.Printf("native service definition passes arguments %s does not render — rewriting it\n", st.BinPath)
+		}
 		if err := repairSwitchBinaryFn(configPath); err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
 			return exitRepairServiceFailure

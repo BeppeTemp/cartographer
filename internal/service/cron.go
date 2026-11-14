@@ -566,11 +566,10 @@ func (m *Manager) ensure(bin, configPath string) error {
 		return nil
 	}
 	args := []string{"serve", "--config", configPath, "--log-file", filepath.Join(dir, "server.log")}
-	// The shell's proxy never reaches cron's environment: the variables
-	// `service install` recorded come from the env file, as for the Windows task.
-	if ef := EnvFilePath(configPath); fileExists(ef) {
-		args = append(args, envFileFlag, ef)
-	}
+	// The shell's proxy never reaches cron's environment: `serve` reads the
+	// variables `service install` recorded from the env file beside the config
+	// (EnvFilePath), so the command line carries no flag a previous stable
+	// does not know (#2094).
 	pid, err := m.procs().start(bin, args, cleanServeEnv(environ(), bin))
 	if err != nil {
 		return fmt.Errorf("service: start server: %w", err)

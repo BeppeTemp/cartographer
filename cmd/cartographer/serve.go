@@ -93,7 +93,7 @@ func cmdServe(args []string) int {
 	apiEnabledFlag := fs.Bool("api-enabled", false, "Serve the public read-only API at /api/v1 in HTTP mode (or CARTOGRAPHER_API_ENABLED)")
 	updateCheckFlag := fs.Bool("update-check", true, "Look up the latest release once a day and report it in /health and kb_status when newer, and let the Atlas read the release history on demand; off, neither call is made (or CARTOGRAPHER_UPDATE_CHECK)")
 	logFileFlag := fs.String("log-file", "", "Append the server log to this file instead of stderr (created if absent; never rotated)")
-	supervisedFlag := fs.Bool("supervised", false, "Say that a service manager restarts this process when it exits non-zero (the Windows task passes it; or CARTOGRAPHER_SUPERVISED=1)")
+	supervisedFlag := fs.Bool("supervised", false, "Say that a service manager restarts this process when it exits non-zero (release candidates' Windows task passed it; now the service env file carries the marker; or CARTOGRAPHER_SUPERVISED=1)")
 	envFileFlag := fs.String("env-file", "", "File of NAME=value lines holding the proxy and CA variables the service records (HTTPS_PROXY, HTTP_PROXY, NO_PROXY, SSL_CERT_FILE and lowercase forms); any other line is ignored")
 	fs.Parse(dropRemovedFlags(args))
 	if *supervisedFlag {
@@ -113,8 +113,13 @@ func cmdServe(args []string) int {
 		detachOwnConsole()
 	}
 
-	if *envFileFlag != "" {
-		applyEnvFile(*envFileFlag)
+	// The env file `service install` wrote beside the config is read without
+	// being named (#2094): a flag in the service definition would make a
+	// downgraded service exit 2. --env-file stays for the definitions release
+	// candidates wrote. It comes before the config load and the retry logic:
+	// the supervision marker it carries decides whether a failed clone exits.
+	if p := serviceEnvFile(*envFileFlag, envFallback(*configFlag, "CARTOGRAPHER_CONFIG")); p != "" {
+		applyEnvFile(p, *envFileFlag == "")
 	}
 
 	overrides := config.FlagOverrides{
@@ -1324,13 +1329,29 @@ func displayAddr(addr string) string {
 	return addr
 }
 
+// serviceEnvFile is the env file this start reads: the one --env-file names,
+// else the one beside the config when it exists, else none.
+func serviceEnvFile(flagPath, configPath string) string {
+	if flagPath != "" {
+		return flagPath
+	}
+	if configPath == "" {
+		return ""
+	}
+	p := service.EnvFilePath(configPath)
+	if _, err := os.Stat(p); err != nil {
+		return ""
+	}
+	return p
+}
+
 // applyEnvFile sets the proxy and CA variables recorded by `service install`
 // (#1966) before anything reads the environment. Only the listed names are
 // honoured; an ignored line is logged by its key alone, never its value, which
 // may be a credential. An unreadable file is logged and the server starts
 // without it: a missing proxy fails visibly on its first call, a refused start
 // would hide the cause.
-func applyEnvFile(path string) {
+func applyEnvFile(path string, keepExisting bool) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		log.Printf("env file %s: %v", path, err)
@@ -1338,6 +1359,16 @@ func applyEnvFile(path string) {
 	}
 	env, ignored := service.ParseEnvFile(data)
 	for _, e := range env {
+		// The marker never overrides one the process was started with.
+		if e.Name == supervisedEnv && os.Getenv(supervisedEnv) != "" {
+			continue
+		}
+		// The implicit read (no --env-file) keeps what the process already
+		// has: a hand-run serve beside an installed service must not lose
+		// its shell's proxy settings. An explicit --env-file replaces.
+		if keepExisting && os.Getenv(e.Name) != "" {
+			continue
+		}
 		if err := os.Setenv(e.Name, e.Value); err != nil {
 			log.Printf("env file %s: cannot set %s", path, e.Name)
 		}

@@ -817,6 +817,36 @@ func TestCmdUpgradeRepair_ServiceRunsAnotherBinary_SwitchesDefinitionFirst(t *te
 	}
 }
 
+// A definition whose arguments differ from the current render (a release
+// candidate's Windows task, which the previous stable cannot start) is
+// re-rendered even when it runs this very binary (#2094).
+func TestCmdUpgradeRepair_StaleArguments_RewritesDefinition(t *testing.T) {
+	saveRepairFns(t)
+	version = "v1.2.3"
+	repairEffectiveConfigFn = func(string) (string, error) { return "/effective/config.yaml", nil }
+	repairServiceStatusFn = func(string) (service.Status, error) {
+		return service.Status{Installed: true, Running: true, HTTPAddr: "127.0.0.1:39273", BinPath: "/bin/cartographer", ServiceBinPath: "/bin/cartographer", ServiceArgsStale: true}, nil
+	}
+	repairSameBinaryFn = func(string) bool { return true }
+	repairProbeHealthFn = func(string, time.Duration) (service.HealthStatus, error) {
+		return service.HealthStatus{Status: "ok", Version: "v1.2.3"}, nil
+	}
+	var switched []string
+	repairSwitchBinaryFn = func(cfg string) error { switched = append(switched, cfg); return nil }
+	repairTargetDirFn = func() (string, error) { return t.TempDir(), nil }
+	out := withStdout(t, func() {
+		if code := cmdUpgradeRepair(nil); code != exitRepairOK {
+			t.Fatalf("exit = %d, want %d", code, exitRepairOK)
+		}
+	})
+	if len(switched) != 1 || switched[0] != "/effective/config.yaml" {
+		t.Fatalf("switch calls = %v", switched)
+	}
+	if !strings.Contains(out, "rewriting it") || !strings.Contains(out, "rewrote ") {
+		t.Errorf("output must say the definition was rewritten, got %q", out)
+	}
+}
+
 func TestCmdUpgradeRepair_SwitchFails_ExitServiceFailure(t *testing.T) {
 	saveRepairFns(t)
 	repairEffectiveConfigFn = func(string) (string, error) { return "/c.yaml", nil }

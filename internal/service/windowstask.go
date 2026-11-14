@@ -406,7 +406,7 @@ func (m *Manager) installWindows(binPath, configPath string, env ...EnvVar) erro
 	// Administrators) leaves the running server untouched, instead of stopped
 	// with nothing to start it again, and the installed definition as it was
 	// (#1961).
-	if err := m.registerAndReplace(windowsServeTaskName, taskPath, []byte(RenderWindowsTaskXML(binPath, configPath, logPath, windowsTaskUser(), windowsTaskSID(), envFileArg(configPath, env)...)), writeDefinition); err != nil {
+	if err := m.registerAndReplace(windowsServeTaskName, taskPath, []byte(RenderWindowsTaskXML(binPath, configPath, logPath, windowsTaskUser(), windowsTaskSID())), writeDefinition); err != nil {
 		return err
 	}
 	m.stopServeForReinstall(configHTTPAddr(configPath))
@@ -633,6 +633,43 @@ func (m *Manager) restartWindowsServe() error {
 	stopErr := m.stopServeAndWait(m.serveHTTPAddr())
 	startErr := m.startWindowsTask(windowsServeTaskName)
 	return errors.Join(stopErr, startErr)
+}
+
+// extractTaskArguments reads the <Arguments> of the task's Exec action.
+func extractTaskArguments(data []byte) (string, bool) {
+	match := taskArgumentsRe.FindSubmatch(data)
+	if match == nil {
+		return "", false
+	}
+	return xmlUnescape(string(match[1])), true
+}
+
+// ServiceArgsStale reports whether the installed serve task passes arguments
+// other than the ones this binary renders (WindowsTaskArguments): a release
+// candidate's `--supervised`, which the previous stable does not know, or any
+// hand edit. Only the Windows task carries arguments that have varied; elsewhere
+// the answer is false. An unreadable definition is not stale: nothing is known.
+func (m *Manager) ServiceArgsStale(configPath string) bool {
+	if goos != "windows" {
+		return false
+	}
+	taskPath, err := WindowsTaskPath()
+	if err != nil {
+		return false
+	}
+	data, err := os.ReadFile(taskPath)
+	if err != nil {
+		return false
+	}
+	got, ok := extractTaskArguments(data)
+	if !ok {
+		return false
+	}
+	logPath, err := WindowsLogPath()
+	if err != nil {
+		return false
+	}
+	return got != WindowsTaskArguments(configPath, logPath)
 }
 
 var taskCommandRe = regexp.MustCompile(`(?s)<Command>(.*?)</Command>`)

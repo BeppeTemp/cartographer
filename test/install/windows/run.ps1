@@ -200,6 +200,27 @@ try {
     Check ($r.rc -ne 0 -and $r.out -match 'not a release tag') 'a pinned tag that is not a release tag is refused'
     Remove-Item Env:\CARTOGRAPHER_INSTALL_TAG
 
+    Write-Host '--- the service task passes only what the previous stable knows (#2094)'
+    # The previous stable runs `serve --config X --log-file Y` and exits 2 on any
+    # other flag: a downgrade must leave a task it can start. The supervision
+    # marker travels in the env file beside the config, not on the command line.
+    Copy-Fixture $NewBin $dest
+    $svcAddr = "127.0.0.1:$($port + 2)"
+    & $dest service install --no-tray --http $svcAddr *> $null
+    Check ($LASTEXITCODE -eq 0) 'service install registers the serve task'
+    $argv = (Get-ScheduledTask -TaskPath '\Cartographer\' -TaskName 'Serve').Actions[0].Arguments
+    Check ($argv -match '^serve --config "[^"]+" --log-file "[^"]+"$') "the task's arguments are exactly the previous stable's ($argv)"
+    $cfgPath = [regex]::Match($argv, '--config "([^"]+)"').Groups[1].Value
+    $envFile = Join-Path (Split-Path $cfgPath) 'service.env'
+    Check ((Test-Path $envFile) -and ((Get-Content $envFile) -contains 'CARTOGRAPHER_SUPERVISED=1')) 'the env file beside the config carries the supervision marker'
+    $healthy = $false
+    for ($i = 0; $i -lt 30 -and -not $healthy; $i++) {
+        try { $healthy = (Invoke-RestMethod "http://$svcAddr/health").status -eq 'ok' } catch { Start-Sleep -Seconds 1 }
+    }
+    Check $healthy 'the task starts and the server answers /health'
+    & $dest service uninstall *> $null
+    Check ($LASTEXITCODE -eq 0) 'service uninstall removes the task'
+
     Write-Host '--- uninstall'
     $tasks = Join-Path $env:LOCALAPPDATA 'cartographer\tasks'
     New-Item -ItemType Directory -Path $tasks -Force | Out-Null

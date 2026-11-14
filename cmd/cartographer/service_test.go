@@ -342,7 +342,7 @@ func TestApplyEnvFileSetsOnlyTheListedNamesAndLogsNoValue(t *testing.T) {
 	var logs strings.Builder
 	log.SetOutput(&logs)
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
-	applyEnvFile(path)
+	applyEnvFile(path, false)
 	if got := os.Getenv("HTTPS_PROXY"); got != "http://user:pw@proxy.example.com" {
 		t.Errorf("HTTPS_PROXY = %q", got)
 	}

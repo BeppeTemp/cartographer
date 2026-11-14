@@ -31,10 +31,16 @@ var proxyEnvNames = []string{
 type EnvVar struct{ Name, Value string }
 
 // envFileName is the file beside the server config that holds the recorded
-// variables; envFileFlag is how `serve` is told where it is.
+// variables. `serve` derives its path from the config (EnvFilePath) and reads it
+// by itself: no definition names it on a command line (#2094), because a flag
+// the previous stable does not know makes a downgraded service exit 2.
+//
+// SupervisedEnv is the one line of it that is not a proxy variable: the Windows
+// task cannot carry an environment, so the marker that a task restarts the
+// process travels in this file.
 const (
-	envFileName = "service.env"
-	envFileFlag = "--env-file"
+	envFileName   = "service.env"
+	SupervisedEnv = "CARTOGRAPHER_SUPERVISED"
 )
 
 // IsProxyEnvName reports whether name is one of the variables the service
@@ -94,6 +100,8 @@ func ParseEnvFile(data []byte) (env []EnvVar, ignored []string) {
 		switch {
 		case !ok:
 			ignored = append(ignored, fmt.Sprintf("line %d", n))
+		case k == SupervisedEnv && v != "":
+			env = append(env, EnvVar{k, v})
 		case !IsProxyEnvName(k) || v == "":
 			if !envKeyRe.MatchString(k) {
 				k = fmt.Sprintf("line %d", n)
@@ -113,7 +121,13 @@ func readEnvFile(configPath string) []EnvVar {
 	if err != nil {
 		return nil
 	}
-	env, _ := ParseEnvFile(data)
+	parsed, _ := ParseEnvFile(data)
+	var env []EnvVar
+	for _, e := range parsed {
+		if IsProxyEnvName(e.Name) { // the marker is rendered by the install, not recorded
+			env = append(env, e)
+		}
+	}
 	return env
 }
 
@@ -145,14 +159,20 @@ func recordEnv(configPath string, keep bool) ([]EnvVar, error) {
 	if err != nil {
 		return nil, fmt.Errorf("service: resolve home: %w", err)
 	}
-	if len(env) == 0 {
+	// On Windows the file also carries the supervision marker, so it exists
+	// whenever the task does.
+	marker := goos == "windows"
+	if len(env) == 0 && !marker {
 		if err := removeSafe(path); err != nil && !os.IsNotExist(err) {
 			return nil, fmt.Errorf("service: remove env file: %w", err)
 		}
 		return nil, nil
 	}
 	var b strings.Builder
-	b.WriteString("# Written by `cartographer service install`; read by `serve --env-file`.\n")
+	b.WriteString("# Written by `cartographer service install`; read by `serve`.\n")
+	if marker {
+		b.WriteString(SupervisedEnv + "=1\n")
+	}
 	for _, e := range env {
 		b.WriteString(e.Name + "=" + e.Value + "\n")
 	}
@@ -174,15 +194,6 @@ func recordEnv(configPath string, keep bool) ([]EnvVar, error) {
 		}
 	}
 	return env, nil
-}
-
-// envFileArg is the env-file argument of the Windows task: the path when the
-// service records variables, nothing otherwise.
-func envFileArg(configPath string, env []EnvVar) []string {
-	if len(env) == 0 {
-		return nil
-	}
-	return []string{EnvFilePath(configPath)}
 }
 
 // writePrivateDefinition writes a plist or unit. One that carries recorded variables

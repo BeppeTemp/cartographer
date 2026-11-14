@@ -219,3 +219,65 @@ func TestBootstrapSoleSkippedKBWithDataLeavesTheServerUp(t *testing.T) {
 		t.Errorf("the sole KB is not reported as skipped")
 	}
 }
+
+// The marker the Windows service records in its env file makes `serve`
+// supervised without any flag on the task's command line (#2094), and an
+// existing marker of the process wins over it.
+func TestServeReadsTheSupervisionMarkerFromTheEnvFileBesideTheConfig(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "server.yaml")
+	if got := serviceEnvFile("", cfg); got != "" {
+		t.Fatalf("no env file beside the config, got %q", got)
+	}
+	if got := serviceEnvFile("", ""); got != "" {
+		t.Fatalf("no config, got %q", got)
+	}
+	envPath := filepath.Join(dir, "service.env")
+	if err := os.WriteFile(envPath, []byte("CARTOGRAPHER_SUPERVISED=1\nHTTPS_PROXY=http://proxy.example.com\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := serviceEnvFile("", cfg); got != envPath {
+		t.Fatalf("derived env file = %q, want %q", got, envPath)
+	}
+	if got := serviceEnvFile("/explicit.env", cfg); got != "/explicit.env" {
+		t.Fatalf("--env-file must win, got %q", got)
+	}
+
+	t.Setenv(supervisedEnv, "")
+	t.Setenv("HTTPS_PROXY", "")
+	applyEnvFile(envPath, false)
+	if !supervisedProcess(os.Getenv) {
+		t.Error("the marker in the env file must make the process supervised")
+	}
+	if os.Getenv("HTTPS_PROXY") != "http://proxy.example.com" {
+		t.Error("the proxy variable must still be applied")
+	}
+
+	t.Setenv(supervisedEnv, "0")
+	applyEnvFile(envPath, false)
+	if supervisedProcess(os.Getenv) {
+		t.Error("a marker the process was started with must win over the file")
+	}
+}
+
+// The implicit read of the env file beside the config keeps the variables the
+// process already has; an explicit --env-file replaces them.
+func TestImplicitEnvFileKeepsTheProcessEnvironment(t *testing.T) {
+	envPath := filepath.Join(t.TempDir(), "service.env")
+	if err := os.WriteFile(envPath, []byte("HTTPS_PROXY=http://file.example.com\nNO_PROXY=file.example.com\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HTTPS_PROXY", "http://shell.example.com")
+	t.Setenv("NO_PROXY", "")
+	applyEnvFile(envPath, true)
+	if got := os.Getenv("HTTPS_PROXY"); got != "http://shell.example.com" {
+		t.Errorf("implicit read replaced the shell's HTTPS_PROXY: %q", got)
+	}
+	if got := os.Getenv("NO_PROXY"); got != "file.example.com" {
+		t.Errorf("implicit read must fill an unset variable, got %q", got)
+	}
+	applyEnvFile(envPath, false)
+	if got := os.Getenv("HTTPS_PROXY"); got != "http://file.example.com" {
+		t.Errorf("explicit --env-file must replace, got %q", got)
+	}
+}

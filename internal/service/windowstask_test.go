@@ -157,7 +157,7 @@ func TestRenderWindowsTaskXML(t *testing.T) {
 		`<Command>C:\bin\cartographer.exe</Command>`,
 		// Every path quoted: the config path here contains a space, and an
 		// unquoted one would reach the process as two arguments.
-		`<Arguments>serve --config "C:\Users\Nome Cognome\AppData\Roaming\cartographer\server.yaml" --log-file "C:\logs\server.log" --supervised</Arguments>`,
+		`<Arguments>serve --config "C:\Users\Nome Cognome\AppData\Roaming\cartographer\server.yaml" --log-file "C:\logs\server.log"</Arguments>`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("task XML missing %q\n---\n%s", want, out)
@@ -1151,15 +1151,56 @@ func TestStart_Windows_FailedEnableFailsTheStart(t *testing.T) {
 	}
 }
 
-// The task marks the process as supervised (--supervised), and the extra flag
-// leaves the config path readable: EffectiveConfigPath parses these arguments.
-func TestWindowsTaskSupervisedFlagKeepsTheConfigPath(t *testing.T) {
+// The task's command line is the previous stable's (#2094): a flag it does not
+// know makes a downgraded task exit 2. The config path stays readable from it.
+func TestWindowsTaskArgumentsAreThePreviousStables(t *testing.T) {
 	out := RenderWindowsTaskXML(`C:\bin\cartographer.exe`, `C:\Users\Nome Cognome\server.yaml`, `C:\logs\server.log`, `HOST\user`, "")
-	if !strings.Contains(out, " --supervised</Arguments>") {
-		t.Fatalf("task XML lacks --supervised:\n%s", out)
+	want := `<Arguments>serve --config "C:\Users\Nome Cognome\server.yaml" --log-file "C:\logs\server.log"</Arguments>`
+	if !strings.Contains(out, want) {
+		t.Fatalf("task XML lacks %q:\n%s", want, out)
 	}
 	got, err := extractTaskConfigPath([]byte(out))
 	if err != nil || got != `C:\Users\Nome Cognome\server.yaml` {
 		t.Errorf("extractTaskConfigPath = %q, %v", got, err)
+	}
+}
+
+// A task written by a release candidate passes `--supervised --env-file X`, which
+// the previous stable does not know (#2094): Status reports it stale so that
+// upgrade-repair re-renders it; the current render is not stale.
+func TestServiceArgsStale_WindowsTask(t *testing.T) {
+	home := withTestHome(t, "windows")
+	taskPath, err := WindowsTaskPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	logPath, err := WindowsLogPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(home, "server.yaml")
+	if err := os.MkdirAll(filepath.Dir(taskPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(xml string) {
+		t.Helper()
+		if err := os.WriteFile(taskPath, []byte(xml), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := &Manager{}
+	current := RenderWindowsTaskXML(`C:\bin\cartographer.exe`, configPath, logPath, `HOST\user`, "")
+	write(current)
+	if m.ServiceArgsStale(configPath) {
+		t.Error("the current render must not be stale")
+	}
+	candidate := strings.Replace(current, `</Arguments>`, ` --supervised --env-file "`+EnvFilePath(configPath)+`"</Arguments>`, 1)
+	write(candidate)
+	if !m.ServiceArgsStale(configPath) {
+		t.Error("a release candidate's arguments must be stale")
+	}
+	goos = "linux"
+	if m.ServiceArgsStale(configPath) {
+		t.Error("only the Windows task is compared")
 	}
 }
