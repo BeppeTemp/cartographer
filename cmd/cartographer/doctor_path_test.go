@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -210,18 +211,31 @@ func TestBinaryVersion_BoundedByAGrandchildHoldingStdout(t *testing.T) {
 	}
 }
 
-// checkPathBinaries probes the copies together: with every probe taking half a
-// second, three copies are done in about that time, not in three times it.
+// checkPathBinaries probes the copies together: every probe waits until all
+// three have started, so a serial loop never gets past the first one. The test
+// asserts concurrency, not elapsed time, which a loaded host stretches.
 func TestCheckPathBinaries_ProbesInParallel(t *testing.T) {
 	a, b, c := exeFile(t, "a"), exeFile(t, "b"), exeFile(t, "c")
 	pathStubs(t, []string{a, b, c}, map[string]string{a: "1", b: "2", c: "3"}, "")
 	slow := binaryVersionFn
-	binaryVersionFn = func(p string) string { time.Sleep(500 * time.Millisecond); return slow(p) }
+	var inFlight atomic.Int32
+	all := make(chan struct{})
+	var serial atomic.Bool
+	binaryVersionFn = func(p string) string {
+		if inFlight.Add(1) == 3 {
+			close(all)
+		}
+		select {
+		case <-all:
+		case <-time.After(5 * time.Second):
+			serial.Store(true)
+		}
+		return slow(p)
+	}
 
-	start := time.Now()
 	got := checkPathBinaries()
-	if elapsed := time.Since(start); elapsed > 1200*time.Millisecond {
-		t.Errorf("three 500 ms probes took %v, want them in parallel", elapsed)
+	if serial.Load() {
+		t.Error("the three probes never ran together, probes are serial")
 	}
 	if len(got) != 1 || !strings.Contains(got[0].Message, a+" (1,") || !strings.Contains(got[0].Message, c+" (3)") {
 		t.Errorf("findings = %+v, want each copy with its own version", got)
