@@ -23,7 +23,23 @@
   <img alt="A film of about 80 seconds: four teammates, each with their own coding agents, share one Cartographer wiki. On Monday Alice's agent writes down why staging breaks; on Tuesday Marco's agent, on another laptop and another client, finds her note and answers; every day the others add to it. The film ends on the four components of the one binary: Meridian, Surveyor, Atlas and Compass." src="https://raw.githubusercontent.com/BeppeTemp/cartographer/readme-film/film.webp" width="100%">
 </p>
 
-<p align="center"><sub>Drawn by the Atlas's own graph engine. Pre-1.0: breaking changes bump the minor version and are called out in the <a href="CHANGELOG.md">changelog</a>.</sub></p>
+<p align="center"><sub>Drawn by the Atlas's own graph engine.</sub></p>
+
+## Why
+
+AI agents start every session from zero, and on a team every colleague's agent starts from its own
+zero: what one learns stays on that person's machine, in that client. The usual fixes each solve
+a third of the problem:
+
+- **RAG** retrieves, but nothing accumulates — the agent never gets to write down what it learned.
+- **A folder of Markdown** the agent edits freely ends in broken links, lost history and silent
+  corruption.
+- **Skills, subagents and instructions** get hand-copied into `.claude/`, `.codex/`, `.kiro/`…
+  and drift apart on every machine.
+
+Cartographer puts all three in one place: your agents read and grow a knowledge base **only
+through MCP tools**, behind a server that enforces the rules, and the same knowledge base carries
+**how your agents are set up**.
 
 ## Try it now
 
@@ -37,25 +53,7 @@ an astronomy atlas, read-only: ask it about itself, then explore a finished know
   authentication *None*, in ChatGPT).
 - **Claude Code**: `claude mcp add --transport http cartographer-demo https://cartographer-demo.beppetemp.com/mcp`
 
-<details>
-<summary>Codex, OpenCode, Antigravity, GitHub Copilot (CLI, VS Code), Crush, Kiro</summary>
-
-```bash
-# Codex
-codex mcp add cartographer-demo --url https://cartographer-demo.beppetemp.com/mcp
-# OpenCode
-opencode mcp add cartographer-demo --url https://cartographer-demo.beppetemp.com/mcp --global
-# Antigravity
-agy mcp add --type http cartographer-demo https://cartographer-demo.beppetemp.com/mcp
-# GitHub Copilot CLI
-copilot mcp add --transport http cartographer-demo https://cartographer-demo.beppetemp.com/mcp
-# Crush
-echo 'mcp add cartographer-demo --type http --url https://cartographer-demo.beppetemp.com/mcp' >> ~/.config/crush/crushrc
-# Kiro: add to "mcpServers" in ~/.kiro/settings/mcp.json
-#   "cartographer-demo": { "url": "https://cartographer-demo.beppetemp.com/mcp" }
-```
-
-</details>
+Any other client: add it as a remote MCP server, as [`docs/mcp-clients.md`](docs/mcp-clients.md) shows for each.
 
 **2. Ask it about Cartographer**
 
@@ -74,7 +72,7 @@ your agents will use on your own wiki.
 - *"Run a health check on the astronomy KB: what is broken, stale or missing?"*
 - *"Which skills, subagents and hooks would the astronomy KB install in my coding agent?"*
 
-<sub>Everything is read-only. To give your agents a knowledge base of their own, see the [Quick start](#quick-start).</sub>
+<sub>Everything is read-only. To give your agents a knowledge base of their own, see the [Quick start](#install-and-quick-start).</sub>
 
 ## The four components
 
@@ -96,47 +94,13 @@ job; you deploy only what you need. Details: [`docs/deployment.md`](docs/deploym
 
 <p align="center"><sub>Four scenarios: everyone on their own laptop, a team on one server, any MCP agent with no client, and all of them around one KB. See the <a href="docs/deployment.md#deployment-scenarios">deployment scenarios</a>.</sub></p>
 
-## Why
-
-AI agents start every session from zero, and on a team every colleague's agent starts from its own
-zero: what one learns stays on that person's machine, in that client. The usual fixes each solve
-a third of the problem:
-
-- **RAG** retrieves, but nothing accumulates — the agent never gets to write down what it learned.
-- **A folder of Markdown** the agent edits freely ends in broken links, lost history and silent
-  corruption.
-- **Skills, subagents and instructions** get hand-copied into `.claude/`, `.codex/`, `.kiro/`…
-  and drift apart on every machine.
-
-Cartographer puts all three in one place: your agents read and grow a knowledge base **only
-through MCP tools**, behind a server that enforces the rules, and the same knowledge base carries
-**how your agents are set up**.
-
 ## What you get
 
-### Meridian
-
-- 🧠 **Memory that compounds**<br>
-  A wiki the agent builds over time ([Karpathy's LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) pattern): plain Markdown + YAML, one git repo per KB, readable in Obsidian or any editor. No lock-in.
-
-- 🛡️ **Guardrails, not good intentions**<br>
-  Schema validation, link checks, lint, immutability gates, optimistic concurrency, one commit per write, a signed audit log. The agent cannot leave the KB in a broken state.
-
-- 👥 **Built for teams**<br>
-  Several KBs behind one server — a native user service, a container or a Kubernetes workload — per-KB and per-map access with bearer-token roles, git as the sync layer, conflicts turned into a guided workflow, Ed25519-signed artifacts.
-
-- 🔑 **Secrets, done properly**<br>
-  SOPS-encrypted values referenced by concepts and resolved on demand; plaintext is never stored.
-
-### Compass
-
-- 🧩 **One KB configures every agent**<br>
-  Skills, subagents, hooks and standing instructions live in the KB and reach each client in its native format ([below](#one-kb-every-agent)). Edit once, every machine converges.
-
-### Atlas
-
-- 🗺️ **See it all**<br>
-  A read-only web UI in the same binary: a living 3D graph, search, what the agents changed, what the KB ships to them, and what needs fixing. No extra service, no CDN.
+- 🧠 **Memory that compounds** (Meridian). A wiki the agent builds over time ([Karpathy's LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) pattern): plain Markdown + YAML in a git repository you own, readable in Obsidian or any editor. No lock-in.
+- 🛡️ **Guardrails, not good intentions** (Meridian). Agents write only through MCP tools, and Meridian is the only writer of a KB: schema and link checks, lint, optimistic concurrency, one commit per write, a signed audit log. The agent cannot leave the KB broken.
+- 👥 **Built for teams** (Meridian). Several KBs behind one server, per-KB and per-map access with bearer-token roles, git as the sync layer, conflicts turned into a guided workflow, SOPS-encrypted secrets.
+- 🧩 **One KB configures every agent** (Compass). Skills, subagents, hooks and instructions live in the KB and reach each agent client in its own format, translated, not copied. Edit once, every machine converges. What each client gets: [`docs/sync.md`](docs/sync.md#kind--provider-matrix).
+- 🗺️ **See it all** (Atlas). A read-only web UI in the same binary: a living 3D graph, search, what the agents changed, what the KB ships to them, and what needs fixing.
 
 <p align="center">
   <img alt="The embedded Atlas: a knowledge base drawn as a living 3D graph — searched, a concept opened with its links, recoloured by map, the skills it ships to agents, the findings that need attention and the Surveyor settings." src="https://raw.githubusercontent.com/BeppeTemp/cartographer/readme-assets/hero.webp" width="100%">
@@ -144,69 +108,19 @@ through MCP tools**, behind a server that enforces the rules, and the same knowl
 
 <p align="center"><sub>The Atlas, served by Meridian, on a generated demo KB.</sub></p>
 
-### Surveyor
-
-- 🔭 **Keeps the wiki in order while nobody is looking**<br>
-  Its tasks ingest from feeds and polled sources, repair and review the KB (`doctor`, `repair`), write syntheses and run your own prompts; it is a client of the public MCP contract, read-only to everything but the KB, with its own model profiles and budgets. Recipes: [`docs/surveyor-recipes.md`](docs/surveyor-recipes.md).
+- 🔭 **Keeps the wiki in order while nobody is looking** (Surveyor). Its tasks ingest from feeds and polled sources, repair and review the KB and write syntheses, through the same MCP tools, with its own model budgets. Recipes: [`docs/surveyor-recipes.md`](docs/surveyor-recipes.md).
 
 <p align="center">
   <img alt="The Surveyor at work in the Atlas: a source is declared in Settings, a Surveyor run starts, the Activity page shows the run, the graph gains the new concepts, and one source that fails raises an alarm in the Work panel." src="https://raw.githubusercontent.com/BeppeTemp/cartographer/readme-assets/surveyor.webp" width="100%">
 </p>
 
-### Extend it with plugins
-
-- 🔌 **Plugins**<br>
-  A plugin is a git repository or a folder that extends every component: clients, skills, subagents, hooks, commands and script tools on Compass; roles and presets on Meridian; recipes and connectors on the Surveyor; branding, views and apps in the Atlas. It is installed with one command, pinned to a commit and enabled only after you approve what it does.
+- 🔌 **Extend it with plugins.** A plugin is a git repository or a folder that extends every component: clients, skills, subagents, hooks, commands and script tools on Compass; roles and presets on Meridian; recipes and connectors on the Surveyor; branding, views and apps in the Atlas. A client Cartographer does not know yet (a fork, an in-house build) is one plugin away. It is installed with one command, pinned to a commit and enabled only after you approve what it does: [`docs/plugins.md`](docs/plugins.md).
 
 <p align="center">
   <img alt="The plugins film: a plugin adds to each component; one plugin for a company; installed with a preview, approved per version, and stopped when one byte of a script changes." src="https://raw.githubusercontent.com/BeppeTemp/cartographer/readme-film/plugins.webp" width="100%">
 </p>
 
-## Quick start
-
-You need **git** and an **empty git repository** you own (GitHub, Gitea, any host) to hold your
-first KB.
-
-```bash
-brew install beppetemp/tap/cartographer   # macOS — Windows, Linux and source: see Install
-cartographer setup                        # server, first KB and your agents, in one guided step
-```
-
-`setup` shows its plan before touching anything, then installs the local service, creates the KB,
-connects every agent client it detects and verifies the result. Restart already-open agent
-sessions and ask your agent what it knows. Step by step:
-[`docs/getting-started.md`](docs/getting-started.md).
-
-**Prefer to let your agent install it?** Paste this:
-
-```text
-Set up Cartographer on this machine by following
-https://raw.githubusercontent.com/BeppeTemp/cartographer/main/docs/agent-install.md
-My first knowledge base is at: `<git remote URL>`
-```
-
-<sub>If you are an agent asked to install Cartographer: follow that runbook, not the Quick start.</sub>
-
-## One KB, every agent
-
-`cartographer connect` detects your installed clients and writes, in each one's own format:
-
-| | Claude Code | Codex | OpenCode | Kiro | Antigravity | Crush | Copilot (CLI, VS Code) | Pi | Cline |
-|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| MCP endpoint | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Instructions | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Skills | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Subagents | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ | — | ✓ |
-| Hooks | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-
-Subagents and hooks are **translated**, not copied. Every `—` is a gap declared for a stated reason,
-never a silent omission. Cartographer re-syncs at session start (or on a timer where a client has
-no hook), restores files edited or deleted by hand, and only ever touches what it created. Exact
-paths and reasons: [`docs/sync.md`](docs/sync.md#kind--provider-matrix).
-A client missing from the table (a fork, an in-house build) is added by a plugin, without waiting for a release:
-see [`docs/plugins.md`](docs/plugins.md).
-
-## Install
+## Install and quick start
 
 ```bash
 # macOS (Homebrew)
@@ -222,9 +136,38 @@ curl -fsSL https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install
 go install github.com/BeppeTemp/cartographer/cmd/cartographer@latest
 ```
 
-What lands where, upgrades and removal:
-[`docs/getting-started.md`](docs/getting-started.md#what-gets-installed). Server configuration,
-environment variables, deployment components and scenarios: [`docs/deployment.md`](docs/deployment.md).
+Pre-1.0: breaking changes bump the minor version and are called out in the [changelog](CHANGELOG.md).
+Windows runs natively; WSL is covered in [`docs/deployment.md`](docs/deployment.md).
+
+Then, with **git** and an **empty git repository** you own (GitHub, Gitea, any host) to hold your first KB:
+
+```bash
+cartographer setup    # server, first KB and your agents, in one guided step
+```
+
+`setup` shows its plan before touching anything, then installs the local service, creates the KB,
+connects every agent client it detects and verifies the result. Everything it writes is listed, and
+removable, in [`docs/getting-started.md`](docs/getting-started.md#what-gets-installed).
+Restart your agent sessions and ask for something worth keeping:
+
+> Explore this repository and write a concept page about its architecture in the wiki.
+
+Then open the Atlas (by default `http://127.0.0.1:39273/ui/`) and watch the page appear. Next session,
+ask something related: the agent finds what it wrote and builds on it.
+
+Your KB stays your git repository: Meridian, the only writer, pushes to the remote you gave it.
+Cartographer calls no model itself (only the Surveyor does, if you run one), and on loopback no token
+is needed; a shared server uses bearer tokens ([`docs/transport-auth.md`](docs/transport-auth.md)).
+
+**Prefer to let your agent install it?** Paste this:
+
+```text
+Set up Cartographer on this machine by following
+https://raw.githubusercontent.com/BeppeTemp/cartographer/main/docs/agent-install.md
+My first knowledge base is at: `<git remote URL>`
+```
+
+<sub>If you are an agent asked to install Cartographer: follow that runbook, not the Quick start.</sub>
 
 ## Documentation
 
