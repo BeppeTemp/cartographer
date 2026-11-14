@@ -229,7 +229,7 @@ const logo = mk("img", "", "", "left:310px;top:392px;width:150px;height:150px") 
 logo.src = logoUrl;
 const word = mk("div", "wordmark", "Cartographer", "left:500px;top:378px");
 const sub = mk("div", "sub", "Shared memory for your team's AI agents", "left:504px;top:520px");
-const url = mk("div", "url", "cartographer-demo.beppetemp.com/mcp &nbsp;·&nbsp; github.com/BeppeTemp/cartographer", "left:504px;top:596px");
+const url = mk("div", "url", "github.com/BeppeTemp/cartographer", "left:504px;top:596px");
 const agents = mk("div", "url", "Claude Code · Codex · OpenCode · Kiro · Antigravity · Copilot CLI · any MCP client", "left:504px;top:650px;font-size:22px");
 
 // --- terminal scripts -----------------------------------------------------

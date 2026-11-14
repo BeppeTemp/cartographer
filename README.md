@@ -43,36 +43,9 @@ through MCP tools**, behind a server that enforces the rules, and the same knowl
 
 ## Try it now
 
-A live Cartographer — no install, no token, no sign-up. It serves Cartographer's own documentation and
-an astronomy atlas, read-only: ask it about itself, then explore a finished knowledge base.
-
-**1. Connect your agent** to `https://cartographer-demo.beppetemp.com/mcp`
-
-- **Claude** or **ChatGPT** — web, desktop or phone: add it as a custom connector, no sign-in
-  (*Customize → Connectors → Add custom connector* in Claude; *Plugins → + → Add custom MCP server*,
-  authentication *None*, in ChatGPT).
-- **Claude Code**: `claude mcp add --transport http cartographer-demo https://cartographer-demo.beppetemp.com/mcp`
-
-Any other client: add it as a remote MCP server, as [`docs/mcp-clients.md`](docs/mcp-clients.md) shows for each.
-
-**2. Ask it about Cartographer**
-
-- *"How does workspace binding work in Cartographer?"*
-- *"Why does every write make a git commit?"*
-- *"What happens when two agents write the same page?"*
-
-The answers come from the documentation of the running release, found with the same search and graph tools
-your agents will use on your own wiki.
-
-**3. Explore the astronomy atlas in the Atlas**
-
-[Open the live Atlas →](https://beppetemp.github.io/cartographer/demo/), then ask your agent:
-
-- *"What does the astronomy knowledge base know about black holes, and what are they connected to?"*
-- *"Run a health check on the astronomy KB: what is broken, stale or missing?"*
-- *"Which skills, subagents and hooks would the astronomy KB install in my coding agent?"*
-
-<sub>Everything is read-only. To give your agents a knowledge base of their own, see the [Quick start](#install-and-quick-start).</sub>
+Open the [static Atlas demo](https://beppetemp.github.io/cartographer/demo/): a finished, read-only
+knowledge base on astronomy, with nothing to install. To give your agents a knowledge base of their own,
+see the [Quick start](#install-and-quick-start).
 
 ## The four components
 
