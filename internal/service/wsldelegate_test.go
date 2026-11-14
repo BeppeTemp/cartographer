@@ -91,6 +91,9 @@ func TestWslCommands_NoWslExe(t *testing.T) {
 	if _, err := m.WslCartographerVersion("Ubuntu"); !errors.Is(err, ErrNoWsl) {
 		t.Errorf("version = %v", err)
 	}
+	if err := m.WslServerRuns("Ubuntu"); !errors.Is(err, ErrNoWsl) {
+		t.Errorf("server runs = %v", err)
+	}
 }
 
 func TestDelegateToWsl(t *testing.T) {
