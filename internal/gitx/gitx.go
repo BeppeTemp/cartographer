@@ -134,6 +134,10 @@ func runGitNet(dir, remote string, timeout time.Duration, env []string, args ...
 	if ctx.Err() == context.DeadlineExceeded {
 		return string(out), &RemoteTimeoutError{Remote: RedactRemoteURL(remote), After: timeout}
 	}
+	if err != nil {
+		// remote may be a name; git echoes its URL, and the credentials in it.
+		return scrubRepoOutput(dir, string(out)), err
+	}
 	return string(out), err
 }
 
@@ -755,7 +759,7 @@ func LsRemote(dir, remote string, env ...string) (RemoteRefs, error) {
 		return RemoteRefs{}, fmt.Errorf("git ls-remote %s: %w", RedactRemoteURL(remote), &RemoteTimeoutError{Remote: RedactRemoteURL(remote), After: FetchTimeout})
 	}
 	if err != nil {
-		return RemoteRefs{}, fmt.Errorf("git ls-remote %s: %w: %s", RedactRemoteURL(remote), redactedErr(err, remote), RedactRemoteText(strings.TrimSpace(stderr.String()), remote))
+		return RemoteRefs{}, fmt.Errorf("git ls-remote %s: %w: %s", RedactRemoteURL(remote), redactedErr(err, remote), RedactRemoteText(scrubRepoOutput(dir, strings.TrimSpace(stderr.String())), remote))
 	}
 	refs := parseLsRemoteSymref(string(out))
 	if refs.Default != "" && RemoteBranchExists(dir, remote, refs.Default) {
@@ -874,6 +878,11 @@ func runGitEnv(dir string, env []string, args ...string) (string, error) {
 	cmd := procattr.Hide(exec.Command("git", fullArgs...))
 	cmd.Env = gitEnv(env)
 	out, err := cmd.CombinedOutput()
+	if err != nil {
+		// The output reaches errors, logs and sync_status: git echoes a
+		// remote's URL, and the credentials in it, in its failures.
+		return scrubRepoOutput(dir, string(out)), err
+	}
 	return string(out), err
 }
 
@@ -940,7 +949,10 @@ func runGitEnvTimeout(dir string, env []string, timeout time.Duration, args ...s
 	cmd := netCommand(ctx, gitEnv(env), append([]string{"-C", dir}, args...)...)
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() != nil {
-		return string(out), ctx.Err()
+		return scrubRepoOutput(dir, string(out)), ctx.Err()
+	}
+	if err != nil {
+		return scrubRepoOutput(dir, string(out)), err
 	}
 	return string(out), err
 }
@@ -1095,7 +1107,7 @@ func fetchWith(dir, remote string, opts, env []string) error {
 		return fmt.Errorf("git fetch %s: %w", RedactRemoteURL(remote), &RemoteTimeoutError{Remote: RedactRemoteURL(remote), After: FetchTimeout})
 	}
 	if err != nil {
-		return fmt.Errorf("git fetch %s: %w: %s", RedactRemoteURL(remote), redactedErr(err, remote), RedactRemoteText(string(out), remote))
+		return fmt.Errorf("git fetch %s: %w: %s", RedactRemoteURL(remote), redactedErr(err, remote), RedactRemoteText(scrubRepoOutput(dir, string(out)), remote))
 	}
 	return nil
 }
@@ -1493,7 +1505,7 @@ func ResetHardTo(dir, ref string, env ...string) error {
 func Push(dir, remote, branch string, env ...string) error {
 	out, err := runGitNet(dir, remote, PushTimeout, env, "push", "--", remote, branch)
 	if err != nil {
-		return pushError(fmt.Sprintf("git push %s %s", remote, branch), err, out)
+		return pushError(fmt.Sprintf("git push %s %s", RedactRemoteURL(remote), branch), err, out)
 	}
 	return nil
 }
@@ -1528,7 +1540,7 @@ var PushTimeout = 60 * time.Second
 func PushSetUpstream(dir, remote, branch string, env ...string) error {
 	out, err := runGitNet(dir, remote, PushTimeout, env, "push", "-u", "--", remote, branch)
 	if err != nil {
-		return pushError(fmt.Sprintf("git push -u %s %s", remote, branch), err, out)
+		return pushError(fmt.Sprintf("git push -u %s %s", RedactRemoteURL(remote), branch), err, out)
 	}
 	return nil
 }
