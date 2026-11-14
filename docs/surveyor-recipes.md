@@ -216,7 +216,7 @@ cartographer surveyor source test --config <file> --source <id> [--kb <kb>]
 
 The command runs the listing the Surveyor will run: the same recipe registry, the same preconditions as the poll
 (parse of the Source, recipe known and of the Source's shape, a built-in's host on its list) and the same listing call,
-then prints what it got. A script that implements `spec` has it printed (`spec:` line) and its `settings` checked; a feed script's `check` is run first when it is declared. For a system recipe it runs the poll's check, then reads the stored state and diffs
+then prints what it got. The plugins pinned in the config are verified and loaded as at start (a wrong digest exits 2), so `--recipe <plugin>/<recipe>` tries a plugin's recipe too. A script that implements `spec` has it printed (`spec:` line) and its `settings` checked; a feed script's `check` is run first when it is declared. For a system recipe it runs the poll's check, then reads the stored state and diffs
 the listing against it (see System recipes). `--recipe` tries a recipe before registering a Source and needs neither the server nor the
 token; `--source` reads a registered Source (one `concept_read`, plus a `concept_list` for the plan warning) with the
 token in `token_env`. `--cursor <string>` lists from that cursor (default: empty, or the Source's `feed_cursor`);
