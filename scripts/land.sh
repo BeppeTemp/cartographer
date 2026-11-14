@@ -267,6 +267,21 @@ pick() {
   done
 }
 
+# build_bundle <slug> <what>: builds the Atlas bundle again in the worktree (`make -s web`,
+# LAND_BUNDLE_BUILD replaces it); its log is $state/bundle-<slug>.log. 1, with <what> said, when Node
+# is missing or the build fails.
+build_bundle() {
+  local blog=$state/bundle-$1.log
+  if [ -z "${LAND_BUNDLE_BUILD:-}" ] && ! command -v node >/dev/null 2>&1; then
+    log "$1: $2 Node is not installed here: not rebuilt"
+    return 1
+  fi
+  if ! ${LAND_BUNDLE_BUILD:-make -s web} >"$blog" 2>&1; then
+    log "$1: $2 building it again failed (see $blog)"
+    return 1
+  fi
+}
+
 # bundle_pick <slug>: in a cherry-pick stopped on conflicts, those in internal/webui/dist only
 # (the committed Atlas bundle, rebuilt whole by every frontend change: two of them always
 # conflict there, never in web/src) are resolved by building the bundle again from the merged
@@ -274,19 +289,11 @@ pick() {
 # proves the result. 1 when another path conflicts, Node is missing, or the build fails: the
 # change is then rejected as a conflict, as before. LAND_BUNDLE_BUILD replaces `make -s web`.
 bundle_pick() {
-  local u blog
+  local u
   u=$(git diff --name-only --diff-filter=U 2>/dev/null) || return 1
   [ -n "$u" ] || return 1
   if grep -qv '^internal/webui/dist/' <<<"$u"; then return 1; fi
-  if [ -z "${LAND_BUNDLE_BUILD:-}" ] && ! command -v node >/dev/null 2>&1; then
-    log "$1: only the Atlas bundle conflicts, but Node is not installed here: not rebuilt"
-    return 1
-  fi
-  blog=$state/bundle-$1.log
-  if ! ${LAND_BUNDLE_BUILD:-make -s web} >"$blog" 2>&1; then
-    log "$1: only the Atlas bundle conflicts, and building it again failed (see $blog)"
-    return 1
-  fi
+  build_bundle "$1" "only the Atlas bundle conflicts, but" || return 1
   git add -A internal/webui/dist && GIT_EDITOR=true git cherry-pick --continue >/dev/null 2>&1 || return 1
   log "$1: only the Atlas bundle conflicted: built again from the merged sources"
 }
@@ -790,6 +797,20 @@ while :; do
       git reset -q --hard HEAD~1
       reject "$s" "$sha" "it cites a pending decision that is neither on main nor earlier in the train: $LEFT"
       continue
+    fi
+    # The numbering rewrote a citation under web/ after the author ran `make web`: the committed
+    # bundle is stale (TestBundleMatchesSource), so it is built again (D2040).
+    # The files number_decisions rewrites only (not _test.go, not testdata/); grep without -q
+    # reads all of the diff: an early exit would SIGPIPE git show and fail it under pipefail.
+    if git show "$sha" -- web/ ':(exclude)*_test.go' ':(exclude)*/testdata/*' | grep '^+.*D-new-' >/dev/null; then
+      if ! build_bundle "$s" "it cites a pending decision under web/, and"; then
+        MAP=$premap
+        git reset -q --hard HEAD~1
+        git clean -qfd internal/webui/dist # what a partial build left would join the next change
+        reject "$s" "$sha" "it cites a pending decision under web/ and the bundle could not be rebuilt (see $state/bundle-$s.log)"
+        continue
+      fi
+      git add -A internal/webui/dist && git commit -q --amend --no-edit --allow-empty
     fi
     landed=${landed:+$landed$'\n'}"$s $sha"
     commits+=("$(git rev-parse HEAD)")
