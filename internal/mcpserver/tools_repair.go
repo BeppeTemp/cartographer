@@ -44,11 +44,36 @@ type repairTarget struct {
 	Fixes []*lint.Fix
 }
 
+// repairLintRun is the lint pass of a repair plan; a test seam that counts it.
+var repairLintRun = lint.Run
+
+// repairFindings caches the findings of one lint pass for the checks of a
+// multi-check dry run. A nil cache lints on every call.
+type repairFindings struct {
+	done     bool
+	scope    string
+	findings []lint.Finding
+}
+
+func (c *repairFindings) get(k *kb.KB, scope string) ([]lint.Finding, error) {
+	if c != nil && c.done && c.scope == scope {
+		return c.findings, nil
+	}
+	f, err := repairLintRun(k, scope, false)
+	if err != nil {
+		return nil, err
+	}
+	if c != nil {
+		c.done, c.scope, c.findings = true, scope, f
+	}
+	return f, nil
+}
+
 // planRepair runs lint on scope and returns the concepts whose findings of
 // check carry a fix, sorted by path, with the hash of each at listing time.
 // It reads, never writes.
-func planRepair(k *kb.KB, check, scope string) ([]repairTarget, []repairItem, error) {
-	findings, err := lint.Run(k, scope, false)
+func planRepair(k *kb.KB, check, scope string, fc *repairFindings) ([]repairTarget, []repairItem, error) {
+	findings, err := fc.get(k, scope)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -409,8 +434,8 @@ type artifactRepairTarget struct {
 
 // planArtifactRepair is planRepair for an artifact check. Artifact findings
 // exist only in a whole-KB lint, so a scoped plan is empty.
-func planArtifactRepair(k *kb.KB, check, scope string) ([]artifactRepairTarget, []repairItem, error) {
-	findings, err := lint.Run(k, scope, false)
+func planArtifactRepair(k *kb.KB, check, scope string, fc *repairFindings) ([]artifactRepairTarget, []repairItem, error) {
+	findings, err := fc.get(k, scope)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -621,8 +646,8 @@ func (t mapRepairTarget) key() string {
 // planMapRepair is planRepair for a check whose findings name a data/ folder
 // (unmapped_folder, D357), a map's index or descriptor, or a removed key of
 // instructions.md. It reads, never writes.
-func planMapRepair(k *kb.KB, check, scope string) ([]mapRepairTarget, []repairItem, error) {
-	findings, err := lint.Run(k, scope, false)
+func planMapRepair(k *kb.KB, check, scope string, fc *repairFindings) ([]mapRepairTarget, []repairItem, error) {
+	findings, err := fc.get(k, scope)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1160,8 +1185,8 @@ func finishRun(run *repairRun, applied int, skipped []repairSkip) {
 
 // repairMapsCheck is the map-check path of kb_repair: the same response
 // shape, counted in folders.
-func repairMapsCheck(k *kb.KB, check, scope string, dryRun bool, limit, plannedCap int) (*repairRun, error) {
-	targets, items, err := planMapRepair(k, check, scope)
+func repairMapsCheck(k *kb.KB, check, scope string, dryRun bool, limit, plannedCap int, fc *repairFindings) (*repairRun, error) {
+	targets, items, err := planMapRepair(k, check, scope, fc)
 	if err != nil {
 		return nil, err
 	}
@@ -1207,8 +1232,8 @@ func repairMapsCheck(k *kb.KB, check, scope string, dryRun bool, limit, plannedC
 
 // repairArtifactsCheck is the artifact-check path of kb_repair: the same
 // response shape, counted in files instead of concepts.
-func repairArtifactsCheck(k *kb.KB, check, scope string, dryRun bool, limit, plannedCap int) (*repairRun, error) {
-	targets, items, err := planArtifactRepair(k, check, scope)
+func repairArtifactsCheck(k *kb.KB, check, scope string, dryRun bool, limit, plannedCap int, fc *repairFindings) (*repairRun, error) {
+	targets, items, err := planArtifactRepair(k, check, scope, fc)
 	if err != nil {
 		return nil, err
 	}
@@ -1265,8 +1290,8 @@ var (
 // repairConceptsCheck is the concept-check path of kb_repair. An error is a
 // plan failure or, after concepts were written, a failed contract rewrite
 // (the caller words the "uncommitted" part).
-func repairConceptsCheck(k *kb.KB, check, scope string, dryRun bool, limit, plannedCap int) (*repairRun, error) {
-	targets, items, err := planRepair(k, check, scope)
+func repairConceptsCheck(k *kb.KB, check, scope string, dryRun bool, limit, plannedCap int, fc *repairFindings) (*repairRun, error) {
+	targets, items, err := planRepair(k, check, scope, fc)
 	if err != nil {
 		return nil, err
 	}
@@ -1337,14 +1362,14 @@ func (e *repairWrittenError) Error() string {
 }
 
 // repairOneCheck routes a check to its path.
-func repairOneCheck(k *kb.KB, check, scope string, dryRun bool, limit, plannedCap int) (*repairRun, error) {
+func repairOneCheck(k *kb.KB, check, scope string, dryRun bool, limit, plannedCap int, fc *repairFindings) (*repairRun, error) {
 	switch {
 	case lint.ArtifactRepairCheck(check):
-		return repairArtifactsCheck(k, check, scope, dryRun, limit, plannedCap)
+		return repairArtifactsCheck(k, check, scope, dryRun, limit, plannedCap, fc)
 	case lint.MapRepairCheck(check):
-		return repairMapsCheck(k, check, scope, dryRun, limit, plannedCap)
+		return repairMapsCheck(k, check, scope, dryRun, limit, plannedCap, fc)
 	}
-	return repairConceptsCheck(k, check, scope, dryRun, limit, plannedCap)
+	return repairConceptsCheck(k, check, scope, dryRun, limit, plannedCap, fc)
 }
 
 // repairMultiPlannedCap bounds the planned list of each check in a multi-check
@@ -1417,8 +1442,15 @@ func repairMany(k *kb.KB, checks []string, scope string, dryRun bool, limit int)
 	var entries []map[string]interface{}
 	var lines, logLines []string
 	appliedTotal, plannedAll, changed := 0, 0, 0
+	// A dry run writes nothing, so every check sees the same tree: one lint
+	// pass serves them all. An apply run re-lints, each check planning against
+	// what the previous ones wrote.
+	var fc *repairFindings
+	if dryRun {
+		fc = &repairFindings{}
+	}
 	for _, c := range checks {
-		run, err := repairOneCheck(k, c, scope, dryRun, limit, repairMultiPlannedCap)
+		run, err := repairOneCheck(k, c, scope, dryRun, limit, repairMultiPlannedCap, fc)
 		if err != nil {
 			msg := fmt.Sprintf("kb_repair: %s: %v", c, err)
 			if len(lines) > 0 {
@@ -1588,7 +1620,7 @@ func toolKBRepair(k *kb.KB) Tool {
 			if multi {
 				return repairMany(k, checks, params.Scope, dryRun, params.Limit)
 			}
-			run, err := repairOneCheck(k, checks[0], params.Scope, dryRun, params.Limit, repairPlannedCap)
+			run, err := repairOneCheck(k, checks[0], params.Scope, dryRun, params.Limit, repairPlannedCap, nil)
 			if err != nil {
 				return errorResult(fmt.Sprintf("kb_repair: %v", relPathErr(err, k.Root))), nil
 			}

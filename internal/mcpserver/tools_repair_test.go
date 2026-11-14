@@ -137,7 +137,7 @@ func TestKBRepairRenamesInOneCommit(t *testing.T) {
 func TestKBRepairSkipsStaleConcept(t *testing.T) {
 	t.Parallel()
 	k, _ := repairKB(t, 2)
-	targets, _, err := planRepair(k, "nonstandard_field", "")
+	targets, _, err := planRepair(k, "nonstandard_field", "", nil)
 	if err != nil || len(targets) != 2 {
 		t.Fatalf("plan = %v, %v", targets, err)
 	}

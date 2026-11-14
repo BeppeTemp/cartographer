@@ -338,3 +338,31 @@ func TestKBRepairMissingCheckListsTheFixableOnes(t *testing.T) {
 		t.Fatalf("%+v", res)
 	}
 }
+
+// A multi-check dry run lints the KB once and plans every check (concept,
+// artifact and map) from that pass; each entry equals the one a single-check
+// call gives. Not parallel: it sets a package-level seam.
+func TestKBRepairMultiDryRunLintsOnce(t *testing.T) {
+	_, s := multiKB(t)
+	calls := 0
+	repairLintRun = func(k *kb.KB, scope string, n bool) ([]lint.Finding, error) {
+		calls++
+		return lint.Run(k, scope, n)
+	}
+	t.Cleanup(func() { repairLintRun = lint.Run })
+	out := repairCall(t, s, `{"check":"*"}`)
+	if calls != 1 {
+		t.Fatalf("lint ran %d times in one multi-check dry run, want 1", calls)
+	}
+	got := multiChecks(out)
+	for _, c := range []string{"nonstandard_field", "legacy_tool_name", "unmapped_folder"} {
+		e := got[c]
+		if e == nil {
+			t.Fatalf("%s: no entry in %v", c, out)
+		}
+		single := repairCall(t, s, fmt.Sprintf(`{"check":%q}`, c))
+		if single["planned_total"] != e["planned_total"] || single["found"] != e["found"] {
+			t.Errorf("%s: multi %v differs from single %v", c, e, single)
+		}
+	}
+}
