@@ -901,7 +901,7 @@ func titleTextIssues(contract *kb.MapContract, hasStatus bool, title string) []s
 	lower := strings.ToLower(title)
 	if hasStatus {
 		for _, w := range titleStatusWords {
-			if containsWord(lower, w) {
+			if statusWordInPosition(lower, w) {
 				out = append(out, fmt.Sprintf("title contains status word %q; the status field tracks lifecycle — a status in the title decays with the page", w))
 				break
 			}
@@ -915,6 +915,25 @@ func titleTextIssues(contract *kb.MapContract, hasStatus bool, title string) []s
 		}
 	}
 	return out
+}
+
+// trailingGroup matches a title's trailing (...) or [...].
+var trailingGroup = regexp.MustCompile(`[(\[]([^()\[\]]*)[)\]]\s*$`)
+
+// statusWordInPosition reports whether word sits where a status sits in the
+// lowercased title: its last word (which covers "X — active" and "X active")
+// or inside a trailing (...) or [...]. The word in the middle of a name
+// ("the active pool", "Active-active cluster") is vocabulary, not a status.
+func statusWordInPosition(lower, word string) bool {
+	if m := trailingGroup.FindStringSubmatch(lower); m != nil && containsWord(m[1], word) {
+		return true
+	}
+	f := strings.Fields(lower)
+	if len(f) == 0 {
+		return false
+	}
+	last := strings.TrimFunc(f[len(f)-1], func(r rune) bool { return !unicode.IsLetter(r) })
+	return last == word
 }
 
 // decorativeTitleMsg opens the title_quality message about decorative

@@ -176,7 +176,7 @@ func TestWriteGate_AvoidableRefusesWhateverTheArguments(t *testing.T) {
 	s := gateSeed(t, k, nil)
 	head := gitOut(t, k, "rev-parse", "HEAD")
 	batch := gateBatch(
-		gateWrite("ops/one", "Active Runbook", "# Active Runbook\n\nSee [Two](two.md).\n", true, `,"status":"active"`),
+		gateWrite("ops/one", "Runbook (active)", "# Runbook (active)\n\nSee [Two](two.md).\n", true, `,"status":"active"`),
 		gateWrite("ops/two", "Two", "# Two\n\nSee [One](one.md).\n", true, ""))
 	text, isErr := callJSON(t, s, adminCtx, "concept_batch", batch)
 	refusedCleanly(t, k, head, text, isErr, "title_quality")
