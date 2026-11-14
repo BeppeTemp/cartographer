@@ -242,3 +242,25 @@ func TestRepairOnWrite_WriteErrorKeepsOriginal(t *testing.T) {
 		t.Fatal("content changed")
 	}
 }
+
+// D1201: IngestPlan.sources is the plan's own field. The write keeps it, a
+// later append works, and kb_repair leaves it alone.
+func TestRepairOnWrite_KeyedFieldIsKept(t *testing.T) {
+	t.Parallel()
+	k, s := rowKB(t)
+	out := decodeJSON(t, mustText(t, s, "concept_write",
+		`{"id":"ops/plan","frontmatter":{"type":"IngestPlan","title":"Plan","status":"open","sources":[]},"body":"# Plan\n\nSee [A](a.md).\n"}`))
+	if got := repairedMap(out); got["nonstandard_field"] != 0 {
+		t.Fatalf("repaired = %v", out["repaired"])
+	}
+	cd, _ := k.ReadConcept("ops/plan")
+	if !strings.Contains(cd.FrontmatterRaw, "sources") || strings.Contains(cd.FrontmatterRaw, "provenance") {
+		t.Fatalf("frontmatter: %s", cd.FrontmatterRaw)
+	}
+	mustText(t, s, "concept_patch", `{"id":"ops/plan","frontmatter_append":{"sources":["s1"]},"if_match":"`+cd.ContentHash+`"}`)
+	mustText(t, s, "kb_repair", `{"check":"nonstandard_field","dry_run":false}`)
+	cd, _ = k.ReadConcept("ops/plan")
+	if !strings.Contains(cd.FrontmatterRaw, "sources") || !strings.Contains(cd.FrontmatterRaw, "s1") || strings.Contains(cd.FrontmatterRaw, "provenance") {
+		t.Fatalf("frontmatter after patch and repair: %s", cd.FrontmatterRaw)
+	}
+}
