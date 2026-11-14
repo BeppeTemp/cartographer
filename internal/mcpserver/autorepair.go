@@ -642,7 +642,7 @@ func stagedAutoRepairFrom(ctx context.Context, k *kb.KB, checks []string, quota 
 		if ctx.Err() != nil {
 			return r
 		}
-		targets, _, err := planMapRepair(k, check, "")
+		targets, _, err := planMapRepair(k, check, "", nil)
 		if err != nil {
 			r.errs = append(r.errs, check+": "+err.Error())
 			continue
@@ -681,7 +681,7 @@ func stagedAutoRepairFrom(ctx context.Context, k *kb.KB, checks []string, quota 
 		if ctx.Err() != nil {
 			return r
 		}
-		targets, _, err := planRepair(k, check, "")
+		targets, _, err := planRepair(k, check, "", nil)
 		if err != nil {
 			r.errs = append(r.errs, check+": "+err.Error())
 			continue
@@ -722,7 +722,7 @@ func stagedAutoRepairFrom(ctx context.Context, k *kb.KB, checks []string, quota 
 		if ctx.Err() != nil {
 			return r
 		}
-		targets, _, err := planArtifactRepair(k, check, "")
+		targets, _, err := planArtifactRepair(k, check, "", nil)
 		if err != nil {
 			r.errs = append(r.errs, check+": "+err.Error())
 			continue
