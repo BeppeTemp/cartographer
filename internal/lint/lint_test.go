@@ -1764,3 +1764,41 @@ func TestRun_VariantsFolderIsIgnored(t *testing.T) {
 		}
 	}
 }
+
+// D-new-map-slash-link: [[map/]] is broken; when the map has its index the
+// finding carries the rewrite to [[map]], otherwise no fix.
+func TestBrokenLinkMapSlash(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nkind: map\ntitle: Ops\n---\n# Ops\n")
+	writeFile(t, k.DataRoot(), "ops/index.md", "# Ops\n")
+	writeFile(t, k.DataRoot(), "ops/a.md", "---\ntype: Note\ntitle: A\n---\nSee [[ops/]], [[ops/|Ops]], [[ops/#x]], [[nomap/]] and [x](ops/).\n")
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]*Fix{}
+	for _, f := range findings {
+		if f.Check == "broken_link" && f.Path == "ops/a.md" {
+			got[f.Message] = f.Fix
+		}
+	}
+	fixed := 0
+	for msg, fx := range got {
+		if strings.Contains(msg, "nomap") || strings.Contains(msg, "ops/ops/") {
+			if fx != nil {
+				t.Errorf("%q must carry no fix: %+v", msg, fx)
+			}
+			continue
+		}
+		if fx != nil {
+			fixed++
+			if fx.Kind != FixRewriteWikiLink || fx.Field != "ops/" || fx.To != "ops" {
+				t.Errorf("fix = %+v", fx)
+			}
+		}
+	}
+	if fixed != 1 {
+		t.Fatalf("want one finding with a fix (one finding per target), got %d of %v", fixed, got)
+	}
+}
