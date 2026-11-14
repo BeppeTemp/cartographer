@@ -36,8 +36,8 @@ func TestProxyEnvIsAnExplicitList(t *testing.T) {
 
 func TestRenderedDefinitionsCarryExactlyTheListedVariables(t *testing.T) {
 	bin, cfg, log := "/opt/bin/cartographer", "/home/user/server.yaml", "/home/user/server.log"
-	task := func(envFile ...string) string {
-		return RenderWindowsTaskXML(bin, cfg, log, `HOST\user`, "", envFile...)
+	task := func() string {
+		return RenderWindowsTaskXML(bin, cfg, log, `HOST\user`, "")
 	}
 
 	// unset: no definition mentions any of the listed variables
@@ -50,8 +50,8 @@ func TestRenderedDefinitionsCarryExactlyTheListedVariables(t *testing.T) {
 			}
 		}
 	}
-	if strings.Contains(task(), envFileFlag) {
-		t.Error("task with nothing set carries --setenv")
+	if strings.Contains(task(), "--env-file") {
+		t.Error("task with nothing set carries an env flag")
 	}
 
 	plist := RenderLaunchdPlist(bin, cfg, log, proxyTestEnv...)
@@ -78,10 +78,10 @@ func TestRenderedDefinitionsCarryExactlyTheListedVariables(t *testing.T) {
 		}
 	}
 
-	// The task carries the path of the env file, never a value.
-	envFile := filepath.Join("home", "user", "service.env")
-	x := task(envFile)
-	if want := `--env-file "` + envFile + `"</Arguments>`; !strings.Contains(x, want) {
+	// The task carries neither the env file nor a value: its command line is
+	// the previous stable's, with and without recorded variables (#2094).
+	x := task()
+	if want := `<Arguments>serve --config "` + cfg + `" --log-file "` + log + `"</Arguments>`; !strings.Contains(x, want) {
 		t.Errorf("task missing %q:\n%s", want, x)
 	}
 	for _, e := range proxyTestEnv {
@@ -89,9 +89,8 @@ func TestRenderedDefinitionsCarryExactlyTheListedVariables(t *testing.T) {
 			t.Errorf("task carries %s:\n%s", e.Name, x)
 		}
 	}
-	// the config path is still readable behind the new arguments
-	if got, err := extractTaskConfigPath([]byte(x)); err != nil || got != cfg {
-		t.Errorf("config path = %q, %v", got, err)
+	if strings.Contains(x, "env-file") || strings.Contains(x, "--supervised") {
+		t.Errorf("task carries a flag the previous stable does not know:\n%s", x)
 	}
 }
 
@@ -235,5 +234,59 @@ func TestEnvFileTightenedBeforeItIsReplaced(t *testing.T) {
 	// tightening happens first: no temp is left behind either.
 	if m, _ := filepath.Glob(filepath.Join(filepath.Dir(path), ".service.env.cartographer-tmp-*")); len(m) != 0 {
 		t.Errorf("temp file left: %v", m)
+	}
+}
+
+// On Windows the env file carries the supervision marker, since the task cannot
+// carry an environment and its command line stays the previous stable's (#2094).
+// The marker is never "recorded": a binary switch keeps the proxy variables only.
+func TestRecordEnv_WindowsWritesTheSupervisionMarker(t *testing.T) {
+	home := withTestHome(t, "windows")
+	origEnv := environ
+	t.Cleanup(func() { environ = origEnv })
+	environ = func() []string { return nil }
+	cfg := filepath.Join(home, "server.yaml")
+	env, err := recordEnv(cfg, false)
+	if err != nil || len(env) != 0 {
+		t.Fatalf("recordEnv = %v, %v", env, err)
+	}
+	data, err := os.ReadFile(EnvFilePath(cfg))
+	if err != nil || !strings.Contains(string(data), SupervisedEnv+"=1\n") {
+		t.Fatalf("env file = %q, %v", data, err)
+	}
+	if names := EnvFileNames(cfg); len(names) != 0 {
+		t.Errorf("the marker is not a recorded variable, names = %v", names)
+	}
+	parsed, _ := ParseEnvFile(data)
+	if len(parsed) != 1 || parsed[0] != (EnvVar{SupervisedEnv, "1"}) {
+		t.Errorf("ParseEnvFile = %v", parsed)
+	}
+	// Keeping the variables keeps the marker, and never adds it to the list.
+	environ = func() []string { return []string{"HTTPS_PROXY=http://proxy.example.com"} }
+	if _, err := recordEnv(cfg, false); err != nil {
+		t.Fatal(err)
+	}
+	kept, err := recordEnv(cfg, true)
+	if err != nil || len(kept) != 1 || kept[0].Name != "HTTPS_PROXY" {
+		t.Errorf("kept = %v, %v", kept, err)
+	}
+	if data, _ := os.ReadFile(EnvFilePath(cfg)); !strings.Contains(string(data), SupervisedEnv+"=1\n") {
+		t.Errorf("env file lost the marker: %q", data)
+	}
+}
+
+// Off Windows nothing but the proxy variables is recorded, and with none the
+// file is removed, as before.
+func TestRecordEnv_OtherPlatformsWriteNoMarker(t *testing.T) {
+	home := withTestHome(t, "linux")
+	origEnv := environ
+	t.Cleanup(func() { environ = origEnv })
+	environ = func() []string { return nil }
+	cfg := filepath.Join(home, "server.yaml")
+	if _, err := recordEnv(cfg, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(EnvFilePath(cfg)); !os.IsNotExist(err) {
+		t.Errorf("no variables, no env file: %v", err)
 	}
 }

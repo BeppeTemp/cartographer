@@ -204,6 +204,12 @@ func systemdEnvQuote(kv string) string {
 // carry two cases instead of one.
 func quotePath(p string) string { return `"` + p + `"` }
 
+// WindowsTaskArguments is the command line of the serve task after the program:
+// the one the previous stable wrote, so that a task survives a downgrade.
+func WindowsTaskArguments(configPath, logPath string) string {
+	return fmt.Sprintf("serve --config %s --log-file %s", quotePath(configPath), quotePath(logPath))
+}
+
 // RenderWindowsTaskXML renders the Task Scheduler definition of the server
 // task: `<binPath> serve --config <configPath> --log-file <logPath>`, started
 // at the user's logon and restarted on failure. Sibling of RenderLaunchdPlist
@@ -223,7 +229,11 @@ func quotePath(p string) string { return `"` + p + `"` }
 //     is declared so a second Start-ScheduledTask can never produce two servers
 //     competing for the same port and the same KB lock.
 //
-// The proxy variables (ProxyEnv) reach the server through `--env-file`.
+// The command line stays the one the previous stable wrote (#2094, amends D217):
+// a downgrade installs a binary that does not know a newer flag, and the task
+// would exit 2 on it. The proxy variables (ProxyEnv) and the supervision marker
+// reach the server through the env file beside the config (EnvFilePath), which
+// `serve` reads by itself.
 //
 // There is deliberately **no PATH**: the format cannot express one (an Exec
 // action has Command, Arguments and WorkingDirectory, and nothing else), and it
@@ -262,16 +272,8 @@ const windowsTaskXMLDeclaration = `<?xml version="1.0"?>`
 //     registered from an elevated shell belongs to Administrators, and a
 //     non-elevated session of the same user (an agent terminal) can read it but
 //     not Enable, Disable or Stop it.
-func RenderWindowsTaskXML(binPath, configPath, logPath, userID, sid string, envFile ...string) string {
-	args := fmt.Sprintf("serve --config %s --log-file %s --supervised", quotePath(configPath), quotePath(logPath))
-	// The task format has no environment, and a command line is readable by
-	// every process and sits in the task XML, so only the path of the env file
-	// (EnvFilePath) travels as an argument, never a value.
-	for _, f := range envFile {
-		if f != "" {
-			args += " " + envFileFlag + " " + quotePath(f)
-		}
-	}
+func RenderWindowsTaskXML(binPath, configPath, logPath, userID, sid string) string {
+	args := WindowsTaskArguments(configPath, logPath)
 	userElem := taskUserElem(userID)
 	principalUser, sddlElem := userElem, taskSDDLElem(sid)
 	return fmt.Sprintf(windowsTaskXMLDeclaration+`

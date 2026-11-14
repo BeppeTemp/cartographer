@@ -1184,11 +1184,14 @@ type Status struct {
 	// ServiceBinWarning is why ServiceBinPath is empty for an installed
 	// service (definition unreadable or malformed); "" otherwise.
 	ServiceBinWarning string
-	ConfigPath        string
-	HTTPAddr          string
-	Installed         bool
-	Running           bool
-	Healthy           bool
+	// ServiceArgsStale: the installed definition passes arguments other than
+	// the ones this binary renders (#2094); see Manager.ServiceArgsStale.
+	ServiceArgsStale bool
+	ConfigPath       string
+	HTTPAddr         string
+	Installed        bool
+	Running          bool
+	Healthy          bool
 	// ForeignListener: the probe ran and a program that is not a Cartographer
 	// server answers on HTTPAddr (a 200 without a Cartographer /health body, or
 	// another status). Healthy is false then, and the port is not free (#1998).
@@ -1287,6 +1290,7 @@ func (m *Manager) Status(configPath string) (Status, error) {
 		if st.ServiceBinPath, binErr = m.DefinitionBinary(); binErr != nil {
 			st.ServiceBinWarning = binErr.Error()
 		}
+		st.ServiceArgsStale = m.ServiceArgsStale(st.ConfigPath)
 	}
 
 	switch st.Installed {

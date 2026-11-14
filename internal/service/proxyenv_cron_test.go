@@ -15,7 +15,7 @@ func TestCronServerReadsTheEnvFileNotTheCronEnvironment(t *testing.T) {
 	e.install(t)
 	args := strings.Join(e.procs.starts[0], " ")
 	envPath := filepath.Join(filepath.Dir(e.cfg), "service.env")
-	if !strings.Contains(args, "--env-file "+envPath) || strings.Contains(args, "pw@") {
+	if strings.Contains(args, "env-file") || strings.Contains(args, "pw@") {
 		t.Errorf("args %s", args)
 	}
 	if b, err := os.ReadFile(envPath); err != nil || !strings.Contains(string(b), "HTTPS_PROXY=http://user:pw@proxy.example.com") {
