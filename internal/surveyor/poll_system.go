@@ -194,6 +194,10 @@ func (r *pollRun) runSystem(ctx context.Context, rec recipe.Recipe, planID strin
 		h, reason, stop, err := r.systemGroup(ctx, rec, sc, c)
 		switch {
 		case err != nil:
+			if ctx.Err() == nil {
+				// Tokens went to the groups already tried: leave their reasons on the Source.
+				return errors.Join(err, r.recordFailed(failed))
+			}
 			return err
 		case stop:
 			cut = true
@@ -215,13 +219,16 @@ func (r *pollRun) runSystem(ctx context.Context, rec recipe.Recipe, planID strin
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		return r.fail(codeStateError, serr.Error())
+		detail := serr.Error()
+		if len(failed) > 0 {
+			detail += "; " + groupsFailedDetail(failed)
+		}
+		return r.fail(codeStateError, detail)
 	}
 	complete := len(failed) == 0 && !cut && visited == len(ordered)
 	var args map[string]any
 	if len(failed) > 0 {
-		first := failed[:min(3, len(failed))]
-		args, err = f.AdvanceWithError(r.hash, digest, codeGroupsFailed, fmt.Sprintf("%d groups failed (%s)", len(failed), strings.Join(first, "; ")), in.now())
+		args, err = f.AdvanceWithError(r.hash, digest, codeGroupsFailed, groupsFailedDetail(failed), in.now())
 	} else {
 		args, err = f.Advance(r.hash, digest, in.now())
 	}
@@ -457,4 +464,21 @@ func systemBody(brief string, c system.Change, rev, day string, newest *unitRow)
 		b.WriteString("\n## Last observed\n\n" + fenced(c.Previous.Snapshot) + "\n")
 	}
 	return b.String()
+}
+
+// groupsFailedDetail is the feed_error detail of failed groups: their count and
+// the first three reasons.
+func groupsFailedDetail(failed []string) string {
+	first := failed[:min(3, len(failed))]
+	return fmt.Sprintf("%d groups failed (%s)", len(failed), strings.Join(first, "; "))
+}
+
+// recordFailed writes the failed groups as feed_error before the poll returns
+// an error, so a run that spent tokens leaves a trace. Nothing to record, or a
+// lost lease, is nil; a failed write is returned for the caller to join.
+func (r *pollRun) recordFailed(failed []string) error {
+	if len(failed) == 0 {
+		return nil
+	}
+	return r.fail(codeGroupsFailed, groupsFailedDetail(failed))
 }

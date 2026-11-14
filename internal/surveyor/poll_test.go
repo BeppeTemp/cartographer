@@ -36,6 +36,9 @@ type pkb struct {
 	refuseSource func() string
 	assets       map[string]string // unit + "/" + path -> text
 	expanded     map[string]bool
+	// syncBlock appends the git sync block the server adds to every write
+	// result while the KB's sync is not clean (internal/mcpserver/gitwrap.go).
+	syncBlock bool
 }
 
 func newPKB() *pkb { return &pkb{pages: map[string]*ipage{}, calls: map[string]int{}} }
@@ -76,6 +79,18 @@ func matches(fm map[string]any, where []string) bool {
 }
 
 func (k *pkb) CallTool(name string, args any) (client.ToolOutput, error) {
+	out, err := k.callTool(name, args)
+	if err == nil && k.syncBlock && !out.IsError {
+		switch name {
+		case "concept_patch", "concept_batch", "concept_expand", "asset_write", "source_register":
+			// The client joins the blocks of a result with a newline.
+			out.Text += "\n" + `{"sync_state":"pending","last_error":""}`
+		}
+	}
+	return out, err
+}
+
+func (k *pkb) callTool(name string, args any) (client.ToolOutput, error) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	k.calls[name]++
@@ -937,5 +952,16 @@ func TestPollPromptBlocksCarryAPerRunToken(t *testing.T) {
 	tok, _, _ := strings.Cut(rest, "\n")
 	if len(tok) != 16 || strings.Count(user, "END DATA "+tok) != 3 {
 		t.Fatalf("token %q, prompt %q", tok, user)
+	}
+}
+
+// The server appends a sync_state block to every write result while the KB's
+// git sync is pending: the poll must read the hash from the first object (#2104).
+func TestPollReadsTheHashOfAWriteResultWithASyncBlock(t *testing.T) {
+	e := newPollEnv(t, Config{})
+	e.k.syncBlock = true
+	res := e.mustPoll()
+	if res.Units != 2 || e.feed()["feed_cursor"] != e.repo.head() || e.feed()["feed_error"] != nil {
+		t.Fatalf("result %+v (%s), feed %v", res, res.Summary, e.feed())
 	}
 }

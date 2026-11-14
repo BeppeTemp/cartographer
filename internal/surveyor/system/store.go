@@ -112,6 +112,9 @@ func (s *Store) Save(l Loaded, next State, hash, leasedAt, reason string) (diges
 	if got, _ := src.Frontmatter[feed.KeyCheckedAt].(string); got != leasedAt {
 		return "", hash, feed.ErrLeaseLost
 	}
+	if src.ContentHash == "" {
+		return "", hash, stateErr(errors.New("the Source has no content_hash"))
+	}
 	hash = src.ContentHash
 	// 2. The file, under if_match = the current file's digest (omitted when absent).
 	args := map[string]any{"concept_id": s.Source, "path": StateFile, "content": string(data), "encoding": "text"}
@@ -131,11 +134,17 @@ func (s *Store) Save(l Loaded, next State, hash, leasedAt, reason string) (diges
 		if err != nil {
 			return "", hash, stateErr(err)
 		}
-		var o struct {
-			Hash string `json:"content_hash"`
+		h, herr := feed.WriteHash(out)
+		if herr != nil {
+			// The patch landed: the Source moved, so the hash we hold is stale.
+			// Hand the caller the current one (never "": a failure is recorded
+			// under an if_match) and keep the old one if the re-read fails too.
+			if cur, rerr := s.read(); rerr == nil && cur.ContentHash != "" {
+				hash = cur.ContentHash
+			}
+			return "", hash, stateErr(herr)
 		}
-		_ = json.Unmarshal([]byte(out), &o)
-		hash = o.Hash
+		hash = h
 	}
 	return digest, hash, nil
 }

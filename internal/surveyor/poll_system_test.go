@@ -553,3 +553,41 @@ func TestObserveSystemCheckErrorThatIsNotARecipeErrorIsCheckFailed(t *testing.T)
 		t.Errorf("pf = %+v, refused %v, err %v: a timeout is not a read-only violation", pf, refused, err)
 	}
 }
+
+// #2104: a pending git sync adds a block to every write result; the cursor is
+// still saved.
+func TestSystemPollReadsTheHashOfAWriteResultWithASyncBlock(t *testing.T) {
+	s := newSysEnv(t)
+	s.k.syncBlock = true
+	s.list("namespace/team-a", "deployment api image:v1", "namespace/team-b", "deployment web image:v1")
+	res := s.mustPoll()
+	if res.Units != 2 || s.feed()["feed_cursor"] != sha(s.stateFile()) || s.feed()["feed_error"] != nil {
+		t.Fatalf("result %+v (%s), feed %v", res, res.Summary, s.feed())
+	}
+}
+
+// A group that fails and then an error that stops the poll: the reasons of the
+// failed groups reach feed_error, the tokens are not spent without a trace.
+func TestSystemPollFailedGroupsAreRecordedBeforeAnErrorReturn(t *testing.T) {
+	s := newSysEnv(t)
+	s.k.refuseUnit = func(id string, fm map[string]any) string {
+		if fm["observed_group"] == "namespace/a-bad" {
+			return "potential_secret: found one"
+		}
+		return ""
+	}
+	s.k.fault = func(tool string, n int) error {
+		if tool == "concept_batch" && n == 2 {
+			return errors.New("transport down")
+		}
+		return nil
+	}
+	s.list("namespace/a-bad", "x", "namespace/b-good", "y")
+	if _, _, err := s.poll(); err == nil {
+		t.Fatal("the poll should return the transport error")
+	}
+	fe, _ := s.feed()["feed_error"].(string)
+	if !strings.HasPrefix(fe, "groups_failed: 1 groups failed") || !strings.Contains(fe, "namespace/a-bad") {
+		t.Fatalf("feed_error = %q", fe)
+	}
+}

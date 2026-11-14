@@ -163,3 +163,15 @@ func TestAdvanceWithErrorMovesTheCursorAndSetsTheError(t *testing.T) {
 		t.Error("a write without if_match was built")
 	}
 }
+
+func TestWriteHashReadsTheFirstObjectAndRefusesAnEmptyHash(t *testing.T) {
+	got, err := WriteHash("{\"ok\":true,\"content_hash\":\"h1\"}\n{\"sync_state\":\"pending\",\"last_error\":\"\"}")
+	if err != nil || got != "h1" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+	for _, bad := range []string{"", "not json", `{"ok":true}`} {
+		if h, err := WriteHash(bad); err == nil {
+			t.Errorf("%q: hash %q, no error", bad, h)
+		}
+	}
+}
