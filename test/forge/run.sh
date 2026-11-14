@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # The sync scenarios against a real forge (D996): Forgejo or GitLab CE in a
-# container, the token over HTTPS, a header-bearing write, a header-less one,
+# container, the token over HTTPS, a header-bearing write, a header-less one
+# (refused with no identity, committed as the server file's with one),
 # sync_pull from a second clone, a protected branch, and (Forgejo) SSH.
 #
 #   test/forge/run.sh forgejo|gitlab       needs docker, curl, python3, git, make
@@ -180,9 +181,22 @@ pass "kb create against the forge over HTTPS"
 KB="$DATA/kb-rules"
 
 MCP="http://127.0.0.1:$SRV_PORT/mcp?kb=kb-rules"
-K_SERVICE=forge CARTOGRAPHER_AUTH=false "$BIN" serve --data "$DATA" --http "127.0.0.1:$SRV_PORT" >"$WORK/serve.log" 2>&1 &
-SRV_PID=$!
-wait_for "the server" 60 bash -c "curl -sf http://127.0.0.1:$SRV_PORT/health | grep -q '\"started_at\"' && ! curl -sf http://127.0.0.1:$SRV_PORT/health | grep -q bootstrapping"
+# A local server (auth off) commits as the git identity of its user and refuses a
+# write to a KB with a remote when it has none (D1974). The host has none (lines
+# 30-38); the server file below, started later, gives it the one the forge sees.
+SERVER_IDENT='Server User <server@example.test>'
+SERVER_EMAIL=server@example.test
+SERVER_FILE="$WORK/server.yaml"
+printf 'git:\n  identities:\n    default: "%s"\n' "$SERVER_IDENT" > "$SERVER_FILE"
+SERVE_ARGS=()   # the server file is added once a scenario needs the identity
+start_server() { # start_server LOGFILE
+  K_SERVICE=forge CARTOGRAPHER_AUTH=false "$BIN" serve --data "$DATA" --http "127.0.0.1:$SRV_PORT" \
+    ${SERVE_ARGS[@]+"${SERVE_ARGS[@]}"} >"$WORK/$1" 2>&1 &
+  SRV_PID=$!
+  wait_for "the server" 60 bash -c "curl -sf http://127.0.0.1:$SRV_PORT/health | grep -q '\"started_at\"' && ! curl -sf http://127.0.0.1:$SRV_PORT/health | grep -q bootstrapping"
+}
+stop_server() { kill "$SRV_PID"; wait "$SRV_PID" 2>/dev/null || true; }
+start_server serve.log
 
 call() { # call TOOL ARGS [AUTHOR] -> the raw JSON-RPC response
   local h=(); [ -n "${3:-}" ] && h=(-H "Cartographer-Author: $3")
@@ -204,14 +218,24 @@ check "the push lands (no sync warning)" no_warning "$OUT"
 read -r AE CE SHA_A <<<"$(remote_commit)"
 check "the forge shows the header's author and committer" [ "$AE $CE" = "$EMAIL $EMAIL" ]
 
-echo "--- a write with no header ---"
-OUT=$(page two "By the token.")
+echo "--- a write with no header, no identity anywhere ---"
+BEFORE=$(remote_commit)
+OUT=$(page none "By nobody.")
+check "the write is refused with the missing-identity text" contains "$OUT" "no git identity for this KB"
+check "the forge head is unchanged" head_is "$BEFORE"
+
+echo "--- a write with no header, the server file names an identity ---"
+stop_server
+SERVE_ARGS=(--config "$SERVER_FILE")
+start_server serve1b.log
+OUT=$(page two "By the server identity.")
 if [ -n "$MEMBER_RULE" ]; then
-  check "the member rule refuses the token's identity" contains "$OUT" sync_state
+  check "the member rule refuses the server identity" contains "$OUT" sync_state
 else
   check "the push lands (no sync warning)" no_warning "$OUT"
   read -r AE CE SHA_B <<<"$(remote_commit)"
-  check "the forge shows the server's token-named author" [ "$AE" != "$EMAIL" ]
+  check "the forge shows the configured server identity" [ "$AE" = "$SERVER_EMAIL" ] \
+    && check "the server identity is not Ada's" [ "$AE" != "$EMAIL" ]
 fi
 
 echo "--- a second clone publishes; the next write pulls it in ---"
@@ -254,10 +278,8 @@ if [ -n "$SSH_REMOTE" ]; then
     cat "$WORK/kb-ssh.log"; fail "kb create against the forge over SSH"
   fi
   # The server mounts it at its next start, and writes with <kb>.ssh alone.
-  kill "$SRV_PID"; wait "$SRV_PID" 2>/dev/null || true
-  K_SERVICE=forge CARTOGRAPHER_AUTH=false "$BIN" serve --data "$DATA" --http "127.0.0.1:$SRV_PORT" >"$WORK/serve2.log" 2>&1 &
-  SRV_PID=$!
-  wait_for "the server" 60 bash -c "curl -sf http://127.0.0.1:$SRV_PORT/health | grep -q '\"started_at\"' && ! curl -sf http://127.0.0.1:$SRV_PORT/health | grep -q bootstrapping"
+  stop_server
+  start_server serve2.log
   MCP="http://127.0.0.1:$SRV_PORT/mcp?kb=kb-ssh"
   call map_create '{"name":"rules","title":"Rules"}' "$ADA" >/dev/null
   OUT=$(page one "Over SSH." "$ADA")

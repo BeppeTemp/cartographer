@@ -187,8 +187,10 @@ changes nothing. An ordinary CI run never calls a forge; the real ones are below
 
 `test/forge/run.sh forgejo|gitlab` starts a pinned container (Forgejo, GitLab CE),
 creates a user, a project and an access token through the REST API, then drives the
-binary against it: `kb create` over HTTPS with the token, a write with and one
-without `Cartographer-Author`, a second clone publishing and the next write pulling
+binary against it: `kb create` over HTTPS with the token, a write with
+`Cartographer-Author`, one without it and no identity anywhere (refused, the forge
+head unchanged, D1974), one without it under a server file's `git.identities.default`
+(committed as that identity), a second clone publishing and the next write pulling
 it in, a protected branch (reported as such, the remote unmoved), and on Forgejo SSH
 with the KB's own `<kb>.ssh`. Everything is asserted through the forge's API. GitLab's
 member-check push rule is a Premium feature: where the edition answers that it is
