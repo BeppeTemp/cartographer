@@ -578,6 +578,11 @@ export class LivingScene {
     const restore = first && !this.offscreen ? opts.restore : undefined;
     const oldNodes = this.nodes;
     const oldColours = this.colours;
+    // A transition in flight is not dropped: what is drawn at this instant is
+    // where the next one starts (see carry).
+    const drawnScale = this.snapshotScales();
+    const drawnGlyph = new Map(this.ghostGlyph);
+    const drawnPull = this.snapshotPulls();
     const linkKey = (l: SceneLink) => `${endpoint(l.source)}\u0000${endpoint(l.target)}`;
     const beforeNodes = new Set(this.nodes.map((n) => n.id));
     const beforeLinks = new Set(this.links.map(linkKey));
@@ -656,6 +661,7 @@ export class LivingScene {
         entering: new Set(entering),
         flight: entering.length > FLOWER_NODES ? flowerFlight(entering, centroidOf(entering)) : undefined,
       };
+      this.carry(this.morph, drawnScale, nodes, drawnGlyph, drawnPull);
       // Never offscreen: a video export must not depend on a wall-clock budget.
       this.settleGoal = this.offscreen ? null : predictSettle(sim, nodes);
     } else if (restore) {
@@ -707,7 +713,7 @@ export class LivingScene {
       }
     } else if (opts.local && !first) {
       // A cluster opening, folding, or one giving way to another: the simulation does it (see startOpening).
-      this.startOpening(nodes, oldNodes, beforeNodes, sim);
+      this.startOpening(nodes, oldNodes, beforeNodes, sim, drawnScale, drawnGlyph, drawnPull);
     } else {
       // Every change to a graph already on screen knocks it from where it
       // happened -- a node arriving, the neighbours of one that left, both
@@ -790,13 +796,17 @@ export class LivingScene {
     this.artifactMesh = build(this.artifactMaterial, diamonds);
     this.haloNodes = nodes.filter((n) => n.cluster);
     this.haloSlot = new Map(this.haloNodes.map((n, i) => [n, i]));
+    // A glyph that leaves keeps its hexagon and aura, shrinking with it: they
+    // are drawn after the live ones.
+    let haloCount = this.haloNodes.length;
+    for (const g of this.ghosts) if (g.node.cluster) g.halo = haloCount++;
     for (const old of [this.haloMesh, this.auraMesh]) {
       old?.removeFromParent();
       old?.dispose();
     }
     this.auraMesh = (() => {
-      const m = new InstancedMesh(this.quad, this.auraMaterial, Math.max(1, this.haloNodes.length));
-      m.count = this.haloNodes.length;
+      const m = new InstancedMesh(this.quad, this.auraMaterial, Math.max(1, haloCount));
+      m.count = haloCount;
       m.instanceMatrix.setUsage(DynamicDrawUsage);
       m.frustumCulled = false;
       m.boundingSphere = new Sphere(new Vector3(), Number.POSITIVE_INFINITY);
@@ -807,8 +817,8 @@ export class LivingScene {
       return m;
     })();
     this.haloMesh = (() => {
-      const m = new InstancedMesh(this.quad, this.haloMaterial, Math.max(1, this.haloNodes.length));
-      m.count = this.haloNodes.length;
+      const m = new InstancedMesh(this.quad, this.haloMaterial, Math.max(1, haloCount));
+      m.count = haloCount;
       m.instanceMatrix.setUsage(DynamicDrawUsage);
       m.frustumCulled = false;
       m.boundingSphere = new Sphere(new Vector3(), Number.POSITIVE_INFINITY);
@@ -942,7 +952,15 @@ export class LivingScene {
    * forces. The camera aims at where the graph will rest (predictSettle) and
    * follows it there.
    */
-  private startOpening(nodes: SceneNode[], oldNodes: SceneNode[], before: Set<string>, sim: Simulation<SceneNode>): void {
+  private startOpening(
+    nodes: SceneNode[],
+    oldNodes: SceneNode[],
+    before: Set<string>,
+    sim: Simulation<SceneNode>,
+    drawnScale: Map<string, number>,
+    drawnGlyph: Map<SceneNode, SceneNode>,
+    drawnPull: Map<string, number>,
+  ): void {
     const now = this.moveAt;
     const ms = this.moveMs;
     const opening = this.justOpened.size > 0;
@@ -976,6 +994,7 @@ export class LivingScene {
         leaving: oldNodes.filter((n) => !current.has(n.id)),
         entering: new Set(nodes.filter((n) => !before.has(n.id))),
       };
+      this.carry(this.morph, drawnScale, nodes, drawnGlyph, drawnPull);
     }
     this.trace?.event("open", { opening, ms });
     sim.alpha(opening ? OPEN_ALPHA : FOLD_ALPHA);
@@ -1001,8 +1020,12 @@ export class LivingScene {
     const colour = new Color();
     for (const g of this.ghosts) {
       (g.node.artifact ? this.artifactMesh : mesh)?.setColorAt(g.slot, colour.set(g.colour ?? palette.edge));
+      if (g.halo !== undefined) {
+        this.haloMesh?.setColorAt(g.halo, colour);
+        this.auraMesh?.setColorAt(g.halo, colour);
+      }
     }
-    for (const m of [mesh, this.artifactMesh, this.haloMesh]) if (m?.instanceColor) m.instanceColor.needsUpdate = true;
+    for (const m of [mesh, this.artifactMesh, this.haloMesh, this.auraMesh]) if (m?.instanceColor) m.instanceColor.needsUpdate = true;
     const background = new Color(palette.background);
     this.renderer.setClearColor(background);
     this.scene.fog = new Fog(background, 1, 2);
@@ -1731,8 +1754,106 @@ export class LivingScene {
     entering: Set<SceneNode>;
     /** A large set entering grows in as a flower (see flowerFlight). */
     flight?: Map<SceneNode, { delay: number; span: number }>;
+    /** The scale each node was drawn at when the previous transition was
+     *  interrupted (by id): an entering node grows from it, a leaving one
+     *  shrinks from it. Absent: from nothing / from full size. */
+    from?: Map<string, number>;
+    /** How far a leaver was already pulled into its glyph (by id) when the
+     *  previous transition was interrupted: the pull goes on from there. */
+    pull?: Map<string, number>;
   } | null = null;
-  private ghosts: { node: SceneNode; slot: number; colour: string | undefined }[] = [];
+  /** `halo`: the instance a leaving glyph's hexagon and aura are drawn in. */
+  private ghosts: { node: SceneNode; slot: number; colour: string | undefined; halo?: number }[] = [];
+
+  /** What the morph draws at `now`: how grown a live node is, how far the
+   *  morph has run, and how big a leaver still is (relative to its radius). */
+  private growth(now: number) {
+    const m = this.morph;
+    let morphT = 1;
+    let grow: (n: SceneNode) => number = () => 1;
+    let ghostScale: (n: SceneNode) => number = () => 0;
+    let pullOf: (n: SceneNode) => number = () => 0;
+    if (m) {
+      const span = m.ms ?? MORPH_MS;
+      morphT = smooth((now - m.start) / span);
+      const raw = Math.min(1, Math.max(0, (now - m.start) / span));
+      grow = (n) => {
+        if (!m.entering.has(n)) return 1;
+        const f = m.flight?.get(n);
+        const k = f ? smooth(Math.min(1, Math.max(0, (raw - f.delay) / f.span))) : morphT;
+        const from = m.from?.get(n.id) ?? 0;
+        return from + (1 - from) * k;
+      };
+      ghostScale = (n) => (m.from?.get(n.id) ?? 1) * (1 - morphT);
+      pullOf = (n) => {
+        const from = m.pull?.get(n.id) ?? 0;
+        return from + (1 - from) * morphT;
+      };
+    }
+    return { grow, morphT, ghostScale, pullOf };
+  }
+
+  /** The scale every node and leaver is drawn at right now, by id: the start
+   *  of whatever transition replaces the one in flight. Empty when none is. */
+  private snapshotScales(): Map<string, number> {
+    const out = new Map<string, number>();
+    if (!this.morph) return out;
+    const { grow, ghostScale } = this.growth(this.clock());
+    for (const n of this.nodes) {
+      const s = grow(n);
+      if (s < 1) out.set(n.id, s);
+    }
+    for (const g of this.ghosts) out.set(g.node.id, ghostScale(g.node));
+    return out;
+  }
+
+  /** How far each leaver is pulled into its glyph right now, by id. */
+  private snapshotPulls(): Map<string, number> {
+    const out = new Map<string, number>();
+    if (!this.morph) return out;
+    const { pullOf } = this.growth(this.clock());
+    for (const g of this.ghosts) if (this.ghostGlyph.has(g.node)) out.set(g.node.id, pullOf(g.node));
+    return out;
+  }
+
+  /** Starts `m` from the scales `drawn` (see snapshotScales): a node still
+   *  growing keeps growing from where it was, a node returning from the
+   *  previous transition's leavers grows back from its size, a leaver shrinks
+   *  from its size, and the previous leavers not in the new graph keep
+   *  shrinking instead of vanishing. */
+  private carry(
+    m: NonNullable<LivingScene["morph"]>,
+    drawn: Map<string, number>,
+    nodes: SceneNode[],
+    glyphs: Map<SceneNode, SceneNode>,
+    pulls: Map<string, number>,
+  ): void {
+    if (!drawn.size) return;
+    const from = new Map<string, number>();
+    const current = new Set(nodes.map((n) => n.id));
+    for (const n of nodes) {
+      const s = drawn.get(n.id);
+      if (s === undefined || s >= 1) continue;
+      m.entering.add(n);
+      from.set(n.id, s);
+    }
+    const leaving = new Set(m.leaving.map((n) => n.id));
+    for (const g of this.ghosts) {
+      if (current.has(g.node.id) || leaving.has(g.node.id)) continue;
+      m.leaving.push(g.node);
+      // A member pulled into its glyph keeps going from where it was drawn.
+      const glyph = glyphs.get(g.node);
+      if (glyph && !this.ghostGlyph.has(g.node)) {
+        this.ghostGlyph.set(g.node, glyph);
+        (m.pull ??= new Map()).set(g.node.id, pulls.get(g.node.id) ?? 0);
+      }
+    }
+    for (const n of m.leaving) {
+      const s = drawn.get(n.id);
+      if (s !== undefined && s < 1) from.set(n.id, s);
+    }
+    if (from.size) m.from = from;
+  }
 
   private sync(now = this.clock()): void {
     const mesh = this.nodeMesh;
@@ -1774,18 +1895,7 @@ export class LivingScene {
     }
     // The morph: a node entering grows from nothing, a node leaving shrinks
     // to it; a link to a growing node is drawn growing out of its other end.
-    let grow: (n: SceneNode) => number = () => 1;
-    let morphT = 1;
-    if (this.morph) {
-      const m = this.morph;
-      morphT = smooth((now - m.start) / (m.ms ?? MORPH_MS));
-      const raw = Math.min(1, Math.max(0, (now - m.start) / (m.ms ?? MORPH_MS)));
-      grow = (n) => {
-        if (!m.entering.has(n)) return 1;
-        const f = m.flight?.get(n);
-        return f ? smooth(Math.min(1, Math.max(0, (raw - f.delay) / f.span))) : morphT;
-      };
-    }
+    const { grow, morphT, ghostScale, pullOf } = this.growth(now);
     const kOf = (n: SceneNode) => {
       if (!bloom || t >= 1) return 1;
       const f = bloom.flight.get(n);
@@ -1822,15 +1932,24 @@ export class LivingScene {
     for (const g of this.ghosts) {
       // A member leaving is drawn pulled into its glyph as it shrinks.
       const glyph = this.ghostGlyph.get(g.node);
-      const into = glyph ? morphT : 0;
+      const into = glyph ? pullOf(g.node) : 0;
       d.position.set(
         (g.node.x ?? 0) + ((glyph?.x ?? g.node.x ?? 0) - (g.node.x ?? 0)) * into,
         (g.node.y ?? 0) + ((glyph?.y ?? g.node.y ?? 0) - (g.node.y ?? 0)) * into,
         (g.node.z ?? 0) + ((glyph?.z ?? g.node.z ?? 0) - (g.node.z ?? 0)) * into,
       );
-      d.scale.setScalar(this.radiusOf(g.node) * (g.node.artifact ? DIAMOND_SCALE : g.node.cluster ? 0 : 1) * (1 - morphT));
+      const size = this.radiusOf(g.node) * ghostScale(g.node);
+      d.scale.setScalar(size * (g.node.artifact ? DIAMOND_SCALE : g.node.cluster ? 0 : 1));
       d.updateMatrix();
       (g.node.artifact ? diamonds : mesh)?.setMatrixAt(g.slot, d.matrix);
+      if (g.halo !== undefined && halo) {
+        d.scale.setScalar(size);
+        d.updateMatrix();
+        halo.setMatrixAt(g.halo, d.matrix);
+        d.scale.setScalar(size * AURA_SCALE);
+        d.updateMatrix();
+        this.auraMesh?.setMatrixAt(g.halo, d.matrix);
+      }
     }
     mesh.instanceMatrix.needsUpdate = true;
     if (diamonds) diamonds.instanceMatrix.needsUpdate = true;
@@ -1842,6 +1961,8 @@ export class LivingScene {
       this.ghosts = [];
       mesh.count = this.sphereNodes.length;
       if (diamonds) diamonds.count = this.diamondNodes.length;
+      if (halo) halo.count = this.haloNodes.length;
+      if (this.auraMesh) this.auraMesh.count = this.haloNodes.length;
     }
 
     const write = (attr: BufferAttribute, i: number, l: SceneLink) => {
