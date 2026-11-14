@@ -1,9 +1,14 @@
 package mcpbridge
 
 import (
+	"errors"
 	"fmt"
+	"github.com/BeppeTemp/cartographer/internal/client"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
@@ -14,6 +19,9 @@ import (
 // binding once, before any test runs (see withBinding).
 func TestMain(m *testing.M) {
 	gitxtest.QuietGit()
+	// The stub servers of these tests are not /health-aware; the check itself is
+	// pinned by TestBridgeSendsNoTokenToAForeignListener.
+	verifyServer = func(string, bool, *http.Client) error { return nil }
 	if err := setupElsewhere(); err != nil {
 		// A bare panic in a fixture loses its message when the binary dies
 		// under a parallel gate (#1847): name the failure.
@@ -116,5 +124,34 @@ func TestWithBindingNeedsNoFilesystem(t *testing.T) {
 	cfg.Workspaces["claude"][0].KBs[0] = "changed"
 	if cfg.Workspaces["codex"][0].KBs[0] != "kb-a" || elsewhereBinding.KBs[0] != "kb-a" {
 		t.Fatal("bindings share the KBs slice")
+	}
+}
+
+// A listener whose /health is not a Cartographer server's never sees the
+// token, whatever the bridge forwards.
+func TestBridgeSendsNoTokenToAForeignListener(t *testing.T) {
+	verifyServer = client.VerifyServer
+	t.Cleanup(func() { verifyServer = func(string, bool, *http.Client) error { return nil } })
+	var mu sync.Mutex
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		seen = append(seen, r.Header.Get("Authorization"))
+		mu.Unlock()
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer srv.Close()
+	b := &Bridge{Cfg: &clientconfig.Config{ServerURL: srv.URL + "/mcp"}, Token: "sekret"}
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/mcp", nil)
+	if err := b.authorize(req); !errors.Is(err, client.ErrNotCartographerServer) {
+		t.Fatalf("authorize = %v, want ErrNotCartographerServer", err)
+	}
+	if req.Header.Get("Authorization") != "" {
+		t.Error("the request carries the token")
+	}
+	for i, h := range seen {
+		if h != "" {
+			t.Errorf("request %d carried %q to a foreign listener", i, h)
+		}
 	}
 }

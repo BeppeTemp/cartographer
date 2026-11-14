@@ -195,6 +195,15 @@ func fetchSettings(cfg *clientconfig.Config) (*settingsReply, string) {
 	if err := client.CheckServerURL(cfg.ServerURL, cfg.InsecureHTTPAllowed()); err != nil {
 		return nil, fmt.Sprintf("server settings unavailable: %v", err)
 	}
+	// The token goes only to a listener whose anonymous /health is a
+	// Cartographer server's, and follows no redirect.
+	h, err := client.New(cfg.ServerURL, "").WithInsecureHTTP(cfg.InsecureHTTPAllowed()).Health(settingsTimeout)
+	if err != nil {
+		return nil, fmt.Sprintf("server at %s not reachable: server settings not shown", base)
+	}
+	if !h.IsServer() {
+		return nil, fmt.Sprintf("server at %s is not a Cartographer server: server settings not shown", base)
+	}
 	req, err := http.NewRequest(http.MethodGet, base+"/api/ui/v1/settings", nil)
 	if err != nil {
 		return nil, fmt.Sprintf("server settings unavailable: %v", err)
@@ -202,7 +211,9 @@ func fetchSettings(cfg *clientconfig.Config) (*settingsReply, string) {
 	if tok := resolveToken(cfg); tok != "" {
 		req.Header.Set("Authorization", "Bearer "+tok)
 	}
-	resp, err := client.HTTPClient(&http.Client{Timeout: settingsTimeout}, cfg.InsecureHTTPAllowed()).Do(req)
+	hc := client.HTTPClient(&http.Client{Timeout: settingsTimeout}, cfg.InsecureHTTPAllowed())
+	hc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	resp, err := hc.Do(req)
 	if err != nil {
 		return nil, fmt.Sprintf("server at %s not reachable: server settings not shown", base)
 	}

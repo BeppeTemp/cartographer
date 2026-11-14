@@ -54,6 +54,10 @@ func usageServer(t *testing.T, status int) (*httptest.Server, func() []usagePost
 	var mu sync.Mutex
 	var got []usagePost
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			_, _ = w.Write([]byte(`{"status":"ok","version":"test"}`))
+			return
+		}
 		body, _ := io.ReadAll(r.Body)
 		p := usagePost{kb: r.URL.Query().Get("kb"), auth: r.Header.Get("Authorization")}
 		_ = json.Unmarshal(body, &p.entries)
@@ -123,6 +127,10 @@ func TestReportOnly_SendsToTheGivenURLAndChangesNothing(t *testing.T) {
 	var mu sync.Mutex
 	paths := map[string]int{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			_, _ = w.Write([]byte(`{"status":"ok","version":"test"}`))
+			return
+		}
 		mu.Lock()
 		paths[r.URL.Path]++
 		mu.Unlock()

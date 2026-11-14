@@ -18,6 +18,10 @@ import (
 func fakeMCPServer(t *testing.T, wantToken string) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			_, _ = w.Write([]byte(`{"status":"ok","version":"test"}`))
+			return
+		}
 		if wantToken != "" {
 			if got := r.Header.Get("Authorization"); got != "Bearer "+wantToken {
 				t.Errorf("Authorization header = %q, want Bearer %s", got, wantToken)
@@ -506,6 +510,10 @@ func TestCall_Unauthorized_NamesTokenEnvWhenEmpty(t *testing.T) {
 // refused, which needs a different fix from an unset variable.
 func TestCall_Unauthorized_NamesTokenEnvWhenRejected(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			_, _ = w.Write([]byte(`{"status":"ok","version":"test"}`))
+			return
+		}
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 	}))
 	defer srv.Close()
@@ -733,5 +741,85 @@ func TestRequestMeta(t *testing.T) {
 	empty, _ := client.RequestMeta("")["io.modelcontextprotocol/clientInfo"].(map[string]any)
 	if empty["version"] != "unknown" {
 		t.Error("empty version is not unknown")
+	}
+}
+
+// TestHealth_NeverSendsTheTokenBeforeTheShapeIsKnown: /health is public. The
+// first request is anonymous, the token follows only an answer shaped like a
+// Cartographer server's, and a redirect never carries it elsewhere.
+func TestHealth_NeverSendsTheTokenBeforeTheShapeIsKnown(t *testing.T) {
+	var mu sync.Mutex
+	var seen []string
+	record := func(r *http.Request) {
+		mu.Lock()
+		seen = append(seen, r.URL.Path+" "+r.Header.Get("Authorization"))
+		mu.Unlock()
+	}
+	reset := func() []string { mu.Lock(); defer mu.Unlock(); s := seen; seen = nil; return s }
+
+	foreign := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		record(r)
+		w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer foreign.Close()
+	h, err := client.New(foreign.URL, "sekret").Health(time.Second)
+	if err != nil || h.IsServer() {
+		t.Fatalf("foreign: %+v, %v", h, err)
+	}
+	if got := reset(); len(got) != 1 || got[0] != "/health " {
+		t.Errorf("foreign listener saw %q, want one anonymous request", got)
+	}
+
+	real := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		record(r)
+		w.Write([]byte(`{"status":"ok","version":"v1","kbs":[{"name":"kb-a"}]}`))
+	}))
+	defer real.Close()
+	h, err = client.New(real.URL, "sekret").Health(time.Second)
+	if err != nil || h.KBs == nil {
+		t.Fatalf("server: %+v, %v", h, err)
+	}
+	if got := reset(); len(got) != 2 || got[0] != "/health " || got[1] != "/health Bearer sekret" {
+		t.Errorf("server saw %q, want an anonymous request then the token", got)
+	}
+
+	// A listener that redirects /health to another origin never sees the token,
+	// and the origin it points at is not sent the token either.
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		record(r)
+		w.Write([]byte(`{"status":"ok","version":"v1"}`))
+	}))
+	defer other.Close()
+	redir := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		record(r)
+		http.Redirect(w, r, other.URL+"/health", http.StatusFound)
+	}))
+	defer redir.Close()
+	if _, err := client.New(redir.URL, "sekret").WithInsecureHTTP(true).Health(time.Second); err != nil {
+		t.Fatalf("redirect: %v", err)
+	}
+	for _, g := range reset() {
+		if strings.Contains(g, "sekret") {
+			t.Errorf("a redirecting listener led to a request with the token: %q", g)
+		}
+	}
+
+	// A same-host redirect is followed anonymously, then the token goes to the
+	// URL that answered and follows no redirect.
+	var self *httptest.Server
+	self = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		record(r)
+		if r.URL.Path == "/health" {
+			http.Redirect(w, r, "/elsewhere", http.StatusFound)
+			return
+		}
+		w.Write([]byte(`{"status":"ok","version":"v1"}`))
+	}))
+	defer self.Close()
+	if _, err := client.New(self.URL, "sekret").Health(time.Second); err != nil {
+		t.Fatalf("same-host redirect: %v", err)
+	}
+	if got := reset(); len(got) != 3 || got[2] != "/elsewhere Bearer sekret" {
+		t.Errorf("same-host redirect saw %q", got)
 	}
 }

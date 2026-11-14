@@ -22,7 +22,7 @@ func newFeedbackEnv(t *testing.T, status map[string]any, ids []string, truncated
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.Method == http.MethodGet {
-			_, _ = w.Write([]byte(`{"status":"ok","kbs":["kb-secret-name"]}`))
+			_, _ = w.Write([]byte(`{"status":"ok","version":"1.2.3","kbs":["kb-secret-name"]}`))
 			return
 		}
 		raw, _ := io.ReadAll(r.Body)
