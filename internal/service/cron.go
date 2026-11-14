@@ -370,11 +370,8 @@ func (m *Manager) startCron(b Backend) error {
 	}
 	if m.ownPID(cfg) == 0 {
 		if addr := configHTTPAddr(cfg); addr != "" {
-			switch listenerAt(addr) {
-			case ListenerCartographer:
-				return fmt.Errorf("service: something already answers on %s and was not started by this service", addr)
-			case ListenerForeign:
-				return fmt.Errorf("service: another program answers on %s: not a Cartographer server (stop it, or change http: in the server config)", addr)
+			if err := busyAddressError(addr, listenerAt(addr)); err != nil {
+				return err
 			}
 		}
 		return fmt.Errorf("service: the server is not running after start (see server.log in the state directory)")

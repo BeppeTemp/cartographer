@@ -1204,3 +1204,65 @@ func TestServiceArgsStale_WindowsTask(t *testing.T) {
 		t.Error("only the Windows task is compared")
 	}
 }
+
+// installOnAddress runs a Windows Install over a fake serve task whose address
+// answers as state says, and returns the error and the sleeps taken.
+func installOnAddress(t *testing.T, f *fakeServeTask, state ListenerState) (error, int) {
+	t.Helper()
+	home := withTestHome(t, "windows")
+	binPath := filepath.Join(t.TempDir(), "cartographer.exe")
+	if err := os.WriteFile(binPath, []byte("bin"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	origExecutable := osExecutable
+	osExecutable = func() (string, error) { return binPath, nil }
+	t.Cleanup(func() { osExecutable = origExecutable })
+	sleeps := 0
+	windowsSleep = func(time.Duration) { sleeps++ }
+	listenerAt = func(string) ListenerState { return state }
+	serveAddrAnswers = func(string) bool { return state != ListenerNone }
+	m := &Manager{run: f.run}
+	_, err := m.Install(InstallOptions{DataDir: filepath.Join(home, "data"), HTTPAddr: "127.0.0.1:39273"})
+	return err, sleeps
+}
+
+// #2092: an install next to a program that holds the address printed "installed
+// and started" while the server died on bind. Nothing of ours is Running, so
+// no stop wait either.
+func TestInstall_Windows_RefusesAnAddressAnotherProgramHolds(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		state ListenerState
+		want  string
+	}{
+		{"foreign program", ListenerForeign, "another program answers on 127.0.0.1:39273"},
+		{"cartographer not started by the task", ListenerCartographer, "already answers on 127.0.0.1:39273"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &fakeServeTask{}
+			err, sleeps := installOnAddress(t, f, tc.state)
+			if err == nil || !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), "service start") {
+				t.Fatalf("Install error = %v, want %q and the service start hint", err, tc.want)
+			}
+			if all := joinedCalls(f.calls); strings.Contains(all, "Start-ScheduledTask") {
+				t.Errorf("the task was started next to a busy address:\n%s", all)
+			}
+			if !strings.Contains(joinedCalls(f.calls), "Register-ScheduledTask") {
+				t.Error("the task must stay registered, as the error says")
+			}
+			if sleeps != 0 {
+				t.Errorf("slept %d times: a task that is not Running has nothing to wait for", sleeps)
+			}
+		})
+	}
+}
+
+func TestInstall_Windows_StartsWhenTheAddressIsFree(t *testing.T) {
+	f := &fakeServeTask{}
+	if err, _ := installOnAddress(t, f, ListenerNone); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if !strings.Contains(joinedCalls(f.calls), "Start-ScheduledTask") || !f.running {
+		t.Errorf("the task was not started:\n%s", joinedCalls(f.calls))
+	}
+}

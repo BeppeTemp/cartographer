@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
@@ -182,4 +183,16 @@ func ProbeListener(addr string, timeout time.Duration) ListenerState {
 		return ListenerNone
 	}
 	return ListenerForeign // a non-200 answer: someone is there
+}
+
+// busyAddressError is the refusal for an address another process holds, shared
+// by the cron start and the Windows install (#2092); nil for ListenerNone.
+func busyAddressError(addr string, st ListenerState) error {
+	switch st {
+	case ListenerCartographer:
+		return fmt.Errorf("service: something already answers on %s and was not started by this service", addr)
+	case ListenerForeign:
+		return fmt.Errorf("service: another program answers on %s: not a Cartographer server (stop it, or change http: in the server config)", addr)
+	}
+	return nil
 }
