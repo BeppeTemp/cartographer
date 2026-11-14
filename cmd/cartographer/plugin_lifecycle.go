@@ -559,6 +559,21 @@ func pluginRemove(args []string) int {
 		var providers []string
 		if e.Approved != "" {
 			t, err := c.store.Open(name, e.Approved, pluginOpts())
+			if errors.Is(err, core.ErrInvalid) {
+				// A tree the running version is outside the range of is readable,
+				// and its providers are known: read it past the range and register
+				// them inactive for this command, so they can be retired (#2089).
+				// Any other reason it is invalid keeps refusing, and says which.
+				o := pluginOpts()
+				o.IgnoreRange = true
+				if t, err = c.store.Open(name, e.Approved, o); err == nil {
+					// Discarded: the registration at process start already printed
+					// every warning of every plugin; this one only re-registers.
+					registerPluginProvidersIgnoring(io.Discard, name)
+				} else if errors.Is(err, core.ErrInvalid) {
+					return pluginFail(1, "%s is invalid (%s), so what it installed cannot be retired; fix it with `cartographer plugin update %s`, then remove it", name, escapeControl(err.Error()), name)
+				}
+			}
 			if err != nil {
 				return pluginFail(1, "the approved tree of %s cannot be read (%s), so what it installed cannot be retired; run `cartographer sync` to fetch it again (or reinstall it), then remove it", name, escapeControl(err.Error()))
 			}

@@ -195,6 +195,15 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		return syncResult{}, err
 	}
 	out, errw := opts.Streams.out(), opts.Streams.err()
+	selected := len(targets)
+	if targets, err = dropUnregisteredTargets(errw, targets, len(opts.Clients) > 0); err != nil {
+		return syncResult{}, err
+	}
+	if selected > 0 && len(targets) == 0 {
+		// Every connected provider was skipped: the warning is the whole report.
+		// Nothing is pulled or written, and the run is a success (#2089).
+		return syncResult{}, nil
+	}
 
 	// Before the lock, so a run that cannot succeed takes none, and before the
 	// first network call, so --dry-run is diagnosed exactly like a real sync.
@@ -628,6 +637,30 @@ func selectProviders(agents []string, selected []string) ([]string, error) {
 		}
 	}
 	return out, nil
+}
+
+// dropUnregisteredTargets takes out of a run every provider the registry does
+// not know this run: the connected agent of a plugin that is invalid (its
+// `cartographer` range, #2089), not fetched or modified keeps its name in the
+// config but registers nothing, and no step below can resolve it. It is skipped
+// with a warning naming the reason and the fix, and its config entry and lock
+// section stay untouched, as with --client (D170): the run exits 0 and the
+// provider comes back when its plugin does. A provider named by --client is an
+// error instead, since the user asked for it.
+func dropUnregisteredTargets(errw io.Writer, targets []string, explicit bool) ([]string, error) {
+	kept := targets[:0:0]
+	for _, p := range targets {
+		why := unregisteredReason(p)
+		switch {
+		case why == "":
+			kept = append(kept, p)
+		case explicit:
+			return nil, fmt.Errorf("provider %q is not registered: %s", p, escapeControl(why))
+		default:
+			fmt.Fprintf(errw, "warning: [%s] skipped, it is not registered this run: %s; its entry and lock section are kept\n", escapeControl(p), escapeControl(why))
+		}
+	}
+	return kept, nil
 }
 
 // revisionKeys lists the results keys of the targeted providers: the global

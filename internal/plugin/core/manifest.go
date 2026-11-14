@@ -147,6 +147,11 @@ type Options struct {
 	// a component loads only its own. Empty loads every side (plugin validate,
 	// plugin vendor). The digest and the stored files never depend on it.
 	Side Side
+	// IgnoreRange skips the `cartographer` range check, so a tree whose range
+	// the running version does not meet still reads. Only the commands that
+	// retire or show such a plugin (plugin remove, plugin show) set it: a tree
+	// read this way is never registered active nor run: State clears it.
+	IgnoreRange bool
 }
 
 // loads reports whether the points and scripts of a side are loaded.
@@ -183,7 +188,7 @@ func ParseManifest(data []byte, opts Options) (Manifest, []string) {
 	var head struct {
 		Cartographer string `yaml:"cartographer"`
 	}
-	if yaml.Unmarshal(data, &head) == nil && head.Cartographer != "" {
+	if !opts.IgnoreRange && yaml.Unmarshal(data, &head) == nil && head.Cartographer != "" {
 		if met, err := RangeMet(head.Cartographer, opts.RunningVersion); err == nil && !met {
 			return m, []string{fmt.Sprintf("cartographer: needs Cartographer %s (this is %s)",
 				strings.Join(strings.Fields(head.Cartographer), " "), strings.TrimPrefix(strings.TrimSpace(opts.RunningVersion), "v"))}

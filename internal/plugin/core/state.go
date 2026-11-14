@@ -37,6 +37,9 @@ func State(name string, e Entry, s Store, opts Options) (Status, *Plugin) {
 	case e.PluginApproved() == "":
 		return StatusPending, nil
 	}
+	// A plugin outside its range is invalid here whatever the caller built:
+	// IgnoreRange is for reading a tree to retire or show it, never to run it.
+	opts.IgnoreRange = false
 	p, err := s.Open(name, e.PluginApproved(), opts)
 	switch {
 	case err == nil:
