@@ -124,7 +124,7 @@ points; empty loads every side. Only a client point's contributions become artif
 | `providers` | `providers/<id>.yaml` | `core.ParseProvider`; registers an agent client, installs no artifact (see Providers below) |
 | `roles` (server) | `roles/<name>.yaml`: `description` (one line) and `rules` (at least one: `access` `r`\|`rw`, optional `maps`, `journals`, `types`, `artifacts`, `secrets`; **no `kb`**, a plugin does not know the deployment's KBs) | the `auth.roles` grammar (`config.ValidateAuthRoles`), so a role that loads expands into rules the server accepts; an unknown key, an executable file or any other file is a problem |
 | `presets` (server) | `presets/<name>/preset.yaml` (`description`, `kind` `map`\|`journal`, `title` and the contract keys `map_create` takes: `concept_types`, `required_fields`, `field_values`, `forbidden_fields`, `templates`, `default_template`) and `presets/<name>/templates/<slug>.md` | the contract as `map_create` judges it and each template as `artifact_write` does (`mcpserver.CheckPresetCreate`, `ValidateTemplate`); every `templates` slug and `default_template` names a template of the same preset |
-| `branding` (atlas) | `branding/branding.yaml` (at most 4 KiB; `accent` `#rrggbb`, `company` one line of at most 60 characters with none of `<>&"'\`, `logo.light` and optional `logo.dark`, `favicon`; at least one of `accent`, `logo`, `favicon`; no other key) and the images it names, flat in `branding/` and nothing else (names `[a-z0-9][a-z0-9._-]*.svg\|png\|ico`, a logo is `svg` or `png`, at most 256 KiB each and 1 MiB in all, no execute bit) | the bytes, not the extension: a PNG or ICO signature, an SVG that parses as XML and holds no `DOCTYPE`/entity, `script`, `foreignObject`, `iframe`, `object`, `embed`, `set`, `animate*`, `on*` attribute, `href` outside a `#fragment`, or `@import`/`url()` outside the file; CSS is judged as the browser reads it (the text of a `<style>` element is one stylesheet) and refuses any backslash, `image-set(`, `src(`, `cross-fade(`, and a comment, instruction or child element inside `<style>`. The accent is derived (below) so an unusable one is reported by `plugin validate`, `plugin vendor` and the install preview |
+| `branding` (atlas) | `branding/branding.yaml` (at most 4 KiB; `company` one line of at most 60 characters with none of `<>&"'\`, `logo.light` and optional `logo.dark`; `logo` required; no other key, and `accent` and `favicon` are refused: `accent: removed; the branding carries logos and a company name only`) and the images it names, flat in `branding/` and nothing else (names `[a-z0-9][a-z0-9._-]*.svg\|png`, at most 256 KiB each and 1 MiB in all, no execute bit) | the bytes, not the extension: a PNG signature, an SVG that parses as XML and holds no `DOCTYPE`/entity, `script`, `foreignObject`, `iframe`, `object`, `embed`, `set`, `animate*`, `on*` attribute, `href` outside a `#fragment`, or `@import`/`url()` outside the file; CSS is judged as the browser reads it (the text of a `<style>` element is one stylesheet) and refuses any backslash, `image-set(`, `src(`, `cross-fade(`, and a comment, instruction or child element inside `<style>` |
 | `mcp` | planned | refused today: `mcp/` is not a contribution point in this version |
 | `instructions` | planned | refused today: `instructions.md` is not a contribution point in this version |
 | `plugin.star`, `lib/*.star` | loaded | the script registers commands, tools and event handlers (D1746); a call reaches the network, the environment, files and KB tools only as the manifest grants (below) |
@@ -381,23 +381,20 @@ change that adds it.
 
 ### Atlas branding
 
-The atlas side has one family, `branding` (`components.atlas.sdk.branding: 1`): an operator's logo (light and dark), favicon and
-**one accent colour**, all data. The word "Cartographer" is code and no key renames or removes it; `company` is only the logo's alt text.
-Meridian derives the tokens from the accent, the plugin never ships CSS: for each theme `branding.Derive` keeps the hue and
-saturation and moves the lightness (darker on light, lighter on dark) one point at a time until the accent holds the pairs
-`web/src/test/contrast.test.ts` audits: 4.5:1 on the three panel surfaces, 3:1 on surface-0, 4.5:1 for the text colour on
-the accent, and for that text on the hover shade `--primary-dim`. A shift of more than 45 points, or an accent that cannot pass, is refused with the nearest colour that does
-(`accent #ffffcc: cannot be shown on the light theme within 45 points of lightness (the nearest colour that passes is #...); pick a darker colour`).
-A pale accent such as the shipped dark one (`#b5d6bd`) is darkened on the light theme; a near-white one is refused: choose a mid-tone. The derived tokens are `--primary`, `--primary-dim`, `--accent`,
-`--text-on-primary`, `--text-on-accent`, `--graph-edge-active` and, on the light theme, `--graph-edge-3d-active`, `--graph-ring`
-and `--graph-glow-a`; `Palette.CSS()` renders them as a deterministic stylesheet. `internal/branding/contrast.go` ports the
-contrast formula and `derive_test.go` fails when its surface constants drift from `web/src/styles/tokens.css`.
+The atlas side has one family, `branding` (`components.atlas.sdk.branding: 1`): an operator's logo (light and dark) and company name,
+all data. It changes neither colours nor the favicon: the Atlas keeps its own theme and tab icon, and a `branding.yaml` that declares
+`accent` or `favicon` is refused (`accent: removed; the branding carries logos and a company name only`, same for `favicon`). The word "Cartographer" is code and no key renames or removes it;
+`company` is only the logo's alt text.
 
 Meridian loads the atlas side from the same `plugins` pins as the server side (`loadPinnedPlugins` opens each pin once
 per side, and a pin with neither side is a start error), so a branding-only plugin is an atlas pin. **Exactly one**
-active plugin may provide a branding: two is a start error naming both (`keep one or disable the other with enabled: false`), and a
-branding whose accent cannot be shown stops the start naming the plugin and the key. The start log says
-`branding from plugin <name>: accent, logo, favicon`. This version loads and checks the branding; the Atlas does not yet wear it.
+active plugin may provide a branding: two is a start error naming both (`keep one or disable the other with enabled: false`). The start log says
+`branding from plugin <name>: logo`. The Atlas wears it (D2078): on start it reads `GET /api/ui/v1/branding` (a 404 means none and nothing changes),
+shows the logo at the start of the top bar, then a thin divider, then the Cartographer mark and
+word, the light or dark file following the active theme, `company` as its alt text. The logo is hidden on a phone-width bar.
+Without a dark logo the light one is used for both themes. A page whose bearer token is held in memory cannot send it from a `<link>` or `<img>`,
+so there the images are read with the token as `data:` URLs. Images are served with the content type the
+spec judged, `X-Content-Type-Options: nosniff` and, for an SVG, `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'`.
 
 ## The `plugin` command
 
@@ -682,7 +679,7 @@ Formats are a closed set, each total over any JSON value: `text` (default), `num
 (default `paths`) and `url`, an absolute `https://` URL with a host, no user information and no fragment (`http://` only for
 `localhost`, `127.0.0.1` or `[::1]`). The Atlas hands the app nothing.
 
-The Meridian serves the approved declarations at `GET /api/ui/v1/extensions` (`docs/control-plane.md` §Read-only UI API). The Atlas draws them (`web/src/components/ExtensionView.tsx`, the renderers in `web/src/components/extension/`): a rail group "Extensions" that exists only when there is a view or an app, one `GET` of the substituted public route per view (re-checked against the `/api/v1` prefix in `fetchViewSource`, never an absolute URL). A pin (`plugins:` in the server config) needs a server side, an atlas side or both.
+The Meridian serves the approved declarations at `GET /api/ui/v1/extensions` (`docs/control-plane.md` §Read-only UI API). The Atlas draws them (`web/src/components/ExtensionView.tsx`, the renderers in `web/src/components/extension/`): a rail group "Extensions" that exists only when there is a view or an app, one `GET` of the substituted public route per view (re-checked against the `/api/v1` prefix in `fetchViewSource`, never an absolute URL). A pin (`plugins:` in the server config) needs a server side, an atlas side or both. The Settings → Plugins tab has three sections in order, Meridian (server), Compass (client, grouped by machine when several report) and Surveyor (agent), each listing the plugins installed there: name, version, state pill, the manifest description and what the plugin adds (a count per kind, "agents · skills · views", as `plugin list` prints them per point), the digest small and muted. Meridian's pins and the plugins each Compass reported in its client settings report (D2079) fill them; a section with none says "No plugin installed." or, when that component did not report, "Not reported.". Clicking a plugin opens a side sheet: per component its state, version, full installed and approved digests, redacted source, the names of the permissions the manifest declares (never their values), what it adds, and the views and apps it lists.
 
 The approval preview prints `view "<name>" (<renderer>) reads GET <route>` or `app "<name>" opens <url>`, then `data only: nothing runs`.
 

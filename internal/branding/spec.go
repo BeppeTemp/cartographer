@@ -22,13 +22,11 @@ const (
 	maxFolder   = 1 << 20
 	maxCompany  = 60
 	pngSig      = "\x89PNG\r\n\x1a\n"
-	icoSig      = "\x00\x00\x01\x00"
 	declNothing = "declares nothing"
 )
 
 var (
-	accentRe = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
-	fileRe   = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,60}\.(svg|png|ico)$`)
+	fileRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,60}\.(svg|png)$`)
 )
 
 // InFile is one file of the folder as the plugin glue reads it.
@@ -39,25 +37,27 @@ type InFile struct {
 
 // File is a validated image of the folder.
 type File struct {
-	Name, Ext string // Ext without the dot: svg, png or ico
+	Name, Ext string // Ext without the dot: svg or png
 	Data      []byte
 }
 
 // Spec is a valid branding/ folder.
 type Spec struct {
-	Accent                       string // lowercase #rrggbb, or ""
-	Company                      string // the alt text of the logo, or ""
-	LogoLight, LogoDark, Favicon *File  // nil when not declared
+	Company             string // the alt text of the logo, or ""
+	LogoLight, LogoDark *File  // nil when not declared
 }
 
 type declared struct {
-	Accent  *string `yaml:"accent"`
-	Company *string `yaml:"company"`
+	// Accent and Favicon are only read to refuse them: the branding no longer changes colours, and the tab keeps
+	// Cartographer's own favicon. yaml.Node, not a pointer: `accent:` with no value decodes to a nil pointer and
+	// would slip through, while a Node records the key whatever its value.
+	Accent  yaml.Node `yaml:"accent"`
+	Company *string   `yaml:"company"`
 	Logo    *struct {
 		Light string `yaml:"light"`
 		Dark  string `yaml:"dark"`
 	} `yaml:"logo"`
-	Favicon *string `yaml:"favicon"`
+	Favicon yaml.Node `yaml:"favicon"`
 }
 
 // Parse judges the folder, paths relative to branding/. It returns every
@@ -86,12 +86,11 @@ func Parse(files map[string]InFile) (*Spec, []string) {
 		return nil, probs
 	}
 	s := &Spec{}
-	if d.Accent != nil {
-		if !accentRe.MatchString(*d.Accent) {
-			add(DeclFile, "accent: %q is not a #rrggbb colour", *d.Accent)
-		} else {
-			s.Accent = strings.ToLower(*d.Accent)
-		}
+	if d.Accent.Kind != 0 {
+		add(DeclFile, "accent: removed; the branding carries logos and a company name only")
+	}
+	if d.Favicon.Kind != 0 {
+		add(DeclFile, "favicon: removed; the branding carries logos and a company name only")
 	}
 	if d.Company != nil {
 		if msg := companyProblem(*d.Company); msg != "" {
@@ -100,7 +99,7 @@ func Parse(files map[string]InFile) (*Spec, []string) {
 			s.Company = *d.Company
 		}
 	}
-	if d.Accent == nil && d.Logo == nil && d.Favicon == nil {
+	if d.Logo == nil {
 		add(DeclFile, declNothing)
 	}
 	used := map[string]bool{DeclFile: true}
@@ -121,9 +120,6 @@ func Parse(files map[string]InFile) (*Spec, []string) {
 		if d.Logo.Dark != "" {
 			s.LogoDark = load("logo.dark", d.Logo.Dark, "svg", "png")
 		}
-	}
-	if d.Favicon != nil {
-		s.Favicon = load("favicon", *d.Favicon, "svg", "png", "ico")
 	}
 	total := 0
 	for name, f := range files {
@@ -194,7 +190,7 @@ func companyProblem(s string) string {
 func loadImage(files map[string]InFile, name string, exts []string) (*File, string) {
 	m := fileRe.FindStringSubmatch(name)
 	if m == nil {
-		return nil, fmt.Sprintf("%q is not a file name of this folder (lowercase, .svg, .png or .ico, no path)", name)
+		return nil, fmt.Sprintf("%q is not a file name of this folder (lowercase, .svg or .png, no path)", name)
 	}
 	ext := m[1]
 	if !contains(exts, ext) {
@@ -230,10 +226,6 @@ func checkContent(ext string, data []byte) string {
 	case "png":
 		if !bytes.HasPrefix(data, []byte(pngSig)) {
 			return "not a PNG (wrong signature)"
-		}
-	case "ico":
-		if !bytes.HasPrefix(data, []byte(icoSig)) {
-			return "not an ICO (wrong header)"
 		}
 	default:
 		return svgProblem(data)

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { LIVE_ORIGIN, STATIC_MODE, resolveSource, type Source } from "../api/static";
 import type { KBSummary } from "../api/types";
+import { useBranding } from "../lib/branding";
 import type { Theme } from "../lib/theme";
 import { Icon, type IconName } from "./Icon";
 import { KBPicker } from "./KBPicker";
@@ -51,6 +52,8 @@ export function TopBar({
   // On the Pages build the session reads the live demo or, when it does not
   // answer, the exported snapshot (D800); the badge says which.
   const [source, setSource] = useState<Source | null>(null);
+  // A branding plugin's logo, shown before the Cartographer mark (the Atlas branding decision); null leaves the bar as it was.
+  const logo = useBranding();
   useEffect(() => {
     if (STATIC_MODE && LIVE_ORIGIN) void resolveSource().then(setSource);
   }, []);
@@ -69,6 +72,12 @@ export function TopBar({
         </button>
       )}
       <button type="button" className="topbar__brand" onClick={onHome} aria-label="Cartographer — back to the atlas, all Maps">
+        {logo && (
+          <>
+            <img className="topbar__logo topbar__logo--light" src={logo.light} alt={logo.company} />
+            <img className="topbar__logo topbar__logo--dark" src={logo.dark} alt={logo.company} />
+          </>
+        )}
         {/* The brand's master SVGs (docs/brand, D232), one per theme; CSS shows
             the one for the resolved theme, so a switch never waits on a load. */}
         <img

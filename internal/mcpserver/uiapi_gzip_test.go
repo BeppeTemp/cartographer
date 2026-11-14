@@ -58,7 +58,7 @@ func TestUIAPI_JSONIsGzippedWhenNegotiated(t *testing.T) {
 		if got := gunzip(t, zipped.Body.Bytes()); got != plain.Body.String() {
 			t.Errorf("%s: compressed body differs from the plain one", path)
 		}
-		if zipped.Header().Get("Content-Type") != "application/json" || zipped.Header().Get("Cache-Control") != "no-store" {
+		if zipped.Header().Get("Content-Type") != "application/json" || !cacheControlOK(zipped.Header().Get("Cache-Control")) {
 			t.Errorf("%s: shared headers lost: %v", path, zipped.Header())
 		}
 	}

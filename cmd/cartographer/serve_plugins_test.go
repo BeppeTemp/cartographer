@@ -215,7 +215,8 @@ func TestAtlasLoadsABrandingOnlyPlugin(t *testing.T) {
 	t.Cleanup(func() { version = old })
 	root, digest := vendorTree(t, []core.TreeFile{
 		{Path: core.ManifestFile, Content: []byte(brandingOnlyPlugin)},
-		{Path: "branding/branding.yaml", Content: []byte("accent: \"#365d50\"\n")},
+		{Path: "branding/branding.yaml", Content: []byte("logo: {light: l.svg}\n")},
+		{Path: "branding/l.svg", Content: []byte(`<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/></svg>`)},
 	})
 	cfg := &config.Config{PluginsDir: root, Plugins: map[string]config.PluginPin{"acme-brand": {Digest: digest, Enabled: true, Line: 4}}}
 	server, atlas, err := loadPinnedPlugins(cfg)
@@ -223,7 +224,7 @@ func TestAtlasLoadsABrandingOnlyPlugin(t *testing.T) {
 		t.Fatalf("branding-only pin: server %v atlas %v err %v", server, atlas, err)
 	}
 	b, err := pluginserver.ActiveBranding(atlas)
-	if err != nil || b == nil || b.Plugin != "acme-brand" || b.Palette == nil {
+	if err != nil || b == nil || b.Plugin != "acme-brand" {
 		t.Fatalf("active: %+v %v", b, err)
 	}
 	cfg.Plugins["acme-brand"] = config.PluginPin{Digest: strings.Repeat("a", 64), Enabled: true, Line: 4}

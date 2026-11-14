@@ -17,6 +17,10 @@ export interface KBSummary {
   artifacts: boolean;
   /** Whether this principal may open the Secrets panel (whole-KB, like artifacts). */
   secrets?: boolean;
+  /** How many concepts this principal sees in the KB, with the size above which
+   *  the graph is served clustered: the mode is known before any graph request. */
+  concepts_total?: number;
+  cluster_threshold?: number;
 }
 
 /** An agent client an artifact is materialized for. */
@@ -214,6 +218,11 @@ export interface ClusterUnfold {
   label: string;
   shown: number;
   total: number;
+  /** The cluster's colour slot and dominant Map, as it was folded. */
+  slot: number;
+  collection?: string;
+  /** The `shown` members drawn, as positions in the response's `nodes`: the ring that folds it frames them. */
+  members: number[];
 }
 
 /** The link graph projected onto its communities (`GET .../graph/clusters`). */
@@ -819,16 +828,39 @@ export interface ExtensionView {
   limit: number;
 }
 export interface ExtensionApp { plugin: string; name: string; title: string; description: string; icon: string; url: string }
+/** One component's copy of a plugin. Everything past `digest` is additive: an older server omits it. */
+export interface ExtensionComponent {
+  component: string;
+  state: string;
+  digest: string;
+  /** The Compass that reported it (the Compass plugins report decision); absent for the other components. */
+  machine?: string;
+  /** The version this component holds; it can differ from the plugin's first row. */
+  version?: string;
+  /** Full digests of the installed and the approved tree. */
+  installed?: string;
+  approved?: string;
+  /** The source, credentials redacted. */
+  source?: string;
+  /** What the plugin adds here, a count per extension point. */
+  contributions?: Record<string, number>;
+  /** The kinds of permission the manifest declares (kb, net, files, env): names, never values. */
+  permissions?: string[];
+}
 export interface ExtensionPlugin {
   name: string;
   version: string;
   display_name: string;
-  components: { component: string; state: string; digest: string }[];
+  /** The manifest's one-line description. */
+  description?: string;
+  components: ExtensionComponent[];
 }
 export interface Extensions {
   views: ExtensionView[];
   apps: ExtensionApp[];
   plugins: ExtensionPlugin[];
+  /** The components whose plugins the list holds: an older server omits it. */
+  reported?: string[];
 }
 
 /** One surveyor perimeter's settings: a report shared by its replicas, no secret in it. */
@@ -970,4 +1002,12 @@ export interface ReleasesView {
   unavailable?: "disabled" | "unreachable";
   /** The human-facing release list on GitHub, always present. */
   releases_url: string;
+}
+
+/** GET /branding (the Atlas branding decision): what a branding plugin gives the Atlas; a name is empty when not declared. */
+export interface Branding {
+  company: string;
+  logo_light: string;
+  logo_dark: string;
+  version: string;
 }

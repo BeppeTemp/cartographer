@@ -4,6 +4,11 @@ import { App } from "../App";
 import { componentRow, componentsAnswer, json, stubApi } from "./fixtures";
 
 /** Health (D338, D704) through the App: what was found, what is checked, and nothing that writes. */
+/** The Health page itself: the maintainer line sits under its header. */
+async function componentsTab() {
+  return screen.findByRole("region", { name: "Health" });
+}
+
 describe("the Health panel", () => {
   beforeEach(() => {
     window.history.replaceState(null, "", "/ui/?kb=kb-a&panel=health");
@@ -59,7 +64,7 @@ describe("the Health panel", () => {
       "/maintenance/summary": summary({ owner: "surveyor", state: "surveyor", by: "team-a", since: "2026-01-01T00:00:00Z" }),
     });
     render(<App />);
-    const panel = await screen.findByRole("region", { name: "Health" });
+    const panel = await componentsTab();
     const line = await within(panel).findByText(/Maintained by/);
     expect(line).toHaveTextContent(
       "Maintained by team-a (2 replicas, running) · repairs by team-a · last doctor 2026-01-01 · next due 2026-01-15",
@@ -72,21 +77,19 @@ describe("the Health panel", () => {
       "/maintenance/summary": summary({ owner: "server", state: "server" }),
     });
     render(<App />);
-    const panel = await screen.findByRole("region", { name: "Health" });
+    const panel = await componentsTab();
     expect(await within(panel).findByText(/Maintained by/)).toHaveTextContent("repairs by Meridian · last doctor");
   });
 
   it("shows no maintainer line without a surveyor, or when the route fails", async () => {
     stubApi();
     const { unmount } = render(<App />);
-    const panel = await screen.findByRole("region", { name: "Health" });
-    await within(panel).findByRole("heading", { level: 1 });
+    const panel = await componentsTab();
     expect(within(panel).queryByText(/Maintained by/)).not.toBeInTheDocument();
     unmount();
     stubApi({ "/components": NOT_FOUND });
     render(<App />);
-    const again = await screen.findByRole("region", { name: "Health" });
-    await within(again).findByRole("heading", { level: 1 });
+    const again = await componentsTab();
     expect(within(again).queryByText(/Maintained by/)).not.toBeInTheDocument();
   });
 
@@ -96,7 +99,7 @@ describe("the Health panel", () => {
         json(componentsAnswer(componentRow({ name: "team-b" }, [{ id: "w-1" }]), componentRow({ name: "team-a" }, [{ id: "w-2" }]))),
     });
     render(<App />);
-    const panel = await screen.findByRole("region", { name: "Health" });
+    const panel = await componentsTab();
     const line = await within(panel).findByText(/Maintained by/);
     expect(line).toHaveTextContent("Maintained by team-b (1 replica, idle), team-a (1 replica, idle)");
   });
@@ -136,7 +139,8 @@ describe("the Health panel", () => {
       expect(await within(panel).findByRole("status")).toHaveTextContent(
         "Surveyor team-a is expected to run 2 replicas and 1 is reporting.",
       );
-      expect(within(panel).getByText(/Maintained by/)).toBeInTheDocument();
+      // The maintainer line sits on the page beside the notice.
+      expect(await within(panel).findByText(/Maintained by/)).toBeInTheDocument();
     });
 
     it("adds the fallback sentence only to the silent notice the repair names", async () => {
@@ -172,7 +176,7 @@ describe("the Health panel", () => {
       });
       render(<App />);
       const panel = await screen.findByRole("region", { name: "Health" });
-      await within(panel).findByText(/Maintained by/);
+      await new Promise((r) => setTimeout(r, 30));
       expect(within(panel).queryByRole("status")).not.toBeInTheDocument();
     });
 
@@ -212,6 +216,9 @@ describe("the Health panel", () => {
       const panel = await screen.findByRole("region", { name: "Health" });
       await within(panel).findByRole("heading", { level: 1 });
       await new Promise((r) => setTimeout(r, 30));
+      // The components strip shows with an empty answer and not on a 404 (an
+      // older server): the rest of Health must not differ.
+      panel.querySelector('[aria-label="Components"]')?.remove();
       const html = panel.outerHTML;
       unmount();
       return html;

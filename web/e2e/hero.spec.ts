@@ -92,10 +92,8 @@ test("the hero tour: graph, search, a concept's links, artifacts, health", async
   await beat(1300);
   await inspector.getByRole("button", { name: "Close inspector" }).click();
 
-  // 4. The same graph, coloured by Map.
-  const byMap = page.getByRole("button", { name: "Map", exact: true });
-  await byMap.click();
-  await until("the graph is coloured by Map", (timeout) => expect(byMap).toHaveAttribute("aria-pressed", "true", { timeout }));
+  // 4. The same graph, coloured by Map (the legend keys the Maps; there is no switch).
+  await until("the legend keys the Maps", (timeout) => expect(page.getByRole("region", { name: "Graph legend" })).toBeVisible({ timeout }));
   await orbit(-260, 100);
   await beat(600);
 
@@ -116,7 +114,7 @@ test("the hero tour: graph, search, a concept's links, artifacts, health", async
   // 7. The Surveyor's tab, always there: its Sources by ingest status. No Surveyor
   // reports on the demo server, so the tab shows the template and the Sources block.
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  const surveyorTab = page.getByRole("tab", { name: "Surveyor", exact: true });
+  const surveyorTab = page.getByRole("tab", { name: /^Surveyor\b/ });
   await until("the Settings tabs show", (timeout) => expect(surveyorTab).toBeVisible({ timeout }));
   await beat(500);
   await surveyorTab.click();

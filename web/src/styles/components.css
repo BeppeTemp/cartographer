@@ -81,6 +81,31 @@
   display: none;
 }
 
+/* The operator's logo leads the bar (branding plugin), a thin divider between
+   it and the Cartographer mark: the one for the resolved theme shows, like the
+   marks above. */
+.topbar__logo {
+  height: 24px;
+  max-width: 160px;
+  width: auto;
+  flex: none;
+  margin-inline-end: var(--space-1);
+  padding-inline-end: var(--space-3);
+  border-inline-end: 1px solid var(--border-subtle);
+  object-fit: contain;
+}
+
+:root[data-theme="light"] .topbar__logo--dark,
+:root:not([data-theme="light"]) .topbar__logo--light {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .topbar__logo {
+    display: none !important;
+  }
+}
+
 /* One field family for the top bar (the KB picker and the search): same
    height, edge, radius and type, so the two read as a pair. */
 .field {
@@ -175,13 +200,17 @@
   color: var(--text-muted);
 }
 
+/* The menu is exactly as wide as the trigger, so the two read as one control;
+   a long KB name wraps instead of being cut. Its height is a whole number of
+   options (12, or fewer on a short window), so no name is sliced at the bottom. */
 .picker__menu {
   position: absolute;
   top: calc(100% + var(--space-1));
   inset-inline: 0;
   z-index: 40;
   min-width: 100%;
-  max-height: 60vh;
+  max-height: calc(min(12, max(4, round(down, (60vh - 8px) / 36px, 1))) * 36px + 2 * var(--space-1));
+  scroll-snap-type: y mandatory;
   margin: 0;
   padding: var(--space-1);
   overflow-y: auto;
@@ -202,6 +231,9 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  min-height: 36px;
+  box-sizing: border-box;
+  scroll-snap-align: start;
   padding: var(--space-2) var(--space-3);
   font-size: var(--text-sm);
   color: var(--text-secondary);
@@ -860,7 +892,7 @@
   font-size: var(--text-sm);
   color: var(--text-secondary);
   background: var(--surface-1);
-  border-radius: var(--radius-2, 6px);
+  border-radius: var(--radius-small);
   z-index: 2;
 }
 
@@ -1245,68 +1277,24 @@ body.is-resizing {
   background: var(--surface-1);
 }
 
-/* The cluster view (D1986): the Clusters / Nodes switch
-   beside the camera, and the unfolded clusters, each with its Fold. */
-.graph__level {
+/* The cluster view (the cluster super-nodes decision): the folded clusters for the
+   keyboard, visible only while one has focus. */
+.graph__clusters-a11y {
   position: absolute;
+  inset-block-start: var(--space-4);
+  inset-inline-start: var(--space-4);
   z-index: 2;
-  inset-block-end: var(--space-4);
-  inset-inline-end: calc(var(--space-4) + 56px);
-  display: flex;
-  gap: var(--space-1);
-  padding: var(--space-1);
-  background: var(--surface-1);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-card);
-}
-
-.graph__unfolded {
-  position: absolute;
-  z-index: 2;
-  inset-block-start: calc(var(--space-4) + 56px);
-  inset-inline-end: var(--space-4);
-  display: grid;
-  gap: var(--space-1);
-  max-width: 320px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.graph__unfold {
-  display: flex;
-  gap: var(--space-2);
-  align-items: center;
-  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-2);
-  background: var(--surface-1);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-card);
-}
-
-.graph__unfold-label {
+.graph__clusters-a11y li:not(:focus-within) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.graph__unfold-count {
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.legend__unfold {
-  padding: 0;
-  font: inherit;
-  color: inherit;
-  text-align: start;
-  cursor: pointer;
-  background: transparent;
-  border: 0;
-}
-
-.legend__unfold:hover {
-  text-decoration: underline;
+  clip-path: inset(50%);
 }
 
 /* --- Node list (the keyboard path to the canvas) --- */
@@ -2034,35 +2022,6 @@ body.is-resizing {
 
 /* The growth replay's trigger, in the legend card's head: a quiet text action
    beside the counts it will replay. */
-/* The replay is a pill in the accent's tint, no border: it reads as the
-   legend's one action without the weight of a framed button. */
-.legend__grow {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 6px;
-  height: 26px;
-  padding: 0 var(--space-3) 0 var(--space-2);
-  font: inherit;
-  font-weight: 600;
-  color: var(--accent);
-  cursor: pointer;
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  border: 0;
-  border-radius: var(--radius-pill);
-  transition: background-color var(--motion-fast) var(--ease-out);
-}
-
-.legend__grow:hover,
-.legend__grow[aria-pressed="true"] {
-  background: color-mix(in srgb, var(--accent) 24%, transparent);
-}
-
-.legend__grow:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
 /* --- Legend: what is drawn, what colour means and the switch between its two
    meanings, as a card at the canvas's bottom-left corner --- */
 
@@ -2074,7 +2033,8 @@ body.is-resizing {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  width: 264px;
+  /* One width for every KB and view: the card never resizes as the graph changes. */
+  width: 232px;
   max-width: calc(100% - 2 * var(--space-4));
   padding: var(--space-2);
   font-size: var(--text-xs);
@@ -2084,13 +2044,9 @@ body.is-resizing {
   border-radius: var(--radius-card);
 }
 
-/* What is drawn and the replay on one line: the KB is already named in the
-   top bar's picker. */
+/* What is drawn, in full, on its own row: the KB is already named in the top
+   bar's picker. The actions sit on the row below (.legend__actions). */
 .legend__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
   padding-inline: var(--space-1);
 }
 
@@ -2099,52 +2055,11 @@ body.is-resizing {
   margin: 0;
 }
 
-/* One line: the counts never wrap under the replay button. */
 .legend__facts {
   display: block;
-  overflow: hidden;
   font-size: var(--text-xs);
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.legend__switch {
-  display: grid;
-  flex: none;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-1);
-  padding: 2px;
-  background: var(--surface-2);
-  border-radius: var(--radius-control);
-}
-
-.legend__option {
-  padding: var(--space-1) var(--space-2);
-  font: inherit;
-  color: var(--text-secondary);
-  cursor: pointer;
-  background: transparent;
-  border: 0;
-  border-radius: var(--radius-control);
-  transition:
-    background var(--motion-instant) var(--ease-out),
-    color var(--motion-instant) var(--ease-out);
-}
-
-.legend__option:hover {
-  color: var(--text-primary);
-}
-
-.legend__option[aria-pressed="true"] {
-  color: var(--text-primary);
-  background: var(--surface-3);
-}
-
-.legend__option:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
 }
 
 .legend__rows {
@@ -3804,6 +3719,28 @@ code.mapcontract__label {
     grid-template-columns: minmax(0, 1fr) auto;
   }
 }
+/* A revealed value (a token, a certificate) takes a full-width line of its own
+   under the pointer, in a box that scrolls past a few lines: in its column it
+   was squeezed beside a long pointer into a tall strip of characters. */
+.secrets__row[data-revealed] .secrets__value {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  margin-block-start: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  max-height: 10lh;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: var(--text-xs);
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-small);
+  user-select: all;
+}
+.secrets__row[data-revealed] .secrets__actions {
+  grid-column: -2 / -1;
+  grid-row: 1;
+}
 
 /* Settings page (D743, D818): a tab per server and KB, each readable as
    grouped rows or as the commented YAML file. */
@@ -3816,7 +3753,7 @@ code.mapcontract__label {
   align-items: flex-end;
   justify-content: space-between;
   gap: var(--space-2) var(--space-4);
-  margin-top: var(--space-5);
+  margin-top: var(--space-6);
   border-block-end: 1px solid var(--border-subtle);
 }
 .settings__tabs.inspector__tabs {
@@ -3837,11 +3774,6 @@ code.mapcontract__label {
   text-align: start;
   vertical-align: top;
   border-block-end: 1px solid var(--border-subtle);
-}
-.plugins__digest {
-  margin-inline-start: var(--space-2);
-  color: var(--text-muted);
-  font-size: var(--text-xs);
 }
 .settings__bar .segmented {
   margin-block-end: var(--space-2);
@@ -4523,13 +4455,460 @@ a.rail__panel { text-decoration: none; }
   cursor: pointer;
 }
 
-/* The replay has the canvas to itself: the level switch leaves with the camera. */
-.graph[data-growing] .graph__level {
+/* A Settings tab: the component's name, and under it what it is. */
+.settings__tab {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+/* What the component is, as a small tag beside its name: light enough not to
+   compete with the name, there for a reader who does not know the names. */
+.settings__tab-role {
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border-radius: var(--radius-pill);
+}
+
+/* A map value inside a map table (a provider): one line per key, a list of
+   records (workspaces) one record a line, read by its path. */
+.settings__nested {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.settings__nested-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.settings__nested-tag {
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+.settings__nested-row {
+  display: grid;
+  grid-template-columns: 7rem minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: start;
+}
+.settings__nested-key {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+.settings__nested-count {
+  margin-inline-start: var(--space-1);
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+}
+.settings__records {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.settings__record {
+  display: grid;
+  grid-template-columns: minmax(0, 24rem) minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: center;
+  padding: 4px var(--space-2);
+  border-radius: var(--radius-small);
+}
+.settings__record:nth-child(odd) {
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+}
+.settings__record-head {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings__record-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.settings__records-wrap {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+}
+.settings__record-meta {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+@media (max-width: 640px) {
+  .settings__nested-row,
+  .settings__record {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+}
+
+/* Settings, Surveyor tab: the KB's Sources by ingest status, one tile each. */
+.source-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: var(--space-3);
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.source-tile {
+  display: grid;
+  gap: 2px;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--surface-1);
+}
+.source-tile__label {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.source-tile__count {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+.source-tile[data-status="pending"]:not([data-zero]) .source-tile__count {
+  color: var(--sev-warning);
+}
+.source-tile[data-status="ingested"]:not([data-zero]) .source-tile__count {
+  color: var(--sev-ok);
+}
+.source-tile[data-zero] .source-tile__count {
+  color: var(--text-muted);
+}
+.source-tile__about {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* A provider in the providers table: one summary line that opens. */
+.settings__folded {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.settings__folded-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-4);
+  padding: 0;
+  font: inherit;
+  text-align: start;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.settings__folded-head::after {
+  content: "";
+  align-self: center;
+  width: 6px;
+  height: 6px;
+  border-inline-end: 1.5px solid var(--text-muted);
+  border-block-end: 1.5px solid var(--text-muted);
+  transform: rotate(-45deg);
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+.settings__folded[data-open] > .settings__folded-head::after {
+  transform: rotate(45deg);
+}
+.settings__folded-head:hover .settings__nested-key {
+  color: var(--text-secondary);
+}
+.settings__folded-head strong {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* Settings, Plugins: a section per component, a card per plugin installed there. */
+.plugins__sections {
+  display: grid;
+  gap: var(--space-8);
+  margin: var(--space-4) 0 0;
+}
+.plugins__section-title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.plugins__empty {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.plugins__machine-group {
+  margin-top: var(--space-3);
+}
+.plugins__machine-group > .plugins__machine {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+}
+.plugins__list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.plugins__card {
+  padding: var(--space-3) var(--space-4);
+  line-height: 1.4;
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+}
+.plugins__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+.plugins__name {
+  padding: 0;
+  font: inherit;
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text-primary);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.plugins__name:hover {
+  text-decoration: underline;
+}
+.plugins__version {
+  font-weight: normal;
+  color: var(--text-muted);
+}
+.plugins__desc,
+.plugins__brings {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+/* One line in the list; the whole text is in the sheet. */
+.plugins__desc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.plugins__brings {
+  color: var(--text-muted);
+}
+.plugins__head .plugins__brings {
+  margin: 0;
+}
+.plugins__machine {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+.plugins__digest {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.plugins__note {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-xs);
+  color: var(--sev-warning);
+}
+.plugins__detail {
+  margin-top: var(--space-4);
+}
+.plugins__facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+  font-size: var(--text-sm);
+}
+.plugins__facts dt {
+  color: var(--text-muted);
+}
+.plugins__facts dd {
+  margin: 0;
+  min-width: 0;
+}
+.plugins__full {
+  overflow-wrap: anywhere;
+  font-size: var(--text-xs);
+}
+
+/* Components: each card says what the component is before its state. */
+.components__role {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+.components__role .settings__tab-role {
+  margin-inline-end: var(--space-1);
+}
+.components__machines {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* In the menu a long name wraps rather than ending in an ellipsis. */
+.picker__option .picker__value {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* A component's live status at the top of its Settings tab. */
+.components-status {
+  display: grid;
+  gap: var(--space-3);
+  margin-block: var(--space-3) var(--space-4);
+}
+.components-status__line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+.components-status__text {
+  color: var(--text-secondary);
+}
+.components-status__line[data-state="none"] .components-status__text {
+  color: var(--text-muted);
+}
+.components-status__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+.components-status__line[data-state="ok"] .components-status__dot {
+  background: var(--sev-ok);
+}
+.components-status__line[data-state="warn"] .components-status__dot {
+  background: var(--sev-warning);
+}
+
+/* Activity, Surveyor tab: a failing count reads as an error, like the run rows. */
+.source-tile[data-tone="error"]:not([data-zero]) .source-tile__count {
+  color: var(--sev-error);
+}
+.source-tile[data-tone="ok"]:not([data-zero]) .source-tile__count {
+  color: var(--sev-ok);
+}
+
+/* The growth replay opens nothing (GraphView): no hand over a node either.
+   The scene sets the cursor inline on hover, hence !important. */
+.graph[data-growing] .graph3d canvas {
+  cursor: default !important;
+}
+
+/* Where the reader is in an open cluster (the cluster super-nodes decision): the
+   Atlas's quiet overlay text, the KB muted and a link back to the overview, the
+   cluster opened last in the primary colour. No pill, no border. */
+.graph__crumbs {
+  position: absolute;
+  z-index: 2;
+  inset-block-start: var(--space-4);
+  inset-inline-start: var(--space-4);
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  max-width: 60%;
+  font: 500 var(--text-sm, 13px) var(--font-sans);
+  text-shadow:
+    0 0 3px var(--surface-0),
+    0 0 8px var(--surface-0);
+}
+
+.graph__crumb-root {
+  padding: 0;
+  font: inherit;
+  color: var(--text-muted);
+  cursor: pointer;
+  background: none;
+  border: 0;
+}
+
+.graph__crumb-root:hover,
+.graph__crumb-root:focus-visible {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+
+.graph__crumb-sep {
+  color: var(--text-muted);
+}
+
+.graph__crumb-current {
+  overflow: hidden;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph[data-growing] .graph__crumbs {
   visibility: hidden;
 }
 
-/* Every cluster listed: the card scrolls rather than covering the canvas. */
-.legend__rows:has(.legend__unfold) {
-  max-height: 40vh;
-  overflow-y: auto;
+/* The legend's actions: the replay and the grouping switch are one component,
+   the soft pill, side by side across the card (one alone takes the whole row). */
+.legend__actions {
+  display: grid;
+  grid-auto-columns: 1fr;
+  grid-auto-flow: column;
+  gap: var(--space-2);
+}
+
+.legend__grow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 var(--space-3);
+  font: inherit;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border: 0;
+  border-radius: var(--radius-pill);
+  transition: background-color var(--motion-fast) var(--ease-out);
+}
+
+.legend__grow:hover,
+.legend__grow[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.legend__grow:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.legend__grow:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }

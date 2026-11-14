@@ -98,23 +98,43 @@ type uiExtApp struct {
 
 type uiExtComponent struct {
 	Component string `json:"component"`
-	State     string `json:"state"`
-	Digest    string `json:"digest"`
+	// Machine names the Compass that reported the plugin; "" for the others.
+	Machine string `json:"machine,omitempty"`
+	State   string `json:"state"`
+	Digest  string `json:"digest"`
+	// Version is the version this component holds (it may differ per machine).
+	Version string `json:"version,omitempty"`
+	// Installed and Approved are the full digests of the installed and the
+	// approved tree, for the detail sheet; Digest stays the one the list shows.
+	Installed string `json:"installed,omitempty"`
+	Approved  string `json:"approved,omitempty"`
+	// Source is the redacted source (Compass reports it; Meridian's pin has none).
+	Source string `json:"source,omitempty"`
+	// Contributions counts what the plugin adds here per extension point;
+	// Permissions names the permission kinds its manifest declares (never values).
+	Contributions map[string]int `json:"contributions,omitempty"`
+	Permissions   []string       `json:"permissions,omitempty"`
 }
 
 type uiExtPlugin struct {
-	Name        string           `json:"name"`
-	Version     string           `json:"version"`
-	DisplayName string           `json:"display_name"`
+	Name        string `json:"name"`
+	Version     string `json:"version"`
+	DisplayName string `json:"display_name"`
+	// Description is the manifest's one-line description.
+	Description string           `json:"description,omitempty"`
 	Components  []uiExtComponent `json:"components"`
 }
 
 // uiExtensionsBody is the 200 body of GET /extensions.
 type uiExtensionsBody struct {
-	Views       []uiExtView   `json:"views"`
-	Apps        []uiExtApp    `json:"apps"`
-	Plugins     []uiExtPlugin `json:"plugins"`
-	GeneratedAt string        `json:"generated_at"`
+	Views   []uiExtView   `json:"views"`
+	Apps    []uiExtApp    `json:"apps"`
+	Plugins []uiExtPlugin `json:"plugins"`
+	// Reported names the components whose plugins the list holds: "meridian"
+	// always, "compass" when a client report of the caller carried its plugins
+	// (an older client omits them: its plugins are unknown, not none).
+	Reported    []string `json:"reported"`
+	GeneratedAt string   `json:"generated_at"`
 }
 
 // extensionSet is what the pinned plugins give the Atlas, built once at start:
@@ -137,10 +157,13 @@ func (m *MultiKBServer) SetAtlasPlugins(plugins []*core.Plugin) error {
 	set := extensionSet{views: []uiExtView{}, apps: []uiExtApp{}, plugins: []uiExtPlugin{}}
 	for _, p := range sorted {
 		name := p.Manifest.Name
-		// Only the Meridian's own store is known here: what Compass or a
-		// Surveyor holds is not reported to it, so no row is invented for them.
+		// Only the Meridian's own pins are known here; Compass's plugins are
+		// merged per request from the caller's client reports.
 		set.plugins = append(set.plugins, uiExtPlugin{Name: name, Version: p.Manifest.Version, DisplayName: p.Manifest.DisplayName,
-			Components: []uiExtComponent{{Component: "meridian", State: "approved", Digest: p.Digest}}})
+			Description: p.Manifest.Description,
+			Components: []uiExtComponent{{Component: "meridian", State: "approved", Digest: p.Digest, Version: p.Manifest.Version,
+				Installed: p.Digest, Approved: p.Digest, Contributions: PluginContributionCounts(*p),
+				Permissions: PluginPermissionNames(p.Manifest)}}})
 		for _, c := range p.Contributions["views"] {
 			if c.View == nil {
 				continue
@@ -173,6 +196,94 @@ func (m *MultiKBServer) SetAtlasPlugins(plugins []*core.Plugin) error {
 	return nil
 }
 
+// PluginContributionCounts is what a plugin adds, per extension point: the
+// numbers `plugin list` prints, nothing of the contributions themselves.
+func PluginContributionCounts(p core.Plugin) map[string]int {
+	out := map[string]int{}
+	for pt, cs := range p.Contributions {
+		if len(cs) > 0 {
+			out[pt] = len(cs)
+		}
+	}
+	return out
+}
+
+// PluginPermissionNames lists the permission kinds a manifest declares (kb,
+// net, files, env, net_private), in that order, over its top level and its
+// components: names only, never a host, a path or a variable.
+func PluginPermissionNames(m core.Manifest) []string {
+	perms := []*core.Permissions{m.Permissions}
+	for _, c := range m.Components {
+		perms = append(perms, c.Permissions)
+	}
+	has := map[string]bool{}
+	for _, p := range perms {
+		if p == nil {
+			continue
+		}
+		has["kb"] = has["kb"] || p.KB != ""
+		has["net"] = has["net"] || len(p.Net) > 0
+		has["net_private"] = has["net_private"] || len(p.NetPrivate) > 0
+		has["files"] = has["files"] || (p.Files != nil && (len(p.Files.Read) > 0 || len(p.Files.Write) > 0))
+		has["env"] = has["env"] || len(p.Env) > 0
+	}
+	out := []string{}
+	for _, k := range []string{"kb", "net", "net_private", "files", "env"} {
+		if has[k] {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// mergeCompassPlugins adds, to a copy of Meridian's plugin rows, one `compass`
+// component per plugin each report carries (D2079): on
+// the row of the same name, or on a row of its own when Meridian does not pin
+// it. The second result says whether any report carried the field.
+func mergeCompassPlugins(base []uiExtPlugin, reports []clientReport) ([]uiExtPlugin, bool) {
+	out := make([]uiExtPlugin, len(base))
+	for i, p := range base {
+		p.Components = append([]uiExtComponent(nil), p.Components...)
+		out[i] = p
+	}
+	reported := false
+	for _, rep := range reports {
+		if rep.Plugins == nil {
+			continue
+		}
+		reported = true
+		for _, cp := range rep.Plugins {
+			digest := cp.Installed
+			if digest == "" {
+				digest = cp.Approved
+			}
+			comp := uiExtComponent{Component: "compass", Machine: rep.Machine, State: cp.State, Digest: digest, Version: cp.Version,
+				Installed: cp.Installed, Approved: cp.Approved, Source: cp.Source, Contributions: cp.Contributions, Permissions: cp.Permissions}
+			idx := -1
+			for i := range out {
+				if out[i].Name == cp.Name {
+					idx = i
+					break
+				}
+			}
+			if idx < 0 {
+				out = append(out, uiExtPlugin{Name: cp.Name, Version: cp.Version, DisplayName: cp.DisplayName, Description: cp.Description})
+				idx = len(out) - 1
+			} else if out[idx].Description == "" {
+				out[idx].Description = cp.Description
+			}
+			out[idx].Components = append(out[idx].Components, comp)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	for i := range out {
+		if out[i].Components == nil {
+			out[i].Components = []uiExtComponent{}
+		}
+	}
+	return out, reported
+}
+
 // GET /extensions: the approved views and apps the Atlas draws, and the
 // installed plugins. Views and apps are not KB data (the public API filters a
 // view's data with the caller's principal); the plugin list is the operator's.
@@ -180,8 +291,13 @@ func (m *MultiKBServer) SetAtlasPlugins(plugins []*core.Plugin) error {
 func (m *MultiKBServer) uiExtensions(w http.ResponseWriter, r *http.Request) {
 	set := m.extensions
 	plugins := []uiExtPlugin{}
-	if auth.PrincipalFromContext(r.Context()).Policy.Admin {
-		plugins = set.plugins
+	reported := []string{"meridian"}
+	if p := auth.PrincipalFromContext(r.Context()); p.Policy.Admin {
+		var compass bool
+		plugins, compass = mergeCompassPlugins(set.plugins, m.clientReports.of(p.ID))
+		if compass {
+			reported = append(reported, "compass")
+		}
 	}
 	views, apps := set.views, set.apps
 	if views == nil {
@@ -191,5 +307,5 @@ func (m *MultiKBServer) uiExtensions(w http.ResponseWriter, r *http.Request) {
 		apps = []uiExtApp{}
 	}
 	writeUIJSON(w, http.StatusOK, uiExtensionsBody{Views: views, Apps: apps, Plugins: plugins,
-		GeneratedAt: time.Now().UTC().Format(time.RFC3339)})
+		Reported: reported, GeneratedAt: time.Now().UTC().Format(time.RFC3339)})
 }

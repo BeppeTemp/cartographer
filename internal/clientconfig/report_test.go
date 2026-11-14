@@ -1,6 +1,7 @@
 package clientconfig
 
 import (
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -209,5 +210,19 @@ func TestReportReadsAFlatKeyTheRealignmentHasNotMoved(t *testing.T) {
 	}
 	if e := by["placeholders.search_roots"]; e.Origin != "file" || len(e.Value.([]any)) != 1 {
 		t.Errorf("placeholders.search_roots = %+v", e)
+	}
+}
+
+func TestReportPluginsFieldIsAdditive(t *testing.T) {
+	t.Parallel()
+	r := &SettingsReport{Machine: "m", Plugins: []ReportPlugin{{Name: "acme", Version: "1.0.0", State: "active", Installed: "aaaaaaaaaaaa", Source: "https://example.com/acme.git"}}}
+	data, err := json.Marshal(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"plugins":[{"name":"acme","version":"1.0.0","state":"active","installed":"aaaaaaaaaaaa","source":"https://example.com/acme.git"}]`} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("report lacks %s: %s", want, data)
+		}
 	}
 }

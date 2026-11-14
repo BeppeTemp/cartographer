@@ -134,6 +134,13 @@ type uiKBRow struct {
 	Artifacts bool `json:"artifacts"`
 	// Secrets says whether this principal may open the Secrets panel.
 	Secrets bool `json:"secrets"`
+	// ConceptsTotal is how many concepts this principal sees in the KB, and
+	// ClusterThreshold the size above which the graph is served clustered:
+	// together they let the Atlas choose flat or clustered before it asks for
+	// any graph, without waiting for the overview. Both are omitted when the
+	// KB could not be read.
+	ConceptsTotal    *int `json:"concepts_total,omitempty"`
+	ClusterThreshold int  `json:"cluster_threshold,omitempty"`
 }
 
 type uiKBList struct {
@@ -149,14 +156,20 @@ func (m *MultiKBServer) uiListKBs(w http.ResponseWriter, r *http.Request) {
 		if !ok || srv.kbRef == nil || !uiKBVisible(ctx, srv.kbRef) {
 			continue
 		}
-		rows = append(rows, uiKBRow{
+		row := uiKBRow{
 			Name:         info.Name,
 			Status:       info.Status,
 			Ready:        info.Status == "normal",
 			Capabilities: info.Capabilities,
 			Artifacts:    uiArtifactsVisible(ctx, srv.kbRef),
 			Secrets:      uiSecretsVisible(ctx, srv.kbRef),
-		})
+		}
+		if row.Ready {
+			if n, ok := uiVisibleTotal(ctx, srv.kbRef); ok {
+				row.ConceptsTotal, row.ClusterThreshold = &n, kb.ClusterThreshold
+			}
+		}
+		rows = append(rows, row)
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })
 	writeUIJSON(w, http.StatusOK, uiKBList{KBs: rows})

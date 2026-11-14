@@ -32,6 +32,7 @@ import type {
   MaintenanceSummary,
   ComponentsResponse,
   Extensions,
+  Branding,
   ReportCandidateList,
   ReportDraft,
 } from "./types";
@@ -219,9 +220,13 @@ export function fetchOverview(kb: string, signal?: AbortSignal): Promise<Overvie
   return get<Overview>(`/kbs/${encodeURIComponent(kb)}/overview`, signal);
 }
 
+/** The flat view asks for every concept, up to the server's maximum: a large KB
+ *  expanded is shown whole, not cut to its best-ranked part. */
+export const GRAPH_ALL_NODES = 7500;
+
 export function fetchGraph(kb: string, scope: string | null, signal?: AbortSignal): Promise<GraphSnapshot> {
-  const query = scope ? `?scope=${encodeURIComponent(scope)}` : "";
-  return get<GraphSnapshot>(`/kbs/${encodeURIComponent(kb)}/graph${query}`, signal);
+  const scoped = scope ? `&scope=${encodeURIComponent(scope)}` : "";
+  return get<GraphSnapshot>(`/kbs/${encodeURIComponent(kb)}/graph?limit=${GRAPH_ALL_NODES}${scoped}`, signal);
 }
 
 /** What a clustered graph request asks for besides the KB. */
@@ -401,12 +406,43 @@ export async function fetchExtensions(signal?: AbortSignal): Promise<Extensions>
   try {
     const body = await get<Partial<Extensions>>("/extensions", signal);
     const list = <T,>(v: T[] | undefined) => (Array.isArray(v) ? v : []);
-    return { views: list(body?.views), apps: list(body?.apps), plugins: list(body?.plugins) };
+    return { views: list(body?.views), apps: list(body?.apps), plugins: list(body?.plugins), reported: Array.isArray(body?.reported) ? body.reported : undefined };
   } catch (err) {
     // Only a 404 (an older server, the static demo) means "no extensions"; any other failure is the caller's to ride out.
     if (err instanceof ApiError && err.isNotFound) return { views: [], apps: [], plugins: [] };
     throw err;
   }
+}
+
+/** The branding the Atlas wears; a 404 is "no branding" (null), any other failure rejects. */
+export async function fetchBranding(signal?: AbortSignal): Promise<Branding | null> {
+  try {
+    return await get<Branding>("/branding", signal);
+  } catch (err) {
+    if (err instanceof ApiError && err.isNotFound) return null;
+    throw err;
+  }
+}
+
+/** The URL of a branding file; `version` busts the cache when the plugin changes. */
+export function brandingURL(file: "branding/logo-light" | "branding/logo-dark", version: string): string {
+  return `${BASE}/${file}?v=${encodeURIComponent(version)}`;
+}
+
+/**
+ * A branding file read with the bearer token, for a page whose token is in memory: a <link> or <img>
+ * cannot send it. A data: URL (the page's CSP allows img-src data:, not blob:).
+ */
+export async function fetchBrandingFile(url: string, signal?: AbortSignal): Promise<string> {
+  const response = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {}, signal, credentials: "same-origin" });
+  if (!response.ok) throw new ApiError(response.status, "error", `branding file: ${response.status}`);
+  const blob = await response.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new ApiError(0, "error", "branding file unreadable"));
+    reader.readAsDataURL(blob);
+  });
 }
 
 /**

@@ -12,6 +12,8 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/gitx"
+	"github.com/BeppeTemp/cartographer/internal/mcpserver"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
@@ -135,12 +137,44 @@ func reportClientSettings(cfg *clientconfig.Config, dir string) bool {
 	}
 	report.Providers = reportProviders(cfg)
 	report.Placeholders = reportPlaceholders(cfg, dir)
+	report.Plugins = reportPlugins(cfg)
 	c := client.New(cfg.ServerURL, resolveToken(cfg)).WithInsecureHTTP(cfg.InsecureHTTPAllowed()).WithTokenEnv(tokenEnvName(cfg))
 	if err := c.ReportClientSettings(report, probeTimeout); err != nil {
 		slog.Debug("client settings report not delivered", "err", err)
 		return false
 	}
 	return true
+}
+
+// reportPlugins is the plugins installed here, computed as `plugin list`
+// does (D2079): the state, the digests, the
+// redacted source, the description, the contribution counts and the names of
+// the declared permissions, never a file, a setting or a permission value. A store that cannot be opened
+// gives an empty list: the report is best-effort.
+func reportPlugins(cfg *clientconfig.Config) []clientconfig.ReportPlugin {
+	out := []clientconfig.ReportPlugin{}
+	if len(cfg.Plugins) == 0 {
+		return out
+	}
+	store, err := pluginStoreFn()
+	if err != nil {
+		slog.Debug("plugin store not readable for the report", "err", err)
+		return out
+	}
+	names := make([]string, 0, len(cfg.Plugins))
+	for n := range cfg.Plugins {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		e := cfg.Plugins[n]
+		st, p, _ := pluginView(store, n, e)
+		out = append(out, clientconfig.ReportPlugin{Name: n, Version: e.Version, DisplayName: p.Manifest.DisplayName, State: string(st),
+			Approved: e.Approved, Installed: e.Installed, Source: gitx.RedactRemoteURL(e.Source),
+			Description: p.Manifest.Description, Contributions: mcpserver.PluginContributionCounts(p),
+			Permissions: mcpserver.PluginPermissionNames(p.Manifest)})
+	}
+	return out
 }
 
 // reportOnly is `sync --report-to <url>`: the two reports above, sent to

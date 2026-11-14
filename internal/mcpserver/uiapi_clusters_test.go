@@ -110,6 +110,7 @@ func TestUIAPI_GraphClustersNeverShareAnEntryAcrossPrincipals(t *testing.T) {
 	for _, c := range narrow.Clusters {
 		size += c.Size
 	}
+	size += len(narrow.Nodes) // communities left open are concepts
 	if narrow.TotalNodes != 2200 || size != 2200 {
 		t.Errorf("narrow: total_nodes %d, cluster sizes %d, want 2,200", narrow.TotalNodes, size)
 	}

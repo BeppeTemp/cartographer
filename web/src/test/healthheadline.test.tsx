@@ -31,7 +31,7 @@ describe("Health's headline", () => {
     expect(screen.queryByText(/Cartographer found/)).toBeNull();
     rerender(page({ checks }));
     expect(screen.getByText(/Cartographer found/)).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "Health view" })).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Health view" })).toBeNull();
   });
 
   it("shows the headline when a source failed: it is settled, not pending", () => {

@@ -24,6 +24,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -289,8 +290,22 @@ func (g *kbgen) plan() {
 	// Concept ids, spread over the Maps; one ring of six in the first Map is
 	// linked only to itself (the island).
 	const island = 6
+	// The Maps are not equal: a real KB has a few large ones and a tail of
+	// small ones, so its communities run from hundreds to a few dozen.
+	counts := mapShares(nTopical-island, nMaps)
+	mapOf := make([]int, 0, nTopical-island)
+	for left := true; left; {
+		left = false
+		for mi := range counts {
+			if counts[mi] > 0 {
+				counts[mi]--
+				mapOf = append(mapOf, mi)
+				left = true
+			}
+		}
+	}
 	for i := 0; i < nTopical-island; i++ {
-		m := &g.maps[i%nMaps]
+		m := &g.maps[mapOf[i]]
 		k := len(m.ids)
 		word := m.words[k%len(m.words)]
 		id := m.slug + "/" + word
@@ -318,6 +333,29 @@ func (g *kbgen) plan() {
 		g.artifacts(scaffold)
 	}
 	g.history()
+}
+
+// mapShares splits n concepts over nMaps Maps in a falling series (the k-th
+// holds a share proportional to 1/(k+2)^1.6: of five thousand concepts in
+// twenty Maps the first holds about 1,600 and the last about 40, so the
+// communities run from large to a few dozen), every Map at least 6 and the
+// sum exactly n.
+func mapShares(n, nMaps int) []int {
+	w := make([]float64, nMaps)
+	total := 0.0
+	for k := range w {
+		w[k] = 1 / math.Pow(float64(k+2), 1.6)
+		total += w[k]
+	}
+	out := make([]int, nMaps)
+	sum := 0
+	for k := range out {
+		out[k] = max(6, int(float64(n)*w[k]/total))
+		sum += out[k]
+	}
+	// The difference goes to (or comes off) the first Map, the largest.
+	out[0] += n - sum
+	return out
 }
 
 // scaffold writes the root files and the Map contracts.
@@ -588,8 +626,19 @@ func (g *kbgen) sources(n int) {
 		st := []string{"ingested", "ingested", "pending", "skipped"}[i%4]
 		g.add(fmt.Sprintf("data/sources/source-%d.md", i), fm("type", "Source", "title", fmt.Sprintf("Survey report %d", i),
 			"source_kind", sourceKinds[i%len(sourceKinds)], "locator", fmt.Sprintf("https://example.com/reports/%d", i),
-			"ingest_status", st, "timestamp", g.date(170-i%170))+fmt.Sprintf("\n# Survey report %d\n\nA report the knowledge base was built from.\n", i), unborn)
+			"ingest_status", st, "timestamp", g.date(170-i%170))+fmt.Sprintf("\n# Survey report %d\n\nA report the knowledge base was built from: [[%s]], [[%s]].\n", i, g.cited(i*7), g.cited(i*13+5)), unborn)
 	}
+}
+
+// cited is a concept a source ledger entry links to: any but the planted
+// island, which links only to itself.
+func (g *kbgen) cited(k int) string {
+	for i := 0; i < len(g.ids); i++ {
+		if id := g.ids[(k+i)%len(g.ids)]; !strings.Contains(id, "/island-") {
+			return id
+		}
+	}
+	return g.ids[0]
 }
 
 // questions writes contradictions (open and resolved) and gaps.
@@ -601,7 +650,7 @@ func (g *kbgen) questions(n int) {
 		if i%5 == 0 {
 			res = "resolved"
 		}
-		a, b := g.ids[g.r.n(len(g.ids))], g.ids[g.r.n(len(g.ids))]
+		a, b := g.cited(g.r.n(len(g.ids))), g.cited(g.r.n(len(g.ids)))
 		g.add(fmt.Sprintf("data/questions/question-%d.md", i), fm("type", "Contradiction", "title", fmt.Sprintf("Question %d", i),
 			"description", "Two concepts disagree, or something is not known.", "contradiction_kind", k, "resolution_status", res,
 			"involves", list(a, b), "reason", "The two values do not overlap.", "status", "active", "timestamp", g.date(g.r.n(90)))+
@@ -908,6 +957,23 @@ func (g *kbgen) finalizeCommits() {
 	}
 }
 
+// markSurveyorCommits hands the newest commits of the KBs in the synthetic
+// Surveyor's perimeter to it (SurveyorAuthor): the Activity page then has
+// changes to tag, filter and join to the runs surveyor.go reports (it reads the
+// commit times back from git). The offsets leave gaps, so a run covers two
+// commits and agents' commits sit between the runs.
+func (g *kbgen) markSurveyorCommits() {
+	if !contains(SurveyorKBs(), g.spec.Name) {
+		return
+	}
+	n := len(g.commits)
+	for _, back := range surveyorCommitOffsets {
+		if i := n - back; i >= 0 {
+			g.commits[i].author = SurveyorAuthor
+		}
+	}
+}
+
 // dealTimes spreads the commits, oldest first, over the profile's span; the
 // newest Last30 of them fall in the last 30 days.
 func (g *kbgen) dealTimes(p *Profile) {
@@ -940,6 +1006,7 @@ func (g *kbgen) replay(root string) error {
 		return err
 	}
 	g.finalizeCommits()
+	g.markSurveyorCommits()
 	cmd := exec.Command("git", "-c", "core.compression=1", "-c", "pack.compression=1", "-c", "gc.auto=0", "-c", "core.hooksPath=/dev/null", "fast-import", "--quiet", "--done")
 	cmd.Dir = root
 	in, err := cmd.StdinPipe()
@@ -1022,7 +1089,7 @@ func (g *kbgen) writeStream(w *bufio.Writer) error {
 			}
 		}
 		mark++
-		ident := fmt.Sprintf("%s <%s@example.com> %d +0000", c.author, c.author, c.at.Unix())
+		ident := fmt.Sprintf("%s <%s@example.com> %d +0000", c.author, strings.ReplaceAll(c.author, "/", "."), c.at.Unix())
 		fmt.Fprintf(w, "commit refs/heads/main\nmark :%d\nauthor %s\ncommitter %s\ndata %d\n%s\n", mark, ident, ident, len(msg), msg)
 		if prev != 0 {
 			fmt.Fprintf(w, "from :%d\n", prev)

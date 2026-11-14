@@ -16,7 +16,7 @@ is non-deterministic, costly and dependent on external providers.
 
 ### Go tests
 
-`internal/branding` tests the branding folder (valid and refused declarations, every SVG rule, the caps), the accent derivation (a table, a seeded property test of 500 colours whose every audited pair is recomputed independently, the refusal naming a passing colour), the stylesheet bytes, and the **surface drift guard**: it reads `web/src/styles/tokens.css` and fails when the panel and `--text-on-*` constants differ. `internal/pluginserver` pins the exactly-one rule (`ActiveBranding`) and `cmd/cartographer/serve_plugins_test.go` that a branding-only plugin is an atlas pin (no server plugin, one atlas plugin).
+`internal/branding` tests the branding folder (valid and refused declarations, including the refused `accent`, every SVG rule, the caps). `internal/pluginserver` pins the exactly-one rule (`ActiveBranding`) and `cmd/cartographer/serve_plugins_test.go` that a branding-only plugin is an atlas pin (no server plugin, one atlas plugin).
 
 `make test` runs `go test -timeout 20m ./...` (`internal/mcpserver` alone takes about 10 minutes on the Windows runner, the default timeout). Tests live beside their packages and cover
 parsing, KB invariants, tools, authorization, git behavior, provisioning and
@@ -647,7 +647,7 @@ The Atlas serves a fixed Content-Security-Policy: `TestContentSecurityPolicyIsEx
 `web/src/test/locale.test.ts` scans the sources and rejects any `toLocale*String` call without `"en"` as first argument, and any `Intl.` or `navigator.language`: the UI is English in every browser locale, and a value test of a formatter would pass on an English runner even with the bug back.
 
 To work on the UI live, `make dev` from a worktree runs both halves and rebuilds
-the server on every Go change (with `DATA`, the installed client reports to it through `sync --report-to`, D1044, and each KB copy keeps its remote's fetch URL, so the sync badge shows the real state, with an unreachable push URL, so a push fails and nothing leaves the machine) (`CONTRIBUTING.md` §Live sessions). Without `DATA` it serves a throwaway copy of the
+the server on every Go change (with `DATA`, the installed client reports to it through `sync --report-to`, D1044, and each KB copy keeps its remote's fetch URL, so the sync badge shows the real state, with an unreachable push URL, so a push fails and nothing leaves the machine) (`CONTRIBUTING.md` §Live sessions). The generated test KBs are mounted beside the `DATA` KBs (one whose name a `DATA` KB has is left out), and a synthetic Surveyor (`internal/testkbs/surveyor.go`: heartbeat, settings, runs, an alarm and report candidates over three test KBs, posted to the component routes after every start and every half hour) fills the Surveyor views; the synthetic client report is posted only without `DATA`. Without `DATA` it serves a throwaway copy of the
 generated test KBs (`internal/testkbs`; D818, D1032): the 5,000-concept scale KB, the bare 30-concept KB, and the KBs that
 take the shape of measured real ones (Maps and journals, expanded concepts with up to a hundred satellites, pages past
 90 KB, hubs with a hundred backlinks, a status mix, thousands of commits) with invented content, named after their themes
@@ -656,7 +656,7 @@ take the shape of measured real ones (Maps and journals, expanded concepts with 
 the fleet, the conflicts on `ferry-line`. The fleet is cached per day in
 `${XDG_CACHE_HOME:-$HOME/.cache}/cartographer-testkbs` (mode 700, `scripts/testkbs-cache-dir.sh`), with the audit log on; `internal/testkbs` tests check the planted states, the bare KB, the
 fleet, each profile (`profiles_test.go`) and that no generated page holds a word outside the package's vocabulary. Beside the KBs it posts the settings report of an imaginary client (`client-report.json`,
-built by `clientconfig.Save` and `Report`) after every server start, so Settings → Client has a machine to show. By hand: run a
+built by `clientconfig.Save` and `Report`) after every server start, and the three bodies of the synthetic Surveyor (`surveyor-*.json`; `TestSurveyorPayloadsOfTheTestKBsAreAcceptedByTheRoutes` posts them to the real handlers), so Settings → Client has a machine to show. By hand: run a
 server (`cartographer serve --http :39273 --kb …`) and `cd web && npm run dev`: Vite serves the UI with hot reload on
 `http://localhost:5173/ui/` and proxies `/api` and `/health` (the version beside the theme switch) to the server
 (`CARTOGRAPHER_DEV_API` for another address); the Atlas follows the KB live
@@ -766,16 +766,15 @@ toolchain (D227). What they hold:
   "Include archived" toggle sending `include_archived=1`, badging archived hits and
   saying so when the server fell back to them, and starting each opening unpressed;
 - the cluster view (D1986, `src/test/clusterview.test.tsx`):
-  clusters drawn beside the unfolded concepts with a log-scale weight, a weighted
-  edge as one to three overlaid strokes, a click unfolding and never selecting, a
+  clusters drawn beside the unfolded concepts with a square-root weight, a weighted
+  super-edge as three to eight overlaid strokes, a click unfolding and never selecting, a
   zoom unfolding the cluster in the middle once (never under reduced motion),
-  members growing out of their cluster's place, the "Showing x of y" chip with
-  its Fold (and Escape), the Clusters / Nodes switch in the URL, the replay off,
-  the switch absent over a Map answered flat, and the legend's clusters, all of
-  them on request, each a button named "Unfold <label>, <n> concepts";
+  members growing out of their cluster's place, the fold ring's button (and Escape),
+  folded clusters reachable as buttons named "cluster <label>, <n> concepts", no
+  banner, level switch or cluster list, the breadcrumb and Escape folding an open cluster again and again with the URL following, a background click only deselecting, the legend's one button cycling Compact (folds an open cluster, clears the selection) then Expand then Group, the mode not remembered (a large KB opens grouped), no hull,  an opening or closing cluster settling alone (`local`), the Nodes view's edge budget (`budgetEdges`), the replay off, an accordion (opening another folds the first, one id in the URL), the legend's fixed rows (three clusters with the open one, "N more clusters", two Maps, "N more Maps"), no always-on names; the layout (`src/lib/graph3d/clusterlayout.test.ts`: the real forces, no WebGL): the loose concepts among the glyphs, an opening cluster cooling without wobble from alpha 0.3, no glyph carried far, the members' discs apart, the members mixing into the graph with no room of their own; and `src/test/scenemotion.test.ts`: members put at the glyph, one camera follow and no tween, reduced motion laying it out at once, idle drawing as a flat KB does; the branding logos' `ETag` and `304` (`internal/mcpserver/uiapi_branding_test.go`) and the UI API cache keyed by only the parameters a route reads, any other bypassing it (`TestUIAPI_BodyCacheKeysOnlyTheParametersARouteReads`); the Go side (`internal/kb`) holds that every concept is in a cluster of at least 10 members, that small communities are grouped by Map, and that a dense KB (5,000 concepts, 60,000 links) answers within 150 KiB;
 - the clustered graph's data layer (D1986,
   `src/test/clusterstate.test.tsx`, `src/test/viewstate.test.ts`): the flat route
-  below the threshold and with `graph=nodes`, the clusters route above it with the
+  below the threshold and with `graph=nodes`, the clusters route above it (and no flat request at all, the total coming from the KB list) with the
   Map sent, the unfold set surviving a live refresh and losing what the server
   dropped, another KB starting folded, and the selected concept sent as `focus`,
   asked once when it is not drawn;
@@ -881,10 +880,10 @@ of a relationship — the inspector lists every link.
   concepts and 250,000 links: a warm `GraphClusters` takes about 1.1 s, the same
   as building the visible graph alone, so the projection and the aggregation of
   the cluster edges are a small share of it. Manual check on `make dev` with a KB above 2,000 concepts:
-  the first paint is the clustered graph; unfold a 3,000-member cluster (it says
-  "Showing x of 3,000"), fold it from its chip, pick a folded concept in the
+  the first paint is the clustered graph; unfold a 3,000-member cluster (it opens as a ring
+  around its members), fold it from its ring, pick a folded concept in the
   palette (its cluster unfolds and it is selected), let a live refresh run with
-  clusters unfolded, and switch to Nodes and back.
+  clusters unfolded, and open `graph=nodes` in the URL and come back.
 - **Selection feedback**: the same file asserts the inspector skeleton renders
   while the concept request is still pending, so feedback never waits on the
   network.
@@ -897,7 +896,7 @@ of a relationship — the inspector lists every link.
   renderer string. Run it headed on the GPU (`cd web && node
   scripts/bench3d.mjs 1000,2000 --gpu`); a headless run falls back to
   SwiftShader and measures software rendering, not the Atlas. Sizes are the
-  ones the UI receives: the graph API serves 2,000 nodes by default and 5,000
+  ones the UI receives: the graph API serves 2,000 nodes by default and 7,500
   at most. Target p95 frame < 33 ms.
 
   Reference run — Apple M5 (8-core GPU), 16 GB, macOS 27.0, Playwright
@@ -915,7 +914,7 @@ of a relationship — the inspector lists every link.
   in one instanced mesh and every link in one line set, so the frame cost
   barely moves with size; the load time is the synchronous warm-up of the
   simulation, which a live view stops after 120 ms and lets the opening burst
-  finish (D736; reduced motion and the video export run it whole). 5,000 is not reported; the view accepts it (the API's ceiling)
+  finish (D736; reduced motion and the video export run it whole). Above the measured sizes, up to 7,500, is not reported; the view accepts it (the API's ceiling)
   without a measured budget.
 
 ### Browser (`make e2e-web`)

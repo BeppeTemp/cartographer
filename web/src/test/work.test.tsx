@@ -94,33 +94,16 @@ describe("the Work panel", () => {
     ).toBeInTheDocument();
   });
 
-  const replica = {
-    id: "w-1",
-    state: "running",
-    last_run: { at: new Date().toISOString(), units_done: 3, tokens_spent: 900, commits: 2 },
-    budgets: [
-      { profile: "cloud", tier: "large", spent: 50, limit: 50 },
-      { profile: "local", tier: "small", spent: 10, limit: 100 },
-    ],
-  };
-
-  it("lists a live surveyor with a budget at its limit, and a failing feed that opens its concept", async () => {
-    // Each fragment matches its own route only: "/components" does not start with "/work".
+  it("renders no Surveyor strip, however live the Surveyor is", async () => {
     stubApi({
-      "/components": () => json(componentsAnswer(componentRow({}, [replica]))),
-      "/feeds": () =>
-        json({ feeds: [{ id: "feeds/news", title: "News feed", source_shape: "feed", feed_error: "HTTP 500", feed_checked_at: "2026-01-02T00:00:00Z" }], total: 1 }),
+      "/components": () => json(componentsAnswer(componentRow({}, [{ last_run: { at: new Date().toISOString(), units_done: 3, tokens_spent: 900, commits: 2 } }]))),
+      "/feeds": () => json({ feeds: [{ id: "feeds/news", title: "News feed", feed_error: "HTTP 500" }], total: 1 }),
       "/work": () => json(work),
     });
-    const user = userEvent.setup();
     render(<App />);
-    const strip = await screen.findByRole("region", { name: "Surveyors and feeds" });
-    expect(within(strip).getByText("team-a · w-1")).toBeInTheDocument();
-    expect(within(strip).getByText("50 / 50")).toBeInTheDocument();
-    expect(within(strip).getByText("10 / 100")).toBeInTheDocument();
-    expect(within(strip).getByText("HTTP 500")).toBeInTheDocument();
-    await user.click(within(strip).getByRole("button", { name: "News feed" }));
-    expect(window.location.search).toContain("concept=feeds%2Fnews");
+    await screen.findByRole("region", { name: "Open work" });
+    expect(screen.queryByRole("region", { name: "Surveyors and feeds" })).not.toBeInTheDocument();
+    expect(screen.queryByText("HTTP 500")).not.toBeInTheDocument();
   });
 
   it("renders nothing for empty lists, and the page as before when the routes fail", async () => {

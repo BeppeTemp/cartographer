@@ -308,3 +308,38 @@ export function knockAll<N extends Moving>(origins: Map<N, number>, neighbours: 
   }
   return "knock";
 }
+
+export const endpoint = (end: string | { id: string }) => (typeof end === "object" ? end.id : end);
+/** A spring of the layout: one per pair of elements, `weight` the links it stands for. */
+export interface SpringLink {
+  source: string | { id: string };
+  target: string | { id: string };
+  weight?: number;
+}
+
+/**
+ * The springs of a graph with super-nodes: the repeated links between a pair
+ * (strokes, for the eye) collapse into one weighted spring, and every link
+ * drawn is given its two nodes, as the link force would have done.
+ */
+export function springsOf<N extends PhysicsNode & { id: string }>(
+  links: { source: string | N; target: string | N }[],
+  byId: Map<string, N>,
+): SpringLink[] {
+  const springs = new Map<string, SpringLink>();
+  for (const l of links) {
+    const [a, b] = [endpoint(l.source), endpoint(l.target)];
+    const key = a < b ? `${a}\u0000${b}` : `${b}\u0000${a}`;
+    const spring = springs.get(key);
+    if (spring) spring.weight = (spring.weight ?? 1) + 1;
+    else springs.set(key, { source: a, target: b, weight: 1 });
+    const na = byId.get(a);
+    const nb = byId.get(b);
+    if (na && nb) {
+      l.source = na;
+      l.target = nb;
+    }
+  }
+  return [...springs.values()];
+}
+

@@ -29,11 +29,19 @@ export interface Viewport {
   occludedRight: number;
   /** Pixels on the left hidden behind a floating panel (the concept list). */
   occludedLeft?: number;
+  /**
+   * The largest radius, in screen pixels, a fit may draw a body at (default
+   * FIT_MAX_NODE_PX). A graph of super-nodes is big by design: its fit passes
+   * Infinity and is bounded by the view alone.
+   */
+  maxBodyPx?: number;
 }
 
 /** A camera move -- focus, fit, return -- lasts this long, eased in and out,
  *  cancelled by any input: the longest step of the UI's motion scale. */
 export const CAMERA_MOVE: MotionToken = "--motion-deliberate";
+/** A cluster folding: shorter than opening (nothing to read as it closes). */
+export const CAMERA_FOLD: MotionToken = "--motion-slow";
 /** A zoom step from the buttons. */
 export const CAMERA_ZOOM: MotionToken = "--motion-base";
 
@@ -142,7 +150,7 @@ export function fitPose(bodies: readonly Body[], camera: Vec3, lookAt: Vec3, vie
   const tanH = tanV * (visible / Math.max(1, view.height));
   const largest = Math.max(...local.map((p) => p.r));
   const pixelsPerUnitAt1 = view.height / 2 / (tanV / (1 - FIT_MARGIN));
-  let distance = Math.max(FIT_MIN_DISTANCE, (largest * pixelsPerUnitAt1) / FIT_MAX_NODE_PX);
+  let distance = Math.max(FIT_MIN_DISTANCE, (largest * pixelsPerUnitAt1) / (view.maxBodyPx ?? FIT_MAX_NODE_PX));
   for (const p of local) {
     const depth = p.z - zMid;
     distance = Math.max(

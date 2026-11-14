@@ -35,28 +35,6 @@ export function cssVar(name: string, root: HTMLElement = document.documentElemen
  *  health is read. */
 export type ColorBy = "community" | "map";
 
-const COLOR_BY_KEY = "cartographer.colorBy";
-
-/** A per-viewer preference, so localStorage is the right home: it reveals
- *  nothing, and losing it costs one click. */
-export function readColorBy(): ColorBy {
-  try {
-    const stored = localStorage.getItem(COLOR_BY_KEY);
-    if (stored === "community" || stored === "map") return stored;
-  } catch {
-    // Storage disabled: fall through to the default.
-  }
-  return "community";
-}
-
-export function writeColorBy(value: ColorBy): void {
-  try {
-    localStorage.setItem(COLOR_BY_KEY, value);
-  } catch {
-    // Nothing to persist; the choice still holds for this session.
-  }
-}
-
 /** The CSS variable for a colour slot: 1..12 are the hue wheel, 0 is the
  *  neutral shared by singletons and the long tail. */
 export function slotVar(slot: number): string {

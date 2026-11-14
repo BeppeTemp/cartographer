@@ -8,13 +8,15 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
+	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 )
 
 func extPlugin(name, route string) *core.Plugin {
 	return &core.Plugin{
-		Manifest: core.Manifest{Name: name, Version: "1.0.0", DisplayName: "Team " + name},
-		Digest:   strings.Repeat("c", 64),
+		Manifest: core.Manifest{Name: name, Version: "1.0.0", DisplayName: "Team " + name, Description: "Forks for the team",
+			Permissions: &core.Permissions{Net: []string{"secret-host.test"}, Env: []string{"SECRET_VAR"}}},
+		Digest: strings.Repeat("c", 64),
 		Contributions: map[string][]core.Contribution{
 			"views": {{Point: "views", Name: "sources", View: &core.View{Title: "Sources", Icon: "sources", Scope: "kb", Limit: 100,
 				Source: core.ViewSource{Route: route}, Renderer: "table", Columns: []core.ViewColumn{{Key: "name", Label: "Name", Format: "text"}}}}},
@@ -93,14 +95,18 @@ func TestUIAPI_ExtensionsIsReadOnly(t *testing.T) {
 	}
 }
 
-// The answer carries the manifest's data and nothing of its permissions.
+// The answer names the permission kinds the manifest declares and carries no
+// value of them (host, variable, path).
 func TestUIAPI_ExtensionsLeaksNoPermission(t *testing.T) {
 	t.Parallel()
 	p := extPlugin("alpha", "/api/v1/kbs/{kb}/work")
 	p.Manifest.Components = map[core.Side]core.Component{core.SideAtlas: {}}
 	body := getUI(t, extHandler(t, auth.NewTokenStore(nil), p), UIAPIPrefix+"/extensions", "").Body.String()
-	for _, banned := range []string{"permissions", "env", "net"} {
-		if strings.Contains(body, `"`+banned+`"`) {
+	if !strings.Contains(body, `"permissions":["net","env"]`) {
+		t.Errorf("permission names missing: %s", body)
+	}
+	for _, banned := range []string{"secret-host.test", "SECRET_VAR", `"env":`, `"net":`} {
+		if strings.Contains(body, banned) {
 			t.Errorf("%q in the answer: %s", banned, body)
 		}
 	}
@@ -175,7 +181,7 @@ func TestUIAPI_ExtensionsBodyShape(t *testing.T) {
 		sort.Strings(out)
 		return strings.Join(out, ",")
 	}
-	if got := keys(body); got != "apps,generated_at,plugins,views" {
+	if got := keys(body); got != "apps,generated_at,plugins,reported,views" {
 		t.Errorf("body keys = %s", got)
 	}
 	view := body["views"].([]interface{})[0].(map[string]interface{})
@@ -186,10 +192,98 @@ func TestUIAPI_ExtensionsBodyShape(t *testing.T) {
 		t.Errorf("app keys = %s", got)
 	}
 	plugin := body["plugins"].([]interface{})[0].(map[string]interface{})
-	if got := keys(plugin); got != "components,display_name,name,version" {
+	if got := keys(plugin); got != "components,description,display_name,name,version" {
 		t.Errorf("plugin keys = %s", got)
 	}
-	if got := keys(plugin["components"].([]interface{})[0].(map[string]interface{})); got != "component,digest,state" {
+	if got := keys(plugin["components"].([]interface{})[0].(map[string]interface{})); got != "approved,component,contributions,digest,installed,permissions,state,version" {
 		t.Errorf("component keys = %s", got)
+	}
+}
+
+func compassRows(t *testing.T, body map[string]interface{}) map[string][]map[string]interface{} {
+	t.Helper()
+	out := map[string][]map[string]interface{}{}
+	for _, p := range body["plugins"].([]interface{}) {
+		pm := p.(map[string]interface{})
+		for _, c := range pm["components"].([]interface{}) {
+			cm := c.(map[string]interface{})
+			out[pm["name"].(string)] = append(out[pm["name"].(string)], cm)
+		}
+	}
+	return out
+}
+
+// A Compass's plugins join the row Meridian pins by name, or get a row of
+// their own, each tagged with the machine that reported it.
+func TestUIAPI_ExtensionsMergesCompassPlugins(t *testing.T) {
+	t.Parallel()
+	multi := NewMultiKBServer("v-test")
+	if err := multi.SetAtlasPlugins([]*core.Plugin{extPlugin("acme", "/api/v1/kbs/{kb}/work")}); err != nil {
+		t.Fatal(err)
+	}
+	multi.EnableWeb(nil)
+	multi.clientReports.put("local-admin", clientReport{Machine: "laptop-a", Plugins: []clientconfig.ReportPlugin{
+		{Name: "acme", Version: "1.0.0", State: "active", Approved: "aaaaaaaaaaaa", Installed: "aaaaaaaaaaaa", Description: "Team forks",
+			Contributions: map[string]int{"skills": 3, "agents": 2}, Permissions: []string{"net"}},
+		{Name: "solo", Version: "0.2.0", DisplayName: "Solo", State: "pending approval", Installed: "bbbbbbbbbbbb"},
+	}})
+	// A report of another principal and one of an older client add nothing.
+	multi.clientReports.put("someone-else", clientReport{Machine: "other", Plugins: []clientconfig.ReportPlugin{{Name: "secret", State: "active"}}})
+	multi.clientReports.put("local-admin", clientReport{Machine: "old-client"})
+	h := auth.NewTokenStore(nil).Middleware(multi.Handler())
+
+	body := decodeUI(t, getUI(t, h, UIAPIPrefix+"/extensions", ""))
+	rows := compassRows(t, body)
+	if _, ok := rows["secret"]; ok {
+		t.Fatalf("another principal's plugin leaked: %v", rows)
+	}
+	acme := rows["acme"]
+	if len(acme) != 2 || acme[0]["component"] != "meridian" || acme[1]["component"] != "compass" || acme[1]["machine"] != "laptop-a" || acme[1]["state"] != "active" || acme[1]["digest"] != "aaaaaaaaaaaa" {
+		t.Errorf("acme components = %v", acme)
+	}
+	if acme[1]["version"] != "1.0.0" || acme[1]["installed"] != "aaaaaaaaaaaa" || acme[1]["permissions"].([]interface{})[0] != "net" ||
+		acme[1]["contributions"].(map[string]interface{})["skills"] != float64(3) {
+		t.Errorf("acme compass detail = %v", acme[1])
+	}
+	if m := acme[0]; m["contributions"].(map[string]interface{})["views"] != float64(1) || m["permissions"].([]interface{})[0] != "net" {
+		t.Errorf("acme meridian detail = %v", m)
+	}
+	solo := rows["solo"]
+	if len(solo) != 1 || solo[0]["component"] != "compass" || solo[0]["state"] != "pending approval" || solo[0]["digest"] != "bbbbbbbbbbbb" {
+		t.Errorf("solo components = %v", solo)
+	}
+	var desc string
+	for _, p := range body["plugins"].([]interface{}) {
+		if pm := p.(map[string]interface{}); pm["name"] == "acme" {
+			desc, _ = pm["description"].(string)
+		}
+	}
+	if desc == "" {
+		t.Error("the row carries no description")
+	}
+	if got := body["reported"].([]interface{}); len(got) != 2 || got[1] != "compass" {
+		t.Errorf("reported = %v", got)
+	}
+}
+
+// Without a report that carries the field, only Meridian reported; and a
+// narrowed token still gets no plugin, whatever was reported.
+func TestUIAPI_ExtensionsReportedNamesWhoAnswered(t *testing.T) {
+	t.Parallel()
+	multi := NewMultiKBServer("v-test")
+	multi.EnableWeb(nil)
+	multi.clientReports.put("local-admin", clientReport{Machine: "old-client"})
+	h := auth.NewTokenStore(nil).Middleware(multi.Handler())
+	body := decodeUI(t, getUI(t, h, UIAPIPrefix+"/extensions", ""))
+	if got := body["reported"].([]interface{}); len(got) != 1 || got[0] != "meridian" {
+		t.Errorf("reported = %v", got)
+	}
+	if len(body["plugins"].([]interface{})) != 0 {
+		t.Errorf("plugins = %v", body["plugins"])
+	}
+	multi.clientReports.put("local-admin", clientReport{Machine: "new", Plugins: []clientconfig.ReportPlugin{}})
+	body = decodeUI(t, getUI(t, h, UIAPIPrefix+"/extensions", ""))
+	if got := body["reported"].([]interface{}); len(got) != 2 {
+		t.Errorf("an empty list from a new client still means it reported: %v", got)
 	}
 }

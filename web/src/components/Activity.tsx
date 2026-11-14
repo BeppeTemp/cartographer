@@ -11,7 +11,9 @@ import type {
 } from "../api/types";
 import {
   changedAt,
+  bySurveyor,
   changeKind,
+  isSurveyorAuthor,
   journalMap,
   journalShape,
   mostWorked,
@@ -22,7 +24,7 @@ import {
 import { collectionVar } from "../lib/palette";
 import { ErrorState } from "./States";
 import { ReportCandidatesSection } from "./Candidates";
-import { SurveyorRunsSection } from "./Surveyors";
+import { SurveyorRunsList, runDate, shortTokens, surveyorRuns } from "./Surveyors";
 import { Icon } from "./Icon";
 import {
   Avatar,
@@ -101,6 +103,8 @@ export function Activity({
   const [since, setSince] = useState<Window>("7d");
   const [author, setAuthor] = useState<string | null>(null);
   const [map, setMap] = useState<string | null>(null);
+  // The page's two tabs, drawn only for a KB a Surveyor works on.
+  const [tab, setTab] = useState<"changes" | "surveyor">("changes");
   const [data, setData] = useState<ChangesResponse | null>(null);
   const [earlier, setEarlier] = useState<ConceptChange[] | null>(null);
   // The window the data on screen answers: while a new window loads, the
@@ -231,9 +235,26 @@ export function Activity({
   }, [map, maps]);
 
   const filtered = useMemo(
-    () => all.filter((c) => (!author || c.authors?.includes(author)) && (!map || mapOf(c) === map)),
+    () =>
+      all.filter(
+        (c) =>
+          (!author || c.authors?.includes(author)) &&
+          (!map || mapOf(c) === map),
+      ),
     [all, author, map],
   );
+  // The Surveyor's share of the window: its tab, and the tab exists only when
+  // this KB has runs of the Surveyor's or changes made by it.
+  const surveyorChanges = useMemo(() => all.filter((c) => bySurveyor(c) && changeKind(c) !== "maintenance"), [all]);
+  const keptRuns = useMemo(() => surveyorRuns(kb, components), [kb, components]);
+  const hasSurveyor = keptRuns.length > 0 || surveyorChanges.length > 0;
+  const view = hasSurveyor ? tab : "changes";
+  const surveyorSummary = useMemo(
+    () => summarizeSurveyor(keptRuns, surveyorChanges, DAYS[shown]),
+    [keptRuns, surveyorChanges, shown],
+  );
+  const runNote = surveyorSummary.sinceDate ? `since ${surveyorSummary.sinceDate}` : null;
+  const surveyorDays = useMemo(() => groupByDay(surveyorChanges), [surveyorChanges]);
   const kinds = useMemo(() => new Map(filtered.map((c) => [c, changeKind(c)])), [filtered]);
   const count = (k: ChangeKind) => filtered.filter((c) => kinds.get(c) === k).length;
   const upkeep = count("maintenance");
@@ -261,6 +282,9 @@ export function Activity({
       <PageHeader
         eyebrow="Activity"
         title={
+          view === "surveyor" ? (
+            <SurveyorHeadline summary={surveyorSummary} since={shown} />
+          ) : (
           <Headline
             data={data}
             failed={error !== null}
@@ -269,13 +293,63 @@ export function Activity({
             author={author}
             mapTitle={map ? mapTitles.get(map) : null}
           />
+          )
         }
-        actions={<Segmented<Window> label="Changes since" value={since} options={WINDOWS} onChange={setSince} />}
+        actions={
+          <>
+            {hasSurveyor && (
+              <Segmented<"changes" | "surveyor">
+                label="Activity of"
+                value={view}
+                options={[
+                  ["changes", "Changes"],
+                  ["surveyor", "Surveyor"],
+                ]}
+                onChange={setTab}
+              />
+            )}
+            <Segmented<Window> label="Changes since" value={since} options={WINDOWS} onChange={setSince} />
+          </>
+        }
       />
       {tabs}
 
       <div className="page__body" data-loading={loading && data !== null}>
-        {data && !windowEmpty && (
+        {view === "surveyor" && (error ? (
+          <ErrorState error={error} onRetry={() => setAttempt((n) => n + 1)} />
+        ) : !data ? (
+          <ActivitySkeleton label="Reading the Surveyor's work" />
+        ) : (
+          <>
+            <ul className="source-tiles" aria-label="The Surveyor in the window">
+              <SurveyorTile n={surveyorSummary.ok} label="runs ok" tone="ok" note={runNote} />
+              <SurveyorTile n={surveyorSummary.failed} label="failed" tone="error" note={runNote} />
+              <SurveyorTile n={surveyorSummary.ingested} label="sources ingested" note={runNote} />
+              <SurveyorTile n={surveyorSummary.created} label="pages created" />
+              <SurveyorTile n={surveyorSummary.changed} label="pages changed" />
+              <SurveyorTile n={surveyorSummary.tokens} label="tokens spent" note={runNote} tokens />
+            </ul>
+            <PageSection title="Runs" id="activity-surveyor-runs" count={surveyorSummary.runs}>
+              <p className="page-note">Pages are matched to runs by author and time; overlapping runs may share them.</p>
+              <SurveyorRunsList
+                kb={kb}
+                components={components}
+                from={DAYS[shown] === null ? 0 : Date.now() - DAYS[shown]! * DAY_MS}
+                changes={all}
+                titles={titles}
+                onOpen={onOpen}
+              />
+            </PageSection>
+            <PageSection title="Changes made by the Surveyor" id="activity-surveyor-changes" count={surveyorChanges.length}>
+              {surveyorDays.length === 0 ? (
+                <p className="page-note">The Surveyor changed no page {when(shown)}.</p>
+              ) : (
+                <TimelineDays days={surveyorDays} titles={titles} mapTitles={mapTitles} retired={retired} onOpen={onOpen} />
+              )}
+            </PageSection>
+          </>
+        ))}
+        {view === "changes" && data && !windowEmpty && (
           <Hero label="Summary and filters" className="activity-hero">
             <div className="activity-sum">
               <div className="activity-sum__lead">
@@ -363,7 +437,7 @@ export function Activity({
           </Hero>
         )}
 
-        {error ? (
+        {view === "surveyor" ? null : error ? (
           <ErrorState error={error} onRetry={() => setAttempt((n) => n + 1)} />
         ) : !data ? (
           <ActivitySkeleton label="Reading the history" />
@@ -423,12 +497,11 @@ export function Activity({
         ) : (
           <TimelineDays days={days} titles={titles} mapTitles={mapTitles} retired={retired} onOpen={onOpen} />
         )}
-        {data?.truncated && (
+        {view === "changes" && data?.truncated && (
           <p className="page-note">Showing the {all.length} most recent changes: narrow the window to see the rest.</p>
         )}
-        <SurveyorRunsSection kb={kb} components={components} authors={authors.map(([a]) => a)} onAuthor={setAuthor} />
-        <ReportCandidatesSection kb={kb} live={live} />
-        {journal !== null && (data !== null || error !== null) && (
+        {view === "changes" && <ReportCandidatesSection kb={kb} live={live} />}
+        {view === "changes" && journal !== null && (data !== null || error !== null) && (
           <PageSection title="Journal" id="activity-journal">
             {journal.trim() === "" ? (
               <p className="page-note">
@@ -445,7 +518,7 @@ export function Activity({
             )}
           </PageSection>
         )}
-        {audit !== null && (data !== null || error !== null) && <AuditSection audit={audit} />}
+        {view === "changes" && audit !== null && (data !== null || error !== null) && <AuditSection audit={audit} />}
       </div>
     </Page>
   );
@@ -643,15 +716,11 @@ function JournalEntry({
 function AuditSection({ audit }: { audit: AuditLog }) {
   // An attempt and its completion are two entries: the completions say how it ended.
   const entries = audit.entries.filter((e) => e.phase !== "attempt");
+  // Nothing to read, nothing shown: no log kept, or none recorded yet.
+  if (!audit.enabled || entries.length === 0) return null;
   return (
     <PageSection title="Audit log" id="activity-audit" count={entries.length}>
-      {!audit.enabled ? (
-        <p className="page-note">This Meridian keeps no audit log.</p>
-      ) : entries.length === 0 ? (
-        <p className="page-note">
-          Nothing recorded yet. The audit log lists every tool call: who made it, and how it ended.
-        </p>
-      ) : (
+      {(
         <>
           <p className="page-note">
             The most recent tool calls on this KB, with the principal that made each one. Visible to admins only.
@@ -713,6 +782,11 @@ function Entry({
         <span className="timeline__item-body">
           <span className="timeline__item-head">
             <span className="timeline__title">{title}</span>
+            {bySurveyor(c) && (
+              <span className="pill timeline__surveyor" title={(c.authors ?? []).filter(isSurveyorAuthor).join(", ")}>
+                Surveyor
+              </span>
+            )}
             <span className="timeline__map">
               <MapDot map={mapOf(c)} />
               {mapTitle}
@@ -773,6 +847,79 @@ function retiredReasons(r: RetiredConcept): string[] {
   if (r.from && r.from !== r.id) out.push(`Was ${r.from}`);
   if (out.length === 0) out.push("No retirement recorded: the status was set by hand");
   return out;
+}
+
+/**
+ * What the Surveyors did on the KB in the window: runs by outcome (by start),
+ * the sources they ingested (ok ingest runs), tokens spent, and the pages their
+ * commits created or changed. Always an object: with nothing to say, all zeros.
+ * `kept` is `surveyorRuns(kb, components)`, computed once by the caller.
+ */
+function summarizeSurveyor(kept: ReturnType<typeof surveyorRuns>, changes: ConceptChange[], days: number | null) {
+  const from = days === null ? 0 : Date.now() - days * DAY_MS;
+  const runs = kept.filter((r) => !(Date.parse(r.started_at) < from));
+  const ok = runs.filter((r) => r.outcome === "ok");
+  // The server keeps the last runs only (a cap per perimeter, in memory): the
+  // run-based figures are complete only inside the kept range. Older runs may
+  // be gone when the window starts before the oldest kept one, or a perimeter
+  // holds exactly the cap's worth. The pages come from commits and are exact.
+  const oldest = Math.min(...kept.map((r) => Date.parse(r.started_at)).filter((t) => !Number.isNaN(t)));
+  const perPerimeter = new Map<string, number>();
+  for (const r of kept) perPerimeter.set(r.perimeter, (perPerimeter.get(r.perimeter) ?? 0) + 1);
+  const atCap = [...perPerimeter.values()].some((n) => n >= RUNS_KEPT_CAP);
+  const partial = kept.length > 0 && Number.isFinite(oldest) && (from < oldest || atCap);
+  return {
+    sinceDate: partial ? runDate(new Date(oldest)) : null,
+    runs: runs.length,
+    names: [...new Set(runs.map((r) => r.perimeter))],
+    ok: ok.length,
+    failed: runs.filter((r) => r.outcome === "failed" || r.outcome === "budget_exhausted").length,
+    ingested: ok.filter((r) => r.task === "ingest").length,
+    tokens: runs.reduce((n, r) => n + (r.tokens_spent ?? 0), 0),
+    created: changes.filter((c) => changeKind(c) === "new").length,
+    changed: changes.filter((c) => changeKind(c) !== "new").length,
+  };
+}
+
+/** The server's cap of kept runs per perimeter (`maxRunsKept`). */
+const RUNS_KEPT_CAP = 20;
+
+/** One tile of the Surveyor tab's summary; `note` is a muted qualifier ("since Nov 12"). */
+function SurveyorTile({
+  n,
+  label,
+  tone,
+  note,
+  tokens,
+}: {
+  n: number;
+  label: string;
+  tone?: "ok" | "error";
+  note?: string | null;
+  /** The figure is a token count: short form on the tile, exact in the title. */
+  tokens?: boolean;
+}) {
+  return (
+    <li className="source-tile" data-zero={n === 0 ? "" : undefined} data-tone={n === 0 ? undefined : tone}>
+      <span className="source-tile__label">{label}</span>
+      <span className="source-tile__count" title={tokens ? `${n} tokens` : undefined}>
+        {tokens ? shortTokens(n) : n}
+      </span>
+      {note && <span className="source-tile__note page-note">{note}</span>}
+    </li>
+  );
+}
+
+/** The Surveyor tab's headline: who ran, how often, over which window. */
+function SurveyorHeadline({ summary, since }: { summary: ReturnType<typeof summarizeSurveyor>; since: Window }) {
+  const who = summary.names.length > 0 ? summary.names.join(", ") : "The Surveyor";
+  const span = summary.sinceDate ? `since ${summary.sinceDate}` : when(since);
+  if (summary.runs === 0) return <>{`${who} did not run ${span}.`}</>;
+  return (
+    <>
+      {who} ran <BoldCount>{summary.runs}</BoldCount> {summary.runs === 1 ? "time" : "times"} {span}.
+    </>
+  );
 }
 
 /** One figure of the summary line: a bold number and its word. A zero fades;

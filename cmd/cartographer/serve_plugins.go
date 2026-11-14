@@ -30,14 +30,8 @@ func logServerBranding(b *branding.Active, webEnabled bool) {
 		return
 	}
 	var has []string
-	if b.Palette != nil {
-		has = append(has, "accent")
-	}
 	if b.Meta.LogoLight != "" {
 		has = append(has, "logo")
-	}
-	if b.Meta.Favicon != "" {
-		has = append(has, "favicon")
 	}
 	log.Printf("branding from plugin %s: %s", b.Plugin, strings.Join(has, ", "))
 	if !webEnabled {

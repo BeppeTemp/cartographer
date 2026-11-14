@@ -114,7 +114,9 @@ export function KBPicker({ kbs, activeKB, onChange }: Props) {
             onPointerEnter={() => setActive(i)}
             onClick={() => choose(kb.name)}
           >
-            <span className="picker__value">{kb.name}</span>
+            <span className="picker__value" title={kb.name}>
+              {kb.name}
+            </span>
             {!kb.ready && <span className="picker__note">degraded</span>}
             {kb.name === activeKB && <Icon name="check" size={16} />}
           </li>

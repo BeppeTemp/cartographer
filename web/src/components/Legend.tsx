@@ -1,29 +1,33 @@
-import { useState } from "react";
-import type { GraphCluster, GraphSnapshot } from "../api/types";
-import { OTHER_SLOT, type Communities } from "../lib/communities";
-import { shortLabel } from "../lib/encoding";
-import { nameOf } from "../lib/names";
-import { collectionHue, slotVar, type ColorBy } from "../lib/palette";
+import type { ClusterUnfold, GraphCluster, GraphSnapshot } from "../api/types";
+import { collectionHue, slotVar } from "../lib/palette";
+import { clusterSlot, unfoldedMemberIds } from "../lib/clusters";
 import { GrowthButton } from "./GraphView";
+import { Icon } from "./Icon";
 
 /** Legend rows shown before the rest are summarised: past this a legend is a
  *  second node list, not a key. */
 const ROWS = 6;
+/** In the cluster view: how many clusters (the open one included), and how many
+ *  Maps of open concepts, are listed. With their two summary rows they add up
+ *  to the flat view's ROWS plus its one: the card keeps its height when the KB
+ *  is expanded or grouped. */
+const CLUSTER_ROWS = 3;
+const LOOSE_ROWS = ROWS - CLUSTER_ROWS - 1;
+
+const plural = (n: number, one: string) => `${n.toLocaleString("en")} ${one}${n === 1 ? "" : "s"}`;
 
 interface Row {
   key: string;
   slot: number;
   label: string;
   count: number;
-  /** A cluster row: its label unfolds it. */
-  cluster?: string;
 }
 
 /**
  * The card over the graph: what the snapshot holds (the KB or Map, how many
  * concepts and links; the filters in the page do not narrow it), what the
- * colours mean and the switch between the two things they can mean, and the
- * growth replay.
+ * colours mean (the Map's, always), the switch between the grouped and the
+ * full view of a large KB, and the growth replay.
  *
  * Colour is never the only carrier here either: every row names its group and
  * counts it, and the inspector states a concept's Map in words.
@@ -36,139 +40,101 @@ interface Row {
  */
 export function Legend({
   snapshot,
-  communities,
-  colorBy,
-  onColorBy,
   clusters,
-  onUnfold,
+  open,
+  grouping,
 }: {
   snapshot: GraphSnapshot;
-  communities: Communities;
-  colorBy: ColorBy;
-  onColorBy(value: ColorBy): void;
-  /** The folded clusters, in the cluster view: the legend then lists them. */
+  /** The folded clusters of a large KB: the snapshot holds only the unfolded
+   *  concepts, so the rows are counted over the clusters, in the same form. */
   clusters?: GraphCluster[];
-  onUnfold?(id: string): void;
+  /** The open cluster, if any: its members are one row of their own, not part of the rest. */
+  open?: ClusterUnfold[];
+  /** Only on a KB served clustered: whether it is grouped now, and the switch to the other view. */
+  grouping?: { grouped: boolean; onToggle(): void };
 }) {
-  const { rows, tail } = clusters
-    ? clusterRows(clusters, colorBy)
-    : colorBy === "community"
-      ? communityRows(communities, snapshot)
-      : collectionRows(snapshot);
-  // The cluster rows are the keyboard's way to unfold a cluster: every one of
-  // them can be listed, not only the largest.
-  const [all, setAll] = useState(false);
-  const shown = clusters && all ? rows : rows.slice(0, ROWS);
-  const rest = rows.slice(shown.length).reduce((sum, row) => sum + row.count, tail);
+  // Colour is the Map's, everywhere (the rail's colours): the card lists the
+  // clusters first, when the KB is grouped, then the Maps.
+  const members = new Set((open ?? []).flatMap((u) => unfoldedMemberIds(u, snapshot)));
+  const rest = members.size > 0 ? { ...snapshot, nodes: snapshot.nodes.filter((n) => !members.has(n.id)) } : snapshot;
+  const loose = collectionRows(rest);
+  const list: { key: string; slot: number | null; label: string; count: number }[] = [];
+  if (clusters) {
+    // The open cluster first: "Catalyst · 244, open", in the colour it was folded in.
+    for (const u of open ?? []) {
+      list.push({
+        key: u.id,
+        slot: clusterSlot({ collection: u.collection }),
+        label: `${u.label}, open`,
+        count: u.total,
+      });
+    }
+    const all = clusterRows(clusters).rows;
+    const top = all.slice(0, Math.max(0, CLUSTER_ROWS - (open ?? []).length));
+    list.push(...top);
+    const more = all.slice(top.length);
+    if (more.length > 0) {
+      list.push({ key: "more", slot: null, label: plural(more.length, "more cluster"), count: more.reduce((n, r) => n + r.count, 0) });
+    }
+  }
+  const shownMaps = loose.rows.slice(0, clusters ? LOOSE_ROWS : ROWS);
+  list.push(...shownMaps);
+  const moreMaps = loose.rows.slice(shownMaps.length);
+  if (moreMaps.length > 0) {
+    list.push({ key: "rest", slot: null, label: plural(moreMaps.length, "more Map"), count: moreMaps.reduce((n, r) => n + r.count, 0) });
+  }
   // Folded concepts count too: the snapshot holds only the unfolded ones.
   const nodes = clusters ? snapshot.total_nodes : snapshot.nodes.length;
-  const edges = snapshot.edges.length;
+  const edges = clusters ? snapshot.total_edges : snapshot.edges.length;
+
+  // The switch's next step: an open cluster folds first, then the KB expands whole, then groups again.
+  const step = !grouping?.grouped
+    ? ({ label: "Group into clusters", text: "Group", icon: "components" } as const)
+    : (open ?? []).length > 0
+      ? ({ label: "Fold the open cluster", text: "Compact", icon: "components" } as const)
+      : ({ label: "Show all concepts", text: "Expand", icon: "fit" } as const);
 
   return (
     <section className="legend" aria-label="Graph legend">
       <div className="legend__head">
         <p className="legend__context">
           <span className="legend__facts">
-            {clusters ? (
-              <>
-                {clusters.length} cluster{clusters.length === 1 ? "" : "s"} · {nodes.toLocaleString("en")} concept
-                {nodes === 1 ? "" : "s"}
-              </>
-            ) : (
-              <>
-                {nodes} concept{nodes === 1 ? "" : "s"} · {edges} link{edges === 1 ? "" : "s"}
-              </>
-            )}
+            {nodes.toLocaleString("en")} concept{nodes === 1 ? "" : "s"} · {edges.toLocaleString("en")} link
+            {edges === 1 ? "" : "s"}
           </span>
         </p>
-        <GrowthButton />
       </div>
-      <div className="legend__switch" role="group" aria-label="Colour nodes by">
-        {(
-          [
-            ["community", "Community"],
-            ["map", "Map"],
-          ] as const
-        ).map(([value, label]) => (
+      <div className="legend__actions">
+        <GrowthButton />
+        {grouping && (
           <button
-            key={value}
             type="button"
-            className="legend__option"
-            aria-pressed={colorBy === value}
-            onClick={() => onColorBy(value)}
+            className="legend__grow"
+            onClick={grouping.onToggle}
+            aria-label={step.label}
+            title={step.label}
           >
-            {label}
+            <Icon name={step.icon} size={14} />
+            <span aria-hidden="true">{step.text}</span>
           </button>
-        ))}
+        )}
       </div>
       <ul className="legend__rows">
-        {shown.map((row) => (
-          <li key={row.key} className="legend__row">
-            <span className="legend__swatch" aria-hidden="true" style={{ background: slotVar(row.slot) }} />
-            {row.cluster && onUnfold ? (
-              <button
-                type="button"
-                className="legend__label legend__unfold"
-                aria-label={`Unfold ${row.label}, ${row.count.toLocaleString("en")} concepts`}
-                onClick={() => onUnfold(row.cluster!)}
-              >
-                {row.label}
-              </button>
-            ) : (
-              <span className="legend__label">{row.label}</span>
-            )}
-            <span className="legend__count">{row.count}</span>
+        {list.map((row) => (
+          <li key={row.key} className={row.slot === null ? "legend__row legend__row--rest" : "legend__row"}>
+            {/* No swatch on a summary: the groups it sums do not share one colour. */}
+            <span
+              className={row.slot === null ? "legend__swatch legend__swatch--none" : "legend__swatch"}
+              aria-hidden="true"
+              style={row.slot === null ? undefined : { background: slotVar(row.slot) }}
+            />
+            <span className="legend__label">{row.label}</span>
+            <span className="legend__count">{row.count.toLocaleString("en")}</span>
           </li>
         ))}
-        {rest > 0 && (
-          <li className="legend__row legend__row--rest">
-            {/* No swatch: the summarised groups do not share one colour. */}
-            <span className="legend__swatch legend__swatch--none" aria-hidden="true" />
-            <span className="legend__label">
-              {clusters ? "Other clusters" : colorBy === "community" ? "Smaller groups" : "Other Maps"}
-            </span>
-            <span className="legend__count">{rest}</span>
-          </li>
-        )}
       </ul>
-      {clusters && rows.length > ROWS && (
-        <button type="button" className="legend__option" aria-expanded={all} onClick={() => setAll((v) => !v)}>
-          {all ? "Show fewer clusters" : `Show all ${rows.length} clusters`}
-        </button>
-      )}
     </section>
   );
-}
-
-function communityRows(communities: Communities, snapshot: GraphSnapshot): { rows: Row[]; tail: number } {
-  // A community is named after its anchor: by the anchor's title, which a
-  // reader recognises, rather than its id's slug.
-  const titles = new Map(snapshot.nodes.map((n) => [n.id, nameOf(n)]));
-  // Real communities get rows; singletons and the long tail share one neutral
-  // and are only ever summed into the closing row.
-  // Counted over the snapshot, so a graph narrowed to one Map keys its own
-  // nodes rather than the whole KB's (hidden concepts are still counted).
-  const drawn = new Map<number, number>();
-  for (const n of snapshot.nodes) {
-    const rank = communities.rankOf.get(n.id);
-    if (rank !== undefined) drawn.set(rank, (drawn.get(rank) ?? 0) + 1);
-  }
-  const rows: Row[] = [];
-  let tail = 0;
-  for (const c of communities.list) {
-    const count = drawn.get(c.rank) ?? 0;
-    if (!count) continue;
-    if (c.slot === OTHER_SLOT) tail += count;
-    else
-      rows.push({
-        key: `c${c.rank}`,
-        slot: c.slot,
-        label: c.anchorTitle || titles.get(c.anchor) || shortLabel(c.anchor),
-        count,
-      });
-  }
-  rows.sort((a, b) => b.count - a.count);
-  return { rows, tail };
 }
 
 function collectionRows(snapshot: GraphSnapshot): { rows: Row[]; tail: number } {
@@ -188,16 +154,10 @@ function collectionRows(snapshot: GraphSnapshot): { rows: Row[]; tail: number } 
   return { rows, tail: 0 };
 }
 
-/** The folded clusters, largest first, each in the colour it is drawn in. */
-function clusterRows(clusters: GraphCluster[], colorBy: ColorBy): { rows: Row[]; tail: number } {
+/** The folded clusters as legend rows, largest first, each in the colour it is drawn in. */
+function clusterRows(clusters: GraphCluster[]): { rows: Row[]; tail: number } {
   const rows = [...clusters]
     .sort((a, b) => b.size - a.size || a.id.localeCompare(b.id))
-    .map((c) => ({
-      key: c.id,
-      slot: colorBy === "community" ? c.slot : collectionHue(c.collection ?? ""),
-      label: c.label,
-      count: c.size,
-      cluster: c.id,
-    }));
+    .map((c) => ({ key: c.id, slot: clusterSlot(c), label: c.label, count: c.size }));
   return { rows, tail: 0 };
 }

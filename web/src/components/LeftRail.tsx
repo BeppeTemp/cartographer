@@ -147,21 +147,6 @@ export function LeftRail({
             {wrong && <span className="rail__dot" aria-hidden="true" />}
           </button>
         </li>
-        <li>
-          <button
-            type="button"
-            className="rail__panel"
-            aria-label="Components"
-            title={collapsed ? "Components" : undefined}
-            aria-current={panel === "components" ? "page" : undefined}
-            onClick={() => onPanel("components")}
-          >
-            <span className="rail__glyph">
-              <Icon name="components" />
-            </span>
-            <span className="rail__label">Components</span>
-          </button>
-        </li>
         {(artifactsTotal !== null || secretsAllowed) && (
           <li>
             <button

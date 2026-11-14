@@ -33,7 +33,11 @@ type clientReport struct {
 	// neither, it only shows them back to their principal.
 	Providers    json.RawMessage `json:"providers,omitempty"`
 	Placeholders json.RawMessage `json:"placeholders,omitempty"`
-	ReceivedAt   time.Time       `json:"received_at"`
+	// Plugins are the plugins installed on that machine (D2079);
+	// nil when the client predates the field, empty when it has none. The
+	// extensions route merges them into the Plugins tab.
+	Plugins    []clientconfig.ReportPlugin `json:"plugins,omitempty"`
+	ReceivedAt time.Time                   `json:"received_at"`
 }
 
 // clientReports holds the reports in memory, per principal and machine. A

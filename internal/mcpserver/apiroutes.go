@@ -3,6 +3,8 @@ package mcpserver
 import (
 	"net/http"
 	"strings"
+
+	"github.com/BeppeTemp/cartographer/internal/branding"
 )
 
 // apiTier says how stable a route is promised to be.
@@ -126,6 +128,18 @@ var apiRoutes = buildAPIRoutes([]apiRoute{
 		Handler: func(m *MultiKBServer, w http.ResponseWriter, r *http.Request, _ string, _ *Server) {
 			m.uiExtensions(w, r)
 		}},
+	{Pattern: "/branding", Tier: tierInternal, Summary: "Read the plugin branding the Atlas wears", Response: uiBrandingBody{},
+		Handler: func(m *MultiKBServer, w http.ResponseWriter, r *http.Request, _ string, _ *Server) {
+			m.uiBranding(w, r)
+		}},
+	{Pattern: "/branding/logo-light", Tier: tierInternal, Summary: "Read the branding image logo-light",
+		Handler: func(m *MultiKBServer, w http.ResponseWriter, r *http.Request, _ string, _ *Server) {
+			m.uiBrandingAsset(w, r, func(b *branding.Active) string { return b.Meta.LogoLight })
+		}},
+	{Pattern: "/branding/logo-dark", Tier: tierInternal, Summary: "Read the branding image logo-dark",
+		Handler: func(m *MultiKBServer, w http.ResponseWriter, r *http.Request, _ string, _ *Server) {
+			m.uiBrandingAsset(w, r, func(b *branding.Active) string { return b.Meta.LogoDark })
+		}},
 	{Pattern: "/releases", Tier: tierInternal, Summary: "Read the release notes the Atlas shows",
 		Handler: func(m *MultiKBServer, w http.ResponseWriter, r *http.Request, _ string, _ *Server) {
 			m.uiReleases(w, r)
@@ -133,7 +147,7 @@ var apiRoutes = buildAPIRoutes([]apiRoute{
 
 	{Pattern: "/kbs/{kb}/overview", Tier: tierStable, Summary: "Counts and collections of a KB", Response: uiOverviewBody{},
 		Handler: func(m *MultiKBServer, w http.ResponseWriter, r *http.Request, _ string, srv *Server) {
-			m.uiOverview(w, r, srv)
+			m.uiOverviewCached(w, r, srv)
 		}},
 	{Pattern: "/kbs/{kb}/concept", Tier: tierStable, Summary: "Read one concept", Response: uiConceptBody{}, Errors: errsBadRequest,
 		Query:   []apiParam{{Name: "id", Description: "Concept id", Required: true}},
@@ -155,12 +169,12 @@ var apiRoutes = buildAPIRoutes([]apiRoute{
 		}},
 
 	{Pattern: "/kbs/{kb}/graph", Tier: tierPreview, Summary: "The link graph",
-		Handler: kbRoute(func(w http.ResponseWriter, r *http.Request, srv *Server) { uiGraph(w, r, srv.kbRef) })},
+		Handler: kbRoute(func(w http.ResponseWriter, r *http.Request, srv *Server) { uiGraphCached(w, r, srv.kbRef) })},
 	{Pattern: "/kbs/{kb}/graph/clusters", Tier: tierPreview, Summary: "The link graph as clusters", Errors: errsBadRequest,
 		Query: []apiParam{{Name: "scope", Description: "One top-level collection"},
 			{Name: "unfold", Description: "Comma-separated cluster ids to unfold, at most 50"},
 			{Name: "focus", Description: "A concept id whose cluster is unfolded and which is drawn"}},
-		Handler: kbRoute(func(w http.ResponseWriter, r *http.Request, srv *Server) { uiGraphClusters(w, r, srv.kbRef) })},
+		Handler: kbRoute(func(w http.ResponseWriter, r *http.Request, srv *Server) { uiGraphClustersCached(w, r, srv.kbRef) })},
 	{Pattern: "/kbs/{kb}/lint", Tier: tierPreview, Summary: "Lint findings",
 		Query:   []apiParam{limitParam, {Name: "cursor", Description: "The next_cursor of the previous page"}},
 		Handler: kbRoute(uiLint)},
@@ -216,7 +230,7 @@ var apiRoutes = buildAPIRoutes([]apiRoute{
 		}},
 	{Pattern: "/kbs/{kb}/artifacts", Tier: tierInternal, Summary: "Artifacts of a KB",
 		Handler: func(m *MultiKBServer, w http.ResponseWriter, r *http.Request, _ string, srv *Server) {
-			m.uiArtifacts(w, r, srv)
+			m.uiArtifactsCached(w, r, srv)
 		}},
 	{Pattern: "/kbs/{kb}/artifact", Tier: tierInternal, Summary: "One artifact",
 		Handler: func(m *MultiKBServer, w http.ResponseWriter, r *http.Request, _ string, srv *Server) {

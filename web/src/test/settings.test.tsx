@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
+import { PluginsPanel } from "../components/Plugins";
 import { formatValue, humanBytes } from "../components/Settings";
 import { json, stubApi } from "./fixtures";
 
@@ -90,9 +91,11 @@ describe("the Settings panel", () => {
     const user = userEvent.setup();
     render(<App />);
     const tabs = await screen.findByRole("tablist", { name: "Settings of" });
-    // The page opens on the viewer's client; a tab names what it holds, no count.
-    expect(within(tabs).getAllByRole("tab").map((t) => t.textContent)).toEqual(["Compass", "Meridian", "Knowledge Base", "Surveyor", "Plugins"]);
-    expect(within(tabs).getByRole("tab", { name: "Compass" })).toHaveAttribute("aria-selected", "true");
+    // The page opens on the viewer's client; a tab names the component and, under
+    // it, what it is (client, server…), with no count.
+    expect(within(tabs).getAllByRole("tab").map((t) => t.firstElementChild?.textContent)).toEqual(["Compass", "Meridian", "Knowledge Base", "Surveyor", "Plugins"]);
+    expect(within(tabs).getAllByRole("tab").map((t) => t.querySelector(".settings__tab-role")?.textContent).slice(0, 2)).toEqual(["client", "server"]);
+    expect(within(tabs).getByRole("tab", { name: /^Compass\b/ })).toHaveAttribute("aria-selected", "true");
     await user.click(within(tabs).getByRole("tab", { name: /Knowledge Base/ }));
     const writes = screen.getByRole("list", { name: "KB kb-a Maintenance settings" });
     expect(within(writes).getByText("usage_stale_days")).toBeInTheDocument();
@@ -204,7 +207,7 @@ describe("the Settings panel", () => {
     const user = userEvent.setup();
     const first = render(<App />);
     const tabs = await screen.findByRole("tablist", { name: "Settings of" });
-    await user.click(within(tabs).getByRole("tab", { name: "Surveyor" }));
+    await user.click(within(tabs).getByRole("tab", { name: /^Surveyor\b/ }));
     expect(screen.getByRole("heading", { name: "team-a" })).toBeInTheDocument();
     expect(screen.getByText(/Surveyor v9 · 2 replicas · kb-a · reported/)).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Surveyor name settings" })).toHaveTextContent("team-a");
@@ -220,7 +223,7 @@ describe("the Settings panel", () => {
     });
     render(<App />);
     const tabs2 = await screen.findByRole("tablist", { name: "Settings of" });
-    await user.click(within(tabs2).getByRole("tab", { name: "Surveyor" }));
+    await user.click(within(tabs2).getByRole("tab", { name: /^Surveyor\b/ }));
     expect(screen.getByText(/No Surveyor has reported/)).toBeInTheDocument();
     expect(screen.getByRole("list", { name: "Surveyor name settings" })).toBeInTheDocument();
   });
@@ -237,7 +240,7 @@ describe("the Settings panel", () => {
     const user = userEvent.setup();
     render(<App />);
     const tabs = await screen.findByRole("tablist", { name: "Settings of" });
-    const surveyorTabs = within(tabs).getAllByRole("tab", { name: "Surveyor · team-a" });
+    const surveyorTabs = within(tabs).getAllByRole("tab", { name: /^Surveyor\ ·\ team\-a\b/ });
     expect(surveyorTabs).toHaveLength(2);
     await user.click(surveyorTabs[1]!);
     expect(screen.getByText(/^Surveyor · 3 replicas · kb-a · reported/)).toBeInTheDocument();
@@ -254,7 +257,7 @@ describe("the Settings panel", () => {
     const user = userEvent.setup();
     render(<App />);
     const tabs = await screen.findByRole("tablist", { name: "Settings of" });
-    await user.click(within(tabs).getByRole("tab", { name: "Compass" }));
+    await user.click(within(tabs).getByRole("tab", { name: /^Compass\b/ }));
     // workspaces is set per KB: it reads in each KB's section, under its YAML key.
     expect(screen.queryByRole("list", { name: "Compass Agents settings" })).toBeNull();
     expect(
@@ -271,7 +274,7 @@ describe("the Settings panel", () => {
     render(<App />);
     await user.click(await screen.findByRole("button", { name: "Settings" }));
     const tabs = await screen.findByRole("tablist", { name: "Settings of" });
-    expect(within(tabs).getByRole("tab", { name: "Compass" })).toHaveAttribute("aria-selected", "true");
+    expect(within(tabs).getByRole("tab", { name: /^Compass\b/ })).toHaveAttribute("aria-selected", "true");
     expect(window.location.search).toContain("panel=settings");
   });
 
@@ -306,17 +309,18 @@ describe("the Plugins tab", () => {
   const open = async (user: ReturnType<typeof userEvent.setup>) => {
     render(<App />);
     const tabs = await screen.findByRole("tablist", { name: "Settings of" });
-    await user.click(within(tabs).getByRole("tab", { name: "Plugins" }));
+    await user.click(within(tabs).getByRole("tab", { name: /^Plugins\b/ }));
   };
 
   it("says so when no plugin is installed", async () => {
     stubApi({ "/settings": () => json(SETTINGS), "/whoami": () => json({ id: "op", admin: true, permissions: [] }) });
     await open(userEvent.setup());
-    expect(await screen.findByText("No plugin installed on any component.")).toBeInTheDocument();
+    expect(await screen.findByText("No plugin installed.")).toBeInTheDocument();
+    expect(screen.getAllByText("Not reported.")).toHaveLength(2);
     expect(screen.getByRole("heading", { name: "Plugins" })).toBeInTheDocument();
   });
 
-  it("shows each component's state, a short digest and the sentence for a changed tree, with no approve button", async () => {
+  it("groups plugins by component, shows what each brings and opens the detail on click, with no approve button", async () => {
     const full = "a".repeat(12) + "b".repeat(52);
     stubApi({
       "/settings": () => json(SETTINGS),
@@ -324,28 +328,94 @@ describe("the Plugins tab", () => {
         json({
           views: [{ plugin: "acme", name: "board", title: "Board", description: "", icon: "", scope: "global", source: { route: "/api/v1/kbs/{kb}/x" }, renderer: "table", columns: [], limit: 10 }],
           apps: [{ plugin: "acme", name: "dash", title: "Dash", description: "", icon: "", url: "https://dash.example.com/" }],
+          reported: ["meridian", "compass"],
           plugins: [
-            { name: "acme", version: "1.2.0", display_name: "Acme", components: [comp("meridian", "approved", full), comp("compass", "changed", full), comp("surveyor", "not_reported")] },
-            { name: "solo", version: "0.1.0", display_name: "Solo", components: [comp("compass", "pending", full)] },
+            {
+              name: "acme", version: "1.2.0", display_name: "Acme", description: "Team forks",
+              components: [
+                { ...comp("meridian", "approved", full), contributions: { views: 1, apps: 1 }, permissions: ["net"] },
+                { ...comp("compass", "changed", full), machine: "laptop-a", installed: full, approved: "d".repeat(64), source: "https://example.com/acme.git", contributions: { agents: 2, skills: 3 } },
+              ],
+            },
+            { name: "solo", version: "0.1.0", display_name: "Solo", components: [{ ...comp("compass", "pending approval", full), machine: "laptop-b" }] },
           ],
         }),
     });
     const user = userEvent.setup();
     await open(user);
-    const table = screen.getByRole("table", { name: "Installed plugins" });
-    const acmeMeridian = within(table).getByRole("cell", { name: "Acme on Meridian" });
+    const meridian = screen.getByRole("region", { name: "Plugins on Meridian" });
+    const acmeMeridian = within(meridian).getByRole("listitem", { name: "Acme on Meridian" });
     expect(acmeMeridian).toHaveTextContent("approved");
+    expect(acmeMeridian).toHaveTextContent("Team forks");
+    expect(acmeMeridian).toHaveTextContent("1 app · 1 view");
     expect(within(acmeMeridian).getByText("aaaaaaaaaaaa")).toHaveAttribute("title", full);
-    expect(within(table).getByRole("cell", { name: "Acme on Compass" })).toHaveTextContent("installed tree differs from the approved one");
-    expect(within(table).getByRole("cell", { name: "Acme on Surveyor" })).toHaveTextContent("not reported");
-    expect(within(table).getByRole("cell", { name: "Solo on Meridian" })).toHaveTextContent("-");
+    const compass = screen.getByRole("region", { name: "Plugins on Compass" });
+    expect(within(compass).getByText("laptop-a")).toBeInTheDocument();
+    expect(within(compass).getByText("laptop-b")).toBeInTheDocument();
+    expect(within(compass).getByRole("listitem", { name: "Acme on Compass" })).toHaveTextContent("2 agents · 3 skills");
+    expect(within(compass).getByRole("listitem", { name: "Acme on Compass" })).toHaveTextContent("installed tree differs from the approved one");
+    expect(within(compass).queryByText(/not on /)).toBeNull();
+    expect(within(screen.getByRole("region", { name: "Plugins on Surveyor" })).getByText("Not reported.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /approve/i })).toBeNull();
-    // A row shows what the plugin's app opens before anyone clicks it: as text, not a link.
-    await user.click(within(table).getByRole("button", { name: /Acme 1\.2\.0/ }));
+    await user.click(within(meridian).getByRole("button", { name: /Acme 1\.2\.0/ }));
     const sheet = screen.getByRole("dialog", { name: "Plugin Acme" });
     expect(within(sheet).getByText("https://dash.example.com/")).toBeInTheDocument();
     expect(within(sheet).queryByRole("link")).toBeNull();
     expect(within(sheet).getByText("/api/v1/kbs/{kb}/x")).toBeInTheDocument();
+    expect(within(sheet).getByText("d".repeat(64))).toBeInTheDocument();
+    expect(within(sheet).getByText("https://example.com/acme.git")).toBeInTheDocument();
+    expect(within(sheet).getByText("net")).toBeInTheDocument();
+  });
+
+  it("keeps the sheet on the current plugin of the list, and closes it when the plugin leaves", async () => {
+    const plugin = (version: string) => ({
+      name: "acme", version, display_name: "Acme", description: "Team forks",
+      components: [{ component: "meridian", state: "approved", version, digest: "a".repeat(64) }],
+    });
+    const ext = (version: string | null) =>
+      ({ views: [], apps: [], reported: ["meridian"], plugins: version ? [plugin(version)] : [] }) as never;
+    const view = (version: string | null) => <PluginsPanel extensions={ext(version)} error={null} onRetry={() => {}} operatorOnly={false} />;
+    const user = userEvent.setup();
+    const { rerender } = render(view("1.0.0"));
+    await user.click(screen.getByRole("button", { name: /Acme 1\.0\.0/ }));
+    expect(within(screen.getByRole("dialog", { name: "Plugin Acme" })).getAllByText(/1\.0\.0/).length).toBeGreaterThan(0);
+    rerender(view("1.1.0"));
+    const current = within(screen.getByRole("dialog", { name: "Plugin Acme" }));
+    expect(current.getAllByText(/1\.1\.0/).length).toBeGreaterThan(0);
+    expect(current.queryByText(/1\.0\.0/)).toBeNull();
+    rerender(view(null));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("names the machine of a lone Compass and says the others reported nothing", async () => {
+    stubApi({
+      "/settings": () => json(SETTINGS),
+      "/extensions": () =>
+        json({
+          views: [],
+          apps: [],
+          reported: ["meridian", "compass"],
+          plugins: [{ name: "acme", version: "1.0.0", display_name: "Acme", components: [{ component: "compass", machine: "laptop-a", state: "active", digest: "c".repeat(12) }] }],
+        }),
+    });
+    await open(userEvent.setup());
+    const compass = await screen.findByRole("region", { name: "Plugins on Compass" });
+    const cell = within(compass).getByRole("listitem", { name: "Acme on Compass" });
+    expect(cell).toHaveTextContent("laptop-a");
+    expect(cell).toHaveTextContent("active");
+    expect(within(screen.getByRole("region", { name: "Plugins on Meridian" })).getByText("No plugin installed.")).toBeInTheDocument();
+  });
+
+  it("says Compass reported when it did and holds no plugin", async () => {
+    stubApi({
+      "/settings": () => json(SETTINGS),
+      "/whoami": () => json({ id: "op", admin: true, permissions: [] }),
+      "/extensions": () => json({ views: [], apps: [], plugins: [], reported: ["meridian", "compass"] }),
+    });
+    await open(userEvent.setup());
+    const compass = await screen.findByRole("region", { name: "Plugins on Compass" });
+    expect(within(compass).getByText("No plugin installed.")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Plugins on Surveyor" })).getByText("Not reported.")).toBeInTheDocument();
   });
 
   it("tells a narrowed token that the list is the operator's, not that nothing is installed", async () => {
@@ -378,12 +448,12 @@ describe("the Plugins tab when a read fails", () => {
     const user = userEvent.setup();
     render(<App />);
     const tabs = await screen.findByRole("tablist", { name: "Settings of" });
-    await user.click(within(tabs).getByRole("tab", { name: "Plugins" }));
+    await user.click(within(tabs).getByRole("tab", { name: /^Plugins\b/ }));
     const retry = await screen.findByRole("button", { name: /try again/i });
-    expect(screen.queryByText("No plugin installed on any component.")).toBeNull();
+    expect(screen.queryByText("No plugin installed.")).toBeNull();
     fail = false;
     await user.click(retry);
-    expect(await screen.findByRole("table", { name: "Installed plugins" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "Plugins on Meridian" })).toBeInTheDocument();
   });
 
   it("words an empty list neutrally when the caller's identity is unknown", async () => {
@@ -391,7 +461,7 @@ describe("the Plugins tab when a read fails", () => {
     const user = userEvent.setup();
     render(<App />);
     const tabs = await screen.findByRole("tablist", { name: "Settings of" });
-    await user.click(within(tabs).getByRole("tab", { name: "Plugins" }));
+    await user.click(within(tabs).getByRole("tab", { name: /^Plugins\b/ }));
     expect(await screen.findByText("Visible to the operator only.")).toBeInTheDocument();
   });
 });
@@ -408,7 +478,7 @@ describe("the Surveyor tab is always present", () => {
     stubApi({ "/settings": () => json(SETTINGS) });
     render(<App />);
     const tabs = await screen.findByRole("tablist", { name: "Settings of" });
-    await userEvent.setup().click(within(tabs).getByRole("tab", { name: "Surveyor" }));
+    await userEvent.setup().click(within(tabs).getByRole("tab", { name: /^Surveyor\b/ }));
     expect(screen.getByText(/No Surveyor has reported/)).toBeInTheDocument();
   });
 });

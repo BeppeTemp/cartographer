@@ -34,7 +34,7 @@ declare module "d3-force-3d" {
   }
 
   export interface PositionForce<N extends SimNode> extends Force<N> {
-    strength(value: number): PositionForce<N>;
+    strength(value: number | ((node: N) => number)): PositionForce<N>;
   }
 
   export interface LinkForce<N extends SimNode, L> extends Force<N> {
@@ -46,7 +46,7 @@ declare module "d3-force-3d" {
   }
 
   export interface ManyBodyForce<N extends SimNode> extends Force<N> {
-    strength(value: number): ManyBodyForce<N>;
+    strength(value: number | ((node: N) => number)): ManyBodyForce<N>;
     distanceMax(value: number): ManyBodyForce<N>;
     theta(value: number): ManyBodyForce<N>;
   }
@@ -56,6 +56,13 @@ declare module "d3-force-3d" {
   export function forceY<N extends SimNode>(y?: number): PositionForce<N>;
   export function forceZ<N extends SimNode>(z?: number): PositionForce<N>;
   export function forceLink<N extends SimNode, L>(links?: L[]): LinkForce<N, L>;
+  export interface CollideForce<N extends SimNode> extends Force<N> {
+    radius(value: number | ((node: N) => number)): CollideForce<N>;
+    strength(value: number): CollideForce<N>;
+    iterations(value: number): CollideForce<N>;
+  }
+
+  export function forceCollide<N extends SimNode>(radius?: number | ((node: N) => number)): CollideForce<N>;
   export function forceManyBody<N extends SimNode>(): ManyBodyForce<N>;
   export function forceCenter<N extends SimNode>(): Force<N>;
 }

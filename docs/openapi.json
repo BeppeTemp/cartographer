@@ -439,6 +439,12 @@
             },
             "type": "object"
           },
+          "cluster_threshold": {
+            "type": "integer"
+          },
+          "concepts_total": {
+            "type": "integer"
+          },
           "name": {
             "type": "string"
           },

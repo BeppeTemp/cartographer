@@ -9,10 +9,19 @@
 # that cannot be reached, so what the session writes never leaves the machine
 # (a push fails, and the badge shows that failure too). The source is never
 # touched.
-# Without DATA it runs on a throwaway copy of the generated test KBs.
+# The generated test KBs (internal/testkbs) are always mounted: alone without
+# DATA, beside the copied KBs with it (a test KB whose name a DATA KB already
+# has is left out), so every Atlas view has something to show whatever the data.
+# A synthetic Surveyor reports on three of them (heartbeat, settings, runs and
+# report candidates, posted to the component routes after every start and
+# repeated every half hour, its declaration being live for three hours): the
+# Surveyor views are never empty. Without DATA a synthetic client reports too;
+# with it this machine's own client does.
 #
 # Polling rather than a file watcher: no watcher is a dependency of this
 # repository, and `find -newer` once a second costs nothing at this size.
+# SERVE_CONFIG is a server config.yaml read under the flags (they win): what
+# --data cannot say, e.g. plugins_dir and plugins to try a branding plugin.
 set -euo pipefail
 
 API_PORT=${API_PORT:-39280}
@@ -27,10 +36,12 @@ cd "$root"
 
 pid=
 vite=
+refresher=
 work=$(mktemp -d "${TMPDIR:-/tmp}/cartographer-dev.XXXXXX")
 stop() {
 	if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; fi
 	if [ -n "$vite" ]; then kill "$vite" 2>/dev/null || true; fi
+	if [ -n "${refresher:-}" ]; then kill "$refresher" 2>/dev/null || true; fi
 	rm -rf "$work"
 }
 # Installed before anything can fail: every early exit would otherwise leave a
@@ -39,31 +50,20 @@ trap stop EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-if [ -n "${DATA:-}" ]; then
-	# The contents, not the path: a DATA that is a symlink must not be copied as
-	# a link, or the server and the push URL change below would act on the source.
-	mkdir "$work/data"
-	cp -R "$DATA/." "$work/data/"
-	find "$work/data" -name .git -prune -print | while read -r g; do
-		repo=$(dirname "$g")
-		# A .git file points at a repository elsewhere (a worktree, a submodule):
-		# changing its push URL would edit that repository's shared config.
-		if [ ! -d "$g" ]; then
-			echo "dev: $repo is a linked checkout (.git is a file); copy a standalone clone instead" >&2
-			exit 1
-		fi
-		for r in $(git -C "$repo" remote); do git -C "$repo" remote set-url --push "$r" "$work/no-push"; done
-	done
-	kbargs=(--data "$work/data")
-else
-	# The test KBs (internal/testkbs, D818, D1032): eleven synthetic KBs, the
-	# 5,000-concept scale KB, nine shaped after measured real KBs with invented
-	# content, and a bare 30, built to put every Atlas view in a state worth
-	# judging. Generating them takes a few seconds, so they are cached
-	# per generator source and per day (their dates are relative to today).
-	# The client report (client-report.json) is built from the client schema, so
-	# the sources of the client settings are part of the key too.
-	key=$( (cat internal/testkbs/*.go; find internal/clientconfig internal/settingschema -name '*.go' ! -name '*_test.go' | sort | xargs cat; date -u +%F) | shasum | cut -c1-12)
+# The test KBs (internal/testkbs, D818, D1032): eleven synthetic KBs, the
+# 5,000-concept scale KB, nine shaped after measured real KBs with invented
+# content, and a bare 30, built to put every Atlas view in a state worth
+# judging. Generating them takes a few seconds, so they are cached
+# per generator source and per day (their dates are relative to today).
+# The client report and the Surveyor bodies are built from the client and
+# Surveyor schemas and the component protocol, so the sources of those are
+# part of the key too.
+# add_test_kbs copies them into $1, skipping a name already there, and copies the
+# files beside them (the client report, the Surveyor bodies), which are not KBs
+# and which start() posts to every server it starts, into $work.
+add_test_kbs() {
+	local key caches cache tmp entry name
+	key=$( (cat internal/testkbs/*.go; find internal/clientconfig internal/settingschema internal/surveyorconfig internal/componentproto -name '*.go' ! -name '*_test.go' | sort | xargs cat; date -u +%F) | shasum | cut -c1-12)
 	# Under the user's own cache directory, mode 700 (scripts/testkbs-cache-dir.sh).
 	caches=$(scripts/testkbs-cache-dir.sh)
 	cache="$caches/$key"
@@ -77,13 +77,38 @@ else
 		go run ./internal/testkbs/gen "$tmp"
 		mv "$tmp" "$cache" 2>/dev/null || rm -rf "$tmp" # another session won the race
 	fi
-	mkdir "$work/data"
-	cp -R "$cache/." "$work/data/"
-	# The subdirectories of the data dir are KBs: the client report, which
-	# start() posts to every server it starts, lives beside it.
-	if [ -f "$work/data/client-report.json" ]; then mv "$work/data/client-report.json" "$work/client-report.json"; fi
-	kbargs=(--data "$work/data")
+	for entry in "$cache"/*; do
+		name=$(basename "$entry")
+		if [ -d "$entry" ]; then
+			if [ -e "$1/$name" ]; then
+				echo "[dev] the test KB $name is left out: a KB of DATA has the name" >&2
+				continue
+			fi
+			cp -R "$entry" "$1/$name"
+		else
+			cp "$entry" "$work/$name"
+		fi
+	done
+}
+
+mkdir "$work/data"
+if [ -n "${DATA:-}" ]; then
+	# The contents, not the path: a DATA that is a symlink must not be copied as
+	# a link, or the server and the push URL change below would act on the source.
+	cp -R "$DATA/." "$work/data/"
+	find "$work/data" -name .git -prune -print | while read -r g; do
+		repo=$(dirname "$g")
+		# A .git file points at a repository elsewhere (a worktree, a submodule):
+		# changing its push URL would edit that repository's shared config.
+		if [ ! -d "$g" ]; then
+			echo "dev: $repo is a linked checkout (.git is a file); copy a standalone clone instead" >&2
+			exit 1
+		fi
+		for r in $(git -C "$repo" remote); do git -C "$repo" remote set-url --push "$r" "$work/no-push"; done
+	done
 fi
+add_test_kbs "$work/data"
+kbargs=(--data "$work/data")
 
 [ -d web/node_modules ] || (cd web && npm ci --silent)
 
@@ -112,6 +137,32 @@ post_client_report() {
 	echo "[dev] the client report was refused" >&2
 }
 
+# The synthetic Surveyor (internal/testkbs/surveyor.go): what it posts, in the
+# order a Surveyor does, to the component routes. The server runs without tokens,
+# so the local principal is let through, and the heartbeat comes first because
+# the settings and the runs hang on a live declaration of the same perimeter.
+# It is repeated by surveyor_refresh: a declaration is live for three intervals
+# and the beat interval is capped at an hour.
+post_surveyor() {
+	local f="$work/surveyor-heartbeat.json"
+	[ -f "$f" ] || return 0
+	local base="http://127.0.0.1:$API_PORT/api/component/v1" n
+	for _ in $(seq 1 30); do
+		curl -sf -X POST -H 'Content-Type: application/json' --data-binary @"$f" "$base/heartbeat" >/dev/null && break
+		sleep 1
+	done
+	for n in settings runs; do
+		curl -sf -X POST -H 'Content-Type: application/json' --data-binary @"$work/surveyor-$n.json" "$base/$n" >/dev/null ||
+			echo "[dev] the synthetic Surveyor's $n were refused" >&2
+	done
+}
+surveyor_refresh() {
+	[ -f "$work/surveyor-heartbeat.json" ] || return 0
+	[ -z "$refresher" ] || return 0
+	(while sleep 1800; do post_surveyor; done) &
+	refresher=$!
+}
+
 stamp="$work/stamp"
 start() {
 	touch "$stamp"
@@ -131,13 +182,15 @@ start() {
 	# Loopback only and no tokens: the instance holds a private copy, not a
 	# shared server. An exported CARTOGRAPHER_TOKENS would otherwise apply here,
 	# and the UI's API calls would answer 401.
-	env -u CARTOGRAPHER_TOKENS CARTOGRAPHER_AUDIT_LOG="$work/audit.jsonl" "$work/cartographer" serve "${kbargs[@]}" \
+	env -u CARTOGRAPHER_TOKENS CARTOGRAPHER_AUDIT_LOG="$work/audit.jsonl" "$work/cartographer" serve "${kbargs[@]}" ${SERVE_CONFIG:+--config "$SERVE_CONFIG"} \
 		--http "127.0.0.1:$API_PORT" --update-check=false &
 	pid=$!
 	for _ in $(seq 1 30); do
 		kill -0 "$pid" 2>/dev/null || { echo "[dev] the server exited: its log is above" >&2; exit 1; }
 		if curl -sf "http://127.0.0.1:$API_PORT/health" >/dev/null 2>&1; then
 			post_client_report
+			post_surveyor
+			surveyor_refresh
 			break
 		fi
 		sleep 1

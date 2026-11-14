@@ -254,10 +254,24 @@ describe("health page field", () => {
 });
 
 describe("health: what it checks", () => {
+  it("has no tab bar, and a link at the bottom opens the catalog in place with a way back", async () => {
+    const user = userEvent.setup();
+    render(health({ checks: catalog }));
+    expect(screen.queryByRole("group", { name: "Health view" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Components" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: /What Health checks/ }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("What Cartographer checks");
+    // The pressed link is gone: focus moves to the new view's heading, not to the body.
+    expect(screen.getByRole("heading", { level: 1 }).contains(document.activeElement)).toBe(true);
+    await user.click(screen.getByRole("button", { name: /Back to issues/ }));
+    expect(screen.getByRole("button", { name: /What Health checks/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1 }).contains(document.activeElement)).toBe(true);
+  });
+
   it("explains how checking works, folds every category, and lists each rule with its sentence", async () => {
     const user = userEvent.setup();
     render(health({ checks: catalog }));
-    await user.click(screen.getByRole("button", { name: "What it checks" }));
+    await user.click(screen.getByRole("button", { name: /What Health checks/ }));
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("What Cartographer checks");
     expect(screen.getByRole("list", { name: "How checking works" })).toBeInTheDocument();
     expect(screen.getByText(/In this KB:/)).toHaveTextContent("2 rules pass · 2 found something");
@@ -283,7 +297,7 @@ describe("health: what it checks", () => {
         },
       }),
     );
-    await user.click(screen.getByRole("button", { name: "What it checks" }));
+    await user.click(screen.getByRole("button", { name: /What Health checks/ }));
     const idle = screen.getByText("Terms the map forbids", { selector: ".rule__name" }).closest("li")!;
     expect(idle).toHaveAttribute("data-inactive");
     expect(idle).toHaveAttribute("title", "glossary.yaml declares no forbidden term");

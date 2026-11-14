@@ -387,3 +387,31 @@ func TestPluginVendorRefusesTheClientCache(t *testing.T) {
 		t.Errorf("another directory: exit %d\n%s", code, out)
 	}
 }
+
+// The report carries what `plugin list` prints: state, digests, redacted
+// source, description, contribution counts and permission names, and no file content or setting.
+func TestReportPluginsMirrorsPluginList(t *testing.T) {
+	pluginFixture(t)
+	dir := writePlugin(t, "acme", nil)
+	if code, out := runPlugin(t, "install", dir, "--yes"); code != 0 {
+		t.Fatalf("install: %d\n%s", code, out)
+	}
+	cfg, _, code := pluginLoad()
+	if code >= 0 {
+		t.Fatalf("pluginLoad: %d", code)
+	}
+	got := reportPlugins(cfg)
+	if len(got) != 1 || got[0].Name != "acme" || got[0].State != "active" || got[0].Version != "1.0.0" || got[0].DisplayName != "Team forks" {
+		t.Fatalf("report plugins = %+v", got)
+	}
+	e := cfg.Plugins["acme"]
+	if got[0].Installed != e.Installed || got[0].Installed == "" || got[0].Approved != got[0].Installed {
+		t.Errorf("digests = %+v, entry %+v", got[0], e)
+	}
+	if got[0].Contributions == nil || got[0].Permissions == nil && len(got[0].Permissions) != 0 {
+		t.Errorf("contributions/permissions = %+v", got[0])
+	}
+	if empty := reportPlugins(&clientconfig.Config{}); empty == nil || len(empty) != 0 {
+		t.Errorf("no plugin must be an empty list, not absent: %#v", empty)
+	}
+}

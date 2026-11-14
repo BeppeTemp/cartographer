@@ -12,10 +12,24 @@ import (
 // Bounds of the cluster view. A response holds at most MaxClusterElements
 // clusters and nodes together and MaxClusterEdges edges, whatever the KB size.
 const (
-	// ClusterThreshold is where the flat view starts truncating.
-	ClusterThreshold = DefaultGraphNodeLimit
-	// MaxClusters communities become clusters; the rest share the tail.
-	MaxClusters        = 150
+	// ClusterThreshold is the size above which a KB opens grouped: below it a
+	// flat simulation stays light (about 5 ms a tick at 1,200 concepts, measured
+	// in the live session); above it the overview is drawn and Expand shows
+	// every concept up to MaxGraphNodeLimit.
+	ClusterThreshold = 1200
+	// ClusterRenderBudget is how many elements (concepts and clusters) the
+	// overview draws: the largest communities fold, one by one, until the count
+	// is under it, and every other community stays open as plain concepts with
+	// their real edges, so the overview shows how large the KB is. About 350
+	// bytes an element: with the room an unfold takes, a response stays near
+	// 150 KiB.
+	ClusterRenderBudget = 200
+	// MinClusterSize is the fewest members a community needs to be a cluster
+	// of its own: a cluster of one, or of a few, is never drawn.
+	MinClusterSize = 10
+	// MaxClusters communities become clusters of their own.
+	MaxClusters = 150
+	// MaxClusterElements bounds a response, clusters and nodes together.
 	MaxClusterElements = 400
 	MaxClusterEdges    = 1500
 	MinUnfoldMembers   = 50
@@ -61,6 +75,14 @@ type ClusterUnfold struct {
 	Label string `json:"label"`
 	Shown int    `json:"shown"`
 	Total int    `json:"total"`
+	// Slot and Collection are the cluster's own, so its open hull and members
+	// wear the colour it was folded in.
+	Slot       int    `json:"slot"`
+	Collection string `json:"collection,omitempty"`
+	// Members are the positions in Nodes of the Shown members drawn (indices,
+	// not ids, to stay within the response budget): the Atlas frames the open
+	// cluster around them and folds it back from there.
+	Members []int `json:"members"`
 }
 
 // ClusterGraph is the cluster projection of the link graph. In Mode "nodes"
@@ -93,6 +115,10 @@ type GraphClusterOptions struct {
 	Focus string
 	// Include is the visibility predicate, as in GraphSnapshotOptions.
 	Include func(id string) bool
+
+	// renderBudget replaces ClusterRenderBudget (tests: a budget of one folds
+	// every community, as a very large KB would).
+	renderBudget int
 }
 
 // clusterGroup is a cluster before it is folded or unfolded.
@@ -136,13 +162,17 @@ func (kb *KB) GraphClusters(opts GraphClusterOptions) (ClusterGraph, error) {
 	out.Mode = ClusterModeClusters
 	out.TotalNodes = scopedCount
 
-	groups := vg.clusterGroups(inScope)
+	budget := opts.renderBudget
+	if budget <= 0 {
+		budget = ClusterRenderBudget
+	}
+	groups := vg.clusterGroups(inScope, scopedCount, budget)
 	byID := make(map[string]*clusterGroup, len(groups))
 	for _, g := range groups {
 		byID[g.ID] = g
 	}
 
-	clusterOf := make([]int, len(vg.ids)) // group index, or -1 when out of scope
+	clusterOf := make([]int, len(vg.ids)) // group index, or -1 when open (or out of scope)
 	for i := range clusterOf {
 		clusterOf[i] = -1
 	}
@@ -154,15 +184,43 @@ func (kb *KB) GraphClusters(opts GraphClusterOptions) (ClusterGraph, error) {
 	// Unfold order: Focus's cluster first, then the request's order.
 	var order []string
 	focus, focusID := -1, ""
-	if i, ok := vg.index[okf.ConceptID(opts.Focus)]; ok && opts.Focus != "" && inScope(i) {
+	if i, ok := vg.index[okf.ConceptID(opts.Focus)]; ok && opts.Focus != "" && inScope(i) && clusterOf[i] >= 0 {
 		focus, focusID = i, groups[clusterOf[i]].ID
 		order = append(order, focusID)
 	}
-	order = append(order, opts.Unfold...)
+	// At most one cluster is open (an accordion): the focus's, else the last
+	// requested that exists. The others are reported as dropped, so the client
+	// takes them out of its URL.
+	chosen := ""
+	if len(order) > 0 {
+		chosen = order[0]
+	} else {
+		for _, id := range opts.Unfold {
+			if _, ok := byID[id]; ok {
+				chosen = id
+			}
+		}
+		if chosen != "" {
+			order = append(order, chosen)
+		}
+	}
+	for _, id := range opts.Unfold {
+		if id != chosen {
+			dropUnfold(&out, id)
+		}
+	}
 
 	unfolded := map[string]*clusterGroup{}
+	picked := map[string][]int{}
 	shown := map[int]struct{}{} // node index -> drawn
-	elements := len(groups)
+	// Open concepts are drawn as they are: every in-scope concept no folded
+	// cluster holds.
+	for i := range vg.ids {
+		if inScope(i) && clusterOf[i] < 0 {
+			shown[i] = struct{}{}
+		}
+	}
+	elements := len(groups) + len(shown)
 	for _, id := range order {
 		g, ok := byID[id]
 		if !ok {
@@ -191,7 +249,8 @@ func (kb *KB) GraphClusters(opts GraphClusterOptions) (ClusterGraph, error) {
 		}
 		elements += len(pick) - 1
 		unfolded[id] = g
-		out.Unfolded = append(out.Unfolded, ClusterUnfold{ID: g.ID, Label: g.Label, Shown: len(pick), Total: len(g.members)})
+		picked[g.ID] = pick
+		out.Unfolded = append(out.Unfolded, ClusterUnfold{ID: g.ID, Label: g.Label, Shown: len(pick), Total: len(g.members), Slot: g.Slot, Collection: g.Collection})
 		if len(pick) < len(g.members) {
 			out.Truncated = true
 		}
@@ -207,6 +266,18 @@ func (kb *KB) GraphClusters(opts GraphClusterOptions) (ClusterGraph, error) {
 		shownIdx = append(shownIdx, u)
 	}
 	sort.Ints(shownIdx)
+	// Each unfolded cluster names its drawn members by position in Nodes.
+	position := make(map[int]int, len(shownIdx))
+	for i, u := range shownIdx {
+		position[u] = i
+	}
+	for i := range out.Unfolded {
+		pick := picked[out.Unfolded[i].ID]
+		out.Unfolded[i].Members = make([]int, len(pick))
+		for j, u := range pick {
+			out.Unfolded[i].Members[j] = position[u]
+		}
+	}
 	for _, u := range shownIdx {
 		id := vg.ids[u]
 		m := vg.metas[id]
@@ -229,10 +300,14 @@ func (kb *KB) GraphClusters(opts GraphClusterOptions) (ClusterGraph, error) {
 	out.Communities = vg.communityList(ranks)
 
 	// element names the drawn thing a node stands for: itself, its folded
-	// cluster, or nothing (a member of an unfolded cluster that did not fit).
+	// cluster, or nothing (out of scope, or a member of an unfolded cluster
+	// that did not fit).
 	element := func(u int) (string, bool) {
 		gi := clusterOf[u]
 		if gi < 0 {
+			if _, ok := shown[u]; ok {
+				return string(vg.ids[u]), true
+			}
 			return "", false
 		}
 		if _, open := unfolded[groups[gi].ID]; open {
@@ -247,7 +322,7 @@ func (kb *KB) GraphClusters(opts GraphClusterOptions) (ClusterGraph, error) {
 	internal := map[string]int{}
 	for key := range vg.edgeSet {
 		u, v := vg.index[key.source], vg.index[key.target]
-		if clusterOf[u] < 0 || clusterOf[v] < 0 {
+		if !inScope(u) || !inScope(v) {
 			continue
 		}
 		out.TotalEdges++
@@ -307,10 +382,15 @@ func (vg *visibleGraph) communityList(ranks map[int]struct{}) []SnapshotCommunit
 	return list
 }
 
-// clusterGroups builds the clusters of the in-scope members: the largest
-// MaxClusters communities and one tail for the rest. A community with no
-// in-scope member yields none.
-func (vg *visibleGraph) clusterGroups(inScope func(i int) bool) []*clusterGroup {
+// clusterGroups picks the clusters of the overview. The largest communities of
+// at least MinClusterSize in-scope members fold into clusters of their own,
+// largest first, until the elements drawn (open concepts and clusters) are
+// under budget: every other community stays open. If that cannot reach the
+// budget (a KB of many small communities), the small ones are grouped by their
+// dominant Map, largest group first (`c:~<map>`), and what is left joins one
+// tail (`c:~tail`) for the overflow only. No cluster is smaller than
+// MinClusterSize.
+func (vg *visibleGraph) clusterGroups(inScope func(i int) bool, total, budget int) []*clusterGroup {
 	type community struct {
 		rank    int
 		members []int
@@ -324,11 +404,11 @@ func (vg *visibleGraph) clusterGroups(inScope func(i int) bool) []*clusterGroup 
 			}
 		}
 		if len(in) > 0 {
-			cs = append(cs, community{r, in})
+			cs = append(cs, community{rank: r, members: in})
 		}
 	}
 	sort.SliceStable(cs, func(i, j int) bool { return len(cs[i].members) > len(cs[j].members) })
-	named := func(id, label string, slot, rank int, members []int) *clusterGroup {
+	dominantOf := func(members []int) string {
 		counts := map[string]int{}
 		for _, u := range members {
 			counts[vg.metas[vg.ids[u]].collection]++
@@ -339,28 +419,72 @@ func (vg *visibleGraph) clusterGroups(inScope func(i int) bool) []*clusterGroup 
 				dominant, best = c, n
 			}
 		}
-		return &clusterGroup{rank: rank, GraphCluster: GraphCluster{ID: id, Label: label, Collection: dominant, Size: len(members), Slot: slot}, members: members}
+		return dominant
+	}
+	named := func(id, label string, slot, rank int, members []int) *clusterGroup {
+		return &clusterGroup{rank: rank, GraphCluster: GraphCluster{ID: id, Label: label, Collection: dominantOf(members), Size: len(members), Slot: slot}, members: members}
+	}
+	byPageRank := func(members []int) {
+		sort.Slice(members, func(a, b int) bool {
+			if vg.pagerank[members[a]] != vg.pagerank[members[b]] {
+				return vg.pagerank[members[a]] > vg.pagerank[members[b]]
+			}
+			return members[a] < members[b]
+		})
 	}
 	var groups []*clusterGroup
-	var tail []int
-	tailCommunities := 0
-	for k, c := range cs {
-		if k >= MaxClusters {
-			tail = append(tail, c.members...)
-			tailCommunities++
-			continue
-		}
+	elements := total
+	next := 0
+	for ; next < len(cs) && elements > budget && len(groups) < MaxClusters && len(cs[next].members) >= MinClusterSize; next++ {
+		c := cs[next]
 		// Named by the top member of the whole community: scope-independent.
 		top := vg.ids[vg.members[c.rank][0]]
 		groups = append(groups, named(clusterIDPrefix+string(top), vg.memberLabel(top), vg.communities[c.rank].Slot, c.rank, c.members))
+		elements -= len(c.members) - 1
 	}
-	if len(tail) > 0 {
-		sort.Slice(tail, func(a, b int) bool {
-			if vg.pagerank[tail[a]] != vg.pagerank[tail[b]] {
-				return vg.pagerank[tail[a]] > vg.pagerank[tail[b]]
+	if elements <= budget {
+		return groups
+	}
+	// The overflow: the communities still open, grouped by Map.
+	byMap := map[string][]int{}
+	mapCommunities := map[string]int{}
+	var maps []string
+	for _, c := range cs[next:] {
+		m := dominantOf(c.members)
+		if _, seen := byMap[m]; !seen {
+			maps = append(maps, m)
+		}
+		byMap[m] = append(byMap[m], c.members...)
+		mapCommunities[m]++
+	}
+	sort.Slice(maps, func(i, j int) bool {
+		if len(byMap[maps[i]]) != len(byMap[maps[j]]) {
+			return len(byMap[maps[i]]) > len(byMap[maps[j]])
+		}
+		return maps[i] < maps[j]
+	})
+	var tail []int
+	tailCommunities := 0
+	for _, m := range maps {
+		members := byMap[m]
+		if elements > budget && len(members) >= MinClusterSize {
+			byPageRank(members)
+			label := m
+			if label == "" {
+				label = "(root)"
 			}
-			return tail[a] < tail[b]
-		})
+			g := named(clusterIDPrefix+"~"+m, label, TailSlot, -1, members)
+			g.Communities = mapCommunities[m]
+			groups = append(groups, g)
+			elements -= len(members) - 1
+			continue
+		}
+		tail = append(tail, members...)
+		tailCommunities += mapCommunities[m]
+	}
+	// Still over budget: the rest is one tail, if it is a cluster; else it stays open.
+	if elements > budget && len(tail) >= MinClusterSize {
+		byPageRank(tail)
 		g := named(TailClusterID, "Other", TailSlot, -1, tail)
 		g.Communities = tailCommunities
 		groups = append(groups, g)
