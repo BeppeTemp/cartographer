@@ -221,3 +221,30 @@ func TestStoreSurfacesAPolicyRefusalAndRefusesAnOversizedState(t *testing.T) {
 		t.Errorf("oversized: %v, %d calls", err, calls)
 	}
 }
+
+// A write result with no content_hash is an error, and the hash handed back is
+// the Source's current one, so the caller can still record the failure.
+func TestStoreStep3ResultWithoutAHashReturnsTheCurrentHash(t *testing.T) {
+	e := newEnv(t)
+	l, _ := e.store.Load("")
+	hash := e.lease("2031-02-03T04:05:06Z")
+	call := e.store.Call
+	e.store.Call = func(tool string, args map[string]any) (string, error) {
+		out, err := call(tool, args)
+		if tool == "concept_patch" {
+			return `{"ok":true}`, err
+		}
+		return out, err
+	}
+	_, got, err := e.store.Save(l, e.state("namespace/a", "x"), hash, "2031-02-03T04:05:06Z", "r")
+	if err == nil {
+		t.Fatal("a result without content_hash was accepted")
+	}
+	var cur struct {
+		Hash string `json:"content_hash"`
+	}
+	_ = json.Unmarshal([]byte(e.call("concept_read", map[string]any{"id": e.id, "full": true})), &cur)
+	if got == "" || got != cur.Hash {
+		t.Fatalf("hash after the failure = %q, the Source holds %q", got, cur.Hash)
+	}
+}

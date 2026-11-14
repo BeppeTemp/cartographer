@@ -301,11 +301,7 @@ func (r *pollRun) patch(args map[string]any, reason string) (string, error) {
 		return "", err
 	}
 	r.res.Commits++
-	var o struct {
-		Hash string `json:"content_hash"`
-	}
-	_ = json.Unmarshal([]byte(text), &o)
-	return o.Hash, nil
+	return feed.WriteHash(text)
 }
 
 // fail records why the feed was not polled. The detail may come from a recipe
@@ -636,7 +632,8 @@ func (r *pollRun) entry(ctx context.Context, rec recipe.Recipe, e recipe.Entry, 
 		Duplicate    bool   `json:"duplicate"`
 		IngestStatus string `json:"ingest_status"`
 	}
-	if json.Unmarshal([]byte(text), &reg) != nil || reg.ID == "" {
+	// First object only: a pending git sync appends a second block (#2104).
+	if json.NewDecoder(strings.NewReader(text)).Decode(&reg) != nil || reg.ID == "" {
 		return true, r.fail(codeProtocol, "source_register answered nothing usable")
 	}
 	r.res.Commits++

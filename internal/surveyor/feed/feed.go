@@ -12,6 +12,7 @@
 package feed
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -190,6 +191,23 @@ func (f Feed) AdvanceWithError(ifMatch, cursor, code, detail string, now time.Ti
 		return nil, fmt.Errorf("feed: cursor is %d bytes, over the %d the Source holds", len(cursor), MaxCursorBytes)
 	}
 	return patch(f.ID, ifMatch, now, map[string]any{KeyCursor: cursor, KeyError: errorLine(code, detail)}), nil
+}
+
+// WriteHash returns the content_hash of a write result. The server appends a
+// second block ({"sync_state":...}) to every write result while the KB's git
+// sync is not clean, and the client joins the blocks with a newline: only the
+// first JSON object is the answer. An answer with no hash is an error, never "".
+func WriteHash(text string) (string, error) {
+	var o struct {
+		Hash string `json:"content_hash"`
+	}
+	if err := json.NewDecoder(strings.NewReader(text)).Decode(&o); err != nil {
+		return "", fmt.Errorf("feed: unreadable write result: %w", err)
+	}
+	if o.Hash == "" {
+		return "", errors.New("feed: the write result carries no content_hash")
+	}
+	return o.Hash, nil
 }
 
 var errNoIfMatch = errors.New("feed: a write of the cursor or its bookkeeping needs an if_match")
