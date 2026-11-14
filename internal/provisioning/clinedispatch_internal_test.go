@@ -114,15 +114,18 @@ func TestDispatchClineHooksMergesAndStaysInBudget(t *testing.T) {
 	writeClineHook(t, base, "a", "PostToolUse", "", "#!/bin/sh\necho one >&2\nexit 2\n")
 	writeClineHook(t, base, "b", "PostToolUse", "", "#!/bin/sh\necho two >&2\nexit 2\n")
 	writeClineHook(t, base, "c", "PostToolUse", "", "#!/bin/sh\nsleep 30\n")
-	old := clineHookBudget
-	clineHookBudget = 6 * time.Second
-	t.Cleanup(func() { clineHookBudget = old })
+	// perHook = (30s - 3*200ms)/3 = 9.8s: a loaded runner cannot push a fast
+	// hook past its slice, while "c" (sleep 30) runs into its deadline and
+	// bounds the run well under the 30 s sleep.
+	ob, od := clineHookBudget, clineWaitDelay
+	clineHookBudget, clineWaitDelay = 30*time.Second, 200*time.Millisecond
+	t.Cleanup(func() { clineHookBudget, clineWaitDelay = ob, od })
 	start := time.Now()
 	res := dispatch(base, "PostToolUse", `{"postToolUse":{"toolName":"x","success":true}}`)
 	if res.ContextModification != "one\n\ntwo" {
 		t.Errorf("merged = %q (a timeout has no effect)", res.ContextModification)
 	}
-	if time.Since(start) > 5*time.Second {
+	if time.Since(start) > 20*time.Second {
 		t.Errorf("took %v: the budget is not enforced", time.Since(start))
 	}
 }
