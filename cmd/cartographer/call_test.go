@@ -52,6 +52,15 @@ func newCallEnv(t *testing.T, reply func(method string, params map[string]any) a
 		cs.reqs = append(cs.reqs, r)
 		cs.bodies = append(cs.bodies, body)
 		cs.mu.Unlock()
+		// The go-sdk rule (mcp/streamable.go): a body carrying the 2026-07-28
+		// protocolVersion key in params._meta needs the Mcp-Protocol-Version header.
+		if p, _ := body["params"].(map[string]any); p != nil {
+			if m, _ := p["_meta"].(map[string]any); m != nil && m["io.modelcontextprotocol/protocolVersion"] != nil && r.Header.Get("Mcp-Protocol-Version") == "" {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": body["id"], "error": map[string]any{"code": -32020, "message": "Mcp-Protocol-Version header is required"}})
+				return
+			}
+		}
 		if r.URL.Query().Get("access") == "read" {
 			w.Header().Set("Cartographer-Access", "read")
 		}

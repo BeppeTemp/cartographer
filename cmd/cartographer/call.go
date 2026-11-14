@@ -533,7 +533,11 @@ func newCallSession(ctx context.Context, cfg *clientconfig.Config, token, provid
 func (s *callSession) Do(ctx context.Context, method string, params map[string]any) (json.RawMessage, error) {
 	s.next++
 	id := s.next
-	params["_meta"] = client.RequestMeta(version)
+	// initialize is the legacy handshake: the bridge sends no protocol header on
+	// it, and a server refuses the _meta key without that header (-32020).
+	if method != "initialize" {
+		params["_meta"] = client.RequestMeta(version)
+	}
 	line, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params})
 	ch := s.out.expect(id)
 	// A failed write means the bridge stopped: done is closed then.
