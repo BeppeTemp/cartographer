@@ -947,6 +947,119 @@ func TestLanderRebuildsAConflictingBundle(t *testing.T) {
 	}
 }
 
+// bundleBuildScript writes a build that records its run in marker and, when ok, writes the
+// bundle's provenance from the content of web/src/a.ts (the lander's `make web` stand-in).
+func bundleBuildScript(t *testing.T, e *landEnv, marker string, ok bool) string {
+	t.Helper()
+	build := filepath.Join(t.TempDir(), "build")
+	body := "#!/bin/sh\ntouch '" + marker + "'\n"
+	if ok {
+		body += "mkdir -p internal/webui/dist && cp web/src/a.ts internal/webui/dist/provenance.json\n"
+	} else {
+		body += "echo boom; exit 1\n"
+	}
+	e.write(build, body)
+	if err := os.Chmod(build, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return build
+}
+
+// Numbering a decision rewrites a citation under web/ after the author built the bundle: the
+// lander builds it again, so the committed bundle matches the sources it lands with (#2067). A
+// change whose web/ does not cite a pending decision does not run the build; a failed build
+// rejects the change with that reason.
+func TestLanderRebuildsTheBundleAfterNumberingACitationUnderWeb(t *testing.T) {
+	dec := "docs/" + "decisions/"
+	files := map[string]string{
+		dec + "D-new-foo.md":                  "---\ntopic: x\n---\n\n# D-new-foo — Foo\n",
+		"web/src/a.ts":                        "// D-new-foo\n",
+		"internal/webui/dist/provenance.json": "stale\n",
+	}
+	t.Run("rebuilt", func(t *testing.T) {
+		e := newLandEnv(t)
+		e.queue("a", "feat(atlas): a\n", "2026-01-01T10:00:00Z", files)
+		out, ok := e.land("LAND_BUNDLE_BUILD=" + bundleBuildScript(t, e, filepath.Join(t.TempDir(), "ran"), true))
+		if !ok || e.refs("failed/") != "" {
+			t.Fatalf("the change must land, failed=%q\n%s", e.refs("failed/"), out)
+		}
+		src := e.upGit("show", "main:web/src/a.ts")
+		if strings.Contains(src, "D-new-") {
+			t.Fatalf("the citation is numbered: %q", src)
+		}
+		if got := e.upGit("show", "main:internal/webui/dist/provenance.json"); got != src {
+			t.Errorf("the bundle on main is built from the numbered source: %q, source %q", got, src)
+		}
+		if got := e.upGit("log", "-1", "--format=%s", "main"); got != "feat(atlas): a" {
+			t.Errorf("the rebuild amends the change, got %q", got)
+		}
+	})
+	t.Run("build fails", func(t *testing.T) {
+		e := newLandEnv(t)
+		e.queue("a", "feat(atlas): a\n", "2026-01-01T10:00:00Z", files)
+		out, ok := e.land("LAND_BUNDLE_BUILD=" + bundleBuildScript(t, e, filepath.Join(t.TempDir(), "ran"), false))
+		if !ok {
+			t.Fatalf("land failed\n%s", out)
+		}
+		if got := strings.Join(e.mainSubjects(), " | "); strings.Contains(got, "feat(atlas): a") {
+			t.Fatalf("the change must not land, main holds %q\n%s", got, out)
+		}
+		if got := strings.Fields(e.refs("failed/")); strings.Join(got, " ") != "a" {
+			t.Fatalf("a must be rejected, got %v\n%s", got, out)
+		}
+		if r := e.upGit("log", "-1", "--format=%s", "failed/a"); !strings.Contains(r, "bundle could not be rebuilt") {
+			t.Errorf("the reason says the bundle was not rebuilt, got %q", r)
+		}
+	})
+	t.Run("citation early in a large diff", func(t *testing.T) {
+		e := newLandEnv(t)
+		big := "// D-new-foo\n" + strings.Repeat("// padding padding padding padding padding padding\n", 3000)
+		e.queue("a", "feat(atlas): a\n", "2026-01-01T10:00:00Z", map[string]string{
+			dec + "D-new-foo.md":                  files[dec+"D-new-foo.md"],
+			"web/src/a.ts":                        big,
+			"internal/webui/dist/provenance.json": "stale\n",
+		})
+		out, ok := e.land("LAND_BUNDLE_BUILD=" + bundleBuildScript(t, e, filepath.Join(t.TempDir(), "ran"), true))
+		if !ok || e.refs("failed/") != "" {
+			t.Fatalf("the change must land, failed=%q\n%s", e.refs("failed/"), out)
+		}
+		if got, src := e.upGit("show", "main:internal/webui/dist/provenance.json"), e.upGit("show", "main:web/src/a.ts"); got != src {
+			t.Errorf("the bundle was not rebuilt after a diff over 64 KB")
+		}
+	})
+	t.Run("citation in a test file, no build", func(t *testing.T) {
+		e := newLandEnv(t)
+		marker := filepath.Join(t.TempDir(), "ran")
+		e.queue("a", "feat(atlas): a\n", "2026-01-01T10:00:00Z", map[string]string{
+			dec + "D-new-foo.md":   files[dec+"D-new-foo.md"],
+			"web/x_test.go":        "// D-new-foo\n",
+			"web/testdata/fix.txt": "D-new-foo\n",
+		})
+		out, ok := e.land("LAND_BUNDLE_BUILD=" + bundleBuildScript(t, e, marker, true))
+		if !ok || e.refs("failed/") != "" {
+			t.Fatalf("the change must land, failed=%q\n%s", e.refs("failed/"), out)
+		}
+		if _, err := os.Stat(marker); err == nil {
+			t.Error("the bundle was built for a citation the numbering does not rewrite")
+		}
+	})
+	t.Run("no citation, no build", func(t *testing.T) {
+		e := newLandEnv(t)
+		marker := filepath.Join(t.TempDir(), "ran")
+		e.queue("a", "feat(atlas): a\n", "2026-01-01T10:00:00Z", map[string]string{
+			dec + "D-new-foo.md": "---\ntopic: x\n---\n\n# D-new-foo — Foo\n",
+			"web/src/a.ts":       "// plain\n",
+		})
+		out, ok := e.land("LAND_BUNDLE_BUILD=" + bundleBuildScript(t, e, marker, true))
+		if !ok || e.refs("failed/") != "" {
+			t.Fatalf("the change must land, failed=%q\n%s", e.refs("failed/"), out)
+		}
+		if _, err := os.Stat(marker); err == nil {
+			t.Error("the bundle was built although web/ cites no pending decision")
+		}
+	})
+}
+
 // A queued change whose diff main already holds (its train landed, the queue entry
 // outlived it) leaves the queue without a failed/ ref, and the train goes on.
 func TestLanderDequeuesAChangeAlreadyOnMain(t *testing.T) {

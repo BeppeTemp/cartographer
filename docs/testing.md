@@ -1171,7 +1171,7 @@ to 8 changes (with `SIGNOFF_HOSTED=1`, in CI: see above). A change whose cherry-
 `internal/webui/dist`, the committed bundle every frontend change rebuilds whole, is picked with the bundle built
 again from the merged sources (`make web`, Node on the lander's machine; `LAND_BUNDLE_BUILD` replaces the command
 in the tests), and the gate's `TestBundleMatchesSource` proves it; a conflict anywhere else, or a failed build, is
-still a rejection. A train whose signoff retried flaky tests lands on that gate, with a `bug`
+still a rejection. A change that adds a `D-new-` citation under `web/` gets the bundle built again after the lander numbers it (the rewrite makes it stale), and is rejected when that build fails. A train whose signoff retried flaky tests lands on that gate, with a `bug`
 issue naming them. A red train whose failure the signoff's targeted retry confirmed goes
 straight to bisection; any other red train is gated a second time on the same tree: green
 then is a flaky test, the train lands and a `bug` issue names the failing tests (Go, vitest
