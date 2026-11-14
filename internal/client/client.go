@@ -143,6 +143,7 @@ type MCPClient struct {
 	// can say which variable to look at (D222). Empty when the caller has no
 	// such variable, and the 401 message is then exactly what it was before.
 	TokenEnv string
+	routedKB string // set by WithRoutedKB: the `kb` argument of every tool call
 	KB       string // optional KB name; appended as ?kb=<KB> (multi-KB server routing, see httpserver.go)
 	HTTP     *http.Client
 	// Version identifies this client build in the server's roster. Empty is
@@ -303,6 +304,72 @@ func (c *MCPClient) WithKB(name string) *MCPClient {
 	cp := *c
 	cp.KB = name
 	return &cp
+}
+
+// WithRoutedKB returns a copy of the client for one KB of a routed endpoint
+// (D187, ServerURL on /mcp/routed): the KB is not in the URL, which names the
+// perimeter (?kbs=), but a `kb` argument this client adds to every tool call,
+// and hides from the tool list so a model never has to supply it (#2088).
+func (c *MCPClient) WithRoutedKB(name string) *MCPClient {
+	cp := *c
+	cp.KB = ""
+	cp.routedKB = name
+	return &cp
+}
+
+// toolArgs adds the routed `kb` argument to the arguments of a tool call.
+// Arguments of any type that encodes as a JSON object (a map, a struct, the
+// json.RawMessage a model's call arrives as) get it; anything else is an error.
+func (c *MCPClient) toolArgs(args any) (any, error) {
+	if c.routedKB == "" {
+		return args, nil
+	}
+	out := map[string]any{}
+	if args != nil {
+		raw, err := json.Marshal(args)
+		if err != nil {
+			return nil, fmt.Errorf("client: encode tool arguments: %w", err)
+		}
+		if err := json.Unmarshal(raw, &out); err != nil || out == nil {
+			return nil, errors.New("client: tool arguments must be a JSON object")
+		}
+	}
+	out["kb"] = c.routedKB
+	return out, nil
+}
+
+// hideRoutedKB removes the `kb` property from a tool's input schema: a routed
+// client supplies it itself (WithRoutedKB). A schema that does not parse as an
+// object is returned as it is.
+func hideRoutedKB(schema json.RawMessage) json.RawMessage {
+	var m map[string]json.RawMessage
+	if json.Unmarshal(schema, &m) != nil {
+		return schema
+	}
+	var props map[string]json.RawMessage
+	if json.Unmarshal(m["properties"], &props) != nil {
+		return schema
+	}
+	if _, ok := props["kb"]; !ok {
+		return schema
+	}
+	delete(props, "kb")
+	m["properties"], _ = json.Marshal(props)
+	var req []string
+	if json.Unmarshal(m["required"], &req) == nil {
+		kept := req[:0:0]
+		for _, r := range req {
+			if r != "kb" {
+				kept = append(kept, r)
+			}
+		}
+		m["required"], _ = json.Marshal(kept)
+	}
+	out, err := json.Marshal(m)
+	if err != nil {
+		return schema
+	}
+	return out
 }
 
 // WithHTTPTimeout returns a copy of the client whose HTTP calls time out after d
@@ -613,8 +680,18 @@ func mcpSubpathHint(serverURL string) string {
 	return fmt.Sprintf(" (the server URL is %s, without the trailing %q)", u, p[i+len("/mcp"):])
 }
 
+// stripMCPPath drops the terminal /mcp or /mcp/routed segment of an endpoint
+// path and any trailing slash, whichever the URL names (#2088).
+func stripMCPPath(p string) string {
+	p = strings.TrimRight(p, "/")
+	if t := strings.TrimSuffix(p, "/mcp/routed"); t != p {
+		return strings.TrimRight(t, "/")
+	}
+	return strings.TrimRight(strings.TrimSuffix(p, "/mcp"), "/")
+}
+
 // ServerBase is the server's base URL for an MCP endpoint URL: the terminal
-// /mcp segment, a trailing slash, the query and the fragment are dropped, so
+// /mcp or /mcp/routed segment, a trailing slash, the query and the fragment are dropped, so
 // "https://host/prefix/mcp" gives a URL whose path is "/prefix". Health and
 // AtlasURL both build on it, so the routes they derive cannot drift.
 func ServerBase(serverURL string) (*url.URL, error) {
@@ -622,7 +699,7 @@ func ServerBase(serverURL string) (*url.URL, error) {
 	if err != nil {
 		return nil, fmt.Errorf("client: invalid server URL %q: %w", serverURL, err)
 	}
-	u.Path = strings.TrimRight(strings.TrimSuffix(strings.TrimRight(u.Path, "/"), "/mcp"), "/")
+	u.Path = stripMCPPath(u.Path)
 	u.RawQuery = ""
 	u.Fragment = ""
 	return u, nil
@@ -949,8 +1026,7 @@ func (c *MCPClient) apiCallInto(method, route, kbName string, body, out any, tim
 	if err != nil {
 		return fmt.Errorf("client: invalid server URL %q: %w", c.ServerURL, err)
 	}
-	u.Path = strings.TrimSuffix(strings.TrimRight(u.Path, "/"), "/mcp")
-	u.Path = strings.TrimRight(u.Path, "/") + route
+	u.Path = stripMCPPath(u.Path) + route
 	u.Fragment = ""
 	q := url.Values{}
 	if kbName != "" {
@@ -1048,7 +1124,11 @@ const InternalErrorPrefix = "internal error"
 // tool's own isError flag so a caller can hand a tool-level refusal back to a
 // model. Transport and JSON-RPC failures remain *RemoteError.
 func (c *MCPClient) CallTool(tool string, args any) (ToolOutput, error) {
-	raw, err := c.do("tools/call", map[string]any{"name": tool, "arguments": args})
+	targs, err := c.toolArgs(args)
+	if err != nil {
+		return ToolOutput{}, err
+	}
+	raw, err := c.do("tools/call", map[string]any{"name": tool, "arguments": targs})
 	if err != nil {
 		return ToolOutput{}, err
 	}
@@ -1076,7 +1156,11 @@ func (c *MCPClient) Call(tool string, args any) (json.RawMessage, error) {
 // CallContext is Call under a context: when it ends the request is abandoned,
 // so a caller that reports a deadline does not leave a write running.
 func (c *MCPClient) CallContext(ctx context.Context, tool string, args any) (json.RawMessage, error) {
-	raw, err := c.doCtx(ctx, "tools/call", map[string]any{"name": tool, "arguments": args})
+	targs, err := c.toolArgs(args)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := c.doCtx(ctx, "tools/call", map[string]any{"name": tool, "arguments": targs})
 	if err != nil {
 		return nil, err
 	}
@@ -1155,11 +1239,15 @@ func (c *MCPClient) ListToolsContext(ctx context.Context) ([]ToolInfo, error) {
 			if t.Name == "" {
 				continue
 			}
+			schema := t.InputSchema
+			if c.routedKB != "" {
+				schema = hideRoutedKB(schema)
+			}
 			out = append(out, ToolInfo{
 				Name:        t.Name,
 				ReadOnly:    t.Annotations != nil && t.Annotations.ReadOnlyHint,
 				Description: t.Description,
-				InputSchema: t.InputSchema,
+				InputSchema: schema,
 			})
 		}
 		if res.NextCursor == "" || res.NextCursor == cursor {

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"slices"
@@ -70,6 +72,40 @@ type surveyorEnv struct {
 	models map[string]surveyor.Model // by profile name
 	// settings is the report posted to the server (typed entries, no secret).
 	settings *surveyorconfig.Report
+	// routed is true when client talks to the server's routed endpoint with
+	// the perimeter in ?kbs= (#2088): each KB's caller then names it as a tool
+	// argument instead of ?kb=.
+	routed bool
+}
+
+// kbClient is the client of one KB of the perimeter.
+func (e *surveyorEnv) kbClient(kb string) *client.MCPClient {
+	if e.routed {
+		return e.client.WithRoutedKB(kb)
+	}
+	return e.client.WithKB(kb)
+}
+
+// routedPerimeterURL is the URL a Surveyor uses on a routed server (D-new
+// surveyor-routed-perimeter): the routed path the server advertises, with
+// ?kbs=<kbs of the config>, whichever of /mcp and /mcp/routed server_url names.
+// pinned is true when server_url already carries ?kb=, which pins one KB and is
+// left alone.
+func routedPerimeterURL(serverURL, routedPath string, kbs []string) (routed string, pinned bool) {
+	u, err := url.Parse(serverURL)
+	if err != nil {
+		return serverURL, true
+	}
+	pinned = u.Query().Has("kb")
+	// A reverse proxy's prefix in server_url (".../prefix/mcp") stays in front of
+	// the routed path, unless the server already advertises it with the prefix.
+	u.Path = routedPath
+	if base, err := client.ServerBase(serverURL); err == nil && base.Path != "" && !strings.HasPrefix(routedPath, base.Path+"/") {
+		u.Path = base.Path + routedPath
+	}
+	u.RawQuery = url.Values{"kbs": {strings.Join(kbs, ",")}}.Encode()
+	u.Fragment = ""
+	return u.String(), pinned
 }
 
 // closeTimeout bounds each closing log_append on shutdown; the entries are
@@ -97,9 +133,9 @@ var surveyorRunFn = func(ctx context.Context, env *surveyorEnv, once bool) int {
 		}}
 	r, err := surveyor.NewRunner(env.cfg, surveyor.DefaultKinds(), surveyor.RunnerOptions{
 		Callers: func(kb string) surveyor.ToolCaller {
-			return surveyor.ObserveCalls(env.client.WithKB(kb).WithHTTPTimeout(toolCallTimeout), candidates, kb)
+			return surveyor.ObserveCalls(env.kbClient(kb).WithHTTPTimeout(toolCallTimeout), candidates, kb)
 		},
-		CloseCallers: func(kb string) surveyor.ToolCaller { return env.client.WithKB(kb).WithHTTPTimeout(closeTimeout) },
+		CloseCallers: func(kb string) surveyor.ToolCaller { return env.kbClient(kb).WithHTTPTimeout(closeTimeout) },
 		Models:       env.models,
 		Idle:         beater,
 		Heartbeat:    beater,
@@ -241,10 +277,34 @@ func surveyorStartup(ctx context.Context, path string, kinds *surveyor.Kinds, re
 	if err != nil {
 		return nil, err
 	}
+	// A routed server serves the perimeter on its routed endpoint: /mcp alone
+	// answers 400 "kb parameter required" there.
+	routed := false
+	if h.Routed() {
+		if u, pinned := routedPerimeterURL(cfg.ServerURL, h.RoutedPath, cfg.KBs); !pinned {
+			c.ServerURL, routed = u, true
+		}
+	}
 	// An invalid token never makes Health fail (a public path, served as an
 	// anonymous caller: 200 with no kbs), so the token is checked by Ping.
 	if err := c.Ping(startupCallTimeout); err != nil {
-		return nil, startFail(surveyorExitStart, "the server at %s did not accept the token: %v", cfg.ServerURL, err)
+		var re *client.RemoteError
+		if errors.As(err, &re) && (re.Code == client.CodeUnauthorized || re.HTTPStatus == http.StatusUnauthorized || re.HTTPStatus == http.StatusForbidden) {
+			return nil, startFail(surveyorExitStart, "the server at %s did not accept the token: %v", cfg.ServerURL, err)
+		}
+		if routed && strings.Contains(err.Error(), "unknown kb in kbs") {
+			return nil, startFail(surveyorExitStart, "the token in $%s does not see any of the KB(s) %s: %v", cfg.TokenEnv, strings.Join(cfg.KBs, ", "), err)
+		}
+		hint := ""
+		if strings.Contains(err.Error(), "kb parameter required") {
+			if h.Routed() {
+				u, _ := routedPerimeterURL(cfg.ServerURL, h.RoutedPath, cfg.KBs)
+				hint = fmt.Sprintf(" (the server is routed: set server_url to %s)", u)
+			} else {
+				hint = " (the server serves one endpoint per KB: add ?kb=<name> to server_url)"
+			}
+		}
+		return nil, startFail(surveyorExitStart, "the server at %s answered the start-up check with an error: %v%s", cfg.ServerURL, err, hint)
 	}
 	// A server that names its component protocol is checked before the first
 	// beat; one that does not predates the field and is handled by the beat's 404.
@@ -268,7 +328,7 @@ func surveyorStartup(ctx context.Context, path string, kinds *surveyor.Kinds, re
 	if len(missing) > 0 {
 		return nil, startFail(surveyorExitStart, "the token in $%s does not see KB(s) %s", cfg.TokenEnv, strings.Join(missing, ", "))
 	}
-	env := &surveyorEnv{cfg: cfg, client: c, models: models}
+	env := &surveyorEnv{cfg: cfg, client: c, models: models, routed: routed}
 	// The report is made from the file the surveyor loaded; it carries no secret
 	// (D1259), and a failure to make it only means the Atlas shows none.
 	if raw, err := os.ReadFile(path); err == nil {
@@ -314,4 +374,20 @@ func healthWithRetry(ctx context.Context, c *client.MCPClient, r retryPolicy) (*
 		}
 		delay = min(delay*2, r.max)
 	}
+}
+
+// surveyorKBClient is the client of one KB for a command that has no start-up
+// check of its own (`surveyor source test`): on a routed server it addresses the
+// KB as surveyorStartup does, otherwise by ?kb=. A health failure leaves the
+// per-KB addressing, and the caller's Ping then reports what is wrong.
+func surveyorKBClient(c *client.MCPClient, cfg *surveyor.Config, kb string) *client.MCPClient {
+	h, err := c.Health(startupCallTimeout)
+	if err == nil && h.Routed() {
+		if u, pinned := routedPerimeterURL(cfg.ServerURL, h.RoutedPath, cfg.KBs); !pinned {
+			rc := c.WithKB("")
+			rc.ServerURL = u
+			return rc.WithRoutedKB(kb)
+		}
+	}
+	return c.WithKB(kb)
 }
