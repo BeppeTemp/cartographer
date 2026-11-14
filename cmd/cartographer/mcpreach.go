@@ -43,6 +43,8 @@ func mcpNotReceivedReasons(projections []syncProjection, manifests map[string]co
 			kb := strings.TrimPrefix(a.Source, "kb:")
 			var reason string
 			switch {
+			case pluginWritesNoDescriptors(provider, p.Scope) != "":
+				reason = pluginWritesNoDescriptors(provider, p.Scope)
 			case !mcpCellSupported(p.Scope, provider):
 				reason = fmt.Sprintf("%s has no MCP file for a workspace projection (see docs/harnesses.md)", p.Provider)
 			case provisioning.PendingApproval(a, provisioning.ApplyOptions{Provider: provider, Scope: p.Scope, ApprovedMCP: approvals}):
@@ -60,6 +62,33 @@ func mcpNotReceivedReasons(projections []syncProjection, manifests map[string]co
 		sort.Slice(out[projectionKey(p)], func(i, j int) bool { return out[projectionKey(p)][i].Name < out[projectionKey(p)][j].Name })
 	}
 	return out
+}
+
+// pluginWritesNoDescriptors is why a plugin provider has no "mcp" destination in
+// the scope, from its descriptor: `cli` and `none` write no MCP file, and a
+// `mcp.config` glob gets Cartographer's own entry in each match, never a KB
+// descriptor (docs/plugins.md §Destination cells). "" for a built-in provider
+// (its project cell is judged by mcpCellSupported, and the global scope has no
+// "mcp" row by design), for a provider that has the cell, and for one whose file
+// is the base's or a literal one (only its project scope lacks the cell, and
+// mcpCellSupported says so).
+func pluginWritesNoDescriptors(provider configurator.Provider, scope contract.Scope) string {
+	if _, ok := contract.PluginFor(provider); !ok || contract.DestDirScoped("mcp", "", provider, scope) != "" {
+		return ""
+	}
+	d, ok := configurator.Lookup(provider)
+	if !ok {
+		return ""
+	}
+	switch {
+	case d.MCPMode == configurator.MCPModeCLI:
+		return fmt.Sprintf("%s reaches Cartographer through `cartographer call` (mcp mode cli), so it has no MCP file", provider)
+	case d.MCPMode == configurator.MCPModeNone:
+		return fmt.Sprintf("%s declares mcp mode none, so it has no MCP file", provider)
+	case d.MCPConfigGlob != "":
+		return fmt.Sprintf("%s's mcp.config is a pattern (%s): Cartographer's own entry is written into each match, a KB descriptor is not (docs/plugins.md §Destination cells)", provider, d.MCPConfigGlob)
+	}
+	return ""
 }
 
 // mcpCellSupported: the global matrix has no "mcp" row (the entry is merged into

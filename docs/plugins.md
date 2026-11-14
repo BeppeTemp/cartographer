@@ -605,7 +605,7 @@ removed after a write that changed bytes, never after a no-op, and only when at 
 behind a link; servers added through the agent client's UI are dropped at its next start. Disconnect edits only the files
 the entry is in. `cli` writes no entry and projects the bundled `cartographer-cli` skill, and the instructions block
 names the provider to pass to `cartographer call`, whose KB set the folder's workspace bindings narrow, derived ones included, with the projection scope unchanged (#1804); `none` writes neither, and `connect`, `sync`, `disconnect` and
-`doctor` skip it without a warning.
+`doctor` skip it without a warning. A KB's MCP descriptor reaches none of the providers without an `mcp` destination (`cli`, `none`, a glob `mcp.config`): `sync` says `[<provider>] mcp <name>: not written: <reason>` for each, and `status` lists it (`mcp_not_received`), in the global scope as in the workspace one.
 
 In `cli` mode the provider name reaches the agent only through the instructions block, so a `cli` provider needs:
 
