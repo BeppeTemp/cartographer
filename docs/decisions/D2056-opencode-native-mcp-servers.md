@@ -44,6 +44,11 @@ and a native entry the client wrote for another server is untouched. A server na
 user's own entry fails with the reason, and a KB descriptor is skipped with a warning, because the
 V1 flat key is the section itself and writing it would replace the user's servers or timeout
 defaults. `oauth: false` keeps a bearer-header server from starting an authorization flow the
-server cannot serve. Residual risk: an unreadable version on a 1.x install writes the native shape,
-which 1.x ignores; the normal case is the client on `PATH`, which is read correctly. D1172 (the
+server cannot serve. Residual risk: an unreadable version (timer sync with no `opencode` on `PATH`, probe timeout)
+cannot tell 1.x from 2.x, so the shape already on disk for that server is kept (flat stays flat,
+native stays native, neither writes the native default, D719); only a fresh install on an
+unreadable 1.x writes the native shape, which 1.x ignores until the next sync that reads the
+version. A merge never replaces what the user wrote: `mcp` or `mcp.servers` that is not an
+object, or a V1 server entry named `servers` where the native section would go, is refused
+(`ErrMCPSectionUnusable`, file untouched; a KB descriptor is skipped with a warning). D1172 (the
 file's location) is unchanged.

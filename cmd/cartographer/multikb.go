@@ -882,6 +882,9 @@ func isEntryUnchangedIn(provider string, d configurator.Descriptor, entries []mc
 	if json.Unmarshal(data, &existing) != nil || json.Unmarshal(r.Content, &emit) != nil {
 		return false
 	}
+	if r.MCPShapeUnknown {
+		configurator.AdaptUnknownShape(existing, emit, configurator.Provider(provider), r.MCPServerPath)
+	}
 	got, _ := configurator.MCPServerEntry(existing, configurator.Provider(provider), e.Name)
 	want, _ := configurator.MCPServerEntry(emit, configurator.Provider(provider), e.Name)
 	return reflect.DeepEqual(got, want)

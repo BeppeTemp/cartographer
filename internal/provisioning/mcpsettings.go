@@ -85,7 +85,9 @@ func registerMCPServer(baseDir, name string, spec configurator.ServerSpec, provi
 	// One merge, in every shape the provider reads: an entry of another shape
 	// with the same name is removed, or it would shadow the one just written
 	// (D2056).
-	configurator.MergeMCPEmission(settings, incoming, provider, r.MCPServerPath)
+	if err := configurator.MergeMCPEmissionShaped(settings, incoming, provider, r.MCPServerPath, r.MCPShapeUnknown); err != nil {
+		return "", nil, fmt.Errorf("provisioning: mcp %s in %s: %w", name, r.FilePath, err)
+	}
 	// OpenCode's "$schema" hint (see configurator's emitOpenCodeServer): keep
 	// whatever is already there, only add it if this is a brand-new file.
 	if schema, ok := incoming["$schema"]; ok {

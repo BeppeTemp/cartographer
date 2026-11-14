@@ -1463,6 +1463,13 @@ writes and the client reads natively (D2056):
 **OpenCode 1.x** gets the V1 flat map instead, `mcp.<name>` with `"enabled": true`; 2.x still
 normalizes it on load, so a file an older Cartographer wrote keeps working until the next `sync`
 converges it on the native shape above.
+When the installed version cannot be read (`opencode` off `PATH` in a timer `sync`, a probe
+timeout) the shape already on disk for that server is kept: a flat `mcp.<name>` entry stays flat
+(rewritten with `enabled`, no `oauth`), a native one stays native, and neither writes the native
+default. A merge that would replace what the user wrote is refused instead, with
+`ErrMCPSectionUnusable` and the file untouched: `mcp` or `mcp.servers` that is not an object, or
+`mcp.servers` that is a V1 server entry (a server named `servers`). `connect`/`sync` report it, a KB
+descriptor is skipped with a warning.
 
 > **Known risk**: OpenCode is SSE-first and support for custom headers on a remote MCP
 > may require `mcp-remote`/`mcp-auth.json`.

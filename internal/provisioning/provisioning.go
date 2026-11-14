@@ -1696,7 +1696,7 @@ hookLoop:
 				}
 				rp, warnings, regErr := registerMCPServer(opts.BaseDir, a.Name, spec, opts.Provider, opts.Scope, opts.OpenCodeMajor)
 				if regErr != nil {
-					if errors.Is(regErr, configurator.ErrMCPNameUnrepresentable) {
+					if errors.Is(regErr, configurator.ErrMCPNameUnrepresentable) || errors.Is(regErr, configurator.ErrMCPSectionUnusable) {
 						// The client cannot carry this name without ambiguity: skip the
 						// one artifact with a warning, never fail the whole sync
 						// (D69's rule for a part of the spec a provider cannot hold).

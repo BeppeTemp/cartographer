@@ -304,3 +304,115 @@ func TestRemove_OpenCodeRemovesBothShapes(t *testing.T) {
 		t.Error("another server of the user was dropped")
 	}
 }
+
+func applyOpenCodeFile(t *testing.T, before string, opts ...configurator.EmitOption) (string, error) {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, filepath.FromSlash(configurator.OpenCodeConfigPath))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(before), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &configurator.ServerConfig{Name: "cartographer", URL: "https://example.com/mcp"}
+	r, err := configurator.Emit(cfg, configurator.ProviderOpenCode, opts...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, applyErr := configurator.Apply([]*configurator.EmitResult{r}, dir, false)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data), applyErr
+}
+
+// An unreadable version (opencode off PATH in a timer sync) must not strip a
+// 1.x install of its flat entry: the shape on disk is kept.
+func TestApply_OpenCodeUnknownMajorKeepsTheFlatShape(t *testing.T) {
+	const before = `{"mcp": {"cartographer": {"type": "remote", "url": "https://example.com/mcp", "enabled": true}}}`
+	out, err := applyOpenCodeFile(t, before)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var root map[string]any
+	if err := json.Unmarshal([]byte(out), &root); err != nil {
+		t.Fatal(err)
+	}
+	mcp := root["mcp"].(map[string]any)
+	if _, native := mcp["servers"]; native {
+		t.Errorf("unknown major wrote the native shape over a flat entry:\n%s", out)
+	}
+	if e, _ := mcp["cartographer"].(map[string]any); e == nil || e["enabled"] != true || e["url"] != "https://example.com/mcp" {
+		t.Errorf("flat entry lost or changed:\n%s", out)
+	}
+	if again, err := applyOpenCodeFile(t, out); err != nil || again != out {
+		t.Errorf("a second sync changed the file (err %v):\n%s", err, again)
+	}
+}
+
+func TestApply_OpenCodeUnknownMajorKeepsNativeAndDefaultsWhenNeither(t *testing.T) {
+	out, err := applyOpenCodeFile(t, `{"mcp": {"servers": {"cartographer": {"type": "remote", "url": "https://old.example.com/mcp"}}}}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := openCodeServers(t, []byte(out))["cartographer"].(map[string]any)["url"]; got != "https://example.com/mcp" {
+		t.Errorf("native entry not updated in place: %v", got)
+	}
+	out, err = applyOpenCodeFile(t, `{}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if openCodeServers(t, []byte(out))["cartographer"] == nil {
+		t.Errorf("neither shape present must write the default native one:\n%s", out)
+	}
+}
+
+// A known 2.x major converges the flat entry as before (the unknown case keeps it).
+func TestApply_OpenCodeKnownMajor2StillConvergesFlat(t *testing.T) {
+	const before = `{"mcp": {"cartographer": {"type": "remote", "url": "https://example.com/mcp", "enabled": true}}}`
+	out, err := applyOpenCodeFile(t, before, configurator.ForOpenCodeMajor(2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var root map[string]any
+	if err := json.Unmarshal([]byte(out), &root); err != nil {
+		t.Fatal(err)
+	}
+	if _, flat := root["mcp"].(map[string]any)["cartographer"]; flat {
+		t.Errorf("flat entry survived a known 2.x write:\n%s", out)
+	}
+}
+
+// A value the native write would replace is the user's: the merge refuses and
+// the file is untouched.
+func TestApply_OpenCodeRefusesToDiscardWhatTheSectionHolds(t *testing.T) {
+	for name, before := range map[string]string{
+		"mcp is not an object":         `{"mcp": "off"}`,
+		"mcp.servers is not an object": `{"mcp": {"servers": ["a"]}}`,
+		"V1 server named servers":      `{"mcp": {"servers": {"type": "remote", "url": "https://example.com/mcp"}}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			out, err := applyOpenCodeFile(t, before, configurator.ForOpenCodeMajor(2))
+			if !errors.Is(err, configurator.ErrMCPSectionUnusable) {
+				t.Fatalf("err = %v, want ErrMCPSectionUnusable", err)
+			}
+			if out != before {
+				t.Errorf("a refused merge modified the file:\n%s", out)
+			}
+		})
+	}
+}
+
+func TestMergeMCPEmission_RefusesAndLeavesRootUntouched(t *testing.T) {
+	root := map[string]any{"mcp": map[string]any{"servers": map[string]any{"type": "local", "command": []any{"x"}}}}
+	emitted := map[string]any{"mcp": map[string]any{"servers": map[string]any{"a": map[string]any{"type": "remote"}}}}
+	err := configurator.MergeMCPEmission(root, emitted, configurator.ProviderOpenCode, []string{"mcp", "servers"})
+	if !errors.Is(err, configurator.ErrMCPSectionUnusable) {
+		t.Fatalf("err = %v", err)
+	}
+	if _, nested := root["mcp"].(map[string]any)["servers"].(map[string]any)["a"]; nested {
+		t.Error("native entry nested into the V1 entry")
+	}
+}

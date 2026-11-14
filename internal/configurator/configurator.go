@@ -156,6 +156,12 @@ type EmitResult struct {
 	// would look like the native section (D2056). Empty for a single-shape
 	// provider.
 	MCPServerPath []string
+	// MCPShapeUnknown is set when the emitter wrote the native OpenCode shape
+	// only as a default, because the installed major could not be read. The
+	// merge then keeps the shape a server already has on disk
+	// (MergeMCPEmissionShaped), so a 1.x install is not stripped of its flat
+	// entry by a sync that could not run the client.
+	MCPShapeUnknown bool
 	// viaGlob marks one expansion of a FileGlob result: the stale files are
 	// removed once, after all of them.
 	viaGlob bool
@@ -392,7 +398,10 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 		// Non-JSON files (e.g. SKILL.md) are always overwritten.
 		if filepath.Ext(fullPath) == ".json" {
 			if existing, err := os.ReadFile(fullPath); err == nil {
-				merged, mergeErr := mergeJSON(existing, r.Content, r.Provider, r.MCPServerPath)
+				merged, mergeErr := mergeJSON(existing, r.Content, r.Provider, r.MCPServerPath, r.MCPShapeUnknown)
+				if errors.Is(mergeErr, ErrMCPSectionUnusable) {
+					return written, fmt.Errorf("%s: %w", fullPath, mergeErr)
+				}
 				if mergeErr != nil {
 					return written, fmt.Errorf("existing file %s is not valid JSON: %w — fix or delete it manually", fullPath, mergeErr)
 				}
@@ -744,7 +753,7 @@ func removeLegacyCodexJSON(name, baseDir string, dryRun bool) (bool, error) {
 // mergeJSON deep-merges incoming JSON into existing JSON at the top map level.
 // Returns an error if existing is malformed JSON (user must fix or delete the file).
 // If incoming cannot be parsed, incoming bytes are returned as-is.
-func mergeJSON(existing, incoming []byte, provider Provider, at []string) ([]byte, error) {
+func mergeJSON(existing, incoming []byte, provider Provider, at []string, shapeUnknown bool) ([]byte, error) {
 	// Ordered, in the file's own layout (#1502): key order, indent, CRLF, the
 	// final newline and number digits survive the merge.
 	existMap, layout, err := jsonorder.Parse(existing)
@@ -760,7 +769,9 @@ func mergeJSON(existing, incoming []byte, provider Provider, at []string) ([]byt
 	// the old and new args. MergeMCPEmission merges at the level of the server
 	// map, at the path the emitter wrote (at), and removes an older shape of the
 	// same name so it cannot shadow what was just written (D2056).
-	MergeMCPEmission(existMap, incomMap, provider, at)
+	if err := MergeMCPEmissionShaped(existMap, incomMap, provider, at, shapeUnknown); err != nil {
+		return nil, err
+	}
 	// The server maps are consumed: drop them from the incoming object so the
 	// deep merge below does not reintroduce a sibling shape.
 	for _, path := range mcpServerPaths(provider) {
@@ -1177,10 +1188,11 @@ func emitOpenCodeServer(name string, spec ServerSpec, opts EmitOptions) (*EmitRe
 		return nil, err
 	}
 	return &EmitResult{
-		Provider:      ProviderOpenCode,
-		FilePath:      OpenCodeConfigPath,
-		MCPServerPath: serverPath,
-		Content:       content,
+		Provider:        ProviderOpenCode,
+		FilePath:        OpenCodeConfigPath,
+		MCPServerPath:   serverPath,
+		MCPShapeUnknown: opts.OpenCodeMajor == 0,
+		Content:         content,
 	}, nil
 }
 
