@@ -1,214 +1,198 @@
-// The plugins film: a plugin adds clients, commands and tools, and you approve exactly what runs. One terminal card
-// types the commands of docs/plugins.md §Add a script: the example plugin; every command line and every line of output
-// comes from film/transcripts/plugins.txt, which the real binary wrote (film/transcripts/plugins.sh) and the e2e
-// scenario 31_film_transcripts keeps equal to it. The page only folds long outputs (a `…` line) and never edits a line.
+// The plugins film: "Extend Cartographer with plugins." What a plugin is (a folder or a git repository whose parts go
+// to each component), one plugin for a company, then installing it: a preview, the approval, and the digest that stops
+// it when one byte changes. Same parts as the deployment film (./parts).
 // Like every film it is a pure function of time: frame(n) sets every element from t = n / FPS.
 import "../film.css";
 import "../../docs/brand/cartographer.css";
 import "../../web/src/styles/tokens.css";
 import logoUrl from "../../docs/brand/coordinate-pine.svg";
-import raw from "../transcripts/plugins.txt?raw";
-import { clamp01, defineFilm, fade, mk, prog, reveal, vis } from "./kit";
+import { clamp01, defineFilm, fade, mk, reveal, stage, vis } from "./kit";
+import { CODE, COL, COLOR, type Comp, NAME, PAPER, ROLE, SERIF, endCard, heading, how, pill } from "./parts";
 
 const FPS = 30;
+const IN = 0.5, OUT = 0.45;
 
-// --- the transcript -------------------------------------------------------
-interface Step {
-  /** A note line (`>> ...`) written before the command, if any. */
-  note?: string;
-  cmd: string;
-  out: string[];
-}
-function parse(text: string): Step[] {
-  const steps: Step[] = [];
-  let note: string | undefined;
-  for (const line of text.replace(/\n+$/, "").split("\n")) {
-    if (line.startsWith("$ ")) {
-      steps.push({ note, cmd: line.slice(2), out: [] });
-      note = undefined;
-    } else if (line.startsWith(">> ")) note = line.slice(3);
-    else if (steps.length) steps[steps.length - 1]!.out.push(line);
-    else throw new Error(`plugins.txt: a line before the first command: ${line}`);
-  }
-  return steps;
-}
-const STEPS = parse(raw);
-if (STEPS.length !== 9) throw new Error(`plugins.txt holds ${STEPS.length} commands, the film tells 9: regenerate it (make film-transcripts) and revise the scenes`);
+/** An element on screen from `from` to `to` (s, absolute). */
+interface Shot { el: HTMLElement; from: number; to: number }
+const SHOTS: Shot[] = [];
+const on = (el: HTMLElement, from: number, to: number) => { SHOTS.push({ el, from, to }); return el; };
 
-/** Keeps the lines `keep` accepts; a run of dropped lines becomes one `  …` line. */
-function fold(lines: string[], keep: RegExp): string[] {
-  const out: string[] = [];
-  for (const l of lines) {
-    if (keep.test(l)) out.push(l);
-    else if (out[out.length - 1] !== "  …") out.push("  …");
-  }
-  return out;
+/** A line that draws itself from (x1, y1) to (x2, y2) from `from`, and fades at `to`. */
+interface Wire { ln: SVGLineElement; x1: number; y1: number; x2: number; y2: number; from: number; to: number }
+const WIRES: Wire[] = [];
+const SVG = "http://www.w3.org/2000/svg";
+const layer = document.createElementNS(SVG, "svg");
+layer.setAttribute("style", "position:absolute;left:0;top:0;width:1920px;height:1080px;overflow:visible;pointer-events:none");
+stage.appendChild(layer);
+function wire(x1: number, y1: number, x2: number, y2: number, color: string, from: number, to: number) {
+  const ln = document.createElementNS(SVG, "line");
+  ln.setAttribute("stroke", color);
+  ln.setAttribute("stroke-width", "4");
+  ln.setAttribute("stroke-linecap", "round");
+  ln.setAttribute("x1", String(x1));
+  ln.setAttribute("y1", String(y1));
+  layer.appendChild(ln);
+  WIRES.push({ ln, x1, y1, x2, y2, from, to });
 }
-const ALL = /^/;
-// What each command shows, by its index in the transcript. A folded line is the film's choice, never a changed one.
-const KEEP: RegExp[] = [
-  ALL, // validate
-  /^(plugin |  source|  digest|permissions:|  may |settings:|pending approval)/, // install, answered n
-  ALL, // the command before approval
-  /^(plugin |permissions:|  may |settings:|scripts|  lib\/|  plugin\.star  |registers:|  command|  event|  tool)/, // show --files
-  /^(plugin |Enabled)/, // approve
-  ALL, // config
-  ALL, // hello ada
-  ALL, // list
-  ALL, // hello ada, modified
-];
 
-// --- the scenes -----------------------------------------------------------
-interface Scene {
-  steps: number[];
-  caption: string;
-  sub: string;
-}
-const SCENES: Scene[] = [
-  { steps: [0], caption: "A plugin adds clients,<br>commands and tools.", sub: "validate lists what it registers; nothing has run" },
-  { steps: [1, 2], caption: "Nothing runs<br>until you approve it.", sub: "installed, not approved: the command exits 2" },
-  { steps: [3, 4], caption: "You read exactly<br>what runs.", sub: "permissions, scripts and their digests, per version" },
-  { steps: [5, 6], caption: "A setting is not code.", sub: "no second approval for a setting" },
-  { steps: [7, 8], caption: "Pinned by digest.", sub: "one byte changed: modified, and it stops" },
-];
+/** The kicker and caption of each stretch of the film. */
+const BEATS: { from: number; to: number; kicker: string; caption: string }[] = [];
+const { kicker, cap } = heading();
+const muted = (s: string) => `<span style="color:var(--carto-text-muted)">${s}</span>`;
 
-interface Row {
-  at: number;
-  text: string;
-  cls: string;
-  /** characters per second; absent = shown whole */
-  cps?: number;
+/** A component box with what the plugin adds to it, one `+` line each. */
+function adds(c: Comp, x: number, y: number, w: number, h: number, items: string[], size = 28): HTMLElement {
+  return mk(
+    "div",
+    "",
+    `<div style="display:flex;align-items:baseline;gap:18px"><span style="font:36px ${SERIF}">${NAME[c]}</span><span style="font:22px ${CODE};color:var(--carto-text-muted)">${ROLE[c]}</span></div>` +
+      items.map((i) => `<div style="font:${size}px/1.5 ${SERIF};margin-top:4px">+ ${i}</div>`).join(""),
+    `left:${x}px;top:${y}px;width:${w}px;height:${h}px;${PAPER};border:4px solid ${COLOR[c]};border-left-width:12px;padding:16px 24px`,
+  );
 }
-const TYPE_CPS = 32;
-const LINE_GAP = 0.07; // s between two lines of output
-const AFTER_CMD = 0.45; // s between the end of typing and the first line of output
-const BETWEEN = 0.9; // s between two commands
-const HOLD = 1.5; // s a scene is held after its last line
-const FIRST = 0.7; // s before the first command of a scene
 
-function rowClass(l: string): string {
-  if (l.startsWith("Error:") || l.startsWith("warning:") || l.startsWith("[exit")) return "err";
-  if (l === "  …") return "dim";
-  if (l.startsWith("pending approval") || l.startsWith("Enabled")) return "tool";
-  return "";
-}
-interface Timed {
-  start: number;
-  end: number;
-  scene: Scene;
-  rows: Row[];
-}
-const TIMED: Timed[] = [];
+// --- 1. what a plugin is (0–7.5 s) ---------------------------------------------
+const S1 = 0, S2 = 7.5, S3 = 15.5, S4 = 21.5, S5 = 27, END = 33;
+BEATS.push({ from: S1, to: S2, kicker: "Plugins", caption: "Extend Cartographer with plugins." });
 {
-  let cur = 0;
-  SCENES.forEach((scene) => {
-    const rows: Row[] = [];
-    let tl = FIRST;
-    scene.steps.forEach((k, j) => {
-      const step = STEPS[k]!;
-      if (step.note) {
-        rows.push({ at: tl, text: step.note, cls: "note" });
-        tl += 0.5;
-      }
-      rows.push({ at: tl, text: `$ ${step.cmd}`, cls: "cmd", cps: TYPE_CPS });
-      tl += step.cmd.length / TYPE_CPS + AFTER_CMD;
-      for (const l of fold(step.out, KEEP[k]!)) {
-        rows.push({ at: tl, text: l, cls: rowClass(l) });
-        tl += LINE_GAP;
-      }
-      if (j < scene.steps.length - 1) tl += BETWEEN;
-    });
-    TIMED.push({ start: cur, end: cur + tl + HOLD, scene, rows });
-    cur += tl + HOLD;
+  // the plugin: a folder or a git repository, one part per component
+  const TREE: [string, string][] = [
+    ["cartographer-plugin.yaml", "the manifest"],
+    ["client/", "skills · hooks · plugin.star"],
+    ["server/", "roles · presets"],
+    ["surveyor/", "recipes · connectors"],
+    ["atlas/", "branding · views · apps"],
+  ];
+  on(
+    mk(
+      "div",
+      "",
+      `<div style="font:22px ${CODE};color:var(--carto-text-muted)">a folder or a git repository</div><div style="font:48px/1.3 ${SERIF};margin-bottom:18px">a plugin</div>` +
+        TREE.map(([f, d]) => `<div style="height:96px;box-sizing:border-box;border-top:1px solid #DCDDD5;padding-top:14px"><div style="font:28px ${CODE}">${f}</div><div style="font:22px ${CODE};color:var(--carto-text-muted);margin-top:6px">${d}</div></div>`).join(""),
+      `left:${COL}px;top:290px;width:620px;height:640px;${PAPER};border:2px solid #DCDDD5;padding:26px 34px`,
+    ),
+    S1 + 0.5, S2,
+  );
+  // each part goes to its component
+  const items: Record<Comp, string> = {
+    compass: "a new agent client, skills, hooks, commands and tools",
+    meridian: "roles and presets for the server",
+    surveyor: "recipes and connectors to your sources",
+    atlas: "your branding, extra views and apps",
+  };
+  (["compass", "meridian", "surveyor", "atlas"] as Comp[]).forEach((c, k) => {
+    const y = 330 + k * 150;
+    on(adds(c, 1060, y, 760, 130, [items[c]]), S1 + 1.6 + k * 0.6, S2);
+    const ry = 290 + 26 + 22 + 62 + 18 + (k + 1) * 96 + 40; // the row of the tree that part comes from
+    wire(720, ry, 1060, y + 65, COLOR[c], S1 + 1.9 + k * 0.6, S2);
   });
 }
-const SCENES_END = TIMED[TIMED.length - 1]!.end;
-const END_CARD = 4.5; // s: the end card, from the last scene's end
-const DURATION = SCENES_END + END_CARD;
 
-// --- the page -------------------------------------------------------------
-const COL = 100;
-const day = mk("div", "day", "", `left:${COL}px;top:40px`);
-const cap = mk("div", "caption", "", `left:${COL}px;top:92px`);
-const CARD = { x: COL, y: 250, w: 1720, rows: 18, lh: 34 };
-const card = mk("div", "card", "", `left:${CARD.x}px;top:${CARD.y}px;width:${CARD.w}px`);
-card.innerHTML = '<div class="bar"><i class="live"></i><i></i><i></i><b>~ · example-forks</b></div>';
-const body = document.createElement("div");
-body.className = "body";
-body.style.cssText = `font:23px/${CARD.lh}px var(--carto-font-code);height:${CARD.rows * CARD.lh}px;white-space:pre;overflow:hidden`;
-card.appendChild(body);
+// --- 2. one plugin for a company (7.5–15.5 s) --------------------------------------
+BEATS.push({ from: S2, to: S3, kicker: "An example", caption: "One plugin, the same for the whole company." });
+{
+  on(
+    mk(
+      "div",
+      "",
+      `<div style="font:22px ${CODE};color:var(--carto-text-muted)">a plugin</div><div style="font:60px/1.2 ${SERIF}">acme-tools</div><div style="font:22px ${CODE};color:var(--carto-text-muted)">gitlab.example.com/acme</div>`,
+      `left:760px;top:490px;width:400px;height:200px;box-sizing:border-box;border:4px solid var(--carto-text);border-radius:20px;background:#FFFFFF;padding:24px 30px;box-shadow:0 26px 52px rgba(37,40,36,.24)`,
+    ),
+    S2 + 0.4, S3,
+  );
+  const C: [Comp, number, number, string[]][] = [
+    ["atlas", 100, 290, ["the Acme logo and colours", "a view of open incidents"]],
+    ["surveyor", 1260, 290, ["a connector to the ticket system", "a recipe that files the runbooks"]],
+    ["compass", 100, 710, ["acme-agent, the in-house agent", "a deploy command for every agent"]],
+    ["meridian", 1260, 710, ["an on-call role that may only read", "a preset for new team KBs"]],
+  ];
+  C.forEach(([c, x, y, it], k) => {
+    on(adds(c, x, y, 560, 190, it, 28), S2 + 1.4 + k * 0.7, S3);
+    const left = x < 760;
+    wire(left ? 760 : 1160, y < 500 ? 520 : 660, left ? 660 : 1260, y + 95, COLOR[c], S2 + 1.7 + k * 0.7, S3);
+  });
+}
 
-// The end card covers the scenes; created last so it is on top.
-const veil = mk("div", "", "");
-veil.id = "veil";
-const logo = mk("img", "", "", "left:310px;top:300px;width:150px;height:150px") as HTMLImageElement;
-logo.src = logoUrl;
-const word = mk("div", "wordmark", "Approved per version.", "left:500px;top:286px;font-size:88px");
-const word2 = mk("div", "wordmark", "Pinned by digest.", "left:500px;top:392px;font-size:88px");
-// The contribution points of docs/plugins.md §Contribution points that exist in this build, by side.
-const pts = mk(
-  "div",
-  "url",
-  "client &nbsp;skills · agents · hooks · providers · scripts (commands, tools, sync handlers)<br>server &nbsp;roles · presets<br>atlas &nbsp;&nbsp;branding · views · apps",
-  "left:504px;top:540px;font-size:28px;line-height:1.6;white-space:nowrap",
-);
-const url = mk("div", "url", "github.com/BeppeTemp/cartographer", "left:504px;top:700px");
+// --- 3–5. installing it: preview, approval, digest (15.5–33 s) ---------------------
+BEATS.push({ from: S3, to: S4, kicker: "Install", caption: "Install from a folder or a git repository." });
+BEATS.push({ from: S4, to: S5, kicker: "Approval", caption: "Nothing runs until you approve it." });
+BEATS.push({ from: S5, to: END, kicker: "Integrity", caption: "What runs is pinned by digest." });
+{
+  // the left column: where it comes from, then what each beat means
+  on(
+    mk("div", "", `<div style="font:22px ${CODE};color:var(--carto-text-muted)">the source</div><div style="font:30px/1.4 ${CODE};margin-top:8px">https://gitlab.example.com/<br>acme/acme-tools.git<br>${muted("@ v1.2")}</div>`,
+      `left:${COL}px;top:300px;width:600px;height:200px;${PAPER};border:2px solid #DCDDD5;padding:24px 30px`),
+    S3 + 0.4, END,
+  );
+  wire(700, 400, 820, 400, "var(--carto-text-muted)", S3 + 1.0, END);
+  const NOTE = `left:${COL}px;top:560px;width:600px;font:40px/1.3 ${SERIF}`;
+  on(mk("div", "", "Pinned to one commit. You see everything before anything runs.", NOTE), S3 + 2.2, S4);
+  on(mk("div", "", "You read what it may do, then you say yes. A new version asks again.", NOTE), S4 + 1.6, S5);
+  on(mk("div", "", `One byte of a script changes on disk. ${muted("The digest no longer matches: it stops until you approve again.")}`, NOTE), S5 + 1.4, END);
 
-const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
-const last = { html: "" };
+  // the preview, on screen from the install to the end: an illustration of what `plugin install` shows, its "may"
+  // lines worded as internal/plugin/preview.go words them
+  const row = (k: string, v: string) => `<div style="display:flex;gap:20px;font:26px/1.75 ${CODE}"><span style="width:140px;color:var(--carto-text-muted)">${k}</span><span>${v}</span></div>`;
+  on(
+    mk(
+      "div",
+      "",
+      `<div style="font:46px ${SERIF}">acme-tools ${muted(`<span style="font:26px ${CODE}">v1.2 · commit 4f9c2e1</span>`)}</div>` +
+        `<div style="margin-top:18px;border-top:1px solid #DCDDD5;padding-top:12px">` +
+        row("adds", "client acme-agent · command deploy") +
+        row("", "connector tickets · Acme branding") +
+        row("may", "reach hosts: tickets.example.com") +
+        row("", "read environment variables: TICKETS_TOKEN") +
+        row("settings", "tickets_url · team") +
+        `</div><div style="margin-top:12px;border-top:1px solid #DCDDD5;padding-top:12px">` +
+        row("runs", `plugin.star&nbsp;&nbsp; ${muted("sha256:9f2c…41ab")}`) +
+        row("", `surveyor.star <span id="pv-digest"></span>`) +
+        `</div>`,
+      `left:820px;top:300px;width:1000px;height:560px;${PAPER};border:2px solid #DCDDD5;border-left:12px solid var(--carto-text);padding:28px 36px`,
+    ),
+    S3 + 0.9, END,
+  );
+  // the state, right-aligned in the preview's top corner
+  const state = (text: string, bg: string) => {
+    const el = pill(text, bg, 0, 322);
+    el.style.left = "auto";
+    el.style.right = "130px";
+    return el;
+  };
+  on(state("pending approval", COLOR.surveyor), S3 + 1.6, S4 + 1.0);
+  on(state("approved · v1.2", COLOR.meridian), S4 + 1.2, S5 + 1.8);
+  on(state("modified · stopped", COLOR.surveyor), S5 + 2.0, END);
+
+  on(how("cartographer plugin install https://gitlab.example.com/acme/acme-tools.git@v1.2", "a preview, nothing enabled"), S3 + 2.6, S4);
+  on(how("cartographer plugin approve acme-tools", "once per version"), S4 + 2.2, S5);
+}
+const digest = document.getElementById("pv-digest")!;
+const DIGEST_CHANGED = S5 + 1.2;
+
+// --- the end card -----------------------------------------------------------
+const end = endCard(logoUrl, "Approved per version.", "Pinned by digest.");
+const DURATION = END + 4.5;
 
 function frame(n: number) {
   const t = n / FPS;
-  const si = Math.max(0, TIMED.findIndex((s) => t >= s.start && t < s.end));
-  const inScenes = t < SCENES_END;
-  const cur = inScenes ? TIMED[si]! : TIMED[TIMED.length - 1]!;
-  const tl = t - cur.start;
-
-  // the caption and the counter of the scene, crossfading at its edges
-  const edge = inScenes ? reveal(tl, 0.2) * fade(tl, cur.end - cur.start - 0.4, 0.4) : 0;
-  day.textContent = `${si + 1} / ${SCENES.length}`;
-  cap.innerHTML = `${cur.scene.caption}<div class="sub24">${esc(cur.scene.sub)}</div>`;
-  vis(day, edge, 12);
-  vis(cap, edge, 12);
-  vis(card, inScenes ? reveal(t, 0, 0.5) * (1 - prog(t, SCENES_END, 0.5)) : 0, 16);
-
-  // the terminal: the rows whose time has come, the last `rows` of them (it follows its tail)
-  const shown = cur.rows.filter((r) => tl >= r.at);
-  const view = shown.slice(-CARD.rows);
-  let html = "";
-  view.forEach((r, k) => {
-    let text = r.text;
-    let typing = false;
-    if (r.cps) {
-      const c = Math.min(text.length, Math.floor((tl - r.at) * r.cps));
-      typing = c < text.length;
-      text = text.slice(0, c);
-    }
-    const o = r.cps ? 1 : reveal(tl, r.at, 0.18);
-    const isLast = k === view.length - 1;
-    const cursor = isLast && (typing || Math.floor(t * 2) % 2 === 0) ? '<span class="cur"></span>' : "";
-    let inner = esc(text);
-    if (r.cls === "cmd") inner = `<span class="tool">$</span>${esc(text.slice(1))}`;
-    html += `<div class="${r.cls === "err" ? "err" : r.cls === "tool" ? "tool" : ""}" style="${rowStyle(r.cls)}opacity:${clamp01(o).toFixed(3)}">${inner}${cursor}</div>`;
-  });
-  if (last.html !== html) {
-    body.innerHTML = html;
-    last.html = html;
+  for (const s of SHOTS) vis(s.el, t < s.to ? reveal(t, s.from, IN) * fade(t, s.to - OUT, OUT) : 0);
+  for (const w of WIRES) {
+    const p = t < w.to ? reveal(t, w.from, 0.45) : 0;
+    w.ln.setAttribute("x2", String(w.x1 + (w.x2 - w.x1) * p));
+    w.ln.setAttribute("y2", String(w.y1 + (w.y2 - w.y1) * p));
+    w.ln.style.opacity = String(clamp01(p > 0 ? fade(t, w.to - OUT, OUT) : 0));
   }
-
-  // the end card
-  const e = prog(t, SCENES_END, 0.6);
-  vis(veil, e);
-  veil.style.visibility = e <= 0.001 ? "hidden" : "visible";
-  vis(logo, reveal(t, SCENES_END + 0.3), 16);
-  vis(word, reveal(t, SCENES_END + 0.5), 16);
-  vis(word2, reveal(t, SCENES_END + 1.1), 16);
-  vis(pts, reveal(t, SCENES_END + 1.9), 16);
-  vis(url, reveal(t, SCENES_END + 2.6), 16);
-}
-function rowStyle(cls: string): string {
-  if (cls === "note" || cls === "dim") return "color:#AFB9AE;font-style:italic;";
-  return "";
+  const d = t < DIGEST_CHANGED ? muted("sha256:03de…77c0") : `<span style="color:${COLOR.surveyor}">sha256:b71a…e902 ≠ approved</span>`;
+  if (digest.innerHTML !== d) digest.innerHTML = d;
+  const beat = BEATS.find((b) => t >= b.from && t < b.to);
+  if (beat) {
+    const e = reveal(t, beat.from, IN) * fade(t, beat.to - OUT, OUT);
+    kicker.textContent = beat.kicker;
+    cap.textContent = beat.caption;
+    vis(kicker, e);
+    vis(cap, e);
+  } else { vis(kicker, 0); vis(cap, 0); }
+  end(t, END);
 }
 
 defineFilm({ fps: FPS, duration: DURATION, frame });
