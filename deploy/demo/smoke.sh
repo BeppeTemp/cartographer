@@ -90,12 +90,15 @@ for kb in astronomy cartographer-docs; do
 done
 
 # The documentation is the one of this image: the root page names the ref the
-# pinned URLs point at, the version tag for a release and main for any other build.
+# pinned URLs point at. Same rule as docskb.Ref (releaseRe in
+# internal/docskb/links.go): an exact release or release candidate is its version
+# tag, any other build (v0.0.0-ci, dev, a git describe string) is main.
 version=$(docker run --rm "$image" version | awk 'NR == 1 { print $NF }')
-case $version in
-v[0-9]*.[0-9]*.[0-9]* | [0-9]*.[0-9]*.[0-9]*) want=v${version#v} ;;
-*) want=main ;;
-esac
+if printf '%s\n' "$version" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$'; then
+  want=v${version#v}
+else
+  want=main
+fi
 r=$(call 6 atlas_overview '{"kb":"cartographer-docs"}')
 [ "$(status "$r")" = 200 ] || fail "atlas_overview on cartographer-docs: status $(status "$r")"
 has "$(body "$r")" "Cartographer $want " || has "$(body "$r")" "Cartographer $want\\." ||
