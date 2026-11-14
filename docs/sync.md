@@ -338,6 +338,14 @@ localisation mechanism: the KB owns the prose instead. The one-line routing sent
 being generated state rather than prose, so the residual is one English line. The directive is
 recognised in the leading run only, so a KB can document it in its own text without triggering it.
 
+**A connected provider the registry does not know this run is skipped, not fatal** (#2089): the provider of a plugin that
+is invalid for the running version (its `cartographer` range), not fetched or modified keeps its name in `agents` but
+registers nothing. `runSync` drops it right after the targets are chosen, with a warning naming the plugin, the range
+and the running version, and `plugin update` or `plugin remove` as the fix (`unregisteredReason`); the other clients
+sync, the run exits 0 (so `upgrade-repair` reports no pending sync), and the provider's config entry and lock section stay
+as they were, as with `--client`. `--client <provider>` naming it is an error with the same reason. `removeMCPEntries`
+turns an unknown provider into a refusal of that provider, which `disconnect` reports and the others survive.
+
 **A kind the provider cannot receive is warned about on every run**, computed from the manifest
 rather than from the diff: the per-artifact `unsupported:` line appears only on the run where that
 artifact enters the diff, after which the condition is invisible while the KB keeps declaring

@@ -5,6 +5,7 @@ import (
 	"io"
 	"slices"
 	"sort"
+	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
@@ -31,8 +32,16 @@ import (
 // an unreadable store never costs the user a provider. It runs once per
 // process, at start; calling it again replaces the whole registered set, which a
 // command that changes a plugin's state does to re-register after the change.
-func registerPluginProviders(errw io.Writer) {
+func registerPluginProviders(errw io.Writer) { registerPluginProvidersIgnoring(errw, "") }
+
+// registerPluginProvidersIgnoring is registerPluginProviders for a command that
+// must act on one plugin whose `cartographer` range the running version does not
+// meet (plugin remove, plugin show): that plugin's tree is read without the range
+// check and its providers are registered inactive, as for a disabled plugin, so
+// the disconnect path can retire them. It never makes the plugin run.
+func registerPluginProvidersIgnoring(errw io.Writer, ignoreRange string) {
 	pluginProviderIssues = nil
+	unregisteredWhy = nil
 	dir, err := clientconfig.TargetDir()
 	if err != nil {
 		return
@@ -82,6 +91,7 @@ func registerPluginProviders(errw io.Writer) {
 			continue
 		}
 		var tree *core.Plugin
+		enabled := e.Enabled
 		st, p := core.State(n, e, store, pluginOpts())
 		switch st {
 		case core.StatusActive:
@@ -92,14 +102,23 @@ func registerPluginProviders(errw io.Writer) {
 			if t, err := store.Open(n, e.Approved, pluginOpts()); err == nil {
 				tree = &t
 			}
+		case core.StatusInvalid:
+			if n == ignoreRange {
+				o := pluginOpts()
+				o.IgnoreRange = true
+				if t, err := store.Open(n, e.Approved, o); err == nil {
+					tree, enabled = &t, false // read to be retired or shown, never run
+				}
+			}
 		}
 		if tree == nil {
+			noteUnregistered(n, e, st, store)
 			complete = false
 			fmt.Fprintf(errw, "warning: plugin %s is %s: its providers are not registered this run\n", escapeControl(n), st)
 			continue
 		}
 		for _, r := range tree.Providers(env) {
-			if e.Enabled {
+			if enabled {
 				// A cell left out does not make the registration incomplete: the
 				// provider is registered without it. It is said by sync, connect
 				// and status, and by doctor, never at process start.
@@ -107,14 +126,14 @@ func registerPluginProviders(errw io.Writer) {
 					pluginProviderIssues = append(pluginProviderIssues, pluginProviderIssue{Plugin: n, Provider: r.Registration(n, true).Name, Reason: why, LeftOut: true})
 				}
 			}
-			if err := configurator.CheckPlugin(r.Registration(n, e.Enabled)); err != nil {
+			if err := configurator.CheckPlugin(r.Registration(n, enabled)); err != nil {
 				complete = false
 				fmt.Fprintf(errw, "warning: plugin %s: %s\n", escapeControl(n), escapeControl(err.Error()))
-				pluginProviderIssues = append(pluginProviderIssues, pluginProviderIssue{Plugin: n, Provider: r.Registration(n, e.Enabled).Name, Reason: err.Error()})
+				pluginProviderIssues = append(pluginProviderIssues, pluginProviderIssue{Plugin: n, Provider: r.Registration(n, enabled).Name, Reason: err.Error()})
 				continue
 			}
-			specs = append(specs, r.Registration(n, e.Enabled))
-			cells = append(cells, plugin.ProviderCells(r, e.Enabled))
+			specs = append(specs, r.Registration(n, enabled))
+			cells = append(cells, plugin.ProviderCells(r, enabled))
 		}
 	}
 	// Cells first: a provider whose cells are refused is not registered, so the
@@ -147,6 +166,49 @@ func registerPluginProviders(errw io.Writer) {
 		provisioning.UnregisterPluginCells(name)
 	}
 	clientconfig.PluginProvidersComplete = func(map[string]clientconfig.PluginEntry) bool { return complete }
+}
+
+// unregisteredWhy is, per provider name, why the last registration left it out
+// when it could still tell which plugin declares it (the tree reads, only its
+// state does not allow it to run). unregisteredReason reads it.
+var unregisteredWhy map[string]string
+
+// noteUnregistered records, for each provider the approved tree of a plugin that
+// is not active declares, the reason it is not registered: the plugin, what is
+// wrong with it (for an unmet range, the range and the running version) and the
+// command that fixes it. A tree that cannot be read at all names no provider.
+func noteUnregistered(name string, e clientconfig.PluginEntry, st core.Status, store core.Store) {
+	o := pluginOpts()
+	o.IgnoreRange = true
+	t, err := store.Open(name, e.Approved, o)
+	if err != nil {
+		return
+	}
+	problem := string(st)
+	if _, err := store.Open(name, e.Approved, pluginOpts()); err != nil {
+		problem = strings.TrimPrefix(err.Error(), core.ErrInvalid.Error()+": ")
+	}
+	why := fmt.Sprintf("plugin %s is %s (%s): run `cartographer plugin update %s` and approve it, or `cartographer plugin remove %s`", name, st, problem, name, name)
+	for _, pn := range pluginProviderNames(t) {
+		if unregisteredWhy == nil {
+			unregisteredWhy = map[string]string{}
+		}
+		unregisteredWhy[pn] = why
+	}
+}
+
+// unregisteredReason is "" for a provider the registry knows. For one it does
+// not (a plugin that is invalid for the running version, not fetched, modified
+// or removed), it is the reason, with the command that fixes it: sync skips such
+// a provider with this text, and the checks that name a provider reuse it.
+func unregisteredReason(provider string) string {
+	if _, ok := configurator.Lookup(configurator.Provider(provider)); ok {
+		return ""
+	}
+	if why, ok := unregisteredWhy[provider]; ok {
+		return why
+	}
+	return "no plugin registers it this run (see the warnings above, and `cartographer plugin list`)"
 }
 
 // pluginProviderIssue is one provider a registration refused, kept for doctor

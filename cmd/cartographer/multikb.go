@@ -975,6 +975,12 @@ func removeMCPEntries(baseName string, kbs []string, providers []string, dir str
 	names := make(map[string][]string, len(providers))
 	var refused []error
 	for _, provider := range providers {
+		if why := unregisteredReason(provider); why != "" {
+			// The registry cannot say where its entry lives: a refusal for this
+			// provider alone, not an abort that leaves the others half done (#2089).
+			refused = append(refused, &entryRefusal{Name: provider, Err: fmt.Errorf("%w: %s: %s", provisioning.ErrProviderNotRegistered, escapeControl(provider), escapeControl(why))})
+			continue
+		}
 		if skipsMCPEntry(provider) {
 			continue // never had an entry: nothing to remove, and no file to open
 		}

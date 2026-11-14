@@ -87,6 +87,12 @@ The running version is compared by its `X.Y.Z` core, so a release candidate or a
 meets a range that asks for that version. A running version that does not parse (a `dev` build) never refuses. A
 malformed range is a manifest error that names it. The order of versions is the one of `updatecheck.Cmp`.
 
+A plugin whose range the running version does not meet is invalid: it registers no provider and its tree reads as
+empty, but the names of its providers stay in the client config. `sync` skips each with a warning (the plugin, the range,
+the running version, and `plugin update` or `plugin remove` as the fix) and keeps its config entry and lock section;
+`sync --client <provider>` naming one is an error. `plugin remove` and `plugin show` read such a tree past the range
+(`core.Options.IgnoreRange`), so a plugin whose original source is gone can still be removed or inspected.
+
 ### Permissions
 
 The permissions a plugin manifest declares are validated here; nothing in this package grants or enforces them. The grammar is `D1723`.
@@ -414,7 +420,7 @@ spec judged, `X-Content-Type-Options: nosniff` and, for an SVG, `Content-Securit
 | `plugin config <name> [<key>=<value> ...] [--unset <key> ...]` | Writes `plugins.<name>.settings` only, under the client lock from the load to the save. A value is parsed as the manifest declares (`bool` is `true` or `false`, `int` base 10 that fits the platform int); an unknown plugin, an unknown key or a bad value is exit 2 naming the manifest's keys. With no argument it prints every setting with its value and `set` or `default`; `plugin show` prints the same. It never changes the digest, the approval or the permissions, so it asks for no approval, and a setting never widens a grant. Settings live in `.cartographer.yaml`: put no credential there, use the `env` permission. |
 | `plugin enable <name>` | `enabled = true`. Refused, naming the state, when there is no approval or the approved tree is `not fetched`, `modified` or `invalid`, and when a `depends` entry is unmet (`<name> needs <dep> <range>: <dep> is not enabled`, or `is <version>`). |
 | `plugin disable <name>` | `enabled = false`; the plugin stays installed. Its artifacts leave the active set and are pruned by the next sync; its providers are retired by the next sync (registered inactive). Refused naming the enabled plugin that `depends` on it. |
-| `plugin remove <name>` | Under the client lock, in an order a failure can be retried from: (1) every registered provider of the plugin through the disconnect path (MCP entry, managed files, lock section); (2) in every other provider section, `PruneManaged` on the lock entries whose `source` is `plugin:<name>` against the section's base dir, then the entries are dropped from the lockfile; a refused prune (a symlinked destination) is reported, exits 1 and **stops there**, the refused entries staying in the lockfile; (3) the config entry and the stored trees. Paths come from the lockfile, never from a tree. A plugin whose approved tree cannot be read, or one of whose providers is not registered this run, is refused: its providers are unknown and what it installed could not be retired. Refused naming an enabled dependent. Unknown name: exit 2. |
+| `plugin remove <name>` | Under the client lock, in an order a failure can be retried from: (1) every registered provider of the plugin through the disconnect path (MCP entry, managed files, lock section); (2) in every other provider section, `PruneManaged` on the lock entries whose `source` is `plugin:<name>` against the section's base dir, then the entries are dropped from the lockfile; a refused prune (a symlinked destination) is reported, exits 1 and **stops there**, the refused entries staying in the lockfile; (3) the config entry and the stored trees. Paths come from the lockfile, never from a tree. A plugin whose approved tree cannot be read is refused: its providers are unknown and what it installed could not be retired. A tree that is invalid only because the running version is outside its `cartographer` range is read past the range and its providers are registered inactive for this command, so they are retired like those of a disabled plugin; a tree invalid for another reason is refused with that reason. Refused naming an enabled dependent. Unknown name: exit 2. |
 
 `depends` is check-only: no command installs, fetches or enables a dependency. Every command that changes a state
 runs `registerPluginProviders` again, so a sync in the same process sees the providers of the new state.
@@ -636,6 +642,7 @@ is cleaned as before; with plugins configured and no registration run (`serve`, 
 `sync` retires the providers of a disabled plugin before it computes its targets: `doDisconnectLocked` removes their
 MCP entry, their managed files and their lock section, and drops them from `agents`, scopes and workspaces. `--client`
 leaves it to the next full sync. A plugin whose tree cannot be read has registered nothing and retires nothing.
+A provider of a plugin that is not active this run (invalid for the running version, not fetched, modified) is not registered: `sync` skips it with a warning (`unregisteredReason`), and `doctor` reports it as connected but not registered, with `plugin update` and `plugin remove` as the fix, not `disconnect`.
 
 ### Preview
 

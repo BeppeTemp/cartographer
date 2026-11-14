@@ -3506,11 +3506,17 @@ func replaceBetweenMarkers(content, replacement string) (string, blocktext.Outco
 // reported, never written (D214; `cartographer doctor` lists the file).
 var ErrCorruptedBlock = blocktext.ErrCorruptedBlock
 
+// ErrProviderNotRegistered marks the refusal of one provider the registry does
+// not know this run (a plugin invalid for the running version, not fetched, or
+// removed): its config cannot be resolved to a file, so it is left as it is and
+// the other providers go on (#2089).
+var ErrProviderNotRegistered = errors.New("provider is not registered")
+
 // IsRefusal reports whether err is a per-artifact refusal the pass survives
-// (a symlinked destination, D148, or a corrupted marker block) rather than a
-// failure that stops it.
+// (a symlinked destination, D148, a corrupted marker block, or a provider that
+// is not registered) rather than a failure that stops it.
 func IsRefusal(err error) bool {
-	return errors.Is(err, ErrSymlinkDestination) || errors.Is(err, ErrCorruptedBlock) || errors.Is(err, ErrInvalidArtifactFile) || errors.Is(err, ErrForeignFrontmatter)
+	return errors.Is(err, ErrProviderNotRegistered) || errors.Is(err, ErrSymlinkDestination) || errors.Is(err, ErrCorruptedBlock) || errors.Is(err, ErrInvalidArtifactFile) || errors.Is(err, ErrForeignFrontmatter)
 }
 
 // replaceBlock is replaceBetweenMarkers over an arbitrary marker pair: the

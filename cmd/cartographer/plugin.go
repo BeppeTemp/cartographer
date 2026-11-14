@@ -412,12 +412,26 @@ func printSides(w io.Writer, p core.Plugin) {
 // pluginView is the tree a command shows for an entry: the approved one when the
 // plugin is active, else the installed one; tree says which, "" when neither can be read.
 func pluginView(store core.Store, name string, e clientconfig.PluginEntry) (state core.Status, p core.Plugin, tree string) {
+	return pluginViewWith(store, name, e, false)
+}
+
+// pluginViewWith is pluginView that, with ignoreRange, also reads a tree the
+// running version is outside the range of (#2089): the state stays invalid, the
+// tree is shown so the user can decide between `plugin update` and `plugin remove`.
+func pluginViewWith(store core.Store, name string, e clientconfig.PluginEntry, ignoreRange bool) (state core.Status, p core.Plugin, tree string) {
 	st, active := core.State(name, e, store, pluginOpts())
 	if active != nil {
 		return st, *active, "approved"
 	}
+	o := pluginOpts()
+	o.IgnoreRange = ignoreRange && st == core.StatusInvalid
+	if o.IgnoreRange && e.Approved != "" {
+		if ap, err := store.Open(name, e.Approved, o); err == nil {
+			return st, ap, "approved"
+		}
+	}
 	if e.Installed != "" {
-		if ip, err := store.Open(name, e.Installed, pluginOpts()); err == nil {
+		if ip, err := store.Open(name, e.Installed, o); err == nil {
 			return st, ip, "installed"
 		}
 	}
@@ -519,8 +533,20 @@ func pluginShow(args []string) int {
 	if !found {
 		return pluginFail(2, "no plugin named %q (see `cartographer plugin list`)", pos[0])
 	}
-	st, p, tree := pluginView(store, pos[0], e)
+	st, p, tree := pluginViewWith(store, pos[0], e, true)
 	if tree == "" {
+		if st == core.StatusInvalid {
+			// Read past the range, the tree is still invalid: say for what.
+			o := pluginOpts()
+			o.IgnoreRange = true
+			digest := e.Approved
+			if digest == "" {
+				digest = e.Installed
+			}
+			if _, err := store.Open(pos[0], digest, o); errors.Is(err, core.ErrInvalid) {
+				return pluginFail(1, "%s is invalid (%s); fix it with `cartographer plugin update %s`, or drop it with `cartographer plugin remove %s`", pos[0], escapeControl(err.Error()), pos[0], pos[0])
+			}
+		}
 		return pluginFail(1, "%s is %s: the stored tree cannot be read; reinstall it with `cartographer plugin install %s`", pos[0], st, gitx.RedactRemoteURL(e.Source))
 	}
 	if tree == "approved" && e.Approved != e.Installed {

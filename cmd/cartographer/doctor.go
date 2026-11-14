@@ -352,6 +352,18 @@ func checkClientConfig(dir string, cfg *clientconfig.Config, loadErr error, only
 		installed[string(a.Provider)] = a.Installed
 	}
 	for _, p := range doctorProviders(cfg, only) {
+		if why := unregisteredReason(p); why != "" && !installed[p] {
+			// A plugin's provider that is not registered (its plugin is invalid
+			// for this version, not fetched or modified) is not "no longer
+			// installed", and disconnect cannot resolve it (#2089): the plugin is
+			// what to update or remove.
+			out = append(out, doctorFinding{
+				Check: "client-config", Severity: doctorWarning, Path: path,
+				Message: fmt.Sprintf("provider %q is connected but not registered this run: %s", p, escapeControl(why)),
+				Fix:     "cartographer plugin update <plugin>, or cartographer plugin remove <plugin>",
+			})
+			continue
+		}
 		if !installed[p] {
 			out = append(out, doctorFinding{
 				Check: "client-config", Severity: doctorWarning, Path: path,

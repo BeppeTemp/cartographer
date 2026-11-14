@@ -1319,7 +1319,7 @@ subcommands are:
 | `plugin update [<name>] [--yes]` | Fetches again and prints the diff; the approved version stays active until the new one is approved |
 | `plugin config <name> [key=value ...] [--unset <key>]` | Sets a setting the manifest declares; needs no approval and never widens a permission |
 | `plugin enable <name>`, `plugin disable <name>` | Turns an approved plugin on or off |
-| `plugin remove <name>` | Retires what it installed, then forgets it |
+| `plugin remove <name>` | Retires what it installed, then forgets it; works on a plugin whose `cartographer` range the running version does not meet |
 
 An active plugin's commands run as `cartographer <plugin> <command> [args...]` (`cartographer <plugin>` lists them,
 and `help` shows a `Plugins` group); its `sync.after` and `connect.after` handlers run after `sync` and `connect`,
