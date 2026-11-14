@@ -467,6 +467,9 @@ type pluginRow struct {
 	State           string         `json:"state"`
 	Contributions   map[string]int `json:"contributions"`
 	UpdateAvailable bool           `json:"update_available"`
+	// InvalidReason is why an invalid plugin is invalid, with the fix: `plugin
+	// show` only.
+	InvalidReason string `json:"invalid_reason,omitempty"`
 }
 
 func newPluginRow(name string, e clientconfig.PluginEntry, st core.Status, p core.Plugin) pluginRow {
@@ -554,11 +557,20 @@ func pluginShow(args []string) int {
 		e.Ref, e.SHA, e.Version = "", "", p.Manifest.Version
 	}
 	if output == "json" {
-		doc := map[string]any{"schema": pluginSchema, "plugin": newPluginRow(pos[0], e, st, p), "tree": tree}
+		row := newPluginRow(pos[0], e, st, p)
+		if st == core.StatusInvalid {
+			problem, fix := invalidReason(pos[0], e, st, store)
+			row.InvalidReason = problem + "; " + fix
+		}
+		doc := map[string]any{"schema": pluginSchema, "plugin": row, "tree": tree}
 		printJSON(doc)
 		return 0
 	}
 	fmt.Printf("state: %s; showing the %s tree\n", st, tree)
+	if st == core.StatusInvalid {
+		problem, fix := invalidReason(pos[0], e, st, store)
+		fmt.Printf("reason: %s\nfix: %s\n", escapeControl(problem), escapeControl(fix))
+	}
 	pluginPreview(os.Stdout, p, e, cfg)
 	printPluginSettings(os.Stdout, p, e)
 	if flags["--files"] {

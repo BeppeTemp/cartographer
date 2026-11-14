@@ -114,7 +114,8 @@ func registerPluginProvidersIgnoring(errw io.Writer, ignoreRange string) {
 		if tree == nil {
 			noteUnregistered(n, e, st, store)
 			complete = false
-			fmt.Fprintf(errw, "warning: plugin %s is %s: its providers are not registered this run\n", escapeControl(n), st)
+			problem, fix := invalidReason(n, e, st, store)
+			fmt.Fprintf(errw, "warning: plugin %s is %s (%s; %s): its providers are not registered this run\n", escapeControl(n), st, escapeControl(problem), escapeControl(fix))
 			continue
 		}
 		for _, r := range tree.Providers(env) {
@@ -168,6 +169,24 @@ func registerPluginProvidersIgnoring(errw io.Writer, ignoreRange string) {
 	clientconfig.PluginProvidersComplete = func(map[string]clientconfig.PluginEntry) bool { return complete }
 }
 
+// invalidReason is why a plugin that is not active reads as it does and what
+// fixes it: the manifest's own message when its approved tree does not open (for
+// an unmet range, the range, the running version and the release candidate
+// note), else the state, and the commands that fix it. The start-up warning,
+// `plugin show` and the reason sync gives for a skipped provider all say this.
+func invalidReason(name string, e clientconfig.PluginEntry, st core.Status, store core.Store) (problem, fix string) {
+	problem = string(st)
+	digest := e.Approved
+	if digest == "" {
+		digest = e.Installed
+	}
+	if _, err := store.Open(name, digest, pluginOpts()); err != nil {
+		problem = strings.TrimPrefix(err.Error(), core.ErrInvalid.Error()+": ")
+	}
+	fix = fmt.Sprintf("run `cartographer plugin update %s` and approve it, or `cartographer plugin remove %s`", name, name)
+	return problem, fix
+}
+
 // unregisteredWhy is, per provider name, why the last registration left it out
 // when it could still tell which plugin declares it (the tree reads, only its
 // state does not allow it to run). unregisteredReason reads it.
@@ -184,11 +203,8 @@ func noteUnregistered(name string, e clientconfig.PluginEntry, st core.Status, s
 	if err != nil {
 		return
 	}
-	problem := string(st)
-	if _, err := store.Open(name, e.Approved, pluginOpts()); err != nil {
-		problem = strings.TrimPrefix(err.Error(), core.ErrInvalid.Error()+": ")
-	}
-	why := fmt.Sprintf("plugin %s is %s (%s): run `cartographer plugin update %s` and approve it, or `cartographer plugin remove %s`", name, st, problem, name, name)
+	problem, fix := invalidReason(name, e, st, store)
+	why := fmt.Sprintf("plugin %s is %s (%s): %s", name, st, problem, fix)
 	for _, pn := range pluginProviderNames(t) {
 		if unregisteredWhy == nil {
 			unregisteredWhy = map[string]string{}
