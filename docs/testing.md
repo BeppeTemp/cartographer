@@ -608,7 +608,7 @@ http.server` over a fixture tree): the binaries are two real builds of the commi
 real registry value, saved and restored. It covers a fresh install into the
 default directory and the `PATH` entry, the already-current no-op, an update over
 an idle binary and over one **running** as a server (the lock the rename-aside
-exists for), a registered serve task whose arguments are exactly the previous stable's (`serve --config … --log-file …`, no `--supervised` or `--env-file`, #2094) and that starts and answers `/health`, a wrong digest and a manifest without the asset — each leaving the
+exists for), a registered serve task whose arguments are exactly the previous stable's (`serve --config … --log-file …`, no `--supervised` or `--env-file`, #2094) and that starts and answers `/health`, run only when `GITHUB_ACTIONS` is set (the task path is machine-global) and with the account's real `USERPROFILE` restored around `service install`/`uninstall`, because the sandboxed-HOME guard refuses `powershell.exe` under the fixture profile (#2113), a wrong digest and a manifest without the asset — each leaving the
 previous binary untouched — and the uninstall refusal while a task definition
 exists, `-BinaryOnly`, and a clean uninstall removing the `PATH` entry.
 

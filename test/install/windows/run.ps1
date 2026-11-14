@@ -85,6 +85,7 @@ if (-not $ready) {
 # files the uninstall looks for and anything the real binary reads are all
 # inside the fixture. The user PATH is the registry's and is restored at the end.
 $savedUserPath = [Environment]::GetEnvironmentVariable('PATH', 'User')
+$realProfile = $env:USERPROFILE
 $env:LOCALAPPDATA = Join-Path $root 'LocalAppData'
 $env:USERPROFILE = Join-Path $root 'profile'
 New-Item -ItemType Directory -Path $env:LOCALAPPDATA, $env:USERPROFILE -Force | Out-Null
@@ -204,22 +205,47 @@ try {
     # The previous stable runs `serve --config X --log-file Y` and exits 2 on any
     # other flag: a downgrade must leave a task it can start. The supervision
     # marker travels in the env file beside the config, not on the command line.
-    Copy-Fixture $NewBin $dest
-    $svcAddr = "127.0.0.1:$($port + 2)"
-    & $dest service install --no-tray --http $svcAddr *> $null
-    Check ($LASTEXITCODE -eq 0) 'service install registers the serve task'
-    $argv = (Get-ScheduledTask -TaskPath '\Cartographer\' -TaskName 'Serve').Actions[0].Arguments
-    Check ($argv -match '^serve --config "[^"]+" --log-file "[^"]+"$') "the task's arguments are exactly the previous stable's ($argv)"
-    $cfgPath = [regex]::Match($argv, '--config "([^"]+)"').Groups[1].Value
-    $envFile = Join-Path (Split-Path $cfgPath) 'service.env'
-    Check ((Test-Path $envFile) -and ((Get-Content $envFile) -contains 'CARTOGRAPHER_SUPERVISED=1')) 'the env file beside the config carries the supervision marker'
-    $healthy = $false
-    for ($i = 0; $i -lt 30 -and -not $healthy; $i++) {
-        try { $healthy = (Invoke-RestMethod "http://$svcAddr/health").status -eq 'ok' } catch { Start-Sleep -Seconds 1 }
+    # Only on a CI runner: the \Cartographer\ task path is machine-global, so a
+    # developer's own task must never be replaced by this run. The sandboxed-HOME
+    # guard (internal/service/homeguard.go) refuses powershell.exe when USERPROFILE
+    # is not the account's home, so the real one is restored around install and
+    # uninstall only; config, env file and data stay under $root.
+    if (-not $env:GITHUB_ACTIONS) {
+        Write-Host 'skipped: registers a machine-global Scheduled Task, runs only when GITHUB_ACTIONS is set'
+    } else {
+        Copy-Fixture $NewBin $dest
+        $svcAddr = "127.0.0.1:$($port + 2)"
+        $svcDir = Join-Path $root 'svc'
+        New-Item -ItemType Directory -Path (Join-Path $svcDir 'data') -Force | Out-Null
+        $fixtureProfile = $env:USERPROFILE
+        try {
+            $env:USERPROFILE = $realProfile
+            $ErrorActionPreference = 'Continue'   # stderr is captured by 2>&1
+            $out = & $dest service install --no-tray --config (Join-Path $svcDir 'server.yaml') --data (Join-Path $svcDir 'data') --http $svcAddr 2>&1 | Out-String
+            $installRc = $LASTEXITCODE
+            $ErrorActionPreference = 'Stop'
+            $env:USERPROFILE = $fixtureProfile
+            Check ($installRc -eq 0) 'service install registers the serve task'
+            if ($installRc -ne 0) { Write-Host $out }
+            $argv = (Get-ScheduledTask -TaskPath '\Cartographer\' -TaskName 'Serve' -ErrorAction Stop).Actions[0].Arguments
+            Check ($argv -match '^serve --config "[^"]+" --log-file "[^"]+"$') "the task's arguments are exactly the previous stable's ($argv)"
+            $cfgPath = [regex]::Match($argv, '--config "([^"]+)"').Groups[1].Value
+            $envFile = Join-Path (Split-Path $cfgPath) 'service.env'
+            Check ((Test-Path $envFile) -and ((Get-Content $envFile) -contains 'CARTOGRAPHER_SUPERVISED=1')) 'the env file beside the config carries the supervision marker'
+            $healthy = $false
+            for ($i = 0; $i -lt 30 -and -not $healthy; $i++) {
+                try { $healthy = (Invoke-RestMethod "http://$svcAddr/health").status -eq 'ok' } catch { Start-Sleep -Seconds 1 }
+            }
+            Check $healthy 'the task starts and the server answers /health'
+        } finally {
+            $env:USERPROFILE = $realProfile
+            $out = & $dest service uninstall 2>&1 | Out-String
+            $uninstallRc = $LASTEXITCODE
+            $env:USERPROFILE = $fixtureProfile
+        }
+        Check ($uninstallRc -eq 0) 'service uninstall removes the task'
+        if ($uninstallRc -ne 0) { Write-Host $out }
     }
-    Check $healthy 'the task starts and the server answers /health'
-    & $dest service uninstall *> $null
-    Check ($LASTEXITCODE -eq 0) 'service uninstall removes the task'
 
     Write-Host '--- uninstall'
     $tasks = Join-Path $env:LOCALAPPDATA 'cartographer\tasks'
