@@ -409,7 +409,16 @@ func (m *Manager) installWindows(binPath, configPath string, env ...EnvVar) erro
 	if err := m.registerAndReplace(windowsServeTaskName, taskPath, []byte(RenderWindowsTaskXML(binPath, configPath, logPath, windowsTaskUser(), windowsTaskSID())), writeDefinition); err != nil {
 		return err
 	}
-	m.stopServeForReinstall(configHTTPAddr(configPath))
+	addr := configHTTPAddr(configPath)
+	m.stopServeForReinstall(addr)
+	// The start would report success and the process die on bind (#2092):
+	// whatever answers the address now is not the task's. A task still Running
+	// after the stop is ours, left for the start to report.
+	if addr != "" && !m.windowsTaskRunning(windowsServeTaskName) {
+		if err := busyAddressError(addr, listenerAt(addr)); err != nil {
+			return fmt.Errorf("%w (the task is registered: run `cartographer service start` once the address is free)", err)
+		}
+	}
 	return m.startWindowsTask(windowsServeTaskName)
 }
 
@@ -527,7 +536,14 @@ func (m *Manager) refreshTaskOwner(name string, pathFn func() (string, error), r
 // process kept serving the old config — the counterpart of the launchctl bootout
 // installDarwin does before bootstrap. Best-effort by contract, like bootout: a
 // server that survives the stop is left for the start to report.
+//
+// A task that is not Running has nothing of ours to stop: it returns at once,
+// because serveExited also waits for the address to go quiet and a foreign
+// listener would cost the whole drain and kill budgets (#2092).
 func (m *Manager) stopServeForReinstall(addr string) {
+	if !m.windowsTaskRunning(windowsServeTaskName) {
+		return
+	}
 	_ = m.stopServeAndWait(addr)
 }
 

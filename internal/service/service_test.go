@@ -254,12 +254,15 @@ func withTestHome(t *testing.T, os_ string) string {
 	// and the fallback notice would land in the test output.
 	origAnswers, origDrain, origKill, origPoll, origSleep, origNotice := serveAddrAnswers, windowsDrainTimeout, windowsKillTimeout, windowsDrainPoll, windowsSleep, noticef
 	serveAddrAnswers = func(string) bool { return false }
+	origListener := listenerAt
+	listenerAt = func(string) ListenerState { return ListenerNone }
 	windowsDrainTimeout, windowsKillTimeout, windowsDrainPoll = 50*time.Millisecond, 50*time.Millisecond, time.Millisecond
 	// The waits count polls, not elapsed time (#1339): no real sleep, so a
 	// slow runner cannot exhaust a budget before a fake process has exited.
 	windowsSleep = func(time.Duration) {}
 	noticef = func(string, ...any) {}
 	t.Cleanup(func() {
+		listenerAt = origListener
 		serveAddrAnswers, windowsDrainTimeout, windowsKillTimeout, windowsDrainPoll, windowsSleep, noticef = origAnswers, origDrain, origKill, origPoll, origSleep, origNotice
 	})
 	return home
