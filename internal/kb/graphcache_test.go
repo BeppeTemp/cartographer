@@ -333,12 +333,6 @@ func TestGraphCacheConcurrentReadsAndWrites(t *testing.T) {
 		defer wg.Done()
 		for i := 0; i < 30; i++ {
 			if _, err := f.k.GraphSnapshot(GraphSnapshotOptions{}); err != nil {
-				// The reader meets the same sharing rule from the other
-				// side: opening a file the writer is renaming over fails
-				// with a sharing violation on Windows (#2077).
-				if runtime.GOOS == "windows" {
-					continue
-				}
 				t.Error(err)
 				return
 			}
@@ -354,11 +348,11 @@ func TestGraphCacheConcurrentReadsAndWrites(t *testing.T) {
 			}
 			if _, err := f.k.WriteConcept("notes/churn", fm, body, ""); err != nil {
 				// Windows refuses to rename over a file another goroutine
-				// has open for reading ("Access is denied"), and this test
-				// reads every file while it writes. That is the OS's sharing
-				// rule, not the cache's: the uncached walk read them too.
-				// The test is here for the race detector, so the write is
-				// simply skipped.
+				// has open for reading, and this test reads every file in a
+				// loop without pause: the writer's retries can run out. That
+				// is the OS's sharing rule, not the cache's (a real reader
+				// holds the file for microseconds). The reader side retries
+				// (readFileRetrying, #2077) and is not skipped.
 				if runtime.GOOS == "windows" {
 					continue
 				}

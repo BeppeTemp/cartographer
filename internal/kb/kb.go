@@ -790,7 +790,7 @@ func (kb *KB) ReadRaw(relPath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	data, err := os.ReadFile(abs)
+	data, err := readFileRetrying(abs)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", fmt.Errorf("%w: %s", okf.ErrNotFound, relPath)
