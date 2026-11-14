@@ -8,9 +8,11 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/client"
+	"github.com/BeppeTemp/cartographer/internal/gitx/gitxtest"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/kbtest"
 	"github.com/BeppeTemp/cartographer/internal/lint"
@@ -41,7 +43,7 @@ func newEnv(t *testing.T) *env {
 		h.ServeHTTP(w, r.WithContext(auth.ContextWithPrincipal(r.Context(), auth.LocalAdminPrincipal())))
 	}))
 	t.Cleanup(srv.Close)
-	e := &env{t: t, k: k, c: client.New(srv.URL+"/mcp", ""), calls: map[string]int{}}
+	e := &env{t: t, k: k, c: client.New(srv.URL+"/mcp", "").WithHTTPTimeout(gitxtest.Deadline(30 * time.Second)), calls: map[string]int{}}
 	e.call("map_create", map[string]any{"name": "sources", "kind": "journal", "title": "Sources"})
 	out := e.call("source_register", map[string]any{"title": "Dev cluster", "source_kind": "system", "locator": "kubernetes://dev-cluster",
 		"source_shape": "system", "recipe": "k8s", "map": "sources"})
