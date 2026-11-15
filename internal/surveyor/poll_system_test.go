@@ -123,7 +123,7 @@ func TestSystemPollFirstPollCreatesAUnitPerGroupAndASecondIsANoOp(t *testing.T) 
 			t.Errorf("%s = %v", id, fm)
 		}
 		b := s.k.pages[id].body
-		if !strings.Contains(b, "## Change") || !strings.Contains(b, "First observation.") || !strings.Contains(b, "## Observed\n\n```\n") {
+		if strings.Count(b, "[[ingest/plan]]") != 1 || !strings.Contains(b, "## Change") || !strings.Contains(b, "First observation.") || !strings.Contains(b, "## Observed\n\n```\n") {
 			t.Errorf("body of %s = %q", id, b)
 		}
 	}
@@ -175,7 +175,7 @@ func TestSystemPollModifiedGroupReusesFieldsSupersedesAndCarriesTheDiff(t *testi
 	}
 	u := s.k.pages[second]
 	if u.fm["observed_change"] != "modified" || u.fm["verify"] != "links resolve" || !strings.Contains(u.body, "Brief: take the facts.") ||
-		!strings.Contains(u.body, "-line2\n+CHANGED") || !strings.Contains(u.body, "## Observed") {
+		!strings.Contains(u.body, "-line2\n+CHANGED") || !strings.Contains(u.body, "## Observed") || strings.Count(u.body, "[[ingest/plan]]") != 1 {
 		t.Errorf("modified unit = %v\n%s", u.fm, u.body)
 	}
 	old := s.k.pages[first]
@@ -304,14 +304,15 @@ func TestSystemPollAGroupRefusedForASecretFailsAloneAndIsRetried(t *testing.T) {
 	secret := "ghp_" + strings.Repeat("A1b2", 9)
 	s.k.refuseUnit = func(id string, fm map[string]any) string {
 		if fm["observed_group"] == "namespace/bad" {
-			return "potential_secret: found " + secret
+			return "write_gate: refused, nothing was written. This call introduced 1 finding(s) a write can avoid (D907):\n" +
+				`[{"path":"ingest/u.md","check":"potential_secret","message":"found ` + secret + `"}]` + "\nFix each one."
 		}
 		return ""
 	}
 	s.list("namespace/bad", "token "+secret, "namespace/good", "fine")
 	s.mustPoll()
 	fe, _ := s.feed()["feed_error"].(string)
-	if !strings.HasPrefix(fe, "groups_failed: 1 groups failed") || !strings.Contains(fe, "namespace/bad: unit_refused (potential_secret)") || strings.Contains(fe, secret) {
+	if !strings.HasPrefix(fe, "groups_failed: 1 groups failed") || !strings.Contains(fe, "namespace/bad: unit_refused (write_gate: potential_secret)") || strings.Contains(fe, secret) {
 		t.Fatalf("feed_error = %q", fe)
 	}
 	if len(s.unitsOf("namespace/good")) != 1 || len(s.unitsOf("namespace/bad")) != 0 || strings.Join(s.stateKeys(), ",") != "namespace/good" || s.feed()["ingest_status"] != "pending" {
