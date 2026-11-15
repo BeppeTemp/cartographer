@@ -450,6 +450,9 @@ func TestPollFirstPollCreatesSourcesAndUnitsAndASecondIsANoOp(t *testing.T) {
 			fm["executor"] != "any" || fm["extract"] == "" || !strings.HasPrefix(id, "ingest/pg-") {
 			t.Errorf("%s = %v", id, fm)
 		}
+		if strings.Count(e.k.pages[id].body, "[[ingest/plan]]") != 1 {
+			t.Errorf("%s does not link its plan once: %q", id, e.k.pages[id].body)
+		}
 		src := e.k.pages[fm["source"].(string)].fm
 		if src["source_shape"] != "document" || src["connector"] != "git" || src["recipe"] != "git-docs" || src["ingest_status"] != "pending" ||
 			!strings.HasPrefix(src["locator"].(string), feedURL+"#pg/") {
@@ -504,7 +507,7 @@ func TestPollModifiedIngestedDocumentReturnsToPendingAndReusesTheUnitFields(t *t
 	for _, id := range e.k.units() {
 		if strings.HasPrefix(e.k.pages[id].body, "Revision ") {
 			reused++
-			if e.k.pages[id].fm["verify"] != "links resolve" || !strings.Contains(e.k.pages[id].body, "Brief: take the facts.") {
+			if e.k.pages[id].fm["verify"] != "links resolve" || !strings.Contains(e.k.pages[id].body, "Brief: take the facts.") || strings.Count(e.k.pages[id].body, "[[ingest/plan]]") != 1 {
 				t.Errorf("reused unit = %v %q", e.k.pages[id].fm, e.k.pages[id].body)
 			}
 		}

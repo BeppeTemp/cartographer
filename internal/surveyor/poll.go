@@ -679,6 +679,7 @@ func (r *pollRun) entry(ctx context.Context, rec recipe.Recipe, e recipe.Entry, 
 			fm["targets"], fm["extract"], fm["verify"], fm["executor"] = ans.Targets, strings.TrimSpace(ans.Extract), strings.TrimSpace(ans.Verify), ans.Executor
 			body = ans.Body
 		}
+		body = withPlanLink(body, planID)
 		// d. Create the unit, create-only (no if_match): a lost race is "exists".
 		out, err := tools.CallTool("concept_batch", map[string]any{"reason": reason, "operations": []map[string]any{{"op": "write", "id": id, "frontmatter": fm, "body": body}}})
 		if err != nil {

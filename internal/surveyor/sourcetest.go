@@ -408,7 +408,7 @@ func (rep *SourceTestReport) observeSystem(ctx context.Context, rec recipe.Recip
 		rep.ContentBytes += len(c.Group.Content)
 		handled = append(handled, system.Handled{Key: c.Key, Removed: c.Kind == recipe.Removed, Group: c.Group, At: now.UTC().Format(time.RFC3339)})
 		if show != "" && c.Key == show {
-			body := systemBody("", c, rev, now.UTC().Format("2006-01-02"), nil)
+			body := systemBody("", "", c, rev, now.UTC().Format("2006-01-02"), nil)
 			sh := &SourceTestShow{Key: c.Key, Content: body, Found: true}
 			if len(body) > ShowCap {
 				sh.Content, sh.Truncated = truncateBytes(body, ShowCap), true
