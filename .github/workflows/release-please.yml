@@ -40,7 +40,10 @@ jobs:
   #   full pass before a tag, where CI checks the index strictly — carries the
   #   regenerated docs/decisions.md.
   # - The changelog is grouped by area here (D865), in CHANGELOG.md and in the
-  #   PR body: release-please builds the GitHub release from the merged body.
+  #   PR: the body holds the start of the grouped notes and comments the rest
+  #   (GitHub's limit is 65536 characters; release-please replaces a body over it
+  #   with a link). The notes come from CHANGELOG.md, whatever release-please did
+  #   to its body; release.yml publishes the same section.
   release-pr:
     needs: release-please
     runs-on: ubuntu-latest
@@ -83,15 +86,16 @@ jobs:
           echo "committed=true" >> "$GITHUB_OUTPUT"
       # Limit: a step that runs the branch's code can still write $GITHUB_ENV or $GITHUB_PATH for
       # the steps after it, so the later steps that hold the PAT are only as sound as the branch is.
-      # The PR body is read and grouped before the token is used for the push: the
-      # step that runs the branch's own code (`go run`) holds no secret.
+      # The notes are cut here, before the token is used: the step that runs the
+      # branch's own code (`go run`) holds no secret. The version is the one the
+      # release PR carries; the notes are the CHANGELOG.md section release.yml
+      # publishes, not the PR body, which release-please replaces with a link when
+      # the notes pass GitHub's limit (#2131).
       - if: steps.branch.outputs.name != ''
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-          BRANCH: ${{ steps.branch.outputs.name }}
-        run: gh pr view -R "${{ github.repository }}" "$BRANCH" --json body -q .body > "$RUNNER_TEMP/body.md"
-      - if: steps.branch.outputs.name != ''
-        run: go run ./internal/changelog/gen -stdin < "$RUNNER_TEMP/body.md" > "$RUNNER_TEMP/grouped.md"
+        run: |
+          set -euo pipefail
+          v=$(jq -r '.["."]' .release-please-manifest.json)
+          go run ./internal/changelog/gen -file CHANGELOG.md -section "$v" -split 60000 -out "$RUNNER_TEMP/notes"
       # The token goes on `origin` for the push only, and comes off it again.
       - if: steps.regen.outputs.committed == 'true'
         env:
@@ -100,12 +104,42 @@ jobs:
           trap 'git remote set-url origin "https://github.com/${GITHUB_REPOSITORY}.git"' EXIT
           git remote set-url origin "https://x-access-token:${RELEASE_PLEASE_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push
-      # Edited only when the grouping changes it: an edit re-runs pr-title. Runs
-      # `gh` only.
+      # The body is part 1 in release-please's frame (it parses the body on merge:
+      # notes between the first and last `---` line) and each later part is a comment of the token's own user,
+      # marked `<!-- release-notes-part:N -->`: edited in place, created when
+      # missing, deleted past the last part. Written only when the text changes: a
+      # body edit re-runs pr-title. Runs `gh` only.
       - if: steps.branch.outputs.name != ''
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           BRANCH: ${{ steps.branch.outputs.name }}
         run: |
-          if cmp -s "$RUNNER_TEMP/body.md" "$RUNNER_TEMP/grouped.md"; then exit 0; fi
-          gh pr edit -R "${{ github.repository }}" "$BRANCH" --body-file "$RUNNER_TEMP/grouped.md"
+          set -euo pipefail
+          repo="${{ github.repository }}"
+          notes="$RUNNER_TEMP/notes"
+          parts=("$notes"/part-*.md)
+          n=${#parts[@]}
+          pr=$(gh pr view -R "$repo" "$BRANCH" --json number -q .number)
+          # GitHub may store the text with CRLF: compare without it ($(...) drops the final newlines).
+          norm() { tr -d '\r'; }
+          if [ "$(gh pr view -R "$repo" "$BRANCH" --json body -q .body | norm)" != "$(norm < "$notes/body.md")" ]; then
+            gh pr edit -R "$repo" "$BRANCH" --body-file "$notes/body.md"
+          fi
+          me=$(gh api user -q .login)
+          gh api --paginate "repos/$repo/issues/$pr/comments" \
+            --jq ".[] | select(.user.login == \"$me\") | select(.body | test(\"^<!-- release-notes-part:[0-9]+ -->\")) | {id, part: (.body | capture(\"^<!-- release-notes-part:(?<n>[0-9]+) -->\").n | tonumber), body}" > "$RUNNER_TEMP/comments.jsonl"
+          for ((i = 2; i <= n; i++)); do
+            id=$(jq -r --argjson i "$i" 'select(.part == $i) | .id' "$RUNNER_TEMP/comments.jsonl" | head -n 1)
+            if [ -z "$id" ]; then
+              gh api -X POST "repos/$repo/issues/$pr/comments" -F body="@$notes/part-$i.md" > /dev/null
+              continue
+            fi
+            cur=$(jq -r --argjson id "$id" 'select(.id == $id) | .body' "$RUNNER_TEMP/comments.jsonl" | norm)
+            if [ "$cur" != "$(norm < "$notes/part-$i.md")" ]; then
+              gh api -X PATCH "repos/$repo/issues/comments/$id" -F body="@$notes/part-$i.md" > /dev/null
+            fi
+          done
+          # Parts past the last one, and a second comment of one part, go.
+          jq -r --argjson n "$n" --slurp '[.[] | select(.part > $n)] + (group_by(.part) | map(.[1:][]) ) | map(.id) | unique | .[]' "$RUNNER_TEMP/comments.jsonl" | while read -r id; do
+            gh api -X DELETE "repos/$repo/issues/comments/$id" > /dev/null
+          done

@@ -325,6 +325,11 @@ dispatched by hand with one of three actions.
   as a draft: `release.yml` publishes it only after the binaries and the versioned images exist, then pushes the
   Homebrew cask and moves `:latest`, so no client is told of a version it cannot install (D1350).
   The release page shows the grouped `CHANGELOG.md` section of the tag, set by that same step.
+  The release PR shows the same grouped section whatever its length: the body holds the first
+  part (`gen -split`, at most 60000 characters, in release-please's own header and footer so it
+  can still parse the body on merge) and the rest goes into comments marked
+  `<!-- release-notes-part:N -->`, which `release-pr` keeps in step with `CHANGELOG.md`
+  (release-please replaces a body over GitHub's 65536 characters with a link).
 - **Freeze, opened by the candidate.** It is open from the moment a candidate tag
   `vX.Y.Z-rc.<YYYYMMDD>` with `X.Y.Z` greater than the latest stable release exists, until
   that version is released (`release.yml` deletes its candidates) or the candidate is
