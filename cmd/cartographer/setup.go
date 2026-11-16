@@ -92,9 +92,12 @@ type setupFacts struct {
 	// ForeignListener: something that is not a Cartographer server answers on
 	// the configured address.
 	ForeignListener bool
-	DataDir         string
-	KBs             []kbRow // direct subdirectories of the data dir
-	Detected        []string
+	// SilentListener refines ForeignListener: the program accepted the
+	// connection but did not answer /health.
+	SilentListener bool
+	DataDir        string
+	KBs            []kbRow // direct subdirectories of the data dir
+	Detected       []string
 	// PluginsConfigured: the client config already lists plugins, whose
 	// providers may be the only clients on this machine.
 	PluginsConfigured bool
@@ -550,6 +553,9 @@ func gatherSetupFacts(o setupOptions) (setupFacts, error) {
 		f.ServerAnswers = true
 	case service.ListenerForeign:
 		f.ForeignListener = true
+	case service.ListenerUnresponsive:
+		// Accepted the connection and never answered /health: not ours either.
+		f.ForeignListener, f.SilentListener = true, true
 	}
 	f.DataDir = resolveServerDataDir("")
 	if rows, err := scanDataDir(f.DataDir); err == nil {
@@ -723,6 +729,10 @@ func runSetup(o setupOptions, interactive, yes, dryRun bool, ask setupPrompter) 
 			fmt.Fprintln(os.Stderr, "push check interrupted — nothing was changed")
 			return 1
 		case errors.Is(err, errSetupForeignListener):
+			if facts.SilentListener {
+				fmt.Fprintf(os.Stderr, "Error: a program on %s accepted the connection but did not answer /health - nothing was changed.\n  Free that address, or point the server elsewhere with `cartographer service install --http <addr>`, then rerun `cartographer setup`.\n", serviceAddrOrDefault(facts.Service))
+				return 2
+			}
 			fmt.Fprintf(os.Stderr, "Error: something that is not a Cartographer server answers on %s - nothing was changed.\n  Free that address, or point the server elsewhere with `cartographer service install --http <addr>`, then rerun `cartographer setup`.\n", serviceAddrOrDefault(facts.Service))
 			return 2
 		case errors.Is(err, errSetupNoServiceManager):

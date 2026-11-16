@@ -208,6 +208,8 @@ func stubSetup(t *testing.T, facts setupFacts) *[]string {
 		switch {
 		case facts.ServerAnswers:
 			return service.ListenerCartographer
+		case facts.SilentListener:
+			return service.ListenerUnresponsive
 		case facts.ForeignListener:
 			return service.ListenerForeign
 		}
@@ -685,6 +687,22 @@ func TestRunSetup_ForeignListenerStopsBeforeAnythingElse(t *testing.T) {
 	}
 	if len(*calls) != 0 {
 		t.Errorf("ran %q although a foreign program holds the address", *calls)
+	}
+}
+
+// A program that accepts the connection and never answers /health (a database)
+// holds the address too: setup stops before anything else, and says so.
+func TestRunSetup_SilentListenerStopsBeforeAnythingElse(t *testing.T) {
+	calls := stubSetup(t, setupFacts{SilentListener: true})
+	facts, _ := gatherSetupFacts(setupOptions{NoRemote: true})
+	if !facts.ForeignListener || !facts.SilentListener {
+		t.Fatalf("facts = %+v, want the silent listener gathered as held", facts)
+	}
+	if code := runSetup(setupOptions{NoRemote: true}, false, true, false, noPrompt()); code != 2 {
+		t.Fatalf("runSetup = %d, want 2", code)
+	}
+	if len(*calls) != 0 {
+		t.Errorf("ran %q although a program holds the address", *calls)
 	}
 }
 

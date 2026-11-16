@@ -234,8 +234,9 @@ func runDoctor(dir, only string) doctorReport {
 		facts, healthErr := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.Token, cfg.InsecureHTTPAllowed())
 		// Decided once: a foreign listener (#1998) is not the server, so nothing
 		// below may send it the bearer token or believe its /health.
-		foreignAddr, foreign := foreignServer(cfg.ServerURL, facts, healthErr)
-		findings = append(findings, checkServerAt(dir, cfg, providers, facts, healthErr, foreignAddr, foreign)...)
+		foreignAddr, held := heldServer(cfg.ServerURL, facts, healthErr)
+		foreign := heldByOther(held)
+		findings = append(findings, checkServerAt(dir, cfg, providers, facts, healthErr, foreignAddr, held)...)
 		if !foreign && healthErr == nil {
 			findings = append(findings, checkMCPVariables(cfg, approveManifest)...)
 		}
@@ -876,14 +877,22 @@ func managedHookNames(lock provisioning.Lock) []string {
 // checkServer: reachability, then the two version comparisons. An unreachable
 // server is one finding, not a failure — doctor must stay useful offline.
 func checkServer(dir string, cfg *clientconfig.Config, providers []string, facts serverFacts, err error) []doctorFinding {
-	addr, foreign := foreignServer(cfg.ServerURL, facts, err)
-	return checkServerAt(dir, cfg, providers, facts, err, addr, foreign)
+	addr, held := heldServer(cfg.ServerURL, facts, err)
+	return checkServerAt(dir, cfg, providers, facts, err, addr, held)
 }
 
-// checkServerAt is checkServer with the foreignServer verdict already taken, so
+// checkServerAt is checkServer with the heldServer verdict already taken, so
 // runDoctor probes once and gates the later checks on the same answer.
-func checkServerAt(dir string, cfg *clientconfig.Config, providers []string, facts serverFacts, err error, addr string, foreign bool) []doctorFinding {
+func checkServerAt(dir string, cfg *clientconfig.Config, providers []string, facts serverFacts, err error, addr string, held service.ListenerState) []doctorFinding {
 	configPath := filepath.Join(dir, clientconfig.FileName)
+	if held == service.ListenerUnresponsive {
+		return []doctorFinding{{
+			Check: "server", Severity: doctorWarning, Path: configPath,
+			Message: fmt.Sprintf("a program on %s accepted the connection but did not answer /health: it may not be a Cartographer server", addr),
+			Fix:     "stop that program, or change the listen address/port in the server config (and server.url to match): cartographer service status",
+		}}
+	}
+	foreign := held == service.ListenerForeign
 	// Something answers, but not like a Cartographer server (#1998): "unreachable"
 	// would send the operator to a service that is not the problem.
 	if foreign {
@@ -949,24 +958,45 @@ var doctorProbeListener = service.ProbeListener
 // over plain http on this machine only, because an unparsable 200 or a 404 is also a program
 // answering. A transport failure is not foreign: nothing answers.
 func foreignServer(serverURL string, facts serverFacts, err error) (string, bool) {
+	addr, held := heldServer(serverURL, facts, err)
+	return addr, heldByOther(held)
+}
+
+// heldByOther: the address is held by something that is not a Cartographer
+// server, whether it answered (ListenerForeign) or accepted the connection and
+// stayed silent (ListenerUnresponsive).
+func heldByOther(st service.ListenerState) bool {
+	return st == service.ListenerForeign || st == service.ListenerUnresponsive
+}
+
+// heldServer is foreignServer with what holds the address: ListenerForeign,
+// ListenerUnresponsive, or ListenerNone for neither.
+func heldServer(serverURL string, facts serverFacts, err error) (string, service.ListenerState) {
 	u, uerr := client.ServerBase(serverURL)
 	if uerr != nil {
-		return "", false
+		return "", service.ListenerNone
 	}
 	if err == nil {
-		return u.Host, facts.health != nil && !facts.health.IsServer()
+		if facts.health != nil && !facts.health.IsServer() {
+			return u.Host, service.ListenerForeign
+		}
+		return u.Host, service.ListenerNone
 	}
 	if u.Scheme != "http" || !isLoopbackURL(serverURL) {
-		return "", false // a proxy in front of a remote server may refuse /health
+		return "", service.ListenerNone // a proxy in front of a remote server may refuse /health
 	}
 	if p := u.Path; p != "" && p != "/" {
-		return "", false // behind a path prefix the root /health is not the server's
+		return "", service.ListenerNone // behind a path prefix the root /health is not the server's
 	}
 	host := u.Host
 	if u.Port() == "" {
 		host = net.JoinHostPort(u.Hostname(), "80")
 	}
-	return host, doctorProbeListener(host, probeTimeout) == service.ListenerForeign
+	switch st := doctorProbeListener(host, probeTimeout); st {
+	case service.ListenerForeign, service.ListenerUnresponsive:
+		return host, st
+	}
+	return host, service.ListenerNone
 }
 
 // noLocalServiceFor reports whether rawURL names this machine and no native

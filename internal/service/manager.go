@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/config"
@@ -961,6 +963,23 @@ type healthProtocolError struct{ err error }
 func (e *healthProtocolError) Error() string { return e.err.Error() }
 func (e *healthProtocolError) Unwrap() error { return e.err }
 
+// healthMuteError wraps a failure after the TCP connection was established that
+// is not a timeout (a reset, bytes that are not HTTP): the peer is not a
+// Cartographer server. Callers that retry still see the cause through Unwrap;
+// ProbeListener reads it as a foreign listener (#2141).
+type healthMuteError struct{ err error }
+
+func (e *healthMuteError) Error() string { return e.err.Error() }
+func (e *healthMuteError) Unwrap() error { return e.err }
+
+// healthSilentError wraps a timeout after the connection was accepted: the peer
+// is silent, which a busy, starting or draining Cartographer server also is.
+// ProbeListener reads it as ListenerUnresponsive, not as foreign.
+type healthSilentError struct{ err error }
+
+func (e *healthSilentError) Error() string { return e.err.Error() }
+func (e *healthSilentError) Unwrap() error { return e.err }
+
 // ProbeHealth fetches and decodes GET http://<addr>/health, using the same
 // addr normalization as healthURL (bare port or host:port). A connection
 // failure or non-200 response is returned as a plain error (transient,
@@ -971,9 +990,26 @@ func ProbeHealth(addr string, timeout time.Duration) (HealthStatus, error) {
 	if url == "" {
 		return HealthStatus{}, fmt.Errorf("service: no http address configured")
 	}
-	c := http.Client{Timeout: timeout}
-	resp, err := c.Get(url)
+	// A connection that was accepted and then never answered (or reset) is not
+	// "nothing listens": ProbeListener reads it as another program (#2141).
+	var connected atomic.Bool
+	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
+		return HealthStatus{}, err
+	}
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{
+		GotConn: func(httptrace.GotConnInfo) { connected.Store(true) },
+	}))
+	c := http.Client{Timeout: timeout}
+	resp, err := c.Do(req)
+	if err != nil {
+		if connected.Load() {
+			var nerr net.Error
+			if errors.As(err, &nerr) && nerr.Timeout() {
+				return HealthStatus{}, &healthSilentError{err}
+			}
+			return HealthStatus{}, &healthMuteError{err}
+		}
 		return HealthStatus{}, err
 	}
 	defer resp.Body.Close()
