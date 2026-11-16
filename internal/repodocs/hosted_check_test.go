@@ -543,6 +543,8 @@ func TestHostedCheckWindowsLeg(t *testing.T) {
 			[]string{"run 101: failure (red: Linux)", "--- Linux leg", "LINUX-LINE"}, []string{"WINDOWS-LINE", "red: Windows"}},
 		{"both red", "failure", "check=failure,windows=failure", 1,
 			[]string{"(red: Linux, Windows)", "--- Linux leg", "--- Windows leg", "LINUX-LINE", "WINDOWS-LINE"}, nil},
+		{"one Windows shard red: its leg and the collector", "failure", "check=success,windows (0/6)=success,windows (3/6)=failure,windows=failure", 1,
+			[]string{"(red: windows (3/6), Windows)", "--- Windows leg (windows): failure"}, []string{"red: Linux"}},
 		{"Windows timed out", "failure", "check=success,windows=timed_out", 1, []string{"(red: Windows)", "--- Windows leg (windows): timed_out"}, nil},
 	}
 	for _, c := range cases {
@@ -641,9 +643,21 @@ func TestHostedCheckWorkflowHasWindowsLeg(t *testing.T) {
 	if !regexp.MustCompile(`(?m)^      win_pkgs:\n(?:        .*\n)*?        type: string\n`).MatchString(wf) {
 		t.Error("no win_pkgs string input")
 	}
-	_, win, ok := strings.Cut(wf, "\n  windows:\n")
+	_, rest, ok := strings.Cut(wf, "\n  windows-shard:\n")
 	if !ok {
-		t.Fatal("no windows job")
+		t.Fatal("no windows-shard job")
+	}
+	// The shards (one runner each, like ci.yml) and the collector the script reports as the Windows leg.
+	win, collector, ok := strings.Cut(rest, "\n  windows:\n")
+	if !ok {
+		t.Fatal("no windows collector job")
+	}
+	if !strings.Contains(win, "shard: [0, 1, 2, 3, 4, 5]") || !strings.Contains(win, "name: windows (${{ matrix.shard }}/6)") {
+		t.Error("the windows shards are not a matrix of six")
+	}
+	if !strings.Contains(collector, "needs: windows-shard") || !strings.Contains(collector, "if: always() && startsWith(github.ref, 'refs/heads/check/') && inputs.win_pkgs != ''") ||
+		!strings.Contains(collector, "[ \"$RESULT\" = success ]") {
+		t.Error("the windows collector does not fail on a red shard, or runs without the guard")
 	}
 	if !strings.Contains(win, "runs-on: windows-latest") {
 		t.Error("the windows job does not run on windows-latest")
@@ -660,8 +674,8 @@ func TestHostedCheckWorkflowHasWindowsLeg(t *testing.T) {
 	if !strings.Contains(win, "WIN_PKGS: ${{ inputs.win_pkgs }}") || !strings.Contains(win, "[[ $WIN_PKGS =~ ^[A-Za-z0-9_./\\ -]*$ ]]") || !strings.Contains(win, "[[ $w == -* ]]") {
 		t.Error("the list reaches the job without env or without the whole-string and flag validation")
 	}
-	if !strings.Contains(win, "bash scripts/test-shard.sh 4 all $WIN_PKGS") {
-		t.Error("the windows job does not run the gate's command (test-shard.sh 4 all <packages>)")
+	if !strings.Contains(win, `bash scripts/test-shard.sh 6 "$SHARD" $WIN_PKGS`) || !strings.Contains(win, "SHARD: ${{ matrix.shard }}") {
+		t.Error("the windows job does not run the gate's command (test-shard.sh 6 <shard> <packages>)")
 	}
 	if !strings.Contains(win, "shell: bash") || !strings.Contains(win, "git config --global init.defaultBranch master") {
 		t.Error("the windows job lacks the bash shell or the git identity of ci.yml's Windows legs")

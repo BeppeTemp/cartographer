@@ -69,12 +69,17 @@ jobs:
           done
           make check-run CHECK_PKGS="$PKGS" ${E2E:+CHECK_E2E=1}
 
-  # The Windows leg of the train gate on a hosted runner: same setup as ci.yml's test-windows
-  # shards, and the same command as the gate's leg (SIGNOFF_WINDOWS): test-shard.sh with every
-  # shard at once on this one machine (D785).
-  windows:
-    name: windows
+  # The Windows leg of the train gate on a hosted runner: same setup and same sharding as ci.yml's
+  # test-windows legs, one runner per shard (D785): `test-shard.sh 6 all` on one runner would only
+  # split its CPUs six ways (#2159). scripts/hosted-check.sh reads the run's job conclusions, and
+  # the `windows` job below collects the shards under the name it reports as the Windows leg.
+  windows-shard:
+    name: windows (${{ matrix.shard }}/6)
     if: startsWith(github.ref, 'refs/heads/check/') && inputs.win_pkgs != ''
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5]
     runs-on: windows-latest
     timeout-minutes: 60
     defaults:
@@ -101,6 +106,7 @@ jobs:
       - name: test-shard
         env:
           WIN_PKGS: ${{ inputs.win_pkgs }}
+          SHARD: ${{ matrix.shard }}
         run: |
           # Defence in depth: the script validates too.
           # Whole-string match (no newline), and no word starting with "-" (a go test flag).
@@ -109,4 +115,19 @@ jobs:
           for w in $WIN_PKGS; do
             if [[ $w == -* ]]; then bad; fi
           done
-          bash scripts/test-shard.sh 4 all $WIN_PKGS
+          bash scripts/test-shard.sh 6 "$SHARD" $WIN_PKGS
+
+  # The one Windows verdict: red when any shard is not green. Skipped with the shards when the
+  # change has no Windows package, so `make check-hosted` reads one leg, `windows`.
+  windows:
+    name: windows
+    needs: windows-shard
+    if: always() && startsWith(github.ref, 'refs/heads/check/') && inputs.win_pkgs != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          RESULT: ${{ needs.windows-shard.result }}
+        run: |
+          echo "windows shards: $RESULT"
+          [ "$RESULT" = success ]

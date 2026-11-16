@@ -83,7 +83,7 @@ func TestMain(m *testing.M) {
 	}
 	gitxtest.QuietGit() // a detached git gc would break t.TempDir cleanup
 	// The git deadlines no test here is about: a local fetch, commit or push
-	// against a bare repository on a loaded Windows runner (4 shards x every
+	// against a bare repository on a loaded Windows runner (6 shards x every
 	// package) can outlast the production 15 s / 60 s, and the command under
 	// test then reports "git fetch origin failed" instead of its real answer
 	// (#1870, #1867). Scaled like every deadline that is not under test (#1048);

@@ -4,7 +4,7 @@ topic: project-governance
 
 # D785 — CI splits its slow legs across runners
 
-**Decision.** The Windows tests run in four shards on separate runners
+**Decision.** The Windows tests run in six shards on separate runners
 (`scripts/test-shard.sh`), with `install.ps1` on a fifth, and the browser suite
 runs in two legs: the `@video`-tagged export test, which also carries the
 frontend unit tests and bundle checks, and the rest. A small job named
@@ -28,6 +28,14 @@ moving parts: a sharding script and two collector jobs.
   slow test's file would still be the long leg; a tag says which test is slow.
 - Matrix legs as the required checks: a matrix renames them, which silently
   un-protects `main`.
+
+**Update (#2159).** The Windows leg ran in four shards at first; `internal/mcpserver`
+and `cmd/cartographer` then hit the 20-minute test timeout by chance (1200 s in a
+shard against 896-1025 s in the others), so it runs in six, in `ci.yml` and in
+`hosted-check.yml` (a matrix there too: `test-shard.sh 6 all` on one runner would
+only split its CPUs six ways). `make signoff` keeps four, run in parallel on the
+maintainer's own cores. The collector job `test-windows`, the required check, is
+unchanged; only the legs' display names read `(n/6)`.
 
 **Consequences.** The Windows shards run the tests, not `make gate`: `fmt-check`
 and `vet` (with `GOOS=windows`) stay on `test`, and `internal/repodocs` runs

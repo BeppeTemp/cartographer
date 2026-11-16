@@ -125,7 +125,9 @@ jobs:
 
   # The Windows leg, split across runners: the git-backed packages are ~13x
   # slower there than on ubuntu, and a single job waited ~13 minutes on
-  # internal/mcpserver alone, close to its 20m test timeout (D785). Each shard
+  # internal/mcpserver alone, close to its 20m test timeout (D785). Six shards
+  # since #2159: with four, mcpserver and cmd/cartographer reached it by
+  # chance. Each shard
   # runs a round-robin slice of every package's tests (scripts/test-shard.sh);
   # fmt-check and vet are platform-independent and run on `test`, which also
   # vets with GOOS=windows. Minutes on standard runners are free for a public
@@ -134,13 +136,13 @@ jobs:
   # Push to main, a manual run and merge_group, never on a PR (D1592): a
   # Windows-only break is caught on main and tracked by `ci-red`.
   test-windows-shard:
-    name: test-windows (${{ matrix.shard }}/4)
+    name: test-windows (${{ matrix.shard }}/6)
     if: "!cancelled() && github.event_name != 'pull_request'"
     runs-on: windows-latest
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3]
+        shard: [0, 1, 2, 3, 4, 5]
     defaults:
       run:
         # The scripts are POSIX shell and the runner's default shell is
@@ -167,7 +169,7 @@ jobs:
           git config --global user.name ci
           git config --global user.email ci@local
           git config --global init.defaultBranch master
-      - run: ./scripts/test-shard.sh 4 ${{ matrix.shard }}
+      - run: ./scripts/test-shard.sh 6 ${{ matrix.shard }}
 
   # install.ps1 against a local fixture release built from this commit, under
   # both shells a user may run it in: PowerShell 7 and Windows PowerShell 5.1,
