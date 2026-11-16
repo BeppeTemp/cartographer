@@ -242,6 +242,8 @@ fork-cli (plugin team, base crush)  yes  no  binary  /usr/local/bin/fork-cli
 A provider a plugin declares (`providers/<id>.yaml`, [plugins.md §Providers](plugins.md#providers)) is listed after
 the built-ins, its PROVIDER cell labelled `<id> (plugin <name>, base <base>)`. It is probed as its base is (a binary
 is looked up under the base's name) and one whose plugin is not active is never reported installed.
+A connected provider of a plugin that is out of range, not fetched or modified is not registered: `status` lists it as `[<provider>] skipped: <reason>` (JSON: `state: "skipped"` and `skipped`, additive) rather than leaving it out ([plugins.md](plugins.md)).
+
 A cell the resolver left out (a symlink not listed under `providers.<provider>.allow_symlinks`, a path outside its root) is not silent: `sync` and `connect` print `[<provider>] warning: cell left out: <reason>` once per run, `status` prints it under the provider's row, and `doctor` reports a `plugin-provider` warning ([plugins.md §Resolving](plugins.md#resolving)).
 
 The distinction the column carries is the one `INSTALLED` cannot: `binary` is a client that is

@@ -326,7 +326,9 @@ func mustCfg(t *testing.T, home string) *clientconfig.Config {
 	return cfg
 }
 
-func TestPluginRemoveRefusesAnUnreadableApprovedTree(t *testing.T) {
+// An unreadable approved tree no longer blocks the removal: it goes by what the
+// lockfile records, and says so (#2136).
+func TestPluginRemoveWithAnUnreadableApprovedTreeUsesTheLock(t *testing.T) {
 	home := pluginFixture(t)
 	runPlugin(t, "install", writePlugin(t, "team-forks", nil), "--yes")
 	e := loadEntry(t, home, "team-forks")
@@ -336,11 +338,11 @@ func TestPluginRemoveRefusesAnUnreadableApprovedTree(t *testing.T) {
 	}
 	var code int
 	errOut := stderrOf(t, func() { code, _ = runPlugin(t, "remove", "team-forks") })
-	if code != 1 || !strings.Contains(errOut, "cannot be retired") {
+	if code != 0 || !strings.Contains(errOut, "cannot be read") || !strings.Contains(errOut, "lockfile") {
 		t.Fatalf("exit %d\n%s", code, errOut)
 	}
-	if _, ok := mustCfg(t, home).Plugin("team-forks"); !ok {
-		t.Error("an unreadable plugin must hold its entry")
+	if _, ok := mustCfg(t, home).Plugin("team-forks"); ok {
+		t.Error("the entry must be removed")
 	}
 }
 

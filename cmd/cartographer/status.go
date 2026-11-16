@@ -158,6 +158,10 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 	}
 	printServerLines(os.Stdout, os.Stderr, s)
 	for _, p := range s.Providers {
+		if p.Skipped != "" {
+			fmt.Printf("[%s] skipped: %s\n", escapeControl(p.Name), escapeControl(p.Skipped))
+			continue
+		}
 		if !p.Connected {
 			continue
 		}
