@@ -16,6 +16,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/mcpprobe"
+	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/service"
@@ -41,8 +42,13 @@ type providerStatus struct {
 	// DetectedBy names the heuristic behind Installed (#305): a binary on PATH
 	// and a leftover config directory both set Installed, and only this field
 	// tells them apart. Empty when the provider was not detected.
-	DetectedBy   string `json:"detected_by,omitempty"`
-	Connected    bool   `json:"connected"`
+	DetectedBy string `json:"detected_by,omitempty"`
+	Connected  bool   `json:"connected"`
+	// Skipped is why a provider named in the config is left out of this run: its
+	// plugin is out of the running version's range, not fetched or modified, so
+	// the registry does not know it (#2136). Such a provider is listed with State
+	// "skipped", not connected and not judged; additive, empty otherwise.
+	Skipped      string `json:"skipped,omitempty"`
 	State        string `json:"state"`
 	Revision     string `json:"revision,omitempty"`
 	LockRevision string `json:"lock_revision,omitempty"`
@@ -1013,6 +1019,54 @@ func providerStatuses(cfg *clientconfig.Config) []providerStatus {
 				out[i].Workspaces = workspaceStatuses(cfg, string(a.Provider), base)
 			}
 		}
+	}
+	return append(out, skippedProviders(cfg, detected)...)
+}
+
+// skippedProviders lists the connected agents the registry does not know this
+// run (a plugin's provider while its tree is out of range, not fetched or
+// modified, #2136): detection never sees them, so without this they would be
+// absent from status, as if never connected. The reason is the plugin's own
+// when the registration could name it, else the plugin the lockfile recorded
+// for the section, else the generic one.
+func skippedProviders(cfg *clientconfig.Config, detected []agents.Agent) []providerStatus {
+	if cfg == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	for _, a := range detected {
+		seen[string(a.Provider)] = true
+	}
+	var lf provisioning.LockFile
+	if dir, err := clientconfig.TargetDir(); err == nil {
+		lf, _ = provisioning.ReadLockFile(lockFilePath(dir))
+	}
+	var out []providerStatus
+	for _, name := range cfg.Agents {
+		if seen[name] {
+			continue
+		}
+		why := unregisteredReason(name)
+		if why == "" {
+			continue
+		}
+		plugin := lf.ForProvider(name).Plugin
+		if store, err := pluginStoreFn(); err == nil && plugin == "" {
+			// An older lockfile never recorded it for this provider: the
+			// narrow inference of plugin remove (pluginOfSection).
+			plugin, _ = pluginOfSection(cfg, lf.ForProvider(name), name, store)
+		}
+		if _, named := unregisteredWhy[name]; !named && plugin != "" {
+			if e, ok := cfg.Plugin(plugin); ok {
+				if store, err := pluginStoreFn(); err == nil {
+					st, _ := core.State(plugin, e, store, pluginOpts())
+					problem, fix := invalidReason(plugin, e, st, store)
+					why = fmt.Sprintf("plugin %s is %s (%s): %s", plugin, st, problem, fix)
+				}
+			}
+		}
+		seen[name] = true
+		out = append(out, providerStatus{Name: name, Plugin: plugin, State: "skipped", Skipped: why})
 	}
 	return out
 }

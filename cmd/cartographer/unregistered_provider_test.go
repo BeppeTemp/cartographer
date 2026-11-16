@@ -2,9 +2,11 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -281,5 +283,317 @@ func TestPluginShowNamesAnotherInvalidReason(t *testing.T) {
 	msg := withStderr(t, func() { _, _ = runPlugin(t, "show", "bad-plugin") })
 	if !strings.Contains(msg, "is invalid") || !strings.Contains(msg, "name") || strings.Contains(msg, "plugin install") {
 		t.Errorf("message = %q; want the reason, not the reinstall hint", msg)
+	}
+}
+
+// unfetchedMachine is outOfRangeMachine with the plugin cache cleared too (#2136):
+// the approved tree cannot be read at all, so nothing but the lockfile says what
+// the plugin installed.
+func unfetchedMachine(t *testing.T, srvURL string) (home string, cfg *clientconfig.Config, delivered string) {
+	t.Helper()
+	home, cfg, delivered = outOfRangeMachine(t, srvURL)
+	lf, err := provisioning.ReadLockFile(lockFilePath(home))
+	if err != nil || lf.ForProvider("fork-cli").Plugin != "team-forks" {
+		t.Fatalf("the lock must record the plugin of the section: %v %+v", err, lf.ForProvider("fork-cli"))
+	}
+	store, err := pluginStoreFn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(store.Root, "team-forks")); err != nil {
+		t.Fatal(err)
+	}
+	freshProcess(t, home)
+	registerPluginProviders(&bytes.Buffer{})
+	cfg, err = clientconfig.Load(home)
+	if err != nil || !slicesHas(cfg.Agents, "fork-cli") {
+		t.Fatalf("the load dropped the plugin's agent: %v %v", err, cfg)
+	}
+	return home, cfg, delivered
+}
+
+// plugin remove with the plugin cache cleared retires what the lockfile records:
+// the files, the lock section and the connected agent, and says why.
+func TestPluginRemoveWithoutTheTreeUsesTheLock(t *testing.T) {
+	srv := healthOnlyServer(t)
+	defer srv.Close()
+	home, _, delivered := unfetchedMachine(t, srv.URL)
+
+	var code int
+	var out string
+	msg := withStderr(t, func() { code, out = runPlugin(t, "remove", "team-forks") })
+	if code != 0 {
+		t.Fatalf("remove: %d\n%s\n%s", code, out, msg)
+	}
+	if !strings.Contains(msg, "cannot be read") || !strings.Contains(msg, "lockfile") {
+		t.Errorf("the note must say the tree was missing and the lock used:\n%s", msg)
+	}
+	if _, err := os.Stat(delivered); err == nil {
+		t.Errorf("%s was not pruned", delivered)
+	}
+	lf, _ := provisioning.ReadLockFile(lockFilePath(home))
+	if _, still := lf.Providers["fork-cli"]; still {
+		t.Error("the lock section of the plugin's provider is still there")
+	}
+	if _, ok := lf.Providers["claude"]; !ok {
+		t.Error("the section of another provider must stay")
+	}
+	got, err := clientconfig.Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got.Plugin("team-forks"); ok || slicesHas(got.Agents, "fork-cli") {
+		t.Errorf("the entry or its agent is still configured: %v", got.Agents)
+	}
+}
+
+// Removal without the tree touches only paths the lock records inside the client
+// folder: a recorded path that leaves it is ignored, never joined and deleted.
+func TestPluginRemoveWithoutTheTreeIgnoresAPathOutsideTheClientFolder(t *testing.T) {
+	srv := healthOnlyServer(t)
+	defer srv.Close()
+	home, _, _ := unfetchedMachine(t, srv.URL)
+
+	outside := filepath.Join(filepath.Dir(home), "outside-victim.txt")
+	if err := os.WriteFile(outside, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	abs := filepath.Join(t.TempDir(), "abs-victim.txt")
+	if err := os.WriteFile(abs, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(lockFilePath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	planted := strings.Replace(string(raw), `"managed": [`, `"managed": [{"kind":"skill","name":"x","path":"../outside-victim.txt","content_hash":"h"},{"kind":"skill","name":"y","path":`+strconv.Quote(abs)+`,"content_hash":"h"},`, -1)
+	if planted == string(raw) {
+		t.Fatalf("the lockfile has no managed list to plant into:\n%s", raw)
+	}
+	if err := os.WriteFile(lockFilePath(home), []byte(planted), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if code, out := runPlugin(t, "remove", "team-forks"); code != 0 {
+		t.Fatalf("remove: %d\n%s", code, out)
+	}
+	for _, p := range []string{outside, abs} {
+		if b, err := os.ReadFile(p); err != nil || string(b) != "keep" {
+			t.Errorf("%s was touched by the removal: %v", p, err)
+		}
+	}
+}
+
+// status lists the provider of a plugin that is out of range, or not fetched, as
+// skipped with the reason, instead of leaving it out as if never connected.
+func TestStatusListsAnUnregisteredProviderAsSkipped(t *testing.T) {
+	srv := healthOnlyServer(t)
+	defer srv.Close()
+	for name, setup := range map[string]func(*testing.T, string) (string, *clientconfig.Config, string){
+		"out of range": outOfRangeMachine,
+		"not fetched":  unfetchedMachine,
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, cfg, _ := setup(t, srv.URL)
+			var found *providerStatus
+			ps := providerStatuses(cfg)
+			for i := range ps {
+				if ps[i].Name == "fork-cli" {
+					found = &ps[i]
+				}
+			}
+			if found == nil {
+				t.Fatalf("status does not list the provider: %+v", ps)
+			}
+			if found.State != "skipped" || found.Connected || found.Plugin != "team-forks" {
+				t.Errorf("provider = %+v", *found)
+			}
+			for _, want := range []string{"team-forks", "plugin update", "plugin remove"} {
+				if !strings.Contains(found.Skipped, want) {
+					t.Errorf("reason lacks %q: %s", want, found.Skipped)
+				}
+			}
+			b, _ := json.Marshal(found)
+			if !strings.Contains(string(b), `"skipped"`) {
+				t.Errorf("json lacks the reason: %s", b)
+			}
+		})
+	}
+}
+
+// legacyLock removes the `plugin` record from every section, as a lockfile
+// written before it has none, and returns the provider's section.
+func legacyLock(t *testing.T, home string) {
+	t.Helper()
+	lf, err := provisioning.ReadLockFile(lockFilePath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for p, l := range lf.Providers {
+		l.Plugin = ""
+		lf.Providers[p] = l
+	}
+	if err := provisioning.WriteLockFile(lockFilePath(home), lf); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The reported install: a lock written before `plugin` existed, the plugin out
+// of range and its tree gone. remove still retires the section and the agent,
+// and status lists the provider as skipped, naming the plugin.
+func TestPluginRemoveAttributesALegacySectionWithoutTheTree(t *testing.T) {
+	srv := healthOnlyServer(t)
+	defer srv.Close()
+	home, cfg, delivered := unfetchedMachine(t, srv.URL)
+	legacyLock(t, home)
+
+	var found bool
+	for _, p := range providerStatuses(cfg) {
+		if p.Name == "fork-cli" {
+			found = p.State == "skipped" && p.Plugin == "team-forks" && strings.Contains(p.Skipped, "team-forks")
+		}
+	}
+	if !found {
+		t.Errorf("status must list fork-cli as skipped, from team-forks: %+v", providerStatuses(cfg))
+	}
+
+	if code, out := runPlugin(t, "remove", "team-forks"); code != 0 {
+		t.Fatalf("remove: %d\n%s", code, out)
+	}
+	lf, _ := provisioning.ReadLockFile(lockFilePath(home))
+	if _, still := lf.Providers["fork-cli"]; still {
+		t.Error("the unattributed section of the plugin's provider is still there")
+	}
+	if _, err := os.Stat(delivered); err == nil {
+		t.Errorf("%s was not pruned", delivered)
+	}
+	if got, err := clientconfig.Load(home); err != nil || slicesHas(got.Agents, "fork-cli") {
+		t.Errorf("the agent must go: %v %v", got, err)
+	}
+}
+
+// An inferred attribution prunes only what the plugin's own entries record: a
+// file another source put in the section stays, and so does the section.
+func TestPluginRemoveOfAnInferredSectionKeepsOtherSources(t *testing.T) {
+	srv := healthOnlyServer(t)
+	defer srv.Close()
+	home, _, _ := unfetchedMachine(t, srv.URL)
+	legacyLock(t, home)
+	keep := filepath.Join(home, "kb-owned.txt")
+	if err := os.WriteFile(keep, []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lf, _ := provisioning.ReadLockFile(lockFilePath(home))
+	l := lf.Providers["fork-cli"]
+	l.Managed = append(l.Managed, provisioning.ManagedFile{Kind: "skill", Name: "k", Path: "kb-owned.txt", ContentHash: "h", Source: "kb:kb-a"})
+	lf.Providers["fork-cli"] = l
+	if err := provisioning.WriteLockFile(lockFilePath(home), lf); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := runPlugin(t, "remove", "team-forks"); code != 0 {
+		t.Fatalf("remove: %d\n%s", code, out)
+	}
+	if b, err := os.ReadFile(keep); err != nil || string(b) != "keep" {
+		t.Errorf("a file of another source was pruned: %v", err)
+	}
+	lf, _ = provisioning.ReadLockFile(lockFilePath(home))
+	if len(lf.Providers["fork-cli"].Managed) != 1 {
+		t.Errorf("the other source's entry must stay: %+v", lf.Providers["fork-cli"].Managed)
+	}
+}
+
+// With a second plugin whose tree is also unreadable, either could own the
+// provider: the section and the agent stay, and the output says so.
+func TestPluginRemoveLeavesAnAmbiguousLegacySection(t *testing.T) {
+	srv := healthOnlyServer(t)
+	defer srv.Close()
+	home, _, _ := unfetchedMachine(t, srv.URL)
+	legacyLock(t, home)
+	cfg, err := clientconfig.Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.SetPlugin("other-forks", clientconfig.PluginEntry{Source: "/x", Installed: strings.Repeat("a", 64), Approved: strings.Repeat("a", 64), Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := clientconfig.Save(home, cfg); err != nil {
+		t.Fatal(err)
+	}
+	var code int
+	msg := withStderr(t, func() { code, _ = runPlugin(t, "remove", "team-forks") })
+	if code != 0 || !strings.Contains(msg, "does not say this provider is from team-forks alone") {
+		t.Fatalf("exit %d\n%s", code, msg)
+	}
+	lf, _ := provisioning.ReadLockFile(lockFilePath(home))
+	if _, ok := lf.Providers["fork-cli"]; !ok {
+		t.Error("an ambiguous section must stay")
+	}
+	if got, _ := clientconfig.Load(home); !slicesHas(got.Agents, "fork-cli") {
+		t.Error("an ambiguous provider's agent must stay")
+	}
+}
+
+// With no entry naming the plugin (it ships only providers), the only plugin
+// whose tree cannot be read is the one picked; and a section with nothing to
+// prune is never retired on that inference alone, so its agent stays.
+func TestPluginOfSectionPicksTheSoleUnreadablePluginAndKeepsAnEmptySection(t *testing.T) {
+	srv := healthOnlyServer(t)
+	defer srv.Close()
+	home, cfg, _ := unfetchedMachine(t, srv.URL)
+	legacyLock(t, home)
+	store, err := pluginStoreFn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lf, _ := provisioning.ReadLockFile(lockFilePath(home))
+	l := lf.Providers["fork-cli"]
+	for i := range l.Managed {
+		l.Managed[i].Source = ""
+	}
+	if who, inferred := pluginOfSection(cfg, l, "fork-cli", store); who != "team-forks" || !inferred {
+		t.Errorf("pluginOfSection = %q, %v; want team-forks inferred", who, inferred)
+	}
+	l.Managed = nil
+	lf.Providers["fork-cli"] = l
+	if err := provisioning.WriteLockFile(lockFilePath(home), lf); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := runPlugin(t, "remove", "team-forks"); code != 0 {
+		t.Fatalf("remove: %d\n%s", code, out)
+	}
+	lf, _ = provisioning.ReadLockFile(lockFilePath(home))
+	if _, ok := lf.Providers["fork-cli"]; !ok {
+		t.Error("an inferred section with nothing to prune must stay")
+	}
+	// Read raw: Load drops an agent no plugin registers once the plugin is gone.
+	if raw, err := os.ReadFile(clientconfig.Path(home)); err != nil || !strings.Contains(string(raw), "fork-cli") {
+		t.Errorf("its agent must stay in the config: %v", err)
+	}
+}
+
+// A readable plugin that declares the provider could be its owner: no inference.
+func TestPluginOfSectionIsBlockedByAReadablePluginDeclaringTheProvider(t *testing.T) {
+	srv := healthOnlyServer(t)
+	defer srv.Close()
+	home, _, _ := unfetchedMachine(t, srv.URL)
+	legacyLock(t, home)
+	old := version
+	version = "1.0.0" // in range, to install it
+	code, out := runPlugin(t, "install", providerPlugin(t, "other-forks"), "--yes")
+	version = old
+	if code != 0 {
+		t.Fatalf("install: %d\n%s", code, out)
+	}
+	cfg, err := clientconfig.Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := pluginStoreFn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	lf, _ := provisioning.ReadLockFile(lockFilePath(home))
+	if who, _ := pluginOfSection(cfg, lf.Providers["fork-cli"], "fork-cli", store); who != "" {
+		t.Errorf("attributed to %q though another plugin declares the provider", who)
 	}
 }

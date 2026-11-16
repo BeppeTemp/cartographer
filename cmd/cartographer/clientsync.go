@@ -1017,6 +1017,11 @@ func materializeForProviders(manifests map[string]contract.Manifest, projections
 			applied.NewLock.ServerVersion = serverVersion
 		}
 		applied.NewLock.Worktree = p.Worktree
+		// The plugin that declares the provider, so its removal can find the
+		// section without reading the plugin's tree (#2136).
+		if spec, ok := configurator.PluginOf(configurator.Provider(p.Provider)); ok {
+			applied.NewLock.Plugin = spec.Origin
+		}
 		lockFile.SetProjection(p.Key(), applied.NewLock)
 		results[projectionKey(p)] = applied
 

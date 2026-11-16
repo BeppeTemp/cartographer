@@ -169,6 +169,13 @@ type Lock struct {
 	// every sync (clientsync), set only by connect; doctor still reports the
 	// limitation every run.
 	SessionHookLimitAcked bool `json:"session_hook_limit_acked,omitempty"`
+	// Plugin names the plugin that declares the provider this section belongs
+	// to, recorded at every sync so `plugin remove` and `status` can attribute
+	// the section when the plugin's tree cannot be read (#2136). Empty — a
+	// built-in provider, and every lockfile written before it — means "no
+	// plugin recorded": nothing migrates, and such a section is never retired
+	// by a plugin's removal.
+	Plugin string `json:"plugin,omitempty"`
 }
 
 // Scope returns the destination-matrix half this lock's paths were resolved

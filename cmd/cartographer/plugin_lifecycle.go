@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"sort"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
@@ -557,6 +558,10 @@ func pluginRemove(args []string) int {
 			return pluginFail(1, "%s is needed by enabled %s: disable or remove that first", name, escapeControl(joinProblems(deps)))
 		}
 		var providers []string
+		// treeless: the approved tree cannot be read (not fetched, modified, no
+		// store), so what the plugin installed is retired from what the lockfile
+		// records for it and nothing else (#2136).
+		treeless := false
 		if e.Approved != "" {
 			t, err := c.store.Open(name, e.Approved, pluginOpts())
 			if errors.Is(err, core.ErrInvalid) {
@@ -575,19 +580,22 @@ func pluginRemove(args []string) int {
 				}
 			}
 			if err != nil {
-				return pluginFail(1, "the approved tree of %s cannot be read (%s), so what it installed cannot be retired; run `cartographer sync` to fetch it again (or reinstall it), then remove it", name, escapeControl(err.Error()))
+				treeless = true
+				fmt.Fprintf(os.Stderr, "note: the approved tree of %s cannot be read (%s): removing it with what the lockfile records for it\n", name, escapeControl(err.Error()))
 			}
-			registered := map[string]bool{}
-			for _, rp := range configurator.RegisteredPlugins() {
-				if rp.Spec.Origin == name {
-					registered[rp.Spec.Name] = true
+			if !treeless {
+				registered := map[string]bool{}
+				for _, rp := range configurator.RegisteredPlugins() {
+					if rp.Spec.Origin == name {
+						registered[rp.Spec.Name] = true
+					}
 				}
-			}
-			for _, pn := range pluginProviderNames(t) {
-				if !registered[pn] {
-					return pluginFail(1, "the provider %s of %s is not registered this run (see the warnings above), so it cannot be retired; nothing was removed", escapeControl(pn), name)
+				for _, pn := range pluginProviderNames(t) {
+					if !registered[pn] {
+						return pluginFail(1, "the provider %s of %s is not registered this run (see the warnings above), so it cannot be retired; nothing was removed", escapeControl(pn), name)
+					}
+					providers = append(providers, pn)
 				}
-				providers = append(providers, pn)
 			}
 		}
 		var pruned []string
@@ -617,32 +625,48 @@ func pluginRemove(args []string) int {
 		if err != nil {
 			return pluginFail(1, "read lockfile: %s", escapeControl(err.Error()))
 		}
-		provs := make([]string, 0, len(lf.Providers))
-		for p := range lf.Providers {
-			provs = append(provs, p)
-		}
-		sort.Strings(provs)
 		changed := false
-		for _, p := range provs {
-			lock := lf.Providers[p]
+		var retired []string // providers of a treeless plugin whose lock section is gone
+		for _, key := range lf.Projections() {
+			lock := lf.ForProjection(key)
+			// A plugin provider's own section is retired whole when our sync
+			// recorded it as this plugin's (Lock.Plugin). One attributed only by
+			// inference (an older lockfile, pluginOfSection) loses just the
+			// entries sourced from the plugin, and goes when nothing else is left.
+			ownSection, inferred := false, false
+			if treeless {
+				var who string
+				who, inferred = pluginOfSection(cfg, lock, key.Provider, c.store)
+				ownSection = who == name && !inferred
+				inferred = who == name && inferred
+			}
 			var own []provisioning.ManagedFile
 			for _, mf := range lock.Managed {
-				if provisioning.PluginName(mf.Source) == name {
+				if ownSection || provisioning.PluginName(mf.Source) == name {
 					own = append(own, mf)
 				}
 			}
-			if len(own) == 0 {
+			if treeless && !ownSection && !inferred && key.Global() && lock.Plugin == "" {
+				if _, known := configurator.Lookup(configurator.Provider(key.Provider)); !known {
+					fmt.Fprintf(os.Stderr, "[%s] kept: the lockfile does not say this provider is from %s alone\n", escapeControl(key.Provider), name)
+				}
+			}
+			if len(own) == 0 && !ownSection && !inferred {
 				continue
+			}
+			label := key.Provider
+			if !key.Global() {
+				label += " (" + key.Workspace + ")"
 			}
 			done, err := provisioning.PruneManaged(own, provisioning.LockBaseDir(lock, c.dir), false)
 			var refused *provisioning.PruneRefusedError
 			if err != nil && !errors.As(err, &refused) {
-				return pluginFail(1, "prune %s for %s: %s", escapeControl(p), name, escapeControl(err.Error()))
+				return pluginFail(1, "prune %s for %s: %s", escapeControl(label), name, escapeControl(err.Error()))
 			}
 			gone := map[string]bool{}
 			for _, mf := range done {
 				gone[mf.Kind+"\x00"+mf.Name+"\x00"+mf.Path] = true
-				pruned = append(pruned, p+": "+filepathSlash(mf.Path))
+				pruned = append(pruned, label+": "+filepathSlash(mf.Path))
 			}
 			kept := lock.Managed[:0:0]
 			for _, mf := range lock.Managed {
@@ -651,12 +675,23 @@ func pluginRemove(args []string) int {
 				}
 			}
 			lock.Managed = kept
-			lf.Providers[p] = lock
-			changed = changed || len(done) > 0
 			if refused != nil {
 				failed = true
-				fmt.Fprintf(os.Stderr, "[%s] kept: %s\n", escapeControl(p), escapeControl(refused.Error()))
+				fmt.Fprintf(os.Stderr, "[%s] kept: %s\n", escapeControl(label), escapeControl(refused.Error()))
 			}
+			// An inferred section goes only when this run emptied it: one that
+			// was already empty says nothing about the plugin.
+			retire := (ownSection || inferred && len(own) > 0 && len(lock.Managed) == 0) && refused == nil
+			if retire {
+				lf.RemoveProjection(key)
+				retired = append(retired, key.Provider)
+			} else {
+				if inferred && refused == nil {
+					fmt.Fprintf(os.Stderr, "[%s] kept: the lockfile does not say the rest of this section is from %s\n", escapeControl(label), name)
+				}
+				lf.SetProjection(key, lock)
+			}
+			changed = changed || len(done) > 0 || retire
 		}
 		if changed {
 			if err := provisioning.WriteLockFile(lockPath, lf); err != nil {
@@ -676,6 +711,20 @@ func pluginRemove(args []string) int {
 			return pluginFail(1, "%s", escapeControl(err.Error()))
 		}
 		fresh.RemovePlugin(name)
+		// A provider retired from the lock alone leaves the connected agents
+		// and its bindings with it (doDisconnectLocked does the same).
+		// Only when no section of the provider is left, global or workspace:
+		// one that stays (it holds other sources) keeps the agent connected.
+		left := map[string]bool{}
+		for _, key := range lf.Projections() {
+			left[key.Provider] = true
+		}
+		retired = slices.DeleteFunc(retired, func(p string) bool { return left[p] })
+		fresh.Agents = removeStrings(fresh.Agents, retired)
+		for _, rp := range retired {
+			delete(fresh.Workspaces, rp)
+			delete(fresh.Scopes, rp)
+		}
 		if err := clientconfig.Save(c.dir, fresh); err != nil {
 			return pluginFail(1, "%s", escapeControl(err.Error()))
 		}
