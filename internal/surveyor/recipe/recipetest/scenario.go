@@ -11,8 +11,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -110,6 +112,26 @@ type Expect struct {
 
 var stepVerbs = map[string]bool{"spec": true, "check": true, "list": true, "fetch": true}
 
+var unknownKeyRe = regexp.MustCompile(`^(line \d+): field (\S+) not found in type \S+$`)
+
+// decodeProblems words a strict-decode error for an author: an unknown key is
+// "unknown key bogus at line 34", not the decoder's "line 34: field bogus not
+// found in type recipetest.Scenario" with a Go type name in it.
+func decodeProblems(err error) string {
+	var te *yaml.TypeError
+	if !errors.As(err, &te) {
+		return err.Error()
+	}
+	out := make([]string, 0, len(te.Errors))
+	for _, e := range te.Errors {
+		if m := unknownKeyRe.FindStringSubmatch(e); m != nil {
+			e = fmt.Sprintf("unknown key %s at %s", m[2], m[1])
+		}
+		out = append(out, e)
+	}
+	return strings.Join(out, "; ")
+}
+
 // ReadFile reads and judges the shape of a scenario file; dir is the plugin's tests/ folder.
 func ReadFile(dir, name string) (*Scenario, error) {
 	root, err := os.OpenRoot(dir)
@@ -119,14 +141,21 @@ func ReadFile(dir, name string) (*Scenario, error) {
 	defer root.Close()
 	budget := maxTotal
 	data, err := readCapped(root, name+".yaml", &budget)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, fmt.Errorf("%s.yaml: no such file: every recipe and connector needs its scenario at tests/<name>.yaml", name)
+	}
 	if err != nil {
-		return nil, err
+		var pe *fs.PathError
+		if errors.As(err, &pe) {
+			err = pe.Err // the operation and the folder-relative path are noise
+		}
+		return nil, fmt.Errorf("%s.yaml: %v", name, err)
 	}
 	var sc Scenario
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&sc); err != nil && !errors.Is(err, io.EOF) {
-		return nil, fmt.Errorf("%s.yaml: %v", name, err)
+		return nil, fmt.Errorf("%s.yaml: %s", name, decodeProblems(err))
 	}
 	if sc.Env == nil {
 		sc.Env = map[string]string{}

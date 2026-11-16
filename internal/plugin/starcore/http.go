@@ -334,7 +334,7 @@ func (n *netState) refusal(host string) error {
 		}
 		return DeniedErr("http.request: %q resolves to a private address: the manifest declares it under net_private, but this Surveyor does not grant it (plugins.%s.allow_private_hosts)", host, n.cc.Plugin)
 	}
-	return DeniedErr("http.request: %q resolves to a loopback, private or link-local address, which a plugin may not reach", host)
+	return DeniedErr("http.request: %q resolves to a loopback, private or link-local address, which a plugin may not reach unless its manifest declares the host under components.surveyor.permissions.net_private (a private or loopback host only: link-local stays shut)", host)
 }
 
 // embeddedV4 returns the IPv4 address an IPv6 one embeds (NAT64 64:ff9b::/96,

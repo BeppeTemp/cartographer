@@ -265,6 +265,26 @@ func TestCall_HTTPStatusFailure_ClassifiesAsRemoteUnavailable(t *testing.T) {
 	}
 }
 
+// A plain-text error body (http.Error ends it with a newline) is shown without
+// that newline: Escape would print it as a literal `\n`. Both the tool-call and
+// the health paths, whatever the server.
+func TestHTTPErrorBodyTrailingNewlineIsNotShownEscaped(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "conflicting kb selection", http.StatusBadRequest)
+	}))
+	defer srv.Close()
+
+	_, err := client.New(srv.URL, "").Call("ok_tool", map[string]any{})
+	var re *client.RemoteError
+	if !errors.As(err, &re) || re.Cause == nil || re.Cause.Error() != "conflicting kb selection" {
+		t.Errorf("Call: err = %v, cause %v, want the body without a newline", err, re)
+	}
+	_, err = client.New(srv.URL, "").Health(time.Second)
+	if !errors.As(err, &re) || re.Cause == nil || re.Cause.Error() != "conflicting kb selection" {
+		t.Errorf("Health: err = %v, want the body without a newline", err)
+	}
+}
+
 // D128: 400 and 404 are how the 2026-07-28 transport reports a header
 // mismatch, an unsupported protocol version or an unknown method. When the
 // body carries the JSON-RPC error, the operator gets the code and message

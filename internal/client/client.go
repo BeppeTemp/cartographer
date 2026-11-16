@@ -604,7 +604,7 @@ func (c *MCPClient) doCtx(ctx context.Context, method string, params any) (json.
 		}
 		return nil, &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
 			Message: fmt.Sprintf("%s returned HTTP %d", reqURL, resp.StatusCode),
-			Cause:   fmt.Errorf("%s", Escape(bodyPrefix(respBody))), HTTPStatus: resp.StatusCode}
+			Cause:   fmt.Errorf("%s", Escape(strings.TrimRight(bodyPrefix(respBody), " \t\r\n"))), HTTPStatus: resp.StatusCode}
 	}
 
 	// Checked after the status switch: a 401 or a 5xx with a big body keeps
@@ -873,7 +873,7 @@ func (c *MCPClient) healthOnce(hcp *http.Client, u *url.URL, token string) (*Hea
 			msg += mcpSubpathHint(c.ServerURL)
 		}
 		return nil, nil, &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
-			Message: msg, Cause: fmt.Errorf("%s", Escape(string(body))), HTTPStatus: resp.StatusCode}
+			Message: msg, Cause: fmt.Errorf("%s", Escape(strings.TrimRight(string(body), " \t\r\n"))), HTTPStatus: resp.StatusCode}
 	}
 
 	var health Health

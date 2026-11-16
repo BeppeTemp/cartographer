@@ -746,7 +746,7 @@ func (m *MultiKBServer) Handler() http.Handler {
 		case strings.HasPrefix(r.URL.Path, "/mcp/"):
 			pathName := strings.TrimPrefix(r.URL.Path, "/mcp/")
 			if queryName := r.URL.Query().Get("kb"); queryName != "" && queryName != pathName {
-				http.Error(w, "conflicting kb selection", http.StatusBadRequest)
+				http.Error(w, "conflicting kb selection: /mcp/<name> and ?kb= name different KBs, use one of them", http.StatusBadRequest)
 				return
 			}
 			m.serveKB(w, r, pathName)

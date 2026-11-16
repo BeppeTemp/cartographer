@@ -71,3 +71,21 @@ func TestReadFileRefusesSymlinksAndBoundsTheTotal(t *testing.T) {
 		t.Error("five near-cap body_files were read: the total is not bounded")
 	}
 }
+
+// A scenario the author got wrong is worded for the author: a missing file says
+// where it belongs (no decoder path in it), an unknown key is named with its
+// line, and neither carries a Go type name or a literal "\n".
+func TestReadFileWordsItsErrorsForTheAuthor(t *testing.T) {
+	dir := t.TempDir()
+	_, err := ReadFile(dir, "echo")
+	if err == nil || err.Error() != "echo.yaml: no such file: every recipe and connector needs its scenario at tests/<name>.yaml" {
+		t.Errorf("missing scenario: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "bad.yaml"), []byte("steps:\n  - verb: list\nbogus: 1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = ReadFile(dir, "bad")
+	if err == nil || err.Error() != "bad.yaml: unknown key bogus at line 3" {
+		t.Errorf("unknown key: %v", err)
+	}
+}
