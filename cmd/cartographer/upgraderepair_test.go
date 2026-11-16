@@ -982,3 +982,33 @@ func TestUpgradeRepair_HandsTheServeTaskToItsUser(t *testing.T) {
 		})
 	}
 }
+
+// #2135: a bound workspace the sync skipped because it cannot be read is
+// reported, and the repair is not "pending" over it: everything else synced.
+func TestCmdUpgradeRepair_ReportsSkippedUnreadableWorkspace(t *testing.T) {
+	saveRepairFns(t)
+	dir := t.TempDir()
+	version = "v1.2.3"
+	repairEffectiveConfigFn = func(explicit string) (string, error) { return "/cfg.yaml", nil }
+	repairServiceStatusFn = func(configPath string) (service.Status, error) {
+		return service.Status{Installed: true, Running: true, HTTPAddr: "127.0.0.1:39273"}, nil
+	}
+	repairProbeHealthFn = func(addr string, timeout time.Duration) (service.HealthStatus, error) {
+		return service.HealthStatus{Status: "ok", Version: "v1.2.3"}, nil
+	}
+	failIfReplaceCalled(t)
+	repairTargetDirFn = func() (string, error) { return dir, nil }
+	writeRepairClientConfig(t, dir, "http://127.0.0.1:39273/mcp", []string{"claude"})
+	repairRunSyncFn = func(string, *clientconfig.Config, syncOptions) (syncResult, error) {
+		return syncResult{Unreadable: []string{"/home/user/proj"}}, nil
+	}
+
+	out := withStdout(t, func() {
+		if code := cmdUpgradeRepair(nil); code != exitRepairOK {
+			t.Errorf("exit = %d, want %d", code, exitRepairOK)
+		}
+	})
+	if !strings.Contains(out, "/home/user/proj") || strings.Contains(out, "pending") {
+		t.Errorf("output = %q, want the skipped workspace named and no pending sync", out)
+	}
+}

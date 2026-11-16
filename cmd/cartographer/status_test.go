@@ -448,6 +448,49 @@ func TestStatus_WorkspaceProblemNamesTheCause(t *testing.T) {
 	}
 }
 
+// #2135: a bound workspace the process may not list is named on the status card
+// with the access hint, as sync reports it, not shown as drift with no cause.
+func TestStatus_UnreadableWorkspaceNamesTheCause(t *testing.T) {
+	skipUnlessModeEnforced(t)
+	home := t.TempDir()
+	setHome(t, home)
+	ws, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &clientconfig.Config{ServerURL: "https://cartographer.example/mcp", Agents: []string{"claude"}}
+	if err := cfg.SetWorkspaceScope("claude", clientconfig.ScopeWorkspace); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.BindWorkspace("claude", ws, []string{"kb-a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := clientconfig.Save(home, cfg); err != nil {
+		t.Fatal(err)
+	}
+	unreadableDir(t, ws)
+
+	oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
+	version = "v1.0.0"
+	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, error) {
+		return map[string]contract.Manifest{}, nil
+	}
+	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
+	t.Cleanup(func() {
+		version, statusHealthFn, statusManifestsFn, statusServiceFn = oldVersion, oldHealth, oldManifest, oldService
+	})
+
+	out := withStdout(t, func() {
+		if code := cmdStatus(nil); code != 1 {
+			t.Errorf("cmdStatus with an unreadable workspace = %d, want 1", code)
+		}
+	})
+	if !strings.Contains(out, ws) || !strings.Contains(out, "bound directory cannot be read") || !strings.Contains(out, "grant the process access") {
+		t.Errorf("output = %q, want the workspace, the cause and the hint", out)
+	}
+}
+
 // #967: a placeholder that now resolves elsewhere than the lockfile recorded
 // leaves the materialized artifact stale; status must say so, as sync rewrites it.
 func TestStatus_PlaceholderResolutionDriftIsDrift(t *testing.T) {

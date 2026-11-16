@@ -372,6 +372,20 @@ func (c *Config) ResolveWorkspace(provider, dir string) (WorkspaceBinding, bool,
 	return w, true, nil
 }
 
+// GrantAccessHint is what an operator does about a bound directory the process
+// may not list (#2105).
+const GrantAccessHint = "grant the process access to it (macOS: Files and Folders, or Full Disk Access) and retry"
+
+// WorkspaceUnreadable says why the directory of a binding that exists cannot be
+// listed, with the hint, or "" when it can (#2135). sync skips such a workspace
+// rather than fail every provider over it.
+func WorkspaceUnreadable(path string) string {
+	if err := dirReadErrFn(path); err != nil {
+		return fmt.Sprintf("bound directory cannot be read: %v — %s", err, GrantAccessHint)
+	}
+	return ""
+}
+
 // CheckWorkspaceRemote reports an error when the repository now at w.Path is
 // not the one the binding recorded: the git remote guard of BindWorkspace,
 // shared by ResolveWorkspace and the sync path so that no write reaches a
@@ -384,7 +398,7 @@ func CheckWorkspaceRemote(w WorkspaceBinding) error {
 	if err := dirReadErrFn(w.Path); err != nil {
 		return &WorkspaceLookupError{
 			Path: w.Path, Reason: "bound directory cannot be read",
-			Detail: fmt.Sprintf("%v — its git remote cannot be checked; grant the process access to it (macOS: Files and Folders, or Full Disk Access) and retry", err),
+			Detail: fmt.Sprintf("%v — its git remote cannot be checked; %s", err, GrantAccessHint),
 		}
 	}
 	if got := gitRemoteFn(w.Path); got != w.Remote {

@@ -1951,7 +1951,7 @@ The refusal is **per provider** (and, in a sync, per artifact):
   refused: `MCP entry`, `bootstrap hook`, `write-findings hook`, and the kinds of artifact (`skills`, `agents`, `hooks`,
   `instructions`). A refused *removal* (`<kind>/<name> not removed`) stays a warning and does not count as a skipped part: the provider is still wired. `wrote MCP entry <name>` is printed (by `connect` and `sync`) only for an entry that was written. **`connect`
   exits 3** when at least one provider ended partially or not connected; the others are still wired, so 3 is the signal, not an
-  abort (0 and 1 keep their meaning, 2 stays configuration/operational); `reconnect` exits 3 the same way, and so does a real `sync` that was refused a write (#2099). The bootstrap and write-findings hooks are no exception: a provider whose
+  abort (0 and 1 keep their meaning, 2 stays configuration/operational); `reconnect` exits 3 the same way, and so does a real `sync` that was refused a write (#2099). A real `sync` also exits 3 when it skipped a bound workspace it cannot read (#2135, [sync.md](sync.md)). The bootstrap and write-findings hooks are no exception: a provider whose
   destination for them is behind a link gets a `<provider>: bootstrap hook not installed: …` warning and the
   others are still set up. A refused write of a new artifact is not recorded as installed, a refused update keeps the previous
   lockfile entry (its files on disk are still ours), and one whose removal was refused stays in the

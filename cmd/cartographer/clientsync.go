@@ -856,6 +856,11 @@ func materializeForProviders(manifests map[string]contract.Manifest, projections
 	// protected.
 	skippedProjections := map[string]bool{}
 	for _, p := range projections {
+		if p.Unreadable != "" {
+			fmt.Fprintf(portability.Streams.err(), "warning: workspace %s: %s projection skipped: %s\n", escapeControl(p.Workspace), p.Provider, escapeControl(p.Unreadable))
+			skippedProjections[projectionKey(p)] = true
+			continue
+		}
 		// Preflight the projection's OWN view: validating the whole candidate
 		// set would fail a sync over a local command belonging to a KB this
 		// projection is not even bound to (D170).

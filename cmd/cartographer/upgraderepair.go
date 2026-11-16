@@ -310,10 +310,16 @@ func repairProviderSync(serviceHTTPAddr string) int {
 		return exitRepairOK
 	}
 
-	if _, err := repairRunSyncFn(dir, cfg, syncOptions{Locked: true}); err != nil {
+	res, err := repairRunSyncFn(dir, cfg, syncOptions{Locked: true})
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		fmt.Println("native service verified; provider sync pending — retry with: cartographer sync")
 		return exitRepairSyncPending
+	}
+	if len(res.Unreadable) > 0 {
+		// Not pending: everything else was synced, and a retry cannot help
+		// until the operator grants access (#2135).
+		fmt.Printf("workspaces skipped, not readable: %s\n", strings.Join(res.Unreadable, ", "))
 	}
 
 	fmt.Println("provider sync complete — restart already-open provider sessions to pick up the repaired configuration")

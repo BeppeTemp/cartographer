@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -321,5 +322,169 @@ func TestSync_WorkspaceWithChangedRemoteIsNotWrittenInto(t *testing.T) {
 	}
 	if len(lf.ForProvider("claude").Managed) == 0 {
 		t.Error("claude was not synced")
+	}
+}
+
+// skipUnlessModeEnforced skips where chmod 000 does not stop a listing: Windows
+// ignores the mode and root passes through it.
+func skipUnlessModeEnforced(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("the directory mode is not enforced for this user")
+	}
+}
+
+// unreadableDir makes dir a directory the process may not list, restored at the end.
+func unreadableDir(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.Chmod(dir, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+	if _, err := os.ReadDir(dir); err == nil {
+		t.Skip("the directory mode is not enforced for this user")
+	}
+}
+
+// unreadableWorkspaceSetup binds codex to a readable workspace, a plain
+// unreadable one (#2135: git fails in it with exit 128) and an unreadable
+// repository with a recorded remote (the guard of #2105), next to claude.
+func unreadableWorkspaceSetup(t *testing.T) (home, good, plain, remote string) {
+	t.Helper()
+	home = t.TempDir()
+	setHome(t, home)
+	srv := prefixAwareMCPServer(t, map[string]string{"one": ""}, "sync_pull", func(kb string) string {
+		return syncPullPayload(t, kb, "skill-"+kb)
+	})
+	t.Cleanup(srv.Close)
+	canon := func(d string) string { // the bound path is canonical (macOS /var -> /private/var)
+		c, err := filepath.EvalSymlinks(d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	good, plain, remote = canon(t.TempDir()), canon(t.TempDir()), canon(t.TempDir())
+	for _, args := range [][]string{{"init", "-q"}, {"remote", "add", "origin", "https://example.com/org/repo.git"}} {
+		if out, err := exec.Command("git", append([]string{"-C", remote}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	cfg := &clientconfig.Config{
+		ServerURL: srv.URL + "/mcp", ServerName: "cartographer",
+		Agents: []string{"claude", "codex"}, KnownKBs: []string{"one"},
+	}
+	if err := cfg.SetWorkspaceScope("codex", clientconfig.ScopeWorkspace); err != nil {
+		t.Fatal(err)
+	}
+	for _, w := range []string{good, plain, remote} {
+		if err := cfg.BindWorkspace("codex", w, []string{"one"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := clientconfig.Save(home, cfg); err != nil {
+		t.Fatal(err)
+	}
+	unreadableDir(t, plain)
+	unreadableDir(t, remote)
+	return home, good, plain, remote
+}
+
+// #2135: a bound workspace the process may not list is skipped with a warning
+// that names it and carries the access hint; the readable workspace and the
+// other provider still sync, and the exit code is 3 (partial, as D2118).
+func TestSync_UnreadableWorkspaceIsSkippedAndExits3(t *testing.T) {
+	skipUnlessModeEnforced(t)
+	home, good, plain, remote := unreadableWorkspaceSetup(t)
+
+	var code int
+	stderr := withStderr(t, func() { withStdout(t, func() { code = cmdSync(nil) }) })
+	if code != 3 {
+		t.Fatalf("exit = %d, want 3; stderr:\n%s", code, stderr)
+	}
+	for _, w := range []string{plain, remote} {
+		if !strings.Contains(stderr, "workspace "+w+": codex projection skipped") {
+			t.Errorf("no warning naming %s:\n%s", w, stderr)
+		}
+	}
+	if !strings.Contains(stderr, "grant the process access") || !strings.Contains(stderr, "sync skipped unreadable workspaces") {
+		t.Errorf("hint or exit line missing:\n%s", stderr)
+	}
+	lf, err := provisioning.ReadLockFile(lockFilePath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lf.ForProvider("claude").Managed) == 0 {
+		t.Error("claude was not synced")
+	}
+	if len(lf.ForProjection(provisioning.Projection{Provider: "codex", Workspace: good}).Managed) == 0 {
+		t.Error("the readable workspace was not synced")
+	}
+}
+
+// A skipped workspace keeps what it had: it is declared, so the orphan prune
+// leaves its lock entry alone.
+func TestSync_UnreadableWorkspaceKeepsItsLockEntry(t *testing.T) {
+	skipUnlessModeEnforced(t)
+	home, _, plain, _ := unreadableWorkspaceSetup(t)
+	key := provisioning.Projection{Provider: "codex", Workspace: plain}
+	lf, err := provisioning.ReadLockFile(lockFilePath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lf.SetProjection(key, provisioning.Lock{Managed: []provisioning.ManagedFile{{Path: "AGENTS.md", Kind: "instructions"}}, BaseDir: plain})
+	if err := provisioning.WriteLockFile(lockFilePath(home), lf); err != nil {
+		t.Fatal(err)
+	}
+	withStderr(t, func() { withStdout(t, func() { cmdSync(nil) }) })
+	lf, err = provisioning.ReadLockFile(lockFilePath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lf.ForProjection(key).Managed) != 1 {
+		t.Errorf("the skipped workspace lost its lock entry: %+v", lf.ForProjection(key))
+	}
+}
+
+// A dry run warns and exits 0, as for a refused write (D2118).
+func TestSync_UnreadableWorkspaceDryRunExits0(t *testing.T) {
+	skipUnlessModeEnforced(t)
+	unreadableWorkspaceSetup(t)
+	var code int
+	stderr := withStderr(t, func() { withStdout(t, func() { code = cmdSync([]string{"--dry-run"}) }) })
+	if code != 0 || !strings.Contains(stderr, "projection skipped") {
+		t.Errorf("dry run = %d, stderr:\n%s", code, stderr)
+	}
+}
+
+// When the sync ends partial (exit 2), the skipped workspaces are still named.
+func TestSync_UnreadableWorkspaceNamedWhenTheRunFails(t *testing.T) {
+	skipUnlessModeEnforced(t)
+	home, _, plain, _ := unreadableWorkspaceSetup(t)
+	cfg, err := clientconfig.Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// claude is bound to a workspace that is gone: its provider fails, the run is partial.
+	gone := t.TempDir()
+	if err := cfg.SetWorkspaceScope("claude", clientconfig.ScopeWorkspace); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.BindWorkspace("claude", gone, []string{"one"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := clientconfig.Save(home, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(gone); err != nil {
+		t.Fatal(err)
+	}
+	var code int
+	stderr := withStderr(t, func() { withStdout(t, func() { code = cmdSync(nil) }) })
+	if code != 2 {
+		t.Fatalf("exit = %d, want 2; stderr:\n%s", code, stderr)
+	}
+	if !strings.Contains(stderr, "sync skipped unreadable workspaces: ") || !strings.Contains(stderr, plain) {
+		t.Errorf("stderr does not name the skipped workspace:\n%s", stderr)
 	}
 }

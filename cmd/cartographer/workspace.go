@@ -56,6 +56,10 @@ type syncProjection struct {
 	// are not known to be gone, so the orphan prune leaves that provider's
 	// undeclared workspaces alone.
 	WorktreesUnlisted bool
+	// Unreadable is why the bound directory cannot be listed (#2135), empty
+	// when it can. Such a projection is not applied and keeps its recorded
+	// state: sync warns, goes on with the others and exits 3.
+	Unreadable string
 	// Worktree marks the projection into a linked worktree of a `--worktrees`
 	// binding; it is recorded on the lock entry (provisioning.Lock.Worktree).
 	Worktree bool
@@ -161,7 +165,11 @@ func projectionsFor(cfg *clientconfig.Config, provider, clientBaseDir string) ([
 			return nil, fmt.Errorf("%s: bound workspace %s is gone — rebind it, or remove the binding with `cartographer workspace unbind %s %s`",
 				provider, w.Path, provider, w.Path)
 		}
+		unreadable := ""
 		if !w.Derived {
+			unreadable = clientconfig.WorkspaceUnreadable(w.Path)
+		}
+		if !w.Derived && unreadable == "" {
 			// The recorded remote is the binding's identity (docs/sync.md):
 			// a directory now holding another repository is refused like a
 			// missing one. A derived binding was matched on its remote when
@@ -179,6 +187,14 @@ func projectionsFor(cfg *clientconfig.Config, provider, clientBaseDir string) ([
 			KBs:       w.KBs,
 			Scope:     contract.ScopeProject,
 			Derived:   w.Derived,
+		}
+		if unreadable != "" {
+			// Nothing in it can be read: no git, no worktree listing. Its
+			// lock entries stay (it is declared), and so do its worktrees'.
+			sp.Unreadable = unreadable
+			sp.WorktreesUnlisted = w.Worktrees
+			out = append(out, sp)
+			continue
 		}
 		if w.Derived {
 			sp.InstructionsRel, sp.InstructionsSkipped = derivedInstructions(provider, w.Path)
