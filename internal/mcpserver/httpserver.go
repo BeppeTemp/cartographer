@@ -561,7 +561,7 @@ func (m *MultiKBServer) Handler() http.Handler {
 				for _, info := range kbs {
 					if kbRosterVisible(r.Context(), info.Name) {
 						if srv, ok := m.servers[info.Name]; ok {
-							info.Capabilities = m.capsCache.get(info.Name, srv.kbRef, time.Now())
+							info.Capabilities = m.capsCache.get(info.Name, srv.kbRef, m.capsCache.current())
 							if pushHealthVisible(r.Context(), info.Name) {
 								info.Push = m.pushHealth.get(info.Name, srv.kbRef, time.Now())
 							}
