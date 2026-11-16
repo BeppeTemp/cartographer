@@ -1059,7 +1059,7 @@ validate a nested per-type grammar.
   lease), `waiting_on`, `timestamp`, `content_asset` (the name of an asset of the
   unit holding the Source's text, which the Surveyor's poll stages for an entry a
   recipe returned inline, #1262) and, for a system Source, `observed_group`,
-  `observed_revision`, `observed_change`, `observed_at`; its body is the self-contained brief and, for a unit the Surveyor's poll writes, carries a `Plan: [[<plan id>]]` link (`plan` in the frontmatter is not a graph edge, so without the link the write gate refuses the unit as an `orphan` once its map has other pages; a refused unit's log line names the gate's checks, `unit_refused (write_gate: orphan)`). Both
+  `observed_revision`, `observed_change`, `observed_at`; its body is the self-contained brief and, for a unit the Surveyor's poll writes, carries a `Plan: [[<plan id>]]` link (`plan` in the frontmatter is not a graph edge, so without the link the write gate refuses the unit as an `orphan` once its map has other pages; and its creating write asks for `index_entry`, or a map with a curated index refuses it as `index_incomplete`; a refused unit's log line names the gate's checks, `unit_refused (write_gate: orphan)`). Both
   are keyed types (D853), so lint never calls them unknown. `ingest_setup` writes
   `templates/ingest-plan.md` and `templates/ingest-unit.md` when absent and
   declares nothing on any map. **Claim protocol**, which uses no tool of its own:
