@@ -12,12 +12,13 @@
 package feed
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/BeppeTemp/cartographer/internal/client"
 )
 
 // Frontmatter keys of a feed Source.
@@ -201,7 +202,7 @@ func WriteHash(text string) (string, error) {
 	var o struct {
 		Hash string `json:"content_hash"`
 	}
-	if err := json.NewDecoder(strings.NewReader(text)).Decode(&o); err != nil {
+	if err := client.DecodeResult(text, &o); err != nil {
 		return "", fmt.Errorf("feed: unreadable write result: %w", err)
 	}
 	if o.Hash == "" {

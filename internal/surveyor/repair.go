@@ -2,10 +2,11 @@ package surveyor
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/BeppeTemp/cartographer/internal/client"
 )
 
 const (
@@ -84,7 +85,7 @@ func (r *repairInstance) Run(_ context.Context, _ *WorkItem, rt Runtime) (Result
 	var answer struct {
 		AppliedTotal int `json:"applied_total"`
 	}
-	if err := json.Unmarshal([]byte(out.Text), &answer); err != nil {
+	if err := client.DecodeResult(out.Text, &answer); err != nil {
 		return Result{}, fmt.Errorf("kb_repair auto: %w", err)
 	}
 	r.rest(rt.KB, r.interval)

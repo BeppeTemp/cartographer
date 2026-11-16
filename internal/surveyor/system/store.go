@@ -1,11 +1,11 @@
 package system
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/surveyor/feed"
 )
 
@@ -62,7 +62,7 @@ func (s *Store) Load(cursor string) (Loaded, error) {
 		Content  string `json:"content"`
 		Encoding string `json:"encoding"`
 	}
-	if json.Unmarshal([]byte(text), &a) != nil {
+	if client.DecodeResult(text, &a) != nil {
 		return Loaded{}, errors.New("reading the state: unreadable asset_read answer")
 	}
 	l := Loaded{State: State{}, Digest: Digest([]byte(a.Content))}
@@ -161,7 +161,7 @@ func (s *Store) read() (source, error) {
 	if err != nil {
 		return src, stateErr(err)
 	}
-	if json.Unmarshal([]byte(out), &src) != nil || src.ContentHash == "" {
+	if client.DecodeResult(out, &src) != nil || src.ContentHash == "" {
 		return src, errors.New("reading the Source: unreadable concept_read answer")
 	}
 	return src, nil

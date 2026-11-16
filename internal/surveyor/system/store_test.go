@@ -250,3 +250,23 @@ func TestStoreStep3ResultWithoutAHashReturnsTheCurrentHash(t *testing.T) {
 		t.Fatalf("hash after the failure = %q, the Source holds %q", got, cur.Hash)
 	}
 }
+
+// The server appends a sync block to a write result while the KB's git sync is
+// pending; reading the state and the Source must see through it (#2148).
+func TestStoreLoadAcceptsTheSyncBlockAfterEveryResult(t *testing.T) {
+	e := newEnv(t)
+	call := e.store.Call
+	e.store.Call = func(tool string, args map[string]any) (string, error) {
+		out, err := call(tool, args)
+		if err == nil {
+			out += "\n" + `{"last_error":"","sync_state":"pending"}`
+		}
+		return out, err
+	}
+	if _, err := e.store.Load(""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.store.read(); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -1268,3 +1268,14 @@ func UnreachableMessage(reqURL string, err error) string { return unreachableMes
 // UnauthorizedError is the cause of a 401 for this client's credential, naming
 // the environment variable when there is one (D222).
 func (c *MCPClient) UnauthorizedError() error { return c.unauthorizedCauseFor() }
+
+// DecodeResult decodes the first JSON value of a tool result's text into v. While
+// the KB's git sync is not clean the server appends a second block
+// ({"last_error":"","sync_state":"pending"}) to a write tool's result and the
+// client joins the blocks with a newline: only the first value is the answer, so
+// a decode of the whole text ("invalid character '{' after top-level value")
+// would call a successful write failed. Every tool-result parse of the Surveyor
+// goes through here.
+func DecodeResult(text string, v any) error {
+	return json.NewDecoder(strings.NewReader(text)).Decode(v)
+}

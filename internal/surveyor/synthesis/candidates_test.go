@@ -213,3 +213,25 @@ func TestCandidates_UntitledCentralConcept(t *testing.T) {
 		t.Errorf("got %s", subjects(got))
 	}
 }
+
+// syncTools appends the block the server adds to a write result while the KB's
+// git sync is pending: the answer to every call must still be read (#2148).
+type syncTools struct{ *fake }
+
+func (s syncTools) CallTool(name string, args any) (client.ToolOutput, error) {
+	out, err := s.fake.CallTool(name, args)
+	if err == nil && !out.IsError {
+		out.Text += "\n" + `{"last_error":"","sync_state":"pending"}`
+	}
+	return out, err
+}
+
+func TestCandidates_AcceptTheSyncBlockAfterEveryResult(t *testing.T) {
+	want, _, err := synthesis.Candidates(world(), synthesis.Config{Map: "gaps", MaxCandidates: 10}, rich, now)
+	must(t, err)
+	got, _, err := synthesis.Candidates(syncTools{world()}, synthesis.Config{Map: "gaps", MaxCandidates: 10}, rich, now)
+	must(t, err)
+	if len(want) == 0 || subjects(got) != subjects(want) {
+		t.Fatalf("with the block: %s\nwithout: %s", subjects(got), subjects(want))
+	}
+}

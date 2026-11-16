@@ -133,7 +133,7 @@ func (g *Guard) read(id string) (m map[string]any, exists bool, err error) {
 		}
 		return nil, false, fmt.Errorf("concept_read %q: %s", id, out.Text) // any other error: unknown, so no write
 	}
-	if json.Unmarshal([]byte(out.Text), &m) != nil {
+	if client.DecodeResult(out.Text, &m) != nil {
 		return nil, false, fmt.Errorf("concept_read %q: unreadable answer", id)
 	}
 	return m, true, nil

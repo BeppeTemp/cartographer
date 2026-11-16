@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/surveyor/connector"
 	"github.com/BeppeTemp/cartographer/internal/surveyor/feed"
 	"github.com/BeppeTemp/cartographer/internal/surveyor/poll"
@@ -169,7 +170,7 @@ func conceptList(tools ToolCaller, args map[string]any) (listOut, error) {
 			return l, err
 		}
 		l = listOut{}
-		if err := json.Unmarshal([]byte(text), &l); err != nil {
+		if err := client.DecodeResult(text, &l); err != nil {
 			NoteContract(tools, "concept_list")
 			return l, fmt.Errorf("concept_list: %w", err)
 		}
@@ -633,7 +634,7 @@ func (r *pollRun) entry(ctx context.Context, rec recipe.Recipe, e recipe.Entry, 
 		IngestStatus string `json:"ingest_status"`
 	}
 	// First object only: a pending git sync appends a second block (#2104).
-	if json.NewDecoder(strings.NewReader(text)).Decode(&reg) != nil || reg.ID == "" {
+	if client.DecodeResult(text, &reg) != nil || reg.ID == "" {
 		return true, r.fail(codeProtocol, "source_register answered nothing usable")
 	}
 	r.res.Commits++

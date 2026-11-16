@@ -358,7 +358,7 @@ func (t *ingestTools) protected(id string, fm map[string]any) bool {
 		ty = ""
 		if out, err := t.inner.CallTool("concept_read", map[string]any{"id": id, "outline": true}); err == nil && !out.IsError {
 			var c conceptOut
-			if json.Unmarshal([]byte(out.Text), &c) == nil {
+			if client.DecodeResult(out.Text, &c) == nil {
 				ty = str(c.Frontmatter, "type")
 			}
 		}
@@ -378,7 +378,7 @@ func (t *ingestTools) protectedTemplate(slug string) bool {
 		return true
 	}
 	var l []struct{ Slug, Type string }
-	if json.Unmarshal([]byte(out.Text), &l) != nil {
+	if client.DecodeResult(out.Text, &l) != nil {
 		return true
 	}
 	for _, e := range l {
