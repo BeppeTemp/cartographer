@@ -685,14 +685,18 @@ func mcpSubpathHint(serverURL string) string {
 	return fmt.Sprintf(" (the server URL is %s, without the trailing %q)", u, p[i+len("/mcp"):])
 }
 
-// stripMCPPath drops the terminal /mcp or /mcp/routed segment of an endpoint
-// path and any trailing slash, whichever the URL names (#2088).
+// stripMCPPath drops the terminal endpoint of an MCP path and any trailing
+// slash, whichever the URL names: /mcp, /mcp/routed or the per-KB /mcp/<kb>
+// that earlier clients use (#2088, #2149).
 func stripMCPPath(p string) string {
 	p = strings.TrimRight(p, "/")
-	if t := strings.TrimSuffix(p, "/mcp/routed"); t != p {
-		return strings.TrimRight(t, "/")
+	if strings.HasSuffix(p, "/mcp") {
+		return strings.TrimRight(strings.TrimSuffix(p, "/mcp"), "/")
 	}
-	return strings.TrimRight(strings.TrimSuffix(p, "/mcp"), "/")
+	if i := strings.LastIndex(p, "/mcp/"); i >= 0 && !strings.Contains(p[i+len("/mcp/"):], "/") {
+		return strings.TrimRight(p[:i], "/")
+	}
+	return p
 }
 
 // ServerBase is the server's base URL for an MCP endpoint URL: the terminal
@@ -708,6 +712,20 @@ func ServerBase(serverURL string) (*url.URL, error) {
 	u.RawQuery = ""
 	u.Fragment = ""
 	return u, nil
+}
+
+// RoutedEndpoint is the URL of the server's routed endpoint for a client URL
+// of any form (/mcp, /mcp?kb=<kb>, /mcp/<kb>, /mcp/routed): the base of the
+// server (ServerBase, a reverse proxy's prefix kept) plus the routed path the
+// server advertises (bare, never with the proxy's prefix), with no query, because the KB is a tool argument there
+// (WithRoutedKB) and a ?kb= on the routed mount is refused (#2149).
+func RoutedEndpoint(serverURL, routedPath string) (string, error) {
+	u, err := ServerBase(serverURL)
+	if err != nil {
+		return "", err
+	}
+	u.Path += routedPath
+	return u.String(), nil
 }
 
 // AtlasURL is where the server at serverURL serves the Atlas UI: its base

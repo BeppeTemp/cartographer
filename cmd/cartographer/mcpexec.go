@@ -93,12 +93,11 @@ func productionMCPExecDeps() (mcpexec.Deps, error) {
 	if cfg.ServerRoutedPath == "" {
 		return nil, errors.New("the server has no routed endpoint recorded; run `cartographer sync`")
 	}
-	u, err := url.Parse(cfg.ServerURL)
+	endpoint, err := client.RoutedEndpoint(cfg.ServerURL, cfg.ServerRoutedPath)
 	if err != nil {
 		return nil, err
 	}
-	u.Path = cfg.ServerRoutedPath
-	c := client.New(u.String(), resolveToken(cfg)).WithInsecureHTTP(cfg.InsecureHTTPAllowed()).WithTokenEnv(tokenEnvName(cfg))
+	c := client.New(endpoint, resolveToken(cfg)).WithInsecureHTTP(cfg.InsecureHTTPAllowed()).WithTokenEnv(tokenEnvName(cfg))
 	return cliMCPExecDeps{c: c, cfg: cfg}, nil
 }
 

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"os/signal"
 	"slices"
@@ -136,12 +135,11 @@ func cliKB(cfg *clientconfig.Config) star.KBCaller {
 	if cfg.ServerRoutedPath == "" {
 		return unreachableKB{errors.New("the server has no routed endpoint recorded; run `cartographer sync`")}
 	}
-	u, err := url.Parse(cfg.ServerURL)
+	endpoint, err := client.RoutedEndpoint(cfg.ServerURL, cfg.ServerRoutedPath)
 	if err != nil {
 		return unreachableKB{err}
 	}
-	u.Path = cfg.ServerRoutedPath
-	c := client.New(u.String(), resolveToken(cfg)).WithInsecureHTTP(cfg.InsecureHTTPAllowed()).WithTokenEnv(tokenEnvName(cfg))
+	c := client.New(endpoint, resolveToken(cfg)).WithInsecureHTTP(cfg.InsecureHTTPAllowed()).WithTokenEnv(tokenEnvName(cfg))
 	return scopedKB{KBCaller: star.NewMCPKB(c), allowed: slices.Clone(cfg.KnownKBs)}
 }
 

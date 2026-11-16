@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
 )
@@ -18,6 +19,9 @@ func TestServerBaseAndAtlasURL(t *testing.T) {
 		{"https://example.com:8443/prefix/mcp?x=1#f", "https://example.com:8443/prefix", "https://example.com:8443/prefix/ui/"},
 		{"https://example.com/mcp/routed", "https://example.com", "https://example.com/ui/"},
 		{"https://example.com/prefix/mcp/routed/?kbs=a,b", "https://example.com/prefix", "https://example.com/prefix/ui/"},
+		{"https://example.com/mcp/kb-a", "https://example.com", "https://example.com/ui/"},
+		{"https://example.com/prefix/mcp/kb-a/", "https://example.com/prefix", "https://example.com/prefix/ui/"},
+		{"https://example.com/mcp?kb=kb-a", "https://example.com", "https://example.com/ui/"},
 		{"http://127.0.0.1:39273/mcp", "http://127.0.0.1:39273", "http://127.0.0.1:39273/ui/"},
 		{"https://u:p@example.com/mcp", "https://u:p@example.com", "https://example.com/ui/"},
 	} {
@@ -76,5 +80,41 @@ func TestWithRoutedKBAddsTheArgumentAndHidesItFromTheSchema(t *testing.T) {
 	}
 	if _, err := c.CallTool("t", json.RawMessage(`[1]`)); err == nil {
 		t.Fatal("non-object arguments were accepted")
+	}
+}
+
+// Every client URL form asks the server's own /health, whatever KB it names
+// (#2149): /mcp/kb-a/health is not a route, and its 401 blamed the token.
+func TestHealthIsAskedAtTheServerRootForEveryClientURLForm(t *testing.T) {
+	for _, form := range []string{"/mcp", "/mcp?kb=kb-a", "/mcp/kb-a", "/mcp/routed"} {
+		t.Run(form, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/health" {
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				_, _ = w.Write([]byte(`{"status":"ok","version":"test"}`))
+			}))
+			defer srv.Close()
+			h, err := client.New(srv.URL+form, "tok").WithInsecureHTTP(true).Health(time.Second)
+			if err != nil || h == nil || !h.IsServer() {
+				t.Fatalf("Health = %v, %v", h, err)
+			}
+		})
+	}
+}
+
+func TestRoutedEndpointDropsTheKBSelectorOfEveryForm(t *testing.T) {
+	for _, c := range []struct{ in, routed, want string }{
+		{"https://example.com/mcp", "/mcp/routed", "https://example.com/mcp/routed"},
+		{"https://example.com/mcp?kb=kb-a", "/mcp/routed", "https://example.com/mcp/routed"},
+		{"https://example.com/mcp/kb-a", "/mcp/routed", "https://example.com/mcp/routed"},
+		{"https://example.com/mcp/routed", "/mcp/routed", "https://example.com/mcp/routed"},
+		{"https://example.com/p/mcp/kb-a", "/mcp/routed", "https://example.com/p/mcp/routed"},
+		{"https://example.com/p/mcp", "/mcp/routed", "https://example.com/p/mcp/routed"},
+	} {
+		if got, err := client.RoutedEndpoint(c.in, c.routed); err != nil || got != c.want {
+			t.Errorf("RoutedEndpoint(%q, %q) = %q, %v; want %q", c.in, c.routed, got, err, c.want)
+		}
 	}
 }
