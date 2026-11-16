@@ -673,7 +673,7 @@ pins the file-name mapping the UI and `demo/export.mjs` must share, and the live
 build (D800): the origin's answer picks live, a timeout, an error status or a body that is not a KB list picks the
 snapshot, and the revision poll is 20 s only in a live session on a build with a live origin.
 
-The live demo's edge is tested without Cloudflare: `deploy/demo/worker.test.mjs` (`make demo-worker-test`, run
+The hosted demo's edge (retired, no endpoint answers; its code stays) is tested without Cloudflare: `deploy/demo/worker.test.mjs` (`make demo-worker-test`, run
 by the `demo-edge` CI job) covers the routing
 table, CORS and cache key, that every request (a write tool included) goes with the read token and the client's
 `Authorization` is replaced, and the 16 KB body cap. `make demo-smoke` runs the image, which holds two read-only KBs
