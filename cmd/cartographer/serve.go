@@ -23,6 +23,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/artifactsig"
 	"github.com/BeppeTemp/cartographer/internal/audit"
 	"github.com/BeppeTemp/cartographer/internal/auth"
+	"github.com/BeppeTemp/cartographer/internal/buildid"
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/feedback"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
@@ -83,6 +84,9 @@ const shutdownHTTPTimeout = 10 * time.Second
 // from --config/CARTOGRAPHER_CONFIG YAML, CARTOGRAPHER_* environment
 // variables, and CLI flags (flag > env > YAML > default).
 func cmdServe(args []string) int {
+	// Name this build before anything can replace the file on disk: /health
+	// reports it, and a hash taken after a swap would describe the new file.
+	buildid.Self()
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	kbFlag := fs.String("kb", "", "Folder(s) of KB(s) to mount, comma-separated (or CARTOGRAPHER_KB); such a folder syncs only if it has a git remote")
 	dataFlag := fs.String("data", "", "Directory whose direct subdirs are each a separate KB (or CARTOGRAPHER_DATA)")

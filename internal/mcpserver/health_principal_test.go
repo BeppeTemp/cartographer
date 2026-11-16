@@ -50,7 +50,7 @@ func TestHealth_FollowsTheCallersToken(t *testing.T) {
 	f := newViewFixture(t, nil, "kb-a", "work-kb")
 	f.multi.SetLatestVersionSource(func() string { return "v9.9.9" })
 
-	// Anonymous and invalid-token probes get exactly the six keys.
+	// Anonymous and invalid-token probes get exactly the seven keys.
 	for _, bearer := range []string{"", "not-a-token"} {
 		raw, body := healthAs(t, f.handler, bearer)
 		keys := make([]string, 0, len(body))
@@ -58,7 +58,7 @@ func TestHealth_FollowsTheCallersToken(t *testing.T) {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
-		want := []string{"component_min_protocol", "component_protocol", "mount_mode", "ready", "routed_path", "started_at", "status", "version"}
+		want := []string{"build", "component_min_protocol", "component_protocol", "mount_mode", "ready", "routed_path", "started_at", "status", "version"}
 		if !reflect.DeepEqual(keys, want) {
 			t.Errorf("bearer %q: keys = %v, want %v", bearer, keys, want)
 		}

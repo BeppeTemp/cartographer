@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/buildid"
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/service"
@@ -144,14 +145,17 @@ func cmdUpgradeRepair(args []string) int {
 		fmt.Printf("rewrote %s for %s; hand edits to it are replaced\n", def, st.BinPath)
 		switched = true
 	}
+	// The service definition launches this binary (it already did, or it was
+	// just switched to it): only then does its build say anything.
+	expectedBuild := expectedBuildFor(switched || (st.ServiceBinPath != "" && repairSameBinaryFn(st.ServiceBinPath)))
 	if switched {
 		// The reloaded job starts the new binary by itself: give it time to
 		// serve before ensureServiceCurrent decides, so a slow start does not
 		// cost a second graceful replacement.
-		waitForVersion(st.HTTPAddr)
+		waitForVersion(st.HTTPAddr, expectedBuild)
 	}
 
-	if err := ensureServiceCurrent(configPath, st.HTTPAddr); err != nil {
+	if err := ensureServiceCurrent(configPath, st.HTTPAddr, expectedBuild); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return exitRepairServiceFailure
 	}
@@ -167,10 +171,10 @@ var (
 
 // waitForVersion polls /health until it reports the installed version or the
 // bound passes; the caller's single probe then decides what is left to do.
-func waitForVersion(httpAddr string) {
+func waitForVersion(httpAddr, expectedBuild string) {
 	deadline := time.Now().Add(repairSwitchWait)
 	for time.Now().Before(deadline) {
-		if hs, err := repairProbeHealthFn(httpAddr, repairHealthProbeTimeout); err == nil && hs.Status == "ok" && versionAlreadyCurrent(hs.Version) {
+		if hs, err := repairProbeHealthFn(httpAddr, repairHealthProbeTimeout); err == nil && hs.Status == "ok" && versionAlreadyCurrent(hs, expectedBuild) {
 			return
 		}
 		time.Sleep(repairSwitchPoll)
@@ -181,12 +185,12 @@ func waitForVersion(httpAddr string) {
 // replacement entirely when it already reports the installed version
 // (idempotent repair, avoids a second drain). Otherwise it calls
 // Manager.Replace, which signals the process and blocks until proof.
-func ensureServiceCurrent(configPath, httpAddr string) error {
+func ensureServiceCurrent(configPath, httpAddr, expectedBuild string) error {
 	hs, healthErr := repairProbeHealthFn(httpAddr, repairHealthProbeTimeout)
-	if healthErr == nil && hs.Status == "ok" && versionAlreadyCurrent(hs.Version) {
+	if healthErr == nil && hs.Status == "ok" && versionAlreadyCurrent(hs, expectedBuild) {
 		return nil
 	}
-	if err := repairReplaceFn(service.ReplaceOptions{ConfigPath: configPath, ExpectedVersion: version}); err != nil {
+	if err := repairReplaceFn(service.ReplaceOptions{ConfigPath: configPath, ExpectedVersion: version, ExpectedBuild: expectedBuild}); err != nil {
 		return fmt.Errorf("native service could not be verified: %w", err)
 	}
 	return nil
@@ -225,11 +229,15 @@ func repairStaleServiceBeforeSync(serverURL string) {
 		return
 	}
 	hs, err := repairProbeHealthFn(st.HTTPAddr, repairHealthProbeTimeout)
-	if err != nil || hs.Status != "ok" || hs.Version == "" || hs.Version == version {
+	if err != nil || hs.Status != "ok" || hs.Version == "" || versionAlreadyCurrent(hs, expectedBuildFor(true)) {
 		return
 	}
-	fmt.Printf("native service runs %s, this binary is %s — replacing it gracefully\n", hs.Version, version)
-	if err := repairReplaceFn(service.ReplaceOptions{ConfigPath: configPath, ExpectedVersion: version}); err != nil {
+	if hs.Version == version {
+		fmt.Printf("native service runs another build of %s than this binary — replacing it gracefully\n", version)
+	} else {
+		fmt.Printf("native service runs %s, this binary is %s — replacing it gracefully\n", hs.Version, version)
+	}
+	if err := repairReplaceFn(service.ReplaceOptions{ConfigPath: configPath, ExpectedVersion: version, ExpectedBuild: expectedBuildFor(true)}); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: native service could not be verified after replacement: %v — retry with: cartographer upgrade-repair\n", err)
 		return
 	}
@@ -257,11 +265,24 @@ func sameExecutable(binPath string) bool {
 	return os.SameFile(selfInfo, binInfo)
 }
 
-// versionAlreadyCurrent mirrors service.Replace's own equality rule: an
-// empty or "dev" build version is not uniquely identifiable, so only a
-// healthy response is required.
-func versionAlreadyCurrent(observed string) bool {
-	return version == "" || version == "dev" || observed == version
+// versionAlreadyCurrent is service.Replace's own equality rule (an empty or
+// "dev" version is not uniquely identifiable, so only a healthy response is
+// required): the version and, when expectedBuild is not empty and the server
+// reports one, the build identity must match.
+func versionAlreadyCurrent(hs service.HealthStatus, expectedBuild string) bool {
+	return service.ServesBuild(hs, version, expectedBuild)
+}
+
+// expectedBuildFor is the build identity a service must report to be current,
+// "" when the build proves nothing: a dev or empty version (not uniquely
+// identifiable) or a service whose definition launches another executable
+// than this one (an RC asset in a scratch folder, a `make build`, a re-signed
+// copy), whose build would never converge on this process's.
+func expectedBuildFor(servicePointsHere bool) string {
+	if version == "" || version == "dev" || !servicePointsHere {
+		return ""
+	}
+	return buildid.Self()
 }
 
 // repairProviderSync loads the client config (if any) and runs the ordinary

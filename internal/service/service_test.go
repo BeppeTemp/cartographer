@@ -2155,3 +2155,56 @@ func TestSyncUnitsCarryPATH(t *testing.T) {
 		t.Errorf("intervalFromPlist = %v, want 30m", got)
 	}
 }
+
+func healthBuild(version, startedAt, build string) func(http.ResponseWriter) {
+	return func(w http.ResponseWriter) {
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(HealthStatus{Status: "ok", Version: version, StartedAt: startedAt, Build: build})
+	}
+}
+
+// D-new-health-build-identity: a rebuild keeps its version string, so the
+// version alone cannot prove the replacement serves the expected binary.
+func TestReplace_ComparesTheBuildIdentity(t *testing.T) {
+	replace := func(t *testing.T, expectedBuild string, answers ...func(http.ResponseWriter)) error {
+		t.Helper()
+		home := withTestHome(t, "linux")
+		srv := newHealthServer(t, answers...)
+		configPath := writeReplaceConfig(t, home, serverAddr(srv.Server))
+		m, _ := newTestManager()
+		return m.Replace(ReplaceOptions{ConfigPath: configPath, ExpectedVersion: "v1.2.3", ExpectedBuild: expectedBuild, Timeout: 60 * time.Millisecond, PollInterval: 5 * time.Millisecond})
+	}
+	t.Run("same version, another build: not the replacement", func(t *testing.T) {
+		err := replace(t, "vcs:new", healthBuild("v1.2.3", "t0", "vcs:old"), healthBuild("v1.2.3", "t1", "vcs:old"))
+		if err == nil || !strings.Contains(err.Error(), "vcs:old") {
+			t.Fatalf("Replace accepted a new process serving the old build, err = %v", err)
+		}
+	})
+	t.Run("same version and build from a new process", func(t *testing.T) {
+		if err := replace(t, "vcs:new", healthBuild("v1.2.3", "t0", "vcs:old"), healthBuild("v1.2.3", "t1", "vcs:new")); err != nil {
+			t.Fatalf("Replace: %v", err)
+		}
+	})
+	t.Run("a server without the field falls back to the version", func(t *testing.T) {
+		if err := replace(t, "vcs:new", healthBuild("v1.2.3", "t0", ""), healthBuild("v1.2.3", "t1", "")); err != nil {
+			t.Fatalf("Replace: %v", err)
+		}
+	})
+	t.Run("no expected build falls back to the version", func(t *testing.T) {
+		if err := replace(t, "", healthBuild("v1.2.3", "t0", "vcs:old"), healthBuild("v1.2.3", "t1", "vcs:old")); err != nil {
+			t.Fatalf("Replace: %v", err)
+		}
+	})
+}
+
+func TestServesBuild_DevAndEmptyVersionsIgnoreTheBuild(t *testing.T) {
+	hs := HealthStatus{Status: "ok", Version: "v9", Build: "vcs:old"}
+	for _, v := range []string{"", "dev"} {
+		if !ServesBuild(hs, v, "vcs:new") {
+			t.Errorf("ServesBuild with expected version %q compared the build", v)
+		}
+	}
+	if ServesBuild(hs, "v9", "vcs:new") {
+		t.Error("a release version with another build must not be current")
+	}
+}

@@ -172,10 +172,15 @@ type MCPClient struct {
 // distinguish an older server that did not send either field from an explicit
 // false/empty value.
 type Health struct {
-	Status  string      `json:"status"`
-	Version string      `json:"version"`
-	Ready   *bool       `json:"ready"`
-	KBs     *[]HealthKB `json:"kbs"`
+	Status  string `json:"status"`
+	Version string `json:"version"`
+	Ready   *bool  `json:"ready"`
+	// Build names the serving executable: the VCS revision it was built from
+	// or a hash of the file ("vcs:<revision>", "sha256:<hex>"), the identity
+	// two builds of one version differ by. Empty from a server that predates
+	// the field.
+	Build string      `json:"build,omitempty"`
+	KBs   *[]HealthKB `json:"kbs"`
 	// MountMode is "routed" when the server serves every KB through a single
 	// endpoint with the KB as a tool argument (D187). Empty — which is what a
 	// per-KB server and every pre-D187 server decode to — means the historical
