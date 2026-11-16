@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
@@ -160,7 +161,7 @@ func (m *MultiKBServer) uiListKBs(w http.ResponseWriter, r *http.Request) {
 			Name:         info.Name,
 			Status:       info.Status,
 			Ready:        info.Status == "normal",
-			Capabilities: info.Capabilities,
+			Capabilities: m.capsCache.get(info.Name, srv.kbRef, time.Now()),
 			Artifacts:    uiArtifactsVisible(ctx, srv.kbRef),
 			Secrets:      uiSecretsVisible(ctx, srv.kbRef),
 		}

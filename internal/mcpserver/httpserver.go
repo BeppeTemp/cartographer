@@ -291,6 +291,9 @@ type MultiKBServer struct {
 	version string
 	// pushHealth memoises each KB's push state for /health (pushhealth.go).
 	pushHealth pushHealthCache
+	// capsCache holds the capabilities of /health and the Atlas list: derived
+	// from the KB at read time, not at mount (#2150), at most every 15 s.
+	capsCache capabilitiesCache
 	// routed is the optional single endpoint advertising the union of the
 	// mounted KBs' tools once, with the KB as a tool argument (D187). Nil —
 	// the default — means only the per-KB endpoints are served. See
@@ -470,18 +473,6 @@ func (m *MultiKBServer) FlushReadAccess() {
 // fails when a longer tool is added without raising it.
 const MaxBareToolNameLen = 20
 
-// SetKBCapabilities records a mounted KB's capability map for /health. Called
-// after MountKB by the caller that owns the *kb.KB, so the mount
-// signature stays unchanged (D151).
-func (m *MultiKBServer) SetKBCapabilities(name string, caps map[string]KBCapability) {
-	for i := range m.kbs {
-		if m.kbs[i].Name == name {
-			m.kbs[i].Capabilities = caps
-			return
-		}
-	}
-}
-
 // resourceBaseURL reconstructs this server's own externally-visible base URL
 // (scheme://host, no path) from one request, for RFC 9728's self-describing
 // "resource" and "authorization_servers" fields (D132): cartographer
@@ -562,8 +553,11 @@ func (m *MultiKBServer) Handler() http.Handler {
 				visible := make([]KBInfo, 0, len(kbs))
 				for _, info := range kbs {
 					if kbRosterVisible(r.Context(), info.Name) {
-						if srv, ok := m.servers[info.Name]; ok && pushHealthVisible(r.Context(), info.Name) {
-							info.Push = m.pushHealth.get(info.Name, srv.kbRef, time.Now())
+						if srv, ok := m.servers[info.Name]; ok {
+							info.Capabilities = m.capsCache.get(info.Name, srv.kbRef, time.Now())
+							if pushHealthVisible(r.Context(), info.Name) {
+								info.Push = m.pushHealth.get(info.Name, srv.kbRef, time.Now())
+							}
 						}
 						visible = append(visible, info)
 					}

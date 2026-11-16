@@ -835,7 +835,6 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 					s.StartAutoRepair(repairCtx)
 				}
 			})
-			multi.SetKBCapabilities(name, mcpserver.KBCapabilitiesFor(k))
 			log.Printf("mounted KB %q at %s", name, k.Root)
 		}
 
