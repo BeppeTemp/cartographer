@@ -548,6 +548,23 @@ func TestPrintApplySummary_DryRunSpeaksInTheConditional(t *testing.T) {
 	}
 }
 
+// A hook whose registration was gone is re-registered: the line says so and
+// never claims a local change was discarded (#2134); a real heal still does.
+func TestPrintApplySummary_ReregisteredIsNotADiscard(t *testing.T) {
+	results := map[string]provisioning.AppliedResult{"claude": {
+		Written:      []provisioning.ManagedFile{{Kind: "hook", Name: "notify", Path: ".claude/hooks/notify/run.sh"}},
+		Reregistered: []provisioning.ManagedFile{{Kind: "hook", Name: "notify", Path: ".claude/hooks/notify/run.sh"}},
+	}}
+	out := withStdout(t, func() { printApplySummary(os.Stdout, t.TempDir(), results, false, nil) })
+	if !strings.Contains(out, "re-registered hook/notify") || strings.Contains(out, "discarded") {
+		t.Errorf("output = %q", out)
+	}
+	dry := withStdout(t, func() { printApplySummary(os.Stdout, t.TempDir(), results, true, nil) })
+	if !strings.Contains(dry, "would re-register hook/notify") {
+		t.Errorf("dry run output = %q", dry)
+	}
+}
+
 // --- D171: cross-KB collisions ---
 
 // syncPullPayload renders the sync_pull response for one KB exposing a single

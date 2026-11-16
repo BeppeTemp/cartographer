@@ -385,6 +385,11 @@ type AppliedResult struct {
 	// Written: a restore means someone's local change was discarded, which
 	// must be visible rather than folded into "3 updated".
 	Healed []ManagedFile
+	// Reregistered: artifacts whose files were intact but whose registration in
+	// a shared file (a hook in settings.json, an entry in config.toml) was gone
+	// or could not run: Apply registered them again. Distinct from Healed:
+	// nothing local was discarded.
+	Reregistered []ManagedFile
 	// Relocated: artifacts rewritten at the provider's current destination
 	// because the lockfile recorded them elsewhere (D360); their old files
 	// are in Pruned. Distinct from Healed: nothing local was discarded.
@@ -1438,6 +1443,7 @@ func Apply(m contract.Manifest, opts ApplyOptions) (AppliedResult, error) {
 		}
 	}
 	healed := make(map[string]bool)
+	reregistered := make(map[string]bool)
 	for _, f := range VerifyManaged(opts.Lock, opts.Provider, opts.BaseDir) {
 		if !f.Healable() || relocated[f.Kind+"\x00"+f.Name] {
 			continue
@@ -1457,6 +1463,7 @@ func Apply(m contract.Manifest, opts ApplyOptions) (AppliedResult, error) {
 				toWrite = append(toWrite, a)
 				toWriteKeys[key] = true
 				healed[key] = true
+				reregistered[key] = f.Reason == DriftUnregistered || f.Reason == DriftUnrunnable
 				break
 			}
 		}
@@ -1904,7 +1911,10 @@ hookLoop:
 			}
 			newManaged = append(newManaged, mf)
 			result.Written = append(result.Written, mf)
-			if healed[a.Kind+"\x00"+a.Name] {
+			switch key := a.Kind + "\x00" + a.Name; {
+			case reregistered[key]:
+				result.Reregistered = append(result.Reregistered, mf)
+			case healed[key]:
 				result.Healed = append(result.Healed, mf)
 			}
 			if relocated[a.Kind+"\x00"+a.Name] {

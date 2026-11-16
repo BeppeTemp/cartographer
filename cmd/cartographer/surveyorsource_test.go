@@ -181,6 +181,18 @@ func TestSurveyorSourceAgainstAServer(t *testing.T) {
 
 var durationRE = regexp.MustCompile(`, [0-9.]+(µs|ms|s)\n`)
 
+// Without --kind the report has no kind line, not an empty one (#2134).
+func TestSurveyorSourceNoKindPrintsNoKindLine(t *testing.T) {
+	cfg := sourceCfg(t, "ok", "http://127.0.0.1:1")
+	_, out, errs := runSource(t, "test", "--config", cfg, "--recipe", "my-feed", "--locator", "wiki:space/ops")
+	if strings.Contains(out, "kind:") {
+		t.Errorf("stdout has a kind line without --kind:\n%s\nstderr: %s", out, errs)
+	}
+	if !strings.Contains(out, "recipe:\tmy-feed\nshape:\tfeed\nsource:") {
+		t.Errorf("stdout = %q", out)
+	}
+}
+
 func TestSurveyorSourceGoldenOutput(t *testing.T) {
 	cfg := sourceCfg(t, "ok", "http://127.0.0.1:1")
 	code, out, errs := runSource(t, "test", "--config", cfg, "--recipe", "my-feed", "--locator", "wiki:space/ops", "--kind", "wiki")

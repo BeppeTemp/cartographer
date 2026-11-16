@@ -999,6 +999,23 @@ func removeMCPEntries(baseName string, kbs []string, providers []string, dir str
 				present[name] = configurator.CodexHasEntry(name, dir)
 			}
 		}
+		// Codex's block is replaced whole by the write that follows. When every
+		// entry in it is re-emitted there is nothing to strip: removing it only
+		// to put the same bytes back rewrote config.toml (a new inode and mtime)
+		// at every sync (#2134). A stale entry still goes through the removal,
+		// which takes the block with it, so the write does not move it out of
+		// the block as a table that is not ours.
+		if present != nil && len(reemit[provider]) > 0 {
+			stale := false
+			for name, in := range present {
+				if in && !slices.ContainsFunc(reemit[provider], func(e mcpEntry) bool { return e.Name == name }) {
+					stale = true
+				}
+			}
+			if !stale {
+				continue
+			}
+		}
 		for _, name := range managedEntryNames(baseName, kbs) {
 			if slices.ContainsFunc(reemit[provider], func(e mcpEntry) bool { return e.Name == name }) {
 				continue

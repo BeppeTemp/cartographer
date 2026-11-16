@@ -29,7 +29,8 @@ func TestLoadPinned(t *testing.T) {
 		reason string
 	}{
 		{"active", Pin{true, p.Digest}, SideSurveyor, true, ""},
-		{"wrong digest is not fetched", Pin{true, other}, SideSurveyor, false, "not fetched"},
+		{"wrong digest is not fetched", Pin{true, other}, SideSurveyor, false, "does not match"},
+		{"wrong digest names the fix", Pin{true, other}, SideSurveyor, false, "plugin vendor"},
 		{"no such side", Pin{true, p.Digest}, SideServer, false, "no server side"},
 		{"disabled is skipped", Pin{false, other}, SideSurveyor, false, ""},
 		{"malformed digest", Pin{true, "ABC"}, SideSurveyor, false, "64 lowercase hex"},

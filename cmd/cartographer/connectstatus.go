@@ -46,7 +46,7 @@ func skippedParts(refusedMCP []string, hooks map[string][]string, applied map[st
 	for p, r := range applied {
 		var kinds []string
 		for _, a := range r.Refused {
-			kinds = appendUnique(kinds, escapeControl(a.Kind)+"s")
+			kinds = appendUnique(kinds, pluralKind(escapeControl(a.Kind)))
 		}
 		sort.Strings(kinds)
 		if len(kinds) > 0 {
@@ -54,6 +54,15 @@ func skippedParts(refusedMCP []string, hooks map[string][]string, applied map[st
 		}
 	}
 	return out
+}
+
+// pluralKind names a kind of artifact in the plural: "skill" is "skills", and
+// "instructions", which is one kind already in the plural, stays as it is.
+func pluralKind(kind string) string {
+	if strings.HasSuffix(kind, "s") {
+		return kind
+	}
+	return kind + "s"
 }
 
 // symlinkHint names the opt-in beside the refusal in a status line.
