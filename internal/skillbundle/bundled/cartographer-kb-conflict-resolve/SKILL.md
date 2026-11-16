@@ -13,6 +13,9 @@ resolving each conflict so the KB returns to a fully operational state.
 
 ## When to run this skill
 
+`git_conflict_resolve` settles a git conflict on a degraded concept. It is not `conflict_resolve` (not in `tools/list`),
+which closes a `Contradiction` page and is a different tool.
+
 Write operations fail with a message such as "git conflict detected and registered on N
 concept(s)", or `conflicts_list` returns a non-empty list. (At operator level, `sync_check`
 (not in `tools/list`) also reports `open_conflicts > 0`.)

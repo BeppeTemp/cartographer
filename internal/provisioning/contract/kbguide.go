@@ -96,7 +96,7 @@ const (
 	FeedbackOff    = "off"
 )
 
-const feedbackBullet = "- on a likely defect in Cartographer (an internal error, behaviour that contradicts the docs, a limit you must work around, a user complaint), offer once per problem and per session, if the user agrees, a report via the `cartographer-feedback` skill; never file or offer silently;\n"
+const feedbackBullet = "- on a likely defect in Cartographer (an internal error, behaviour that contradicts the docs, a limit you must work around, a user complaint), offer once per problem and per session, if the user agrees, a report via the `cartographer-feedback` skill, or without it, a draft with placeholders for real names, for github.com/BeppeTemp/cartographer/issues/new; never file or offer silently;\n"
 
 const feedbackBulletCustom = "- on a likely defect in Cartographer (an internal error, behaviour that contradicts the docs, a limit you must work around, a user complaint), offer once per problem and per session, if the user agrees, a report via the `cartographer-feedback` skill; never file or offer silently; it goes to the operator's tracker: use the link `cartographer feedback` prints (no shell: no link);\n"
 
@@ -114,7 +114,7 @@ func FeedbackBullet(mode string) string {
 	return feedbackBullet
 }
 
-const conflictBullet = "- a write blocked by a git conflict is settled with `conflicts_list` and `git_conflict_resolve`.\n"
+const conflictBullet = "- a write blocked by a git conflict is settled with `conflicts_list` and `git_conflict_resolve` (git conflicts only, it does not close a Contradiction).\n"
 
 const // #1316: the last line of the guide. The managed block does not carry any of
 // it; kb_guide {} stays whole for a host that drops `initialize` (D1100).

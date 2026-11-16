@@ -271,6 +271,11 @@ func toolSourceRegister(k *kb.KB) Tool {
 			// registration leaves no template or contract change behind.
 			notes, setupWarnings := ensureSourceTemplate(k, p.Map)
 			resp := map[string]interface{}{"id": id, "duplicate": false, "curated_indexes": indexEntryNotes([]pendingIndexEntry{indexPlan})}
+			// #2145: the page's hash, read back after the setup above, is the
+			// if_match of the concept_patch that closes the ingest.
+			if data, rerr := k.ReadConcept(okf.ConceptID(id)); rerr == nil {
+				resp["content_hash"] = data.ContentHash
+			}
 			warnings := setupWarnings
 			if len(warnings) > 0 {
 				resp["warnings"] = warnings

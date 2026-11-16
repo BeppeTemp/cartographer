@@ -10,6 +10,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/BeppeTemp/cartographer/internal/feedback"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/skillbundle"
@@ -34,7 +35,7 @@ func fiveArchives() contract.GuideKB {
 // the tool descriptions: pin the neutral part, curated bodies are outside it.
 func TestRenderGuide_Budget(t *testing.T) {
 	const (
-		sectionBudget = 2531 // bytes: measured 2501 with the three procedures and the longest feedback bullet (custom; 2401 for github, 2120 off; D1925, #1316, D285), plus 30
+		sectionBudget = 2613 // bytes: measured 2583 with the three procedures and the longest feedback bullet (github, with the route without the skill; 2547 custom, 2166 off; D1925, #1316, #2146, D285), plus 30
 		routingBudget = 338  // bytes: measured 308 (five archives), plus at most 10 %
 	)
 	// Every mode of feedback.destination must fit: the custom bullet is the longest.
@@ -337,5 +338,13 @@ func TestGuidanceDoesNotPushSectionReads(t *testing.T) {
 				t.Errorf("%s:%d recommends reading by section where runbooks, procedures and incidents are read whole: %q", name, i+1, line)
 			}
 		}
+	}
+}
+
+// #2146: a client with no provisioned skill still has a route to report.
+func TestFeedbackBullet_GitHubHasARouteWithoutTheSkill(t *testing.T) {
+	got := contract.FeedbackBullet(contract.FeedbackGitHub)
+	if !strings.Contains(got, "github.com/"+feedback.Repo+"/issues/new") {
+		t.Errorf("the github bullet gives no route without the skill: %s", got)
 	}
 }
