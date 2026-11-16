@@ -20,6 +20,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/mcpserver"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
@@ -1099,13 +1100,11 @@ func claudeConfigDirs(home string, cfg *clientconfig.Config) (dirs []string, war
 	return dirs, warnings
 }
 
-// bridgeCommand finds the command a client starts for the bridge (D737).
-// TRAP: it is the path found on PATH, never os.Executable(): under Homebrew
-// that resolves to a versioned Cellar directory that the next upgrade deletes,
-// and every client's entry would then point at nothing. Without PATH (a timer
-// unit's) it falls back to the command an entry already on disk names, when
-// that is still a usable file outside a Cellar. Indirected for tests.
-var bridgeCommand = func() (string, error) {
+// pathBridgeCommand is the cartographer found on PATH: the command a client
+// starts when the running binary is not a path that outlives the run. Without
+// PATH (a timer unit's) it falls back to the command an entry already on disk
+// names, when that is still a usable file outside a Cellar.
+func pathBridgeCommand() (string, error) {
 	path, err := exec.LookPath("cartographer")
 	if err != nil {
 		if disk := usableOnDiskBridgeCommand(); disk != "" {
@@ -1114,6 +1113,65 @@ var bridgeCommand = func() (string, error) {
 		return "", fmt.Errorf("the MCP bridge needs `cartographer` on PATH so a client can start it: %w", err)
 	}
 	return path, nil
+}
+
+// Seams for the tests: the running binary and the temporary directories.
+var (
+	executablePath = os.Executable
+	tempRoots      = func() []string {
+		roots := []string{os.TempDir(), "/tmp", "/private/tmp", "/var/tmp"}
+		if r, err := filepath.EvalSymlinks(roots[0]); err == nil {
+			roots = append(roots, r)
+		}
+		return roots
+	}
+)
+
+// bridgeCommand finds the one command every client entry names (D737, #2152):
+// the bridge entries, the `mcp exec` launcher, the Cline dispatchers, the drift
+// check and the "can an entry be written" test all go through it, so they agree.
+// It is the absolute path of the binary running this sync, so a client never
+// starts another `cartographer` that comes first on PATH (a release candidate
+// beside a package manager's stable one); when that path does not outlive the
+// run, the cartographer found on PATH stands in for it.
+// TRAP: never take os.Executable() unchecked. Under Homebrew it resolves to a
+// versioned Cellar directory that the next upgrade deletes; a temporary
+// directory (`go run`, a download being tried) or one anybody can write to
+// without the sticky bit is no place for a client to start a program from.
+// Residual cases it does not see: a /nix/store path (immutable, but dropped by
+// a garbage collection) and a Windows 8.3 or differently cased spelling of a
+// temporary directory. Indirected for tests.
+var bridgeCommand = func() (string, error) {
+	if exe, err := executablePath(); err == nil && stableLauncherFile(exe) {
+		return exe, nil
+	}
+	return pathBridgeCommand()
+}
+
+// stableLauncherFile reports whether exe is a usable command that outlives this run.
+func stableLauncherFile(exe string) bool {
+	if !usableBridgeFile(exe) {
+		return false
+	}
+	for _, p := range []string{exe, evalOrSelf(exe)} {
+		for _, r := range tempRoots() {
+			if rel, err := filepath.Rel(r, p); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
+				return false
+			}
+		}
+	}
+	// Windows reports 0777 for every directory: its mode bits say nothing.
+	if info, err := os.Stat(filepath.Dir(exe)); err == nil && execbit.Supported && info.Mode().Perm()&0o002 != 0 && info.Mode()&os.ModeSticky == 0 {
+		return false
+	}
+	return true
+}
+
+func evalOrSelf(p string) string {
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return p
 }
 
 // bridgeServerSpec is the stdio entry of the bridge for one provider. The token

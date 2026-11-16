@@ -192,13 +192,14 @@ func usableOnDiskBridgeCommand() string {
 }
 
 // usableBridgeFile reports whether command is an existing executable regular
-// file that is not under a versioned Cellar directory (D737: the next Homebrew
+// file that is not under a versioned Cellar or Caskroom directory (D737: the next Homebrew
 // upgrade deletes it).
 func usableBridgeFile(command string) bool {
 	if command == "" || !filepath.IsAbs(command) {
 		return false
 	}
-	if slices.Contains(strings.Split(filepath.ToSlash(command), "/"), "Cellar") {
+	// Cellar (formula) and Caskroom (cask) hold one directory per version.
+	if parts := strings.Split(filepath.ToSlash(command), "/"); slices.Contains(parts, "Cellar") || slices.Contains(parts, "Caskroom") {
 		return false
 	}
 	info, err := os.Stat(command)

@@ -64,7 +64,7 @@ the principal of a valid bearer and no principal otherwise, never the local admi
 A multi-KB HTTP server always serves `/mcp/routed`, and that is the only endpoint
 `cartographer connect`/`sync` write into an agent client. The per-KB endpoints
 (`/mcp?kb=<name>`, `/mcp/<name>`) stay as **plumbing**: the routed mount
-dispatches into the per-KB servers, and a client whose entries were written earlier keeps working.
+dispatches into the per-KB servers, and a client whose entries were written earlier keeps working. `mcp exec` and `mcp probe` accept any of these forms as `server_url`: they drop the KB selector and use the server's own `/health` and routed endpoint.
 The routed mount ([D187](decisions/D187-one-tool-surface-for-a-multi-kb-server-a-routed-mount.md))
 is not a choice: `mcp.mount_mode`, `CARTOGRAPHER_MCP_MOUNT_MODE` and `--mount-mode` do not
 exist (D325; a leftover key in YAML is silently ignored).
