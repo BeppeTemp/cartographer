@@ -909,7 +909,7 @@ only in the local clone, then pushes. The preview runs without an identity confi
 key to set (`identity_missing` in `--json`); `--apply` refuses until one is set: rewriting with the
 fallback identity would reproduce the problem. The sync alone already re-authors a commit made by
 exactly the server identity (D950); this command is for what it leaves alone, a commit authored by a
-token (`<token id> <cartographer@host>`).
+token (`<token id> <cartographer@host>`). When the refusal was only inferred (the remote gave no reason, D2157), check the remote's rules too: a protected branch or another hook prints the same.
 
 Like `kb unmount` it is offline and local (D177: `--data`, `--config`, `--local`), because it needs the
 server config and the clone on this machine and operator authority, not a token. It takes the KB's
