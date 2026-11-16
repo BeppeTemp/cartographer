@@ -25,6 +25,10 @@ func TestSecretsStateIsLiveOnEverySurface(t *testing.T) {
 	multi.MountKB("docs", func(s *Server) { RegisterKBTools(s, k, Deps{}) })
 	multi.EnableWeb(nil)
 	multi.capsCache.ttl = time.Nanosecond // each read derives: the TTL has its own test
+	// A clock that moves on every read: time.Now can repeat on a coarse OS clock (Windows).
+	var tick atomic.Int64
+	base := time.Now()
+	multi.capsCache.clock = func() time.Time { return base.Add(time.Duration(tick.Add(1)) * time.Millisecond) }
 	h := auth.NewTokenStore(nil).Middleware(multi.Handler())
 
 	state := func() (status, health, atlas string) {

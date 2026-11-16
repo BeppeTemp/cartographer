@@ -25,7 +25,17 @@ type capabilitiesCache struct {
 	mu      sync.Mutex
 	ttl     time.Duration // 0 means capabilitiesTTL
 	entries map[string]capabilitiesEntry
-	reads   int // derivations that reached the KB, for the tests
+	reads   int              // derivations that reached the KB, for the tests
+	clock   func() time.Time // nil means time.Now; a test sets one that always moves
+}
+
+// current is the time of a read. The tests replace it: a coarse OS clock
+// (Windows) can return the same instant twice and hide a TTL of 1 ns.
+func (c *capabilitiesCache) current() time.Time {
+	if c.clock != nil {
+		return c.clock()
+	}
+	return time.Now()
 }
 
 func (c *capabilitiesCache) get(name string, k *kb.KB, now time.Time) map[string]KBCapability {
