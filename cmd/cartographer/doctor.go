@@ -892,6 +892,13 @@ func checkServerAt(dir string, cfg *clientconfig.Config, providers []string, fac
 			Fix:     "stop that program, or change the listen address/port in the server config (and server.url to match): cartographer service status",
 		}}
 	}
+	if held == service.ListenerDenied {
+		return []doctorFinding{{
+			Check: "server", Severity: doctorWarning, Path: configPath,
+			Message: "server not checked: " + service.DeniedMessage(addr),
+			Fix:     "run doctor outside the sandbox, or allow network access to " + addr,
+		}}
+	}
 	foreign := held == service.ListenerForeign
 	// Something answers, but not like a Cartographer server (#1998): "unreachable"
 	// would send the operator to a service that is not the problem.
@@ -970,7 +977,8 @@ func heldByOther(st service.ListenerState) bool {
 }
 
 // heldServer is foreignServer with what holds the address: ListenerForeign,
-// ListenerUnresponsive, or ListenerNone for neither.
+// ListenerUnresponsive, ListenerDenied (the probe was refused: nothing is known
+// of the address, #2165), or ListenerNone for neither.
 func heldServer(serverURL string, facts serverFacts, err error) (string, service.ListenerState) {
 	u, uerr := client.ServerBase(serverURL)
 	if uerr != nil {
@@ -993,7 +1001,7 @@ func heldServer(serverURL string, facts serverFacts, err error) (string, service
 		host = net.JoinHostPort(u.Hostname(), "80")
 	}
 	switch st := doctorProbeListener(host, probeTimeout); st {
-	case service.ListenerForeign, service.ListenerUnresponsive:
+	case service.ListenerForeign, service.ListenerUnresponsive, service.ListenerDenied:
 		return host, st
 	}
 	return host, service.ListenerNone

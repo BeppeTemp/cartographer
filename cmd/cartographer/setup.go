@@ -92,6 +92,9 @@ type setupFacts struct {
 	// ForeignListener: something that is not a Cartographer server answers on
 	// the configured address.
 	ForeignListener bool
+	// ProbeDenied: the OS refused the connection to the server address (a
+	// sandbox without network access), so nothing is known of it (#2165).
+	ProbeDenied bool
 	// SilentListener refines ForeignListener: the program accepted the
 	// connection but did not answer /health.
 	SilentListener bool
@@ -169,6 +172,10 @@ var errSetupNoServiceManager = errors.New("this machine has no service manager")
 // server address: setup would otherwise connect the agents to it.
 var errSetupForeignListener = errors.New("something else is listening on the server address")
 
+// errSetupProbeDenied is planSetup's answer when the OS refused the probe of
+// the server address: neither an install nor a keep can be decided from it.
+var errSetupProbeDenied = errors.New("the server address could not be probed")
+
 // errSetupInterrupted is gatherSetupFacts' answer when Ctrl-C cancelled the push
 // probe: no finding about the remote, and nothing was changed.
 var errSetupInterrupted = errors.New("push check interrupted")
@@ -195,6 +202,9 @@ func planSetup(f setupFacts, o setupOptions) (setupPlan, error) {
 		return p, fmt.Errorf("this client points at %s, but the local service listens on %s: connect would configure the agents for a server that is not the one setup provisions — nothing was changed. Point the client at the service with `cartographer connect --server-url %s`, or remove %s", f.ClientURL, serviceAddr, setupMCPURL(serviceAddr), clientconfig.FileName)
 	}
 
+	if f.ProbeDenied {
+		return p, errSetupProbeDenied
+	}
 	switch {
 	case f.Service.Installed && f.Service.Running:
 		p.Service = serviceKeep
@@ -556,6 +566,8 @@ func gatherSetupFacts(o setupOptions) (setupFacts, error) {
 	case service.ListenerUnresponsive:
 		// Accepted the connection and never answered /health: not ours either.
 		f.ForeignListener, f.SilentListener = true, true
+	case service.ListenerDenied:
+		f.ProbeDenied = true
 	}
 	f.DataDir = resolveServerDataDir("")
 	if rows, err := scanDataDir(f.DataDir); err == nil {
@@ -734,6 +746,9 @@ func runSetup(o setupOptions, interactive, yes, dryRun bool, ask setupPrompter) 
 				return 2
 			}
 			fmt.Fprintf(os.Stderr, "Error: something that is not a Cartographer server answers on %s - nothing was changed.\n  Free that address, or point the server elsewhere with `cartographer service install --http <addr>`, then rerun `cartographer setup`.\n", serviceAddrOrDefault(facts.Service))
+			return 2
+		case errors.Is(err, errSetupProbeDenied):
+			fmt.Fprintf(os.Stderr, "Error: %s - nothing was changed.\n  Rerun `cartographer setup` outside the sandbox.\n", service.DeniedMessage(serviceAddrOrDefault(facts.Service)))
 			return 2
 		case errors.Is(err, errSetupNoServiceManager):
 			printNoServiceManager(os.Stderr, setupConfigPath(facts), true)

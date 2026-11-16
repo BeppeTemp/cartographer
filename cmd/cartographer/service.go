@@ -483,6 +483,9 @@ func serviceHealthLine(st service.Status) string {
 	if st.HealthChecked {
 		return fmt.Sprintf("healthy:   %v (http %s)", st.Healthy, st.HTTPAddr)
 	}
+	if st.HealthSkipReason == service.HealthSkipDenied {
+		return fmt.Sprintf("health:    not checked (%s)", service.DeniedMessage(st.HTTPAddr))
+	}
 	return fmt.Sprintf("health:    not checked (%s)", healthSkipExplanation(st.HealthSkipReason))
 }
 
@@ -497,6 +500,8 @@ func healthSkipExplanation(reason string) string {
 		return "no server config at the path above"
 	case service.HealthSkipUnreadableConfig:
 		return "server config could not be read"
+	case service.HealthSkipDenied:
+		return service.DeniedMessage("")
 	default:
 		return reason
 	}

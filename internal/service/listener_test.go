@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -184,5 +185,78 @@ func TestStatus_SlowCartographerIsNotForeign(t *testing.T) {
 	}
 	if st.ForeignListener || st.Healthy {
 		t.Errorf("Healthy=%v ForeignListener=%v, want neither for a slow server", st.Healthy, st.ForeignListener)
+	}
+}
+
+// deniedTransport refuses every dial the way a sandbox without network access
+// does: connect(2) fails with EPERM, not ECONNREFUSED (#2165).
+type deniedTransport struct{ errno error }
+
+func (d deniedTransport) RoundTrip(*http.Request) (*http.Response, error) {
+	return nil, &net.OpError{Op: "dial", Net: "tcp", Err: os.NewSyscallError("connect", d.errno)}
+}
+
+// A connect the OS refused is not "nothing listens": the probe measured
+// nothing, and no caller may act on it as on ListenerNone (#2165).
+func TestProbeListener_DeniedConnectIsNotNone(t *testing.T) {
+	for _, errno := range []error{syscall.EPERM, syscall.EACCES, wsaeacces} {
+		t.Run(errno.Error(), func(t *testing.T) {
+			old := healthTransport
+			healthTransport = deniedTransport{errno}
+			t.Cleanup(func() { healthTransport = old })
+			if got := ProbeListener("127.0.0.1:39273", time.Second); got != ListenerDenied {
+				t.Errorf("ProbeListener = %v, want ListenerDenied", got)
+			}
+			if _, err := ProbeHealth("127.0.0.1:39273", time.Second); !ProbeDenied(err) {
+				t.Errorf("ProbeHealth err = %v, want a denied probe", err)
+			}
+			if err := busyAddressError("127.0.0.1:39273", ListenerDenied); err == nil || !strings.Contains(err.Error(), "denied by the OS") {
+				t.Errorf("busyAddressError = %v, want the denied refusal", err)
+			}
+		})
+	}
+}
+
+// Status skips the check with a reason: never Healthy=false with HealthChecked.
+func TestStatus_DeniedProbeIsSkippedNotUnhealthy(t *testing.T) {
+	old := healthTransport
+	healthTransport = deniedTransport{syscall.EPERM}
+	t.Cleanup(func() { healthTransport = old })
+	home := withTestHome(t, "darwin")
+	configPath := filepath.Join(home, "server.yaml")
+	if err := os.WriteFile(configPath, []byte("http: \"127.0.0.1:39273\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, _ := newTestManager()
+	st, err := m.Status(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.HealthChecked || st.Healthy || st.HealthSkipReason != HealthSkipDenied || st.HTTPAddr != "127.0.0.1:39273" {
+		t.Errorf("status = checked %v healthy %v reason %q addr %q", st.HealthChecked, st.Healthy, st.HealthSkipReason, st.HTTPAddr)
+	}
+}
+
+// Replace restarts nothing when the probe before the signal is refused: a
+// restart it could not verify would be blind (#2165).
+func TestReplace_DeniedProbeSignalsNothing(t *testing.T) {
+	old := healthTransport
+	healthTransport = deniedTransport{syscall.EPERM}
+	t.Cleanup(func() { healthTransport = old })
+	for _, goos := range []string{"darwin", "linux"} {
+		t.Run(goos, func(t *testing.T) {
+			home := withTestHome(t, goos)
+			configPath := writeReplaceConfig(t, home, "127.0.0.1:39273")
+			m, stub := newTestManager()
+			err := m.Replace(ReplaceOptions{ConfigPath: configPath, ExpectedVersion: "v1.2.3", Timeout: time.Second, PollInterval: 10 * time.Millisecond})
+			if err == nil || !strings.Contains(err.Error(), "nothing was restarted") || !strings.Contains(err.Error(), "denied by the OS") {
+				t.Errorf("Replace err = %v", err)
+			}
+			for _, c := range stub.calls {
+				if len(c) > 1 && (c[1] == "kill" || c[1] == "kickstart" || c[1] == "--user" && len(c) > 2 && c[2] == "restart") {
+					t.Errorf("a restart signal was sent: %v", c)
+				}
+			}
+		})
 	}
 }

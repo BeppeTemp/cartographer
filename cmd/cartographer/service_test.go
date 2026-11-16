@@ -358,3 +358,21 @@ func TestApplyEnvFileSetsOnlyTheListedNamesAndLogsNoValue(t *testing.T) {
 		}
 	}
 }
+
+// A probe the OS refused is a skipped check, never `healthy: false` (#2165, D174).
+func TestPrintServiceStatus_DeniedProbeIsNotChecked(t *testing.T) {
+	st := service.Status{Installed: true, Running: true, Lifecycle: service.LifecycleLoaded, HealthSkipReason: service.HealthSkipDenied, HTTPAddr: "127.0.0.1:39273"}
+	var sb strings.Builder
+	printServiceStatus(&sb, st, "")
+	out := sb.String()
+	if !strings.Contains(out, "health:    not checked (the connection to 127.0.0.1:39273 was denied by the OS: is this command running in a sandbox without network access?)") {
+		t.Errorf("missing the denied line:\n%s", out)
+	}
+	if strings.Contains(out, "healthy:") {
+		t.Errorf("a denied probe printed a verdict:\n%s", out)
+	}
+	js, err := json.Marshal(newServiceSnapshot(st))
+	if err != nil || !strings.Contains(string(js), `"health_checked":false`) || !strings.Contains(string(js), `"health_skip_reason":"connection_denied"`) {
+		t.Errorf("json = %s, %v", js, err)
+	}
+}

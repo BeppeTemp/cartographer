@@ -177,6 +177,14 @@ func shouldOfferServiceInstall(loopback bool, installed bool) bool {
 	return loopback && !installed && connectServiceBackend() != service.BackendNone
 }
 
+// connectOffersInstall is the decision cmdConnect takes once a loopback server
+// did not answer: a denied health probe (a sandbox without network access)
+// means the server was never measured, so it is neither offered an install nor
+// reported as down (#2165).
+func connectOffersInstall(st service.Status) bool {
+	return st.HealthSkipReason != service.HealthSkipDenied && shouldOfferServiceInstall(true, st.Installed)
+}
+
 // connectServiceBackend is the backend an install would use; a seam for tests.
 var connectServiceBackend = func() service.Backend { return service.NewManager().Backend() }
 
@@ -206,6 +214,10 @@ func installServiceAndWaitHealthy(mgr *service.Manager, timeout time.Duration) e
 		st, err := mgr.Status("")
 		if err == nil && st.Healthy {
 			return nil
+		}
+		// Waiting out the timeout cannot help: the probe never ran (#2165).
+		if err == nil && st.HealthSkipReason == service.HealthSkipDenied {
+			return fmt.Errorf("service installed but its health was not checked: %s", service.DeniedMessage(st.HTTPAddr))
 		}
 		if time.Now().After(deadline) {
 			if err == nil && st.ForeignListener {
@@ -488,7 +500,11 @@ func cmdConnect(args []string) int {
 					st, statusErr := mgr.Status("")
 					if statusErr == nil && !st.Installed && printWslServerHint(os.Stderr) {
 						// The server is WSL's: a native one would compete for the port.
-					} else if statusErr == nil && shouldOfferServiceInstall(true, st.Installed) {
+					} else if statusErr == nil && st.HealthSkipReason == service.HealthSkipDenied {
+						// The probe was refused, not answered: the server may be up, and
+						// an install would act on a measurement that was never made.
+						fmt.Fprintln(os.Stderr, "Note:", service.DeniedMessage(st.HTTPAddr), "- the service was not offered for install")
+					} else if statusErr == nil && connectOffersInstall(st) {
 						if promptYesNo("The local server is not responding. Install and start the cartographer service on this machine? [y/N] ") {
 							if instErr := installServiceAndWaitHealthy(mgr, 10*time.Second); instErr != nil {
 								fmt.Fprintln(os.Stderr, "Error:", instErr)

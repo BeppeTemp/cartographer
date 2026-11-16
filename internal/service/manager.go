@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/buildid"
@@ -984,6 +985,43 @@ type healthSilentError struct{ err error }
 func (e *healthSilentError) Error() string { return e.err.Error() }
 func (e *healthSilentError) Unwrap() error { return e.err }
 
+// healthDeniedError wraps a connect the OS refused (EPERM, EACCES, WSAEACCES):
+// the probe never ran, as in a sandbox without network access. ProbeListener
+// reads it as ListenerDenied (#2165).
+type healthDeniedError struct{ err error }
+
+func (e *healthDeniedError) Error() string { return e.err.Error() }
+func (e *healthDeniedError) Unwrap() error { return e.err }
+
+// wsaeacces is Windows' WSAEACCES (10013), spelled as a number so no build tag
+// is needed: no other platform defines an errno of that value.
+const wsaeacces = syscall.Errno(10013)
+
+// ProbeDenied reports whether err is a connect the OS refused. Callers that
+// act on a failed probe (restart, install, replace) check it first: a denied
+// probe measured nothing.
+func ProbeDenied(err error) bool {
+	var d *healthDeniedError
+	return errors.As(err, &d) || deniedErrno(err)
+}
+
+func deniedErrno(err error) bool {
+	return errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.EACCES) || errors.Is(err, wsaeacces)
+}
+
+// DeniedMessage is the one sentence every caller uses for a denied probe of
+// addr (an empty addr reads as the server address).
+func DeniedMessage(addr string) string {
+	if addr == "" {
+		addr = "the server address"
+	}
+	return fmt.Sprintf("the connection to %s was denied by the OS: is this command running in a sandbox without network access?", addr)
+}
+
+// healthTransport is the transport of ProbeHealth; nil is the default one.
+// A seam for the tests: a real dial cannot be made to fail with EPERM.
+var healthTransport http.RoundTripper
+
 // ProbeHealth fetches and decodes GET http://<addr>/health, using the same
 // addr normalization as healthURL (bare port or host:port). A connection
 // failure or non-200 response is returned as a plain error (transient,
@@ -1004,9 +1042,12 @@ func ProbeHealth(addr string, timeout time.Duration) (HealthStatus, error) {
 	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{
 		GotConn: func(httptrace.GotConnInfo) { connected.Store(true) },
 	}))
-	c := http.Client{Timeout: timeout}
+	c := http.Client{Timeout: timeout, Transport: healthTransport}
 	resp, err := c.Do(req)
 	if err != nil {
+		if !connected.Load() && deniedErrno(err) {
+			return HealthStatus{}, &healthDeniedError{err}
+		}
 		if connected.Load() {
 			var nerr net.Error
 			if errors.As(err, &nerr) && nerr.Timeout() {
@@ -1119,7 +1160,12 @@ func (m *Manager) Replace(opts ReplaceOptions) error {
 	// Best-effort: what answers before the signal is the process that must not
 	// count as the replacement (D266). Without it an empty or "dev" expected
 	// version accepted the old process still draining.
-	before, _ := ProbeHealth(cfg.HTTP, healthTimeout)
+	before, beforeErr := ProbeHealth(cfg.HTTP, healthTimeout)
+	// A denied probe cannot prove the replacement either: restarting a server
+	// that cannot be told from outside would leave it unverified (#2165).
+	if ProbeDenied(beforeErr) {
+		return fmt.Errorf("service: nothing was restarted: %s", DeniedMessage(cfg.HTTP))
+	}
 
 	if err := m.signalGraceful(); err != nil {
 		return fmt.Errorf("service: graceful restart: %w", err)
@@ -1207,6 +1253,9 @@ const (
 	// http:), so there is no endpoint to probe. Substituting the default
 	// listen address here would probe an address nothing listens on.
 	HealthSkipStdio = "stdio_transport"
+	// HealthSkipDenied: the OS refused the connection to the address (a sandbox
+	// without network access): the server was not measured, #2165.
+	HealthSkipDenied = "connection_denied"
 )
 
 // Status reports the current state of the service.
@@ -1372,12 +1421,16 @@ func (m *Manager) Status(configPath string) (Status, error) {
 		st.HTTPAddr = cfg.HTTP
 		st.HealthChecked = true
 		// Healthy needs a Cartographer answer: another program on the port
-		// is not a healthy service (#1998).
+		// is not a healthy service (#1998). A denied connect measured nothing:
+		// the check is skipped with its reason, never reported unhealthy (D174).
 		switch ProbeListener(cfg.HTTP, healthTimeout) {
 		case ListenerCartographer:
 			st.Healthy = true
 		case ListenerForeign:
 			st.ForeignListener = true
+		case ListenerDenied:
+			st.HealthChecked = false
+			st.HealthSkipReason = HealthSkipDenied
 		}
 		if st.Installed && cfg.Web.Enabled {
 			st.UIURL = webui.URL(cfg.HTTP)
