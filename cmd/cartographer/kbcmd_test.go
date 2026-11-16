@@ -1420,6 +1420,12 @@ func TestWritePushRefusalHints(t *testing.T) {
 			[]string{"refused the commit's author", "identity git resolves"}, []string{"authenticate"}},
 		{"protected", "remote: GitLab: You are not allowed to push code to protected branches on this project.\n ! [remote rejected] main -> main (pre-receive hook declined)", false,
 			[]string{"protected for this account"}, []string{"authenticate", "refused the commit's author"}},
+		{"bare decline with fallback identity", "remote: \n ! [remote rejected] main -> main (pre-receive hook declined)", true,
+			[]string{"gave no reason", "(inferred)", "Op <op@example.com>", "protected branch or another hook"}, []string{"authenticate", "protected for this account"}},
+		{"bare decline with own identity", "remote: \n ! [remote rejected] main -> main (pre-receive hook declined)", false,
+			[]string{"protected for this account"}, []string{"inferred", "authenticate"}},
+		{"reasoned decline with fallback identity", "remote: rejected by policy: protected\n ! [remote rejected] main -> main (pre-receive hook declined)", true,
+			[]string{"protected for this account"}, []string{"inferred", "authenticate"}},
 		{"authentication", "fatal: Authentication failed for 'https://forge.example.com/g/kb-a.git'", false,
 			[]string{"authenticate git", "kb clone https://forge.example.com/g/kb-a.git"}, []string{"protected"}},
 	}
