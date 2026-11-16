@@ -142,6 +142,16 @@ func TestDocsRefusesWritesAndUnknownTools(t *testing.T) {
 	}
 }
 
+// A concept_read of an id the documentation does not have points to the search
+// that finds it, instead of a bare "not found".
+func TestDocsConceptReadOfAnUnknownIDPointsToSearch(t *testing.T) {
+	docsEnv(t)
+	code, _, e := runDocs(t, "", "concept_read", "id=no-such-page")
+	if code != 1 || !strings.Contains(e, "not found") || !strings.Contains(e, "cartographer docs search") {
+		t.Errorf("exit %d, stderr %q, want 1 and a pointer to docs search", code, e)
+	}
+}
+
 func TestDocsBatch(t *testing.T) {
 	docsEnv(t)
 	in := `{"tool":"search","arguments":{"query":"workspace bind","limit":2},"id":"a"}` + "\n" +

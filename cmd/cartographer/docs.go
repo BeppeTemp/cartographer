@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/docskb"
@@ -176,6 +177,14 @@ func cmdDocs(args []string) int {
 				return 1
 			}
 			return 2
+		}
+		if pos[0] == "concept_read" {
+			if o, rerr := readToolResult(pos[0], result); rerr == nil && o.isError && strings.TrimSpace(o.text) == "not found" {
+				// The tool answers a bare "not found" (it must not say whether an
+				// id exists); the embedded documentation has nothing to hide.
+				fmt.Fprintln(os.Stderr, "not found: no page of the documentation has that id; find it with `cartographer docs search query=\"<words>\"`")
+				return 1
+			}
 		}
 		return printToolResult(pos[0], result, *output)
 	}()

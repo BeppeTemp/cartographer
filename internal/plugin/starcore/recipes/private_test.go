@@ -71,7 +71,7 @@ func TestPrivateGrantNeedsBothKeys(t *testing.T) {
 	denied(t, privateCall(t, srv, "wiki.example.com", "/", declared, nil), "plugins.acme.allow_private_hosts")
 	// Granted, not declared: the host's list alone opens nothing.
 	undeclared := &core.Permissions{Net: []string{"*.example.com"}}
-	denied(t, privateCall(t, srv, "wiki.example.com", "/", undeclared, []string{"wiki.example.com"}), "may not reach")
+	denied(t, privateCall(t, srv, "wiki.example.com", "/", undeclared, []string{"wiki.example.com"}), "components.surveyor.permissions.net_private")
 	// Another host under the same net pattern keeps the refusal.
 	denied(t, privateCall(t, srv, "api.example.com", "/", declared, []string{"wiki.example.com"}), "may not reach")
 	// A redirect from the granted host to a private host without the grant is refused.

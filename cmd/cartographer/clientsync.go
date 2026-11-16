@@ -1250,6 +1250,9 @@ func printApplySummary(wr io.Writer, dir string, results map[string]provisioning
 		// A refusal is not one warning among others: the artifact is not
 		// installed, and only the operator can clear the condition (D148).
 		for _, rf := range append(slices.Clone(r.Refused), r.RefusedRemovals...) {
+			if !refusedForSymlink(rf, r.Warnings) {
+				continue // the warning below names its own cause
+			}
 			fmt.Fprintf(wr, "[%s] %s: %s/%s [%s] — its destination is a symlink, so the write would land outside the client (list the link under providers.<provider>.allow_symlinks to follow it)\n",
 				p, verb("refused", "would refuse"), escapeControl(rf.Kind), escapeControl(rf.Name), escapeControl(rf.Source))
 		}
@@ -1276,6 +1279,21 @@ func printApplySummary(wr io.Writer, dir string, results map[string]provisioning
 	if needsMCPApproval {
 		fmt.Fprintln(wr, "Pending artifacts (MCP descriptors, hooks, executable files) require an approval: cartographer approve <kind> <name> --kb <kb>, then cartographer sync")
 	}
+}
+
+// refusedForSymlink reports whether a refusal is the symlink one: the warning
+// the refusal recorded ("<kind>/<name> not installed: <cause>", or "not
+// removed") names it. Another cause (a rules file with foreign frontmatter) is
+// printed by that warning alone; a refusal with no such warning keeps the
+// symlink wording it has always had.
+func refusedForSymlink(rf contract.Artifact, warnings []string) bool {
+	prefix := rf.Kind + "/" + rf.Name + " not "
+	for _, w := range warnings {
+		if strings.HasPrefix(w, prefix) {
+			return strings.Contains(w, "symlink")
+		}
+	}
+	return true
 }
 
 // unresolvedAcross unions the unresolved placeholders of every applied
