@@ -413,6 +413,8 @@ artifact on every client at once on the first upgrade. A pre-D138 entry whose fi
 `missing` like any other, and is healed. A read error is a finding too, never a fatal: one
 unreadable artifact must not abort the verification of the others.
 
+The sync summary words a restore by what it did: `restored <kind>/<name> from the server (local changes discarded)` for an artifact whose files were `missing` or `modified`, and `re-registered <kind>/<name> (its registration was missing)` for one whose files were intact but whose registration (`unregistered`, `unrunnable`) was written again, where nothing local was discarded (`AppliedResult.Reregistered`).
+
 `cartographer sync --no-heal` reports divergence and skips the restore, for someone deliberately
 iterating on a local copy. `cartographer status` counts on-disk divergence as drift, so a locally
 modified artifact exits 1. Healing obeys the pruning guarantee

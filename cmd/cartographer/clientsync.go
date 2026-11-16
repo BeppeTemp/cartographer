@@ -1195,6 +1195,15 @@ func printApplySummary(wr io.Writer, dir string, results map[string]provisioning
 			healedArtifacts[key] = true
 			fmt.Fprintf(wr, "[%s] %s %s from the server (local changes discarded)\n", p, verb("restored", "would restore"), escapeControl(key))
 		}
+		reregisteredArtifacts := map[string]bool{}
+		for _, h := range r.Reregistered {
+			key := h.Kind + "/" + h.Name
+			if reregisteredArtifacts[key] {
+				continue
+			}
+			reregisteredArtifacts[key] = true
+			fmt.Fprintf(wr, "[%s] %s %s (its registration was missing)\n", p, verb("re-registered", "would re-register"), escapeControl(key))
+		}
 		movedArtifacts := map[string]bool{}
 		for _, h := range r.Relocated {
 			key := h.Kind + "/" + h.Name

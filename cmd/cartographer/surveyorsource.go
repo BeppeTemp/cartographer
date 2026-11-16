@@ -184,8 +184,13 @@ func printSourceTest(out, errw io.Writer, config string, r *surveyor.SourceTestR
 	if src == "" {
 		src = "(not registered)"
 	}
-	fmt.Fprintf(out, "recipe:\t%s\nshape:\t%s\nkind:\t%s\nsource:\t%s\nlocator:\t%s\ncursor_in:\t%s\nconfig:\t%s\n",
-		clip(r.Recipe, 80), clip(r.Shape, 20), clip(r.Kind, 80), clip(src, 200), clip(r.Locator, 400), clip(r.CursorIn, 1100), clip(filepath.Base(config), 80))
+	// The kind is optional (--kind): a recipe run without one has none to print.
+	kindLine := ""
+	if r.Kind != "" {
+		kindLine = "kind:\t" + clip(r.Kind, 80) + "\n"
+	}
+	fmt.Fprintf(out, "recipe:\t%s\nshape:\t%s\n%ssource:\t%s\nlocator:\t%s\ncursor_in:\t%s\nconfig:\t%s\n",
+		clip(r.Recipe, 80), clip(r.Shape, 20), kindLine, clip(src, 200), clip(r.Locator, 400), clip(r.CursorIn, 1100), clip(filepath.Base(config), 80))
 	if r.Failure != nil {
 		fmt.Fprintf(errw, "the poll would record: feed_error %s: %s\n", clip(r.Failure.Code, 60), clip(r.Failure.Detail, 400))
 		if r.CheckRefused {

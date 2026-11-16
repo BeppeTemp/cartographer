@@ -70,6 +70,8 @@ func LoadPinned(storeDir string, pins map[string]Pin, side Side, opts Options) (
 		}
 		st, p := State(n, pin, store, opts)
 		switch {
+		case st == StatusNotFetched:
+			probs = append(probs, PinProblem{n, fmt.Sprintf("the digest %s does not match a vendored tree in the store: run `cartographer plugin vendor` and pin the digest it prints", pin.Digest)})
 		case st != StatusActive:
 			probs = append(probs, PinProblem{n, string(st)})
 		case !hasSide(p.Sides, side):

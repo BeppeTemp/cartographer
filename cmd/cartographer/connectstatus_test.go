@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -223,5 +224,22 @@ func TestSkippedParts_AServerChosenKindIsEscaped(t *testing.T) {
 				t.Errorf("skipped part %q carries a raw ESC", part)
 			}
 		}
+	}
+}
+
+// A refused instructions block names "instructions", not "instructionss": the
+// kind is plural already (#2134).
+func TestSkippedParts_InstructionsIsNotPluralizedTwice(t *testing.T) {
+	applied := map[string]provisioning.AppliedResult{"claude": {
+		Refused: []contract.Artifact{{Kind: "instructions", Name: "kb-a"}, {Kind: "skill", Name: "x"}},
+	}}
+	got := skippedParts(nil, nil, applied)["claude"]
+	if want := []string{"instructions", "skills"}; !slices.Equal(got, want) {
+		t.Fatalf("skipped = %v, want %v", got, want)
+	}
+	var b strings.Builder
+	syncRefusedExit(&b, syncResult{Refused: map[string][]string{"claude": got}})
+	if strings.Contains(b.String(), "instructionss") || !strings.Contains(b.String(), "claude (instructions, skills skipped)") {
+		t.Errorf("refusal line = %q", b.String())
 	}
 }

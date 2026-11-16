@@ -22,6 +22,15 @@ func hookFinding(findings []provisioning.DriftFinding) (provisioning.DriftFindin
 	return provisioning.DriftFinding{}, false
 }
 
+func hookManaged(files []provisioning.ManagedFile) (provisioning.ManagedFile, bool) {
+	for _, f := range files {
+		if f.Kind == "hook" && f.Name == "notify" {
+			return f, true
+		}
+	}
+	return provisioning.ManagedFile{}, false
+}
+
 type unregCase struct {
 	name     string
 	provider configurator.Provider
@@ -103,6 +112,16 @@ func TestVerifyManaged_DeletedHookRegistrationIsUnregisteredAndHealed(t *testing
 					t.Fatal(err)
 				}
 				opts.Lock = res.NewLock
+				if i == 0 {
+					// Only the registration was gone: it is re-registered, and no
+					// local change was discarded (#2134).
+					if _, ok := hookManaged(res.Reregistered); !ok {
+						t.Errorf("Reregistered = %+v, want the hook", res.Reregistered)
+					}
+					if _, ok := hookManaged(res.Healed); ok {
+						t.Errorf("Healed = %+v, want the hook left out: nothing local was discarded", res.Healed)
+					}
+				}
 				if n := countRegistered(t, tc, baseDir); n != 1 {
 					t.Fatalf("run %d: %d registrations, want 1", i+1, n)
 				}
