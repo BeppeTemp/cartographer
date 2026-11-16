@@ -455,7 +455,7 @@ reload that applies.
 A token whose `expires_at` is already past at start does not stop the server: a
 pod that restarts after an expiry must come up, not crash-loop. The token stays
 in the set, is refused at lookup like any expired one, and the start logs it by
-id and date (never the value) so it can be removed or renewed. It still counts as
+id and date (never the value) so it can be removed or renewed. That log line is the only sign at start: the server says nothing else, and the token shows afterwards as a 401 on each request that carries it. It still counts as
 configured: an `auto` or `on` configuration whose tokens are all expired starts
 with authentication enforced and answers every request 401, never open. An
 `expires_at` that is not an RFC 3339 timestamp still refuses the start.

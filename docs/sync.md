@@ -546,7 +546,7 @@ are the only thing the global catalogue of a workspace-scoped provider holds.
 
 **An unbound workspace is fail-closed.** It receives the transversal bundle and no KB artifact at
 all. "No KBs" and "several KBs" are distinct explicit states; neither is ever "every KB", and a
-bound path that is gone or whose git remote has changed is an **error**, never a fall-back — falling
+bound path that is gone, cannot be read or whose git remote has changed is an **error**, never a fall-back — falling
 back is the exposure the scope exists to close.
 `sync` checks the recorded remote of every explicit binding before it writes, as `status` and the bridge do (a derived binding is matched on its remote when it is computed). The error costs only its own provider (#1502): `sync` leaves that provider as it is, applies every other one, names it in the final error and exits 2, as it does for the providers bound to a KB that could not be pulled. A *derived* binding (D1019) that cannot be prepared for any reason (a repository git cannot read, a clash, an invalid name) is skipped with a warning.
 
@@ -578,7 +578,7 @@ read-write), a bound folder never changes, and it is not a security boundary (D7
 read`, older servers) serves no tools. Until that confirmation the bridge forwards one message at a time, and a response that opens an event stream (`subscriptions/listen`) releases the next one as soon as its headers confirm the mode, so the stream never holds back `tools/list`. A binding that wins is never read-only. An empty
 binding (`--no-kb`), or one whose KBs are all unmounted, gets a session with no Cartographer tools,
 never every KB (the bridge answers the handshake itself and sends nothing to Meridian); a binding
-whose directory is gone or whose git remote changed serves no KB and says why. A client that declares
+whose directory is gone, cannot be read (the process lacks access to it, which is not reported as a remote change, #2105: grant it access, on macOS Files and Folders or Full Disk Access, and retry) or whose git remote changed serves no KB and says why. A client that declares
 MCP `roots` while the working directory is under no binding is scoped by the union of the bindings its
 roots resolve to; the scope is fixed once, at the start of the session. A provider with no binding keeps
 its HTTP entry, and unbinding the last workspace returns to it on the next `sync`. The bridge reads
