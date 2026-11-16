@@ -1369,3 +1369,19 @@ func TestForeignServer_SilentListenerWarns(t *testing.T) {
 		t.Errorf("findings = %+v", got)
 	}
 }
+
+// A probe the OS refused says nothing about the address: the finding says it
+// was not checked, never "unreachable" (#2165).
+func TestHeldServer_DeniedProbeIsNamedNotUnreachable(t *testing.T) {
+	orig := doctorProbeListener
+	t.Cleanup(func() { doctorProbeListener = orig })
+	doctorProbeListener = func(string, time.Duration) service.ListenerState { return service.ListenerDenied }
+	addr, held := heldServer("http://127.0.0.1:39273/mcp", serverFacts{}, errors.New("operation not permitted"))
+	if held != service.ListenerDenied || heldByOther(held) {
+		t.Fatalf("held = %v, want ListenerDenied and not held by another program", held)
+	}
+	fs := checkServerAt(t.TempDir(), &clientconfig.Config{ServerURL: "http://127.0.0.1:39273/mcp"}, nil, serverFacts{}, errors.New("operation not permitted"), addr, held)
+	if len(fs) != 1 || !strings.Contains(fs[0].Message, "denied by the OS") || strings.Contains(fs[0].Message, "unreachable") {
+		t.Errorf("findings = %+v", fs)
+	}
+}

@@ -165,6 +165,11 @@ const (
 	// server that is busy, still starting or draining: status and the tray do
 	// not call it foreign; an install refuses it (busyAddressError).
 	ListenerUnresponsive
+	// ListenerDenied: the OS refused the connection before it was tried (EPERM
+	// or EACCES: a sandbox without network access). Nothing was measured, so
+	// it is neither "nothing listens" nor a listener of any kind (#2165); a
+	// caller never acts on it as it would on ListenerNone.
+	ListenerDenied
 )
 
 // ProbeListener classifies what is listening on addr. Any process can answer
@@ -178,6 +183,9 @@ func ProbeListener(addr string, timeout time.Duration) ListenerState {
 			return ListenerCartographer
 		}
 		return ListenerForeign
+	}
+	if ProbeDenied(err) {
+		return ListenerDenied
 	}
 	var proto *healthProtocolError
 	if errors.As(err, &proto) {
@@ -203,7 +211,9 @@ func ProbeListener(addr string, timeout time.Duration) ListenerState {
 }
 
 // busyAddressError is the refusal for an address another process holds, shared
-// by the cron start and the Windows install (#2092); nil for ListenerNone.
+// by the cron start and the Windows install (#2092); nil for ListenerNone. A
+// denied probe is a refusal too: what holds the address is unknown, and the
+// caller must not go on as if it were free.
 func busyAddressError(addr string, st ListenerState) error {
 	switch st {
 	case ListenerCartographer:
@@ -212,6 +222,8 @@ func busyAddressError(addr string, st ListenerState) error {
 		return fmt.Errorf("service: another program answers on %s: not a Cartographer server (stop it, or change http: in the server config)", addr)
 	case ListenerUnresponsive:
 		return fmt.Errorf("service: a program accepted the connection on %s but did not answer /health (stop it, or change http: in the server config)", addr)
+	case ListenerDenied:
+		return fmt.Errorf("service: %s", DeniedMessage(addr))
 	}
 	return nil
 }

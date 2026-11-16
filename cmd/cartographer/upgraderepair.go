@@ -174,8 +174,12 @@ var (
 func waitForVersion(httpAddr, expectedBuild string) {
 	deadline := time.Now().Add(repairSwitchWait)
 	for time.Now().Before(deadline) {
-		if hs, err := repairProbeHealthFn(httpAddr, repairHealthProbeTimeout); err == nil && hs.Status == "ok" && versionAlreadyCurrent(hs, expectedBuild) {
+		hs, err := repairProbeHealthFn(httpAddr, repairHealthProbeTimeout)
+		if err == nil && hs.Status == "ok" && versionAlreadyCurrent(hs, expectedBuild) {
 			return
+		}
+		if service.ProbeDenied(err) {
+			return // polling cannot change a refusal
 		}
 		time.Sleep(repairSwitchPoll)
 	}
@@ -189,6 +193,10 @@ func ensureServiceCurrent(configPath, httpAddr, expectedBuild string) error {
 	hs, healthErr := repairProbeHealthFn(httpAddr, repairHealthProbeTimeout)
 	if healthErr == nil && hs.Status == "ok" && versionAlreadyCurrent(hs, expectedBuild) {
 		return nil
+	}
+	// A refused connect says nothing about the version: no restart on it (#2165).
+	if service.ProbeDenied(healthErr) {
+		return fmt.Errorf("native service was not checked or replaced: %s", service.DeniedMessage(httpAddr))
 	}
 	if err := repairReplaceFn(service.ReplaceOptions{ConfigPath: configPath, ExpectedVersion: version, ExpectedBuild: expectedBuild}); err != nil {
 		return fmt.Errorf("native service could not be verified: %w", err)

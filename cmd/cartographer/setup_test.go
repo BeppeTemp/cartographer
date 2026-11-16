@@ -580,6 +580,8 @@ func TestPlanSetup_ServiceDecisionByBackendAndAnswer(t *testing.T) {
 		{"installed and running", func(f *setupFacts) { f.Service = service.Status{Installed: true, Running: true} }, serviceKeep, false, nil},
 		{"installed, stopped", func(f *setupFacts) { f.Service = service.Status{Installed: true} }, serviceStart, false, nil},
 		{"answering without a definition", func(f *setupFacts) { f.ServerAnswers, f.Backend = true, service.BackendNone }, serviceKeep, true, nil},
+		{"denied probe, service installed and stopped", func(f *setupFacts) { f.ProbeDenied, f.Service = true, service.Status{Installed: true} }, 0, false, errSetupProbeDenied},
+		{"denied probe, nothing installed", func(f *setupFacts) { f.ProbeDenied = true }, 0, false, errSetupProbeDenied},
 		{"foreign listener", func(f *setupFacts) { f.ForeignListener = true }, 0, false, errSetupForeignListener},
 		{"no manager, nothing answering", func(f *setupFacts) { f.Backend = service.BackendNone }, 0, false, errSetupNoServiceManager},
 		{"cron", func(f *setupFacts) { f.Backend = service.BackendCron }, serviceInstall, false, nil},

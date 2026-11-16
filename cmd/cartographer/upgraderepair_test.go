@@ -3,9 +3,11 @@ package main
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -1117,5 +1119,19 @@ func TestRepairStaleServiceBeforeSync_BuildNeedsTheSameBinary(t *testing.T) {
 				t.Errorf("replaced = %v, want %v", replaced, tc.wantReplace)
 			}
 		})
+	}
+}
+
+// A refused probe says nothing about the running version: upgrade-repair must
+// not restart the service on it (#2165).
+func TestEnsureServiceCurrent_DeniedProbeReplacesNothing(t *testing.T) {
+	saveRepairFns(t)
+	repairProbeHealthFn = func(string, time.Duration) (service.HealthStatus, error) {
+		return service.HealthStatus{}, &net.OpError{Op: "dial", Err: os.NewSyscallError("connect", syscall.EPERM)}
+	}
+	failIfReplaceCalled(t)
+	err := ensureServiceCurrent("/cfg.yaml", "127.0.0.1:39273", "")
+	if err == nil || !strings.Contains(err.Error(), "denied by the OS") {
+		t.Errorf("err = %v, want the denied message", err)
 	}
 }

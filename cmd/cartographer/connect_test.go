@@ -730,3 +730,17 @@ func TestPrintConnectResult_RestartHintSkipsProvidersWithoutMCPEntry(t *testing.
 		t.Errorf("output = %q, want the MCP hint naming only claude", out)
 	}
 }
+
+// A denied health probe never offers the service install (#2165), whatever the
+// backend; without it the offer is the one shouldOfferServiceInstall decides.
+func TestConnectOffersInstall_DeniedProbeNeverOffers(t *testing.T) {
+	orig := connectServiceBackend
+	t.Cleanup(func() { connectServiceBackend = orig })
+	connectServiceBackend = func() service.Backend { return service.BackendLaunchd }
+	if !connectOffersInstall(service.Status{}) {
+		t.Error("a missing service was not offered an install")
+	}
+	if connectOffersInstall(service.Status{HealthSkipReason: service.HealthSkipDenied}) {
+		t.Error("a denied probe was offered an install")
+	}
+}

@@ -121,6 +121,7 @@ type cronEnv struct {
 	m         *Manager
 	answers   bool // a Cartographer /health answers
 	foreign   bool // another program answers on the address (wins over answers)
+	denied    bool // the OS refuses the probe of the address (wins over both)
 }
 
 // newCronEnv is a Linux host whose $HOME is the account's home, with a fake
@@ -139,6 +140,8 @@ func newCronEnv(t *testing.T) *cronEnv {
 	osExecutable = func() (string, error) { return "/opt/bin/cartographer", nil }
 	listenerAt = func(string) ListenerState {
 		switch {
+		case e.denied:
+			return ListenerDenied
 		case e.foreign:
 			return ListenerForeign
 		case e.answers:
@@ -735,6 +738,22 @@ func TestReadCrontab_UsesStdoutRunner(t *testing.T) {
 // A foreign program on the address (#1998): the watchdog does not spawn a
 // server that cannot bind, `start` names the program, and the service is not
 // Running because of it.
+// A watchdog tick whose probe the OS refused starts no server: the address may
+// be held, and a second instance could not bind (#2165). Goes through
+// ensure's `listenerAt(addr) != ListenerNone` guard.
+func TestCronDeniedProbeStartsNothing(t *testing.T) {
+	e := newCronEnv(t)
+	e.install(t)
+	e.m.Stop()
+	os.Remove(e.state("server.pid"))
+	os.Remove(e.state("server.stopped"))
+	e.denied = true
+	n := len(e.procs.starts)
+	if err := e.m.Ensure(e.cfg); err != nil || len(e.procs.starts) != n {
+		t.Errorf("watchdog tick with a denied probe: err=%v starts %d -> %d", err, n, len(e.procs.starts))
+	}
+}
+
 func TestCronForeignListener(t *testing.T) {
 	e := newCronEnv(t)
 	e.install(t)
