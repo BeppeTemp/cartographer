@@ -153,3 +153,18 @@ func TestPrintWslWindowsHint(t *testing.T) {
 		}
 	}
 }
+
+// A deferred skill sync (e.g. the selected KB is not on the server) still
+// records the WSL server owner (#2143).
+func TestPrintConnectResult_DeferredRecordsWslOwner(t *testing.T) {
+	f := &fakeWslSide{running: []string{"Ubuntu"}}
+	withFakeWsl(t, "windows", f)
+	withServerRuns(t, "Ubuntu")
+	claude := []string{"claude"}
+	opts := connectOptions{ServerURL: "http://127.0.0.1:39273/mcp"}
+	res := connectResult{Providers: claude, Deferred: true, DeferredErr: errors.New("kb not found")}
+	out := withStdout(t, func() { printConnectResult(t.TempDir(), claude, opts, res) })
+	if f.marker != "Ubuntu" || !strings.Contains(out, "server: WSL distro Ubuntu") {
+		t.Errorf("marker %q, out %q: deferred connect must record the owner", f.marker, out)
+	}
+}
