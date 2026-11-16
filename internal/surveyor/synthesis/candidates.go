@@ -1,7 +1,6 @@
 package synthesis
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"path"
@@ -9,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/BeppeTemp/cartographer/internal/client"
 )
 
 // Defaults of the perimeter knobs (documented in docs/deployment.md).
@@ -160,7 +161,7 @@ func call(tools ToolCaller, name string, args, into any) error {
 	if into == nil {
 		return nil
 	}
-	if err := json.Unmarshal([]byte(out.Text), into); err != nil {
+	if err := client.DecodeResult(out.Text, into); err != nil {
 		return fmt.Errorf("%s: unreadable answer: %w", name, err)
 	}
 	return nil

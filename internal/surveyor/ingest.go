@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/BeppeTemp/cartographer/internal/surveyor/connector"
-	"github.com/BeppeTemp/cartographer/internal/surveyor/recipe"
 	"log"
 	"slices"
 	"sort"
@@ -16,7 +14,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/skillbundle"
+	"github.com/BeppeTemp/cartographer/internal/surveyor/connector"
+	"github.com/BeppeTemp/cartographer/internal/surveyor/recipe"
 	"github.com/BeppeTemp/cartographer/internal/surveyor/system"
 )
 
@@ -177,7 +178,7 @@ func readConcept(tools ToolCaller, id string) (conceptOut, error) {
 		return c, &toolError{out.Text}
 	}
 	c.raw = out.Text
-	if err := json.Unmarshal([]byte(out.Text), &c); err != nil {
+	if err := client.DecodeResult(out.Text, &c); err != nil {
 		NoteContract(tools, "concept_read")
 		return c, fmt.Errorf("concept_read %s: %w", id, err)
 	}
@@ -248,7 +249,7 @@ func (in *ingestInstance) Next(_ context.Context, kb string, tools ToolCaller) (
 		return nil, err
 	}
 	var wl workListOut
-	if err := json.Unmarshal([]byte(text), &wl); err != nil {
+	if err := client.DecodeResult(text, &wl); err != nil {
 		return nil, fmt.Errorf("work_list: %w", err)
 	}
 	today := in.now().UTC().Format("2006-01-02")
@@ -511,7 +512,7 @@ func (in *ingestInstance) readAsset(tools ToolCaller, unit, name string) (string
 		Content  string `json:"content"`
 		Encoding string `json:"encoding"`
 	}
-	if err := json.Unmarshal([]byte(text), &a); err != nil || a.Encoding != "text" {
+	if err := client.DecodeResult(text, &a); err != nil || a.Encoding != "text" {
 		return "", errors.New("the asset is not text")
 	}
 	return a.Content, nil
@@ -571,7 +572,7 @@ func (in *ingestInstance) verify(tools ToolCaller, written []string) string {
 			Path string `json:"path"`
 		} `json:"gate_blockers"`
 	}
-	if err := json.Unmarshal([]byte(text), &g); err != nil {
+	if err := client.DecodeResult(text, &g); err != nil {
 		return "gate_check unreadable: " + brief(err.Error())
 	}
 	if g.Pass {
@@ -654,7 +655,7 @@ func (in *ingestInstance) closeSource(rt Runtime, source string) {
 		Results []struct{ Status string } `json:"results"`
 		Trunc   bool                      `json:"truncated"`
 	}
-	if json.Unmarshal([]byte(text), &l) != nil || l.Trunc {
+	if client.DecodeResult(text, &l) != nil || l.Trunc {
 		return
 	}
 	for _, u := range l.Results {

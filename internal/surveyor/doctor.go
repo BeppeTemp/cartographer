@@ -307,7 +307,7 @@ func linkTargets(tools ToolCaller, pages []string) []string {
 		if err != nil || res.IsError {
 			continue
 		}
-		if json.Unmarshal([]byte(res.Text), &g) != nil {
+		if client.DecodeResult(res.Text, &g) != nil {
 			NoteContract(tools, "graph_neighbors")
 			continue
 		}
@@ -431,7 +431,7 @@ func (g *doctorGuard) fenceMap(raw json.RawMessage) (json.RawMessage, string) {
 	if err != nil || out.IsError {
 		return nil, "the map's contract cannot be read"
 	}
-	if json.Unmarshal([]byte(out.Text), &page) != nil {
+	if client.DecodeResult(out.Text, &page) != nil {
 		NoteContract(g.inner, "concept_read")
 		return nil, "the map's contract cannot be read"
 	}
@@ -564,7 +564,7 @@ func readDoctorStatus(tools ToolCaller) (doctorStatus, error) {
 	if out.IsError {
 		return st, fmt.Errorf("kb_status refused: %s", oneLine(out.Text))
 	}
-	if err := json.Unmarshal([]byte(out.Text), &st); err != nil {
+	if err := client.DecodeResult(out.Text, &st); err != nil {
 		return st, fmt.Errorf("kb_status: %w", err)
 	}
 	return st, nil
@@ -596,7 +596,7 @@ func (d *doctorInstance) repair(tools ToolCaller, checks []string) int {
 		AppliedTotal int `json:"applied_total"`
 	}
 	if err == nil {
-		err = json.Unmarshal([]byte(out.Text), &answer)
+		err = client.DecodeResult(out.Text, &answer)
 	}
 	if err != nil {
 		log.Printf("surveyor: doctor: kb_repair: %v", err)
@@ -670,7 +670,7 @@ func reviewItems(tools ToolCaller, kind string) ([]doctorItem, error) {
 			Items      []doctorItem `json:"items"`
 			NextOffset int          `json:"next_offset"`
 		}
-		if err := json.Unmarshal([]byte(res.Text), &page); err != nil {
+		if err := client.DecodeResult(res.Text, &page); err != nil {
 			return nil, fmt.Errorf("kb_review: %w", err)
 		}
 		all = append(all, page.Items...)
