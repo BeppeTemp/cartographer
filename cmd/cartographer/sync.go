@@ -98,6 +98,10 @@ func cmdSync(args []string) int {
 	res, err := runSync(dir, cfg, syncOptions{DryRun: *dryRun, NoHeal: *noHeal, Clients: clients, RepairService: true, Locked: locked, Unlock: unlock})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
+		// The exit stays 2, but the skipped workspaces are not lost with it.
+		if len(res.Unreadable) > 0 {
+			fmt.Fprintf(os.Stderr, "sync skipped unreadable workspaces: %s\n", escapeControl(strings.Join(res.Unreadable, ", ")))
+		}
 		return syncFailureExit(err)
 	}
 	if !*dryRun {
@@ -108,9 +112,40 @@ func cmdSync(args []string) int {
 		// stays refused fails every run, so a timer or a script sees it. The
 		// line tells it from 3 as "client lock denied". A dry run writes
 		// nothing and reports none.
-		return syncRefusedExit(os.Stderr, res)
+		code := syncRefusedExit(os.Stderr, res)
+		if c := syncUnreadableExit(os.Stderr, res); c != 0 {
+			code = c
+		}
+		return code
 	}
 	return 0
+}
+
+// unreadableWorkspaces lists, sorted, each bound workspace whose directory
+// cannot be listed and which this run therefore leaves as it is (#2135);
+// materializeForProviders warns for each projection.
+func unreadableWorkspaces(projections []syncProjection) []string {
+	var paths []string
+	for _, p := range projections {
+		if p.Unreadable == "" {
+			continue
+		}
+		if !slices.Contains(paths, p.Workspace) {
+			paths = append(paths, p.Workspace)
+		}
+	}
+	slices.Sort(paths)
+	return paths
+}
+
+// syncUnreadableExit is exitPartiallyConnected when the run skipped a bound
+// workspace it cannot read, 0 otherwise (#2135, same contract as D2118).
+func syncUnreadableExit(w io.Writer, res syncResult) int {
+	if len(res.Unreadable) == 0 {
+		return 0
+	}
+	fmt.Fprintf(w, "Error: sync skipped unreadable workspaces: %s\n", escapeControl(strings.Join(res.Unreadable, ", ")))
+	return exitPartiallyConnected
 }
 
 // syncRefusedExit is exitPartiallyConnected when the run refused to write
@@ -201,6 +236,10 @@ type syncResult struct {
 	// a kind of artifact): skippedParts, as connect reports it (#2099). Hook
 	// registrations stay warnings.
 	Refused map[string][]string
+	// Unreadable are the bound workspaces this run skipped because their
+	// directory cannot be listed (#2135), sorted: every other projection was
+	// applied, and the sync exits 3.
+	Unreadable []string
 }
 
 // runSync is the single in-process sync implementation: reconcile the
@@ -364,6 +403,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 			return syncResult{}, fmt.Errorf("%w (no configuration was modified)", partialSyncError{Providers: providerFailures})
 		}
 	}
+	unreadable := unreadableWorkspaces(projections)
 	manifests, pullFailures, err := manifestsForProjectionsPartial(opts.Streams, cfg, projections, pre)
 	if err != nil {
 		return syncResult{}, fmt.Errorf("%w (no configuration was modified)", err)
@@ -524,9 +564,9 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		}
 	}
 	if len(pullFailures) > 0 || len(providerFailures) > 0 {
-		return syncResult{Revision: commonRevision(results, targets), Applied: results, Refused: refused}, partialSyncError{Failures: pullFailures, Skipped: skipped, Providers: providerFailures}
+		return syncResult{Revision: commonRevision(results, targets), Applied: results, Refused: refused, Unreadable: unreadable}, partialSyncError{Failures: pullFailures, Skipped: skipped, Providers: providerFailures}
 	}
-	return syncResult{Revision: commonRevision(results, targets), Applied: results, Refused: refused}, nil
+	return syncResult{Revision: commonRevision(results, targets), Applied: results, Refused: refused, Unreadable: unreadable}, nil
 }
 
 // partialSyncError reports a sync that went ahead without some KBs (#350):

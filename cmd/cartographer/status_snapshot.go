@@ -547,6 +547,15 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 			s.State = "drift"
 			continue
 		}
+		if w := unreadableProjection(provProjections[p.Name]); w != nil {
+			// Sync skips this workspace and exits 3: not in sync, and the
+			// cause (with its hint) belongs on the card, not as drift with
+			// no reason (#2105, #2135).
+			p.State = "drift"
+			p.Problem = fmt.Sprintf("workspace %s: %s", w.Workspace, w.Unreadable)
+			s.State = "drift"
+			continue
+		}
 		if cfg.WorkspaceScope(p.Name) == clientconfig.ScopeWorkspace {
 			pm, d, wsDiverged, reasons = workspaceProviderDiff(cfg, provProjections[p.Name], manifests, resolved, lockFile, dir)
 		} else {
@@ -1163,4 +1172,15 @@ func snapshotMCPNotReceived(ps []syncProjection, manifests map[string]contract.M
 		}
 	}
 	return out
+}
+
+// unreadableProjection is the first projection whose bound directory cannot be
+// listed (#2135), nil when every one can.
+func unreadableProjection(ps []syncProjection) *syncProjection {
+	for i := range ps {
+		if ps[i].Unreadable != "" {
+			return &ps[i]
+		}
+	}
+	return nil
 }
