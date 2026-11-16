@@ -1352,3 +1352,20 @@ func TestCheckHookRegistrations_AntigravityScopes(t *testing.T) {
 		t.Errorf("project malformed hooks.json findings = %+v", got)
 	}
 }
+
+// A program that accepts the connection and never answers /health holds the
+// address as much as one that answers: foreign for the doctor, named as such.
+func TestForeignServer_SilentListenerWarns(t *testing.T) {
+	orig := doctorProbeListener
+	t.Cleanup(func() { doctorProbeListener = orig })
+	doctorProbeListener = func(string, time.Duration) service.ListenerState { return service.ListenerUnresponsive }
+	refused := errors.New("context deadline exceeded")
+	addr, foreign := foreignServer("http://127.0.0.1:39273/mcp", serverFacts{}, refused)
+	if !foreign || addr != "127.0.0.1:39273" {
+		t.Fatalf("foreignServer = %q, %v", addr, foreign)
+	}
+	got := checkServer(t.TempDir(), &clientconfig.Config{ServerURL: "http://127.0.0.1:39273/mcp"}, nil, serverFacts{}, refused)
+	if len(got) != 1 || got[0].Severity != doctorWarning || !strings.Contains(got[0].Message, "accepted the connection but did not answer /health") || strings.Contains(got[0].Message, "unreachable") {
+		t.Errorf("findings = %+v", got)
+	}
+}

@@ -13,6 +13,7 @@ package service
 
 import (
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -326,6 +327,7 @@ func TestInstall_Windows_WritesTheTaskAndRegistersIt(t *testing.T) {
 	t.Cleanup(func() { osExecutable = origExecutable })
 
 	m, stub := newTestManager()
+	stub.fail = map[string]bool{"State -eq 'Running'": true} // a first install: nothing registered, nothing running
 	if _, err := m.Install(InstallOptions{DataDir: filepath.Join(home, "data"), HTTPAddr: "127.0.0.1:39273"}); err != nil {
 		t.Fatalf("Install: %v", err)
 	}
@@ -422,7 +424,15 @@ type fakeServeTask struct {
 	denyEnable bool
 	// denyRegister refuses Register-ScheduledTask the same way.
 	denyRegister bool
-	owner        string
+	// denyRegisterN refuses the next N registrations, then lets them through.
+	denyRegisterN int
+	owner         string
+	// registered holds the definition each Register-ScheduledTask was given,
+	// read from the side file its script names.
+	registered []string
+	// ownerDiffers makes the descriptor probe answer "the user has no full
+	// control" (taskOwnerDiffersExit) until the task is unregistered.
+	ownerDiffers bool
 }
 
 func (f *fakeServeTask) stop() {
@@ -440,6 +450,16 @@ func (f *fakeServeTask) run(name string, args ...string) (string, error) {
 			return "", errNotLoaded
 		}
 	}
+	if strings.Contains(key, "Register-ScheduledTask") && !strings.Contains(key, "Unregister") {
+		if i := strings.Index(key, "-LiteralPath '"); i >= 0 {
+			rest := key[i+len("-LiteralPath '"):]
+			if j := strings.Index(rest, "'"); j >= 0 {
+				if data, err := os.ReadFile(rest[:j]); err == nil {
+					f.registered = append(f.registered, string(data))
+				}
+			}
+		}
+	}
 	switch {
 	case strings.Contains(key, "State -eq 'Disabled'"):
 		if f.enabled {
@@ -449,6 +469,15 @@ func (f *fakeServeTask) run(name string, args ...string) (string, error) {
 		return "", exitCodeErr(taskDeniedExit)
 	case strings.Contains(key, "Register-ScheduledTask") && f.denyRegister:
 		return "", exitCodeErr(taskDeniedExit)
+	case strings.Contains(key, "Register-ScheduledTask") && !strings.Contains(key, "Unregister") && f.denyRegisterN > 0:
+		f.denyRegisterN--
+		return "", exitCodeErr(taskDeniedExit)
+	case strings.Contains(key, "AccessMask"):
+		if f.ownerDiffers {
+			return "", exitCodeErr(taskOwnerDiffersExit)
+		}
+	case strings.Contains(key, "Unregister-ScheduledTask"):
+		f.ownerDiffers = false
 	case strings.Contains(key, "RawSecurityDescriptor"):
 		return f.owner + "\r\n", nil
 	case strings.Contains(key, "State -eq 'Running'"):
@@ -1052,10 +1081,9 @@ func TestInstall_Windows_StopsARunningTaskBeforeStarting(t *testing.T) {
 			setShutdownEvent = func() error { return os.ErrNotExist }
 			t.Cleanup(func() { setShutdownEvent = origEvent })
 
-			s := &stubRunner{fail: map[string]bool{}}
-			if !tc.running {
-				s.fail["State -eq 'Running'"] = true
-			}
+			// A task that exits once stopped, with no definition on disk (it is
+			// stopped before its registration is replaced, #2144).
+			s := &fakeServeTask{running: tc.running, enabled: true}
 			m := &Manager{run: s.run}
 			if _, err := m.Install(InstallOptions{DataDir: filepath.Join(home, "data"), HTTPAddr: "127.0.0.1:39273"}); err != nil {
 				t.Fatalf("Install: %v", err)
@@ -1237,6 +1265,7 @@ func TestInstall_Windows_RefusesAnAddressAnotherProgramHolds(t *testing.T) {
 	}{
 		{"foreign program", ListenerForeign, "another program answers on 127.0.0.1:39273"},
 		{"cartographer not started by the task", ListenerCartographer, "already answers on 127.0.0.1:39273"},
+		{"a program that accepts and never answers", ListenerUnresponsive, "accepted the connection on 127.0.0.1:39273 but did not answer /health"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &fakeServeTask{}
@@ -1264,5 +1293,360 @@ func TestInstall_Windows_StartsWhenTheAddressIsFree(t *testing.T) {
 	}
 	if !strings.Contains(joinedCalls(f.calls), "Start-ScheduledTask") || !f.running {
 		t.Errorf("the task was not started:\n%s", joinedCalls(f.calls))
+	}
+}
+
+// replaceOver runs a Windows Install whose default config differs from the one
+// the installed definition names, over a running fake serve task. The shutdown
+// event is recorded in the call log, so the order against the registration is
+// what the tests read.
+func replaceOver(t *testing.T, f *fakeServeTask, withDefinition ...bool) (error, string) {
+	t.Helper()
+	home := withTestHome(t, "windows")
+	binPath := filepath.Join(t.TempDir(), "cartographer.exe")
+	if err := os.WriteFile(binPath, []byte("bin"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	origExecutable, origEvent, origAnswers, origSleep := osExecutable, setShutdownEvent, serveAddrAnswers, windowsSleep
+	osExecutable = func() (string, error) { return binPath, nil }
+	setShutdownEvent = func() error {
+		f.calls = append(f.calls, []string{"SHUTDOWN-EVENT"})
+		if f.drains {
+			f.stop()
+		}
+		return nil
+	}
+	serveAddrAnswers = func(string) bool { return f.running }
+	windowsSleep = func(time.Duration) {}
+	listenerAt = func(string) ListenerState { return ListenerNone }
+	t.Cleanup(func() {
+		osExecutable, setShutdownEvent, serveAddrAnswers, windowsSleep = origExecutable, origEvent, origAnswers, origSleep
+	})
+
+	oldConfig := filepath.Join(home, "old", "server.yaml")
+	if err := os.MkdirAll(filepath.Dir(oldConfig), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(oldConfig, []byte("http: \"127.0.0.1:39274\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	taskPath, err := WindowsTaskPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	logPath, _ := WindowsLogPath()
+	if err := os.MkdirAll(filepath.Dir(taskPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := RenderWindowsTaskXML(`C:\old\cartographer.exe`, oldConfig, logPath, "", "")
+	if len(withDefinition) == 0 || withDefinition[0] {
+		if err := os.WriteFile(taskPath, []byte(old), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	m := &Manager{run: f.run}
+	_, err = m.Install(InstallOptions{DataDir: filepath.Join(home, "data"), HTTPAddr: "127.0.0.1:39273"})
+	return err, taskPath
+}
+
+func callIndex(calls [][]string, sub string) int {
+	for i, c := range calls {
+		if strings.Contains(strings.Join(c, " "), sub) {
+			return i
+		}
+	}
+	return -1
+}
+
+// #2144: an install that replaces the task with another config stops the old
+// instance (the graceful stop) before registering: once the new registration is
+// in, the old process belongs to no task and would hold its port for good.
+func TestInstall_Windows_ReplacingTheDefinitionStopsTheOldServerFirst(t *testing.T) {
+	f := &fakeServeTask{running: true, drains: true, enabled: true}
+	err, _ := replaceOver(t, f)
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	event, register := callIndex(f.calls, "SHUTDOWN-EVENT"), callIndex(f.calls, "Register-ScheduledTask")
+	if event < 0 || register < 0 || event > register {
+		t.Errorf("the old server must be stopped before the registration (event at %d, register at %d):\n%s", event, register, joinedCalls(f.calls))
+	}
+	if callIndex(f.calls, "Start-ScheduledTask") < register || !f.running {
+		t.Errorf("the new task must be started after the registration:\n%s", joinedCalls(f.calls))
+	}
+	if f.startedWhileRunning != 0 {
+		t.Errorf("the new instance was started while the old one ran: %d", f.startedWhileRunning)
+	}
+}
+
+// A server that survives the stop leaves the old task registered, and the
+// install says why instead of orphaning it.
+func TestInstall_Windows_ReplacingTheDefinitionFailsWhenTheOldServerSurvives(t *testing.T) {
+	f := &fakeServeTask{running: true, enabled: true, ignoresStop: true}
+	err, taskPath := replaceOver(t, f)
+	if err == nil || !strings.Contains(err.Error(), "could not be stopped before its task is replaced") {
+		t.Fatalf("Install = %v, want the stop refusal", err)
+	}
+	if callIndex(f.calls, "Register-ScheduledTask") >= 0 {
+		t.Errorf("the task was registered over a server that is still running:\n%s", joinedCalls(f.calls))
+	}
+	if data, _ := os.ReadFile(taskPath); !strings.Contains(string(data), `C:\old\cartographer.exe`) {
+		t.Errorf("the installed definition was replaced:\n%s", data)
+	}
+}
+
+// A registration the scheduler refuses after the stop starts the old task
+// again, from the definition still registered.
+func TestInstall_Windows_RefusedReplacementRestartsTheOldServer(t *testing.T) {
+	f := &fakeServeTask{running: true, drains: true, enabled: true, denyRegister: true}
+	err, _ := replaceOver(t, f)
+	if !errors.Is(err, ErrTaskAccessDenied) {
+		t.Fatalf("Install = %v, want ErrTaskAccessDenied", err)
+	}
+	if !f.running {
+		t.Errorf("the old server was left stopped:\n%s", joinedCalls(f.calls))
+	}
+}
+
+// repairBeforeSecond, when set, runs between the two installs of repairInstall.
+var repairBeforeSecond func()
+
+// repairNotices, when set, receives the notices of repairInstall's installs.
+var repairNotices func(string, ...any)
+
+// repairInstall installs twice over f from a shell that is, or is not, elevated:
+// the second one finds the same definition (nothing replaced) and a running
+// server, the descriptor probe answers differs and the scheduler refuses the
+// registration when deny is set. It returns the calls of
+// the second install.
+func repairInstall(t *testing.T, f *fakeServeTask, elevated, differs bool, deny int) (error, [][]string) {
+	t.Helper()
+	home := withTestHome(t, "windows")
+	if repairNotices != nil {
+		noticef = repairNotices // withTestHome's cleanup restores it
+	}
+	binPath := filepath.Join(t.TempDir(), "cartographer.exe")
+	if err := os.WriteFile(binPath, []byte("bin"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	origExe, origElev, origUser, origSID, origEvent, origAnswers, origSleep := osExecutable, windowsElevated, windowsTaskUser, windowsTaskSID, setShutdownEvent, serveAddrAnswers, windowsSleep
+	osExecutable = func() (string, error) { return binPath, nil }
+	windowsElevated = func() bool { return elevated }
+	windowsTaskUser = func() string { return `HOST\user` }
+	windowsTaskSID = func() string { return testSID }
+	setShutdownEvent = func() error {
+		f.calls = append(f.calls, []string{"SHUTDOWN-EVENT"})
+		if f.drains {
+			f.stop()
+		}
+		return nil
+	}
+	serveAddrAnswers = func(string) bool { return f.running }
+	windowsSleep = func(time.Duration) {}
+	listenerAt = func(string) ListenerState { return ListenerNone }
+	t.Cleanup(func() {
+		osExecutable, windowsElevated, windowsTaskUser, windowsTaskSID, setShutdownEvent, serveAddrAnswers, windowsSleep = origExe, origElev, origUser, origSID, origEvent, origAnswers, origSleep
+	})
+	m := &Manager{run: f.run}
+	opts := InstallOptions{DataDir: filepath.Join(home, "data"), HTTPAddr: "127.0.0.1:39273"}
+	if _, err := m.Install(opts); err != nil {
+		t.Fatalf("first install: %v", err)
+	}
+	f.calls, f.running, f.ownerDiffers, f.denyRegisterN = nil, true, differs, deny
+	f.registered = nil
+	if repairBeforeSecond != nil {
+		repairBeforeSecond()
+	}
+	_, err := m.Install(opts)
+	return err, f.calls
+}
+
+// #2142: Register -Force keeps the descriptor of the task it overwrites, so an
+// elevated install over a task whose descriptor does not grant the user deletes
+// it and registers it again, after the running server has been stopped.
+func TestInstall_Windows_ElevatedInstallRepairsAnAdminOwnedTask(t *testing.T) {
+	f := &fakeServeTask{drains: true, enabled: true}
+	err, calls := repairInstall(t, f, true, true, 0)
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	event, unregister, register := callIndex(calls, "SHUTDOWN-EVENT"), callIndex(calls, "Unregister-ScheduledTask"), callIndex(calls, "Register-ScheduledTask")
+	if event < 0 || unregister < event || register < unregister {
+		t.Errorf("want stop, then unregister, then register (event %d, unregister %d, register %d):\n%s", event, unregister, register, joinedCalls(calls))
+	}
+	if !f.running || f.ownerDiffers {
+		t.Errorf("running=%v ownerDiffers=%v after the repair:\n%s", f.running, f.ownerDiffers, joinedCalls(calls))
+	}
+}
+
+// The decision: a descriptor that already grants the user, or a shell that is
+// not elevated, re-registers nothing; the non-elevated one keeps today's refusal.
+func TestInstall_Windows_OwnerRepairDecision(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		elevated, differs bool
+		deny              int
+		wantUnregister    bool
+		wantProbe         bool
+		wantDenied        bool
+	}{
+		{"elevated, descriptor grants the user", true, false, 0, false, true, false},
+		{"not elevated, descriptor differs: the refusal stays", false, true, 99, false, false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &fakeServeTask{drains: true, enabled: true}
+			err, calls := repairInstall(t, f, tc.elevated, tc.differs, tc.deny)
+			if tc.wantDenied != errors.Is(err, ErrTaskAccessDenied) {
+				t.Fatalf("Install = %v, denied want %v", err, tc.wantDenied)
+			}
+			if got := callIndex(calls, "Unregister-ScheduledTask") >= 0; got != tc.wantUnregister {
+				t.Errorf("unregister = %v, want %v:\n%s", got, tc.wantUnregister, joinedCalls(calls))
+			}
+			if got := callIndex(calls, "AccessMask") >= 0; got != tc.wantProbe {
+				t.Errorf("descriptor probe = %v, want %v", got, tc.wantProbe)
+			}
+		})
+	}
+}
+
+// #2144, definition file gone: the task is registered and running but there is
+// nothing to compare, so it is stopped as for a changed definition.
+func TestInstall_Windows_ReplacingWithoutAnInstalledDefinitionStopsTheServer(t *testing.T) {
+	f := &fakeServeTask{running: true, drains: true, enabled: true}
+	err, _ := replaceOver(t, f, false)
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	event, register := callIndex(f.calls, "SHUTDOWN-EVENT"), callIndex(f.calls, "Register-ScheduledTask")
+	if event < 0 || register < 0 || event > register {
+		t.Errorf("the running server must be stopped before the registration (event %d, register %d):\n%s", event, register, joinedCalls(f.calls))
+	}
+}
+
+// A repair whose registration is refused puts the old task back from the
+// definition still on disk and starts it; when that fails too, the error says
+// the task is gone and what restores it.
+func TestInstall_Windows_RefusedRepairRestoresTheOldTask(t *testing.T) {
+	f := &fakeServeTask{drains: true, enabled: true}
+	err, calls := repairInstall(t, f, true, true, 1)
+	if !errors.Is(err, ErrTaskAccessDenied) {
+		t.Fatalf("Install = %v, want the refusal", err)
+	}
+	registers := 0
+	for _, c := range calls {
+		if strings.Contains(strings.Join(c, " "), "Register-ScheduledTask") && !strings.Contains(strings.Join(c, " "), "Unregister") {
+			registers++
+		}
+	}
+	if registers != 2 || !f.running {
+		t.Errorf("registers=%d running=%v, want the old task registered again and started:\n%s", registers, f.running, joinedCalls(calls))
+	}
+}
+
+func TestInstall_Windows_RefusedRepairThatCannotRestoreSaysTheTaskIsGone(t *testing.T) {
+	f := &fakeServeTask{drains: true, enabled: true}
+	err, _ := repairInstall(t, f, true, true, 2)
+	if err == nil || !strings.Contains(err.Error(), "is no longer registered") || !strings.Contains(err.Error(), "cartographer service install") {
+		t.Fatalf("Install = %v, want the task-is-gone message with the remedy", err)
+	}
+}
+
+// A probe that fails for another reason than "differs" changes nothing and is
+// visible: one line on stderr.
+func TestInstall_Windows_FailedDescriptorProbeWarns(t *testing.T) {
+	var notices []string
+	repairNotices = func(format string, args ...any) { notices = append(notices, fmt.Sprintf(format, args...)) }
+	t.Cleanup(func() { repairNotices = nil })
+	f := &fakeServeTask{drains: true, enabled: true, fail: map[string]bool{"AccessMask": true}}
+	err, calls := repairInstall(t, f, true, true, 0)
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if callIndex(calls, "Unregister-ScheduledTask") >= 0 {
+		t.Error("a failed probe must not re-register the task")
+	}
+	found := false
+	for _, n := range notices {
+		found = found || strings.Contains(n, "could not read the descriptor")
+	}
+	if !found {
+		t.Errorf("no warning in %v", notices)
+	}
+}
+
+// The restore of a refused repair runs under the elevated token: it registers a
+// definition rendered from the binary and the config the file names, never the
+// bytes of a file a process of the same user could have rewritten.
+func TestInstall_Windows_RefusedRepairRestoresARenderedDefinitionNotTheFile(t *testing.T) {
+	repairBeforeSecond = func() {
+		taskPath, err := WindowsTaskPath()
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, err := os.ReadFile(taskPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		planted := strings.Replace(string(data), "</Actions>", "  <Exec><Command>C:\\evil.exe</Command></Exec>\n  </Actions>", 1)
+		planted = strings.Replace(planted, "LeastPrivilege", "HighestAvailable", 1)
+		if planted == string(data) {
+			t.Fatal("the plant changed nothing")
+		}
+		if err := os.WriteFile(taskPath, []byte(planted), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() { repairBeforeSecond = nil })
+	f := &fakeServeTask{drains: true, enabled: true}
+	err, _ := repairInstall(t, f, true, true, 1)
+	if !errors.Is(err, ErrTaskAccessDenied) {
+		t.Fatalf("Install = %v, want the refusal", err)
+	}
+	if len(f.registered) != 1 {
+		// the refused registration is captured too: two Register calls, the second is the restore
+		if len(f.registered) != 2 {
+			t.Fatalf("registered %d definitions, want the refused one and the restore", len(f.registered))
+		}
+	}
+	restored := f.registered[len(f.registered)-1]
+	if strings.Contains(restored, "evil") || strings.Contains(restored, "HighestAvailable") {
+		t.Errorf("the restored task carries what the file was rewritten with:\n%s", restored)
+	}
+	if !strings.Contains(restored, "cartographer.exe") {
+		t.Errorf("the restored task lost its binary:\n%s", restored)
+	}
+}
+
+// A definition file that names no binary cannot be restored: nothing is
+// registered and the error says the task is gone.
+func TestInstall_Windows_RefusedRepairWithAnUnreadableFileSaysTheTaskIsGone(t *testing.T) {
+	repairBeforeSecond = func() {
+		taskPath, _ := WindowsTaskPath()
+		if err := os.WriteFile(taskPath, []byte("<Task/>"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Cleanup(func() { repairBeforeSecond = nil })
+	f := &fakeServeTask{drains: true, enabled: true}
+	err, _ := repairInstall(t, f, true, true, 1)
+	if err == nil || !strings.Contains(err.Error(), "is no longer registered") || !strings.Contains(err.Error(), "cartographer service install") {
+		t.Fatalf("Install = %v, want the task-is-gone message", err)
+	}
+	if len(f.registered) != 1 {
+		t.Errorf("registered %d definitions, want only the refused one", len(f.registered))
+	}
+}
+
+// An unchanged definition over a running task keeps the order of #1961: the
+// registration first, then the stop and the start.
+func TestInstall_Windows_UnchangedDefinitionStopsAfterTheRegistration(t *testing.T) {
+	f := &fakeServeTask{drains: true, enabled: true}
+	err, calls := repairInstall(t, f, false, false, 0)
+	if err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	register, event, start := callIndex(calls, "Register-ScheduledTask"), callIndex(calls, "SHUTDOWN-EVENT"), callIndex(calls, "Start-ScheduledTask")
+	if register < 0 || event < register || start < event || !f.running {
+		t.Errorf("want register (%d), stop (%d), start (%d), running=%v:\n%s", register, event, start, f.running, joinedCalls(calls))
 	}
 }

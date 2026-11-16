@@ -14,6 +14,7 @@ package service
 // unit are on the other two platforms.
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"net"
@@ -402,11 +403,47 @@ func (m *Manager) installWindows(binPath, configPath string, env ...EnvVar) erro
 	if err := os.MkdirAll(filepath.Dir(taskPath), 0o755); err != nil {
 		return fmt.Errorf("service: create tasks dir: %w", err)
 	}
-	// Register first: a refused registration (an old task owned by
-	// Administrators) leaves the running server untouched, instead of stopped
-	// with nothing to start it again, and the installed definition as it was
-	// (#1961).
-	if err := m.registerAndReplace(windowsServeTaskName, taskPath, []byte(RenderWindowsTaskXML(binPath, configPath, logPath, windowsTaskUser(), windowsTaskSID())), writeDefinition); err != nil {
+	sid := windowsTaskSID()
+	def := []byte(RenderWindowsTaskXML(binPath, configPath, logPath, windowsTaskUser(), sid))
+	// An elevated install hands back a task whose registered descriptor does not
+	// grant the user (#2142): Register -Force keeps the descriptor of the task it
+	// overwrites, so the old task is deleted first.
+	repair := windowsElevated() && m.serveTaskOwnerDiffers(sid)
+	// A running server of the definition being replaced is stopped first,
+	// gracefully, as `service stop` does: once the scheduler holds the new
+	// registration the old process belongs to no task, and nothing could stop it
+	// again but its own port (#2144). A definition that cannot be read to compare
+	// counts as changed. An unchanged one keeps the stop-after-register below.
+	installed, rerr := os.ReadFile(taskPath)
+	wasRunning := false
+	if repair || rerr != nil || !bytes.Equal(installed, def) {
+		wasRunning = m.windowsTaskRunning(windowsServeTaskName)
+		if err := m.stopServeBeforeReplace(); err != nil {
+			return err
+		}
+	}
+	if repair {
+		if err := m.unregisterWindowsTask(windowsServeTaskName); err != nil {
+			if wasRunning {
+				_ = m.startWindowsTask(windowsServeTaskName)
+			}
+			return err
+		}
+	}
+	// Register before the old definition goes: a refused registration (an old
+	// task owned by Administrators) leaves the installed definition as it was
+	// (#1961), and the server stopped above is started again from it.
+	if err := m.registerAndReplace(windowsServeTaskName, taskPath, def, writeDefinition); err != nil {
+		if repair {
+			// The old task was deleted for the repair: register it again from
+			// the definition still on disk, or say that it is gone.
+			if rerr != nil || m.restoreServeTask(taskPath, installed, logPath) != nil {
+				return fmt.Errorf("%w; the task %s%s is no longer registered: run `%s` again from an elevated terminal to register it", err, windowsTaskPathArg(), windowsServeTaskName, taskRemedy(windowsServeTaskName))
+			}
+		}
+		if wasRunning {
+			_ = m.startWindowsTask(windowsServeTaskName)
+		}
 		return err
 	}
 	addr := configHTTPAddr(configPath)
@@ -420,6 +457,58 @@ func (m *Manager) installWindows(binPath, configPath string, env ...EnvVar) erro
 		}
 	}
 	return m.startWindowsTask(windowsServeTaskName)
+}
+
+// restoreServeTask registers the serve task again after a descriptor repair
+// deleted it and the new registration was refused. The file on disk is not
+// registered as it is: a process of the same user may have rewritten it, and
+// this runs under an elevated token. Only the binary and the config it names
+// are read out and the definition is rendered afresh, as refreshTaskOwner does.
+func (m *Manager) restoreServeTask(taskPath string, installed []byte, logPath string) error {
+	bin, err := extractTaskBinary(installed)
+	if err != nil {
+		return err
+	}
+	configPath, err := extractTaskConfigPath(installed)
+	if err != nil {
+		return err
+	}
+	def := RenderWindowsTaskXML(bin, configPath, logPath, windowsTaskUser(), windowsTaskSID())
+	return m.registerAndReplace(windowsServeTaskName, taskPath, []byte(def), writeDefinition)
+}
+
+// taskOwnerDiffersExit is the exit code serveTaskOwnerDiffers's script uses for
+// "the registered descriptor does not grant the user full control".
+const taskOwnerDiffersExit = 6
+
+// serveTaskOwnerDiffers reports whether the registered serve task's descriptor
+// lacks the full-control grant for sid that the definition carries (taskSDDL):
+// the task an older elevated install left owned by Administrators (#2142). The
+// ACE is compared in PowerShell and only an exit code crosses back; a probe
+// that fails (task not registered, descriptor unreadable) or an empty sid is not
+// "differs", so such an install behaves as it always did.
+func (m *Manager) serveTaskOwnerDiffers(sid string) bool {
+	if !sidPattern.MatchString(sid) {
+		return false
+	}
+	// A task that is not registered has no descriptor to repair, and no warning
+	// to give.
+	if registered, err := m.windowsTaskPresence(windowsServeTaskName); err == nil && !registered {
+		return false
+	}
+	script := fmt.Sprintf("$sd = New-Object System.Security.AccessControl.RawSecurityDescriptor((Get-ScheduledTask %s).SecurityDescriptor); "+
+		"foreach ($a in $sd.DiscretionaryAcl) { if ($a.SecurityIdentifier.Value -eq %s -and $a.AceQualifier -eq 'AccessAllowed' -and (($a.AccessMask -band 0x1F01FF) -eq 0x1F01FF)) { exit 0 } }; exit %d",
+		taskSelector(windowsServeTaskName), psQuote(sid), taskOwnerDiffersExit)
+	_, err := m.powershell(script)
+	if err == nil {
+		return false
+	}
+	var ex interface{ ExitCode() int }
+	if errors.As(err, &ex) && ex.ExitCode() == taskOwnerDiffersExit {
+		return true
+	}
+	noticef("note: could not read the descriptor of the registered task %s%s, so it is registered as it is (%v)", windowsTaskPathArg(), windowsServeTaskName, err)
+	return false
 }
 
 // RefreshTaskOwners brings the installed Windows tasks (Serve, Sync, Tray) up
@@ -541,10 +630,28 @@ func (m *Manager) refreshTaskOwner(name string, pathFn func() (string, error), r
 // because serveExited also waits for the address to go quiet and a foreign
 // listener would cost the whole drain and kill budgets (#2092).
 func (m *Manager) stopServeForReinstall(addr string) {
+	_ = m.stopRunningServe(addr)
+}
+
+// stopRunningServe is stopServeForReinstall with the outcome: nil when the task
+// is not Running or the graceful stop saw the server exit.
+func (m *Manager) stopRunningServe(addr string) error {
 	if !m.windowsTaskRunning(windowsServeTaskName) {
-		return
+		return nil
 	}
-	_ = m.stopServeAndWait(addr)
+	return m.stopServeAndWait(addr)
+}
+
+// stopServeBeforeReplace stops the server of the installed definition, on the
+// address that definition's config names, before a different one is registered
+// over it. A server that survives the stop fails the install while the old
+// definition is still the registered one: registering past it would orphan the
+// process (#2144).
+func (m *Manager) stopServeBeforeReplace() error {
+	if err := m.stopRunningServe(m.serveHTTPAddr()); err != nil {
+		return fmt.Errorf("service: the running server could not be stopped before its task is replaced, so the task is left as it was: %w", err)
+	}
+	return nil
 }
 
 // serveHTTPAddr is the http address of the installed serve task, read from the

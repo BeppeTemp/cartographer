@@ -157,8 +157,14 @@ const (
 	// ListenerCartographer: a /health answer of the shape a Cartographer server
 	// gives (status "ok" and a version); a bootstrapping server counts.
 	ListenerCartographer
-	// ListenerForeign: something answered, but not like one of ours.
+	// ListenerForeign: something answered, but not like one of ours, or accepted
+	// the connection and reset it or spoke something else than HTTP.
 	ListenerForeign
+	// ListenerUnresponsive: a peer accepted the connection and stayed silent
+	// until the timeout. A database does that, and so does a Cartographer
+	// server that is busy, still starting or draining: status and the tray do
+	// not call it foreign; an install refuses it (busyAddressError).
+	ListenerUnresponsive
 )
 
 // ProbeListener classifies what is listening on addr. Any process can answer
@@ -177,6 +183,17 @@ func ProbeListener(addr string, timeout time.Duration) ListenerState {
 	if errors.As(err, &proto) {
 		return ListenerForeign
 	}
+	// Accepted the connection, then a reset or no HTTP: another program holds
+	// the port (#2141). Only a failed connect is "none"; silence until the
+	// timeout is "unresponsive", which a busy Cartographer server also is.
+	var mute *healthMuteError
+	if errors.As(err, &mute) {
+		return ListenerForeign
+	}
+	var silent *healthSilentError
+	if errors.As(err, &silent) {
+		return ListenerUnresponsive
+	}
 	var nerr net.Error
 	var operr *net.OpError
 	if errors.As(err, &nerr) || errors.As(err, &operr) || strings.Contains(err.Error(), "no http address") {
@@ -193,6 +210,8 @@ func busyAddressError(addr string, st ListenerState) error {
 		return fmt.Errorf("service: something already answers on %s and was not started by this service", addr)
 	case ListenerForeign:
 		return fmt.Errorf("service: another program answers on %s: not a Cartographer server (stop it, or change http: in the server config)", addr)
+	case ListenerUnresponsive:
+		return fmt.Errorf("service: a program accepted the connection on %s but did not answer /health (stop it, or change http: in the server config)", addr)
 	}
 	return nil
 }

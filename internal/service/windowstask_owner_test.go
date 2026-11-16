@@ -74,7 +74,8 @@ func TestInstall_Windows_ElevatedShellRegistersForTheUser(t *testing.T) {
 		osExecutable, windowsElevated, windowsTaskUser, windowsTaskSID, noticef = origExe, origElev, origUser, origSID, origNotice
 	})
 
-	m, _ := newTestManager()
+	m, stub := newTestManager()
+	stub.fail = map[string]bool{"State -eq 'Running'": true} // a first install: nothing running
 	if _, err := m.Install(InstallOptions{DataDir: filepath.Join(home, "data"), HTTPAddr: "127.0.0.1:39273"}); err != nil {
 		t.Fatalf("an elevated install must go on: %v", err)
 	}
@@ -98,8 +99,9 @@ func TestInstall_Windows_ElevatedShellRegistersForTheUser(t *testing.T) {
 	}
 }
 
-// Register before stopping: a registration the scheduler refuses (an old
-// Administrators-owned task) must leave the running server running (#1961).
+// A registration the scheduler refuses (an old Administrators-owned task) must
+// leave the server running (#1961): the server stopped before the replacement
+// (#2144, here no installed definition to compare) is started again.
 func TestInstall_Windows_DeniedRegisterLeavesTheServerRunning(t *testing.T) {
 	home := withTestHome(t, "windows")
 	binPath := filepath.Join(t.TempDir(), "cartographer.exe")
@@ -118,11 +120,11 @@ func TestInstall_Windows_DeniedRegisterLeavesTheServerRunning(t *testing.T) {
 		t.Fatalf("Install = %v, want ErrTaskAccessDenied", err)
 	}
 	if !f.running {
-		t.Error("a refused registration stopped the running server")
+		t.Error("a refused registration left the server stopped")
 	}
 	all := joinedCalls(f.calls)
-	if strings.Contains(all, "Stop-ScheduledTask") || strings.Contains(all, "Start-ScheduledTask") {
-		t.Errorf("the server was touched before the registration was accepted:\n%s", all)
+	if !strings.Contains(all, "Start-ScheduledTask") {
+		t.Errorf("the server stopped for the replacement was not started again:\n%s", all)
 	}
 	if !strings.Contains(err.Error(), "cartographer service install") {
 		t.Errorf("message lacks the remedy: %v", err)
