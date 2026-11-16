@@ -120,10 +120,48 @@ func TestSyncOut_IdentityErrorSaysWhenIdentityIsConfigured(t *testing.T) {
 	}
 }
 
-// A bare "hook declined", with fallback identities ahead and none configured,
-// is reported as an identity problem; with the explicit protected wording it
-// stays a protected branch.
-func TestSyncOut_BareHookDeclineWithFallbackIdentityIsIdentity(t *testing.T) {
+// A decline that does not name authorship or identity is a protected branch or
+// a server-side hook, whatever identities the unpushed commits carry, and the
+// remote's reason is quoted; sync_status and the doctor's Remedy agree (#2151).
+func TestSyncOut_HookDeclineWithoutIdentityWordingIsNotIdentity(t *testing.T) {
+	t.Parallel()
+	if !haveGit() {
+		t.Skip("git not in PATH")
+	}
+	for _, reason := range []string{
+		"remote: rejected by policy: protected",
+		"remote: push rules declined by the pre-receive hook",
+		"remote: rejected by policy: hook declined",
+		"remote: error: GH006: Protected branch update failed for refs/heads/main.",
+	} {
+		k, bare := setupKBWithRemote(t)
+		if err := k.SyncOut(); err != nil {
+			t.Fatal(err)
+		}
+		protectBranch(t, bare, reason)
+		commitLocal(t, k, "a.md", "tok-1", "cartographer@host.example.test")
+		err := k.SyncOut()
+		var pb *ErrProtectedBranch
+		if !errors.As(err, &pb) {
+			t.Fatalf("%q: SyncOut err = %v, want *ErrProtectedBranch", reason, err)
+		}
+		if !strings.Contains(err.Error(), strings.TrimPrefix(reason, "remote: ")) {
+			t.Errorf("%q: error does not quote the remote's reason: %v", reason, err)
+		}
+		if strings.Contains(err.Error(), "who authored") || strings.Contains(Remedy(err.Error()), "who authored") {
+			t.Errorf("%q: reported as an identity refusal: %v", reason, err)
+		}
+		if got := Remedy(err.Error()); !strings.Contains(got, "protected or a server-side hook") {
+			t.Errorf("%q: Remedy = %q", reason, got)
+		}
+	}
+}
+
+// A bare decline (only the generic "pre-receive hook declined") with fallback
+// identities ahead and none configured is inferred to be an identity refusal
+// (D1063), worded as inferred; the doctor's Remedy does not contradict it. With
+// an identity configured it stays a protected branch.
+func TestSyncOut_BareHookDeclineWithFallbackIdentityIsInferredIdentity(t *testing.T) {
 	t.Parallel()
 	if !haveGit() {
 		t.Skip("git not in PATH")
@@ -132,22 +170,83 @@ func TestSyncOut_BareHookDeclineWithFallbackIdentityIsIdentity(t *testing.T) {
 	if err := k.SyncOut(); err != nil {
 		t.Fatal(err)
 	}
-	protectBranch(t, bare, "remote: push rules declined by the pre-receive hook")
+	protectBranch(t, bare, "remote: pre-receive hook declined")
 	commitLocal(t, k, "a.md", "tok-1", "cartographer@host.example.test")
+	err := k.SyncOut()
 	var ie *ErrIdentityRejected
-	if err := k.SyncOut(); !errors.As(err, &ie) {
-		t.Fatalf("SyncOut err = %v, want *ErrIdentityRejected", err)
+	if !errors.As(err, &ie) || !ie.Inferred {
+		t.Fatalf("SyncOut err = %v, want an inferred *ErrIdentityRejected", err)
+	}
+	for _, want := range []string{"gave no reason", "fallback identity", "none is configured", "the same output"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("Error() lacks %q: %v", want, err)
+		}
+		if !strings.Contains(ie.NeutralText(), want) {
+			t.Errorf("NeutralText() lacks %q: %v", want, ie.NeutralText())
+		}
+	}
+	if got := Remedy(err.Error()); got != "the remote gave no reason; identity is likely (see sync_status)" {
+		t.Errorf("Remedy = %q", got)
 	}
 
 	k2, bare2 := setupKBWithRemote(t)
 	if err := k2.SyncOut(); err != nil {
 		t.Fatal(err)
 	}
-	protectBranch(t, bare2, "remote: error: GH006: Protected branch update failed for refs/heads/main.")
+	protectBranch(t, bare2, "remote: pre-receive hook declined")
+	k2.SetDefaultIdentity(allowedName, allowedEmail)
 	commitLocal(t, k2, "a.md", "tok-1", "cartographer@host.example.test")
 	var pb *ErrProtectedBranch
 	if err := k2.SyncOut(); !errors.As(err, &pb) {
-		t.Fatalf("SyncOut err = %v, want *ErrProtectedBranch for a GH006 refusal", err)
+		t.Fatalf("SyncOut err = %v, want *ErrProtectedBranch with an identity configured", err)
+	}
+}
+
+func TestIsBareHookDecline(t *testing.T) {
+	t.Parallel()
+	yes := []string{
+		"git push origin main: exit status 1: remote: pre-receive hook declined\nTo /x/remote.git\n ! [remote rejected] main -> main (pre-receive hook declined)\nerror: failed to push some refs to '/x/remote.git'",
+		" ! [remote rejected] main -> main (pre-receive hook declined)",
+	}
+	no := []string{
+		"git push origin main: exit status 1: remote: remote: rejected by policy: protected\nTo /x\n ! [remote rejected] main -> main (pre-receive hook declined)",
+		"remote: push rules declined by the pre-receive hook\n ! [remote rejected] main -> main (pre-receive hook declined)",
+		"! [rejected] main -> main (non-fast-forward)",
+		" ! [remote rejected] main -> main (protected branch hook declined)",
+		" ! [remote rejected] main -> main (rejected by policy: hook declined)",
+	}
+	for _, s := range yes {
+		if !gitx.IsBareHookDecline(s) {
+			t.Errorf("%q is bare", s)
+		}
+	}
+	for _, s := range no {
+		if gitx.IsBareHookDecline(s) {
+			t.Errorf("%q has a reason of its own", s)
+		}
+	}
+}
+
+// A refusal that names the author is the identity cause, in the status text and
+// in the doctor's Remedy alike.
+func TestSyncOut_IdentityWordingIsIdentityInStatusAndRemedy(t *testing.T) {
+	t.Parallel()
+	if !haveGit() {
+		t.Skip("git not in PATH")
+	}
+	k, bare := setupKBWithRemote(t)
+	if err := k.SyncOut(); err != nil {
+		t.Fatal(err)
+	}
+	protectBranch(t, bare, "remote: GitLab: Author 'tok-1@example.test' is not a member of team")
+	commitLocal(t, k, "a.md", "tok-1", "cartographer@host.example.test")
+	err := k.SyncOut()
+	var ie *ErrIdentityRejected
+	if !errors.As(err, &ie) {
+		t.Fatalf("SyncOut err = %v, want *ErrIdentityRejected", err)
+	}
+	if got := Remedy(err.Error()); !strings.Contains(got, "who authored") {
+		t.Errorf("Remedy = %q", got)
 	}
 }
 

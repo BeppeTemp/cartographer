@@ -71,6 +71,10 @@ func Remedy(errText string) string {
 	switch {
 	case strings.TrimSpace(errText) == "":
 		return ""
+	case strings.Contains(errText, "the remote gave no reason for declining"):
+		// sync_status inferred the identity from local evidence Remedy cannot
+		// see: say so, and never contradict it.
+		return "the remote gave no reason; identity is likely (see sync_status)"
 	case gitx.IsIdentityRejection(errText):
 		return "the remote refused the push because of who authored or committed its commits"
 	case gitx.IsProtectedBranchRejection(errText):

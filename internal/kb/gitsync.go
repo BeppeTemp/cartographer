@@ -602,12 +602,14 @@ func (k *KB) SyncOut() error {
 			return err
 		}
 		if gitx.IsProtectedBranchRejection(pushErr.Error()) {
-			// A bare "hook declined" is still an identity problem when the local
-			// evidence is conclusive: fallback identities ahead, none configured.
-			l := strings.ToLower(pushErr.Error())
-			explicit := strings.Contains(l, "gh006") || strings.Contains(l, "protected branch")
-			if idents, fallback := k.localIdentities(remote, branch); !explicit && fallback && !k.hasConfiguredIdentity() {
-				err := &ErrIdentityRejected{Branch: branch, Git: pushErr.Error(), Identities: idents}
+			// A bare decline (no reason of the remote's own, only the generic
+			// "pre-receive hook declined") is an identity refusal when the local
+			// evidence is conclusive: fallback identities ahead, none configured
+			// (D1063). It is worded as inferred. Any decline that carries a
+			// reason of its own (#2151: "rejected by policy: protected") stays
+			// a protected branch, quoting it.
+			if idents, fallback := k.localIdentities(remote, branch); fallback && !k.hasConfiguredIdentity() && gitx.IsBareHookDecline(pushErr.Error()) {
+				err := &ErrIdentityRejected{Branch: branch, Git: pushErr.Error(), Identities: idents, Inferred: true}
 				k.setGitStatus("failed", err, attempt)
 				return err
 			}
@@ -818,11 +820,25 @@ type ErrIdentityRejected struct {
 	Identities []string
 	// Configured says whether git.identities applies to the KB.
 	Configured bool
+	// Inferred is set when the remote named no reason: the diagnosis comes from
+	// the local commits (fallback identities ahead, none configured), and a
+	// protected branch or another hook would print the same.
+	Inferred bool
+}
+
+// inferredLead is the opening sentence of an ErrIdentityRejected whose cause
+// was inferred. Remedy (the doctor) recognises "the remote gave no reason".
+func inferredLead(branch string) string {
+	return fmt.Sprintf("the remote gave no reason for declining the push to branch %q (only the generic \"hook declined\"); the unpushed commits carry the server's fallback identity and none is configured, so an author or committer rule is the likely cause, but a protected branch or another hook would give the same output.", branch)
 }
 
 func (e *ErrIdentityRejected) Error() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "the remote refused the push to branch %q because of who authored or committed its commits, not because the branch is protected.", e.Branch)
+	if e.Inferred {
+		b.WriteString(inferredLead(e.Branch))
+	} else {
+		fmt.Fprintf(&b, "the remote refused the push to branch %q because of who authored or committed its commits, not because the branch is protected.", e.Branch)
+	}
 	if len(e.Identities) > 0 {
 		fmt.Fprintf(&b, " The unpushed commits are by: %s.", strings.Join(e.Identities, ", "))
 	}
@@ -841,7 +857,11 @@ func (e *ErrIdentityRejected) Error() string {
 // the CLI (identityreject_test.go pins it).
 func (e *ErrIdentityRejected) NeutralText() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "the remote refused the push to branch %q because of who authored or committed its commits, not because the branch is protected.", e.Branch)
+	if e.Inferred {
+		b.WriteString(inferredLead(e.Branch))
+	} else {
+		fmt.Fprintf(&b, "the remote refused the push to branch %q because of who authored or committed its commits, not because the branch is protected.", e.Branch)
+	}
 	if len(e.Identities) > 0 {
 		fmt.Fprintf(&b, " The unpushed commits are by: %s.", strings.Join(e.Identities, ", "))
 	}

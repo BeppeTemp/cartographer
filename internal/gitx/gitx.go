@@ -2762,6 +2762,40 @@ func IsProtectedBranchRejection(output string) bool {
 		strings.Contains(l, "pre-receive hook declined")
 }
 
+// IsBareHookDecline reports whether the output of a failed push carries no
+// reason of the remote's own: besides git's framing ("git push ...: exit
+// status", "To <url>", "error: failed to push some refs", hints) its only
+// lines are the generic "pre-receive hook declined" / "hook declined" ones.
+// GitLab's membership rule sometimes shows nothing else (D1063), so a caller
+// that holds local evidence may infer an identity refusal from it; a line like
+// "rejected by policy: protected" is the remote's reason and is not bare.
+func IsBareHookDecline(output string) bool {
+	if !strings.Contains(strings.ToLower(output), "hook declined") {
+		return false
+	}
+	for _, line := range strings.Split(output, "\n") {
+		l := strings.ToLower(strings.TrimSpace(line))
+		if i := strings.Index(l, "exit status "); strings.HasPrefix(l, "git ") && i >= 0 {
+			l = strings.TrimSpace(strings.TrimLeft(strings.TrimLeft(l[i+len("exit status "):], "0123456789"), ": "))
+		}
+		for strings.HasPrefix(l, "remote:") {
+			l = strings.TrimSpace(strings.TrimPrefix(l, "remote:"))
+		}
+		switch {
+		case l == "", strings.HasPrefix(l, "to "), strings.HasPrefix(l, "error: failed to push"),
+			strings.HasPrefix(l, "hint:"), strings.HasPrefix(l, "git push"),
+			l == "pre-receive hook declined", l == "hook declined",
+			strings.HasPrefix(l, "! [remote rejected]") &&
+				(strings.HasSuffix(l, "(pre-receive hook declined)") || strings.HasSuffix(l, "(hook declined)")):
+			// Only the generic wording: anything else in the parenthetical
+			// ("(protected branch hook declined)") is the remote's own reason.
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 // IsIdentityRejection reports whether the output of a failed push says the
 // remote refused it because of who authored or committed a commit: GitLab's
 // membership push rule ("GitLab: Author 'x' is not a member of team", and the
