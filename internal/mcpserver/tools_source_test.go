@@ -70,6 +70,23 @@ func TestSourceRegisterCreates(t *testing.T) {
 	}
 }
 
+// #2145: the response carries the hash a concept_patch needs as if_match.
+func TestSourceRegisterReturnsContentHash(t *testing.T) {
+	t.Parallel()
+	k, s := sourceFixture(t, true)
+	out := registerSource(t, s, `{"title":"Hash Me","source_kind":"note","timestamp":"2026-03-04"}`)
+	hash, _ := out["content_hash"].(string)
+	id, _ := out["id"].(string)
+	data, err := k.ReadConcept(okf.ConceptID(id))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hash == "" || hash != data.ContentHash {
+		t.Fatalf("content_hash = %q, page hash = %q", hash, data.ContentHash)
+	}
+	callOK(t, s, "concept_patch", `{"id":"`+id+`","if_match":"`+hash+`","frontmatter":{"ingest_status":"ingested"}}`)
+}
+
 func TestSourceRegisterDuplicateBySHA(t *testing.T) {
 	t.Parallel()
 	k, s := sourceFixture(t, true)

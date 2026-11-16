@@ -337,7 +337,7 @@ a separate Kubernetes init container for the initial clone.
 **Git identity: the writer commits (D904, D950).** A commit with a known writer has that writer as author
 **and** committer: a forge with a membership push rule checks both. `<host>` — the machine's name (a pod's
 hostname in Kubernetes, reduced to what an email domain accepts) — is recorded in the `Cartographer-Host`
-trailer, so the history still says which instance recorded a commit. The author of a write is whoever wrote
+trailer, so the history still says which instance recorded a commit (it is the machine's name, so it is public wherever the KB is pushed, and there is no setting to omit it: see [control plane](control-plane.md)). The author of a write is whoever wrote
 it: the `Cartographer-Author: Name <email>` header of the request, else the identity configured for the KB,
 else `<token id> <cartographer@<host>>`; every write also carries `Cartographer-Host` and `Cartographer-Token:
 <token id>` trailers, the latter unforgeable (see [control plane](control-plane.md)).

@@ -11,7 +11,7 @@ import (
 //
 // Trap: it goes in the SAME text block as the error. A second content block
 // breaks client.Call, which reads exactly one (doctornudge.go).
-const internalErrorHint = " This looks like a defect in Cartographer; if the user agrees, offer to report it with the cartographer-feedback skill."
+const internalErrorHint = " This looks like a defect in Cartographer; if the user agrees, offer to report it with the cartographer-feedback skill, or without the skill with the `cartographer feedback` command."
 
 // SetFeedback installs the operator's feedback.destination (D1925).
 // The zero value is github, the default.
