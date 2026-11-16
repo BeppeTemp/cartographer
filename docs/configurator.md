@@ -638,7 +638,7 @@ D906). Artifacts in `needs_approval`/`approval_stale` get their own
 client and server versions. A non-`dev` mismatch is a warning only (it does not change the exit
 code); on loopback, an installed local service also gets a `cartographer upgrade-repair` hint
 (D121: it replaces the running service **and** re-syncs the providers in place, where the former
-`service restart` hint only did the first half).
+`service restart` hint only did the first half). When the versions are equal but the local service reports another `build` than this binary, `status` says `build skew: the local service runs another build of <version> than this binary` with the same hint (`build_skew: true` and state `version_skew` in `--output json`); a remote server is never judged by build, since it is another binary by nature.
 On macOS and Windows a table `status` of a client with a connected agent, no status icon installed and no remembered opt-out ends with one line pointing at `cartographer service tray install` (`status` installs nothing; `service tray uninstall` silences it; the JSON output is unchanged).
 A newer release known to the update cache adds `update available: vX (installed vY) — <command>`
 (JSON `update: {latest, kind, channel, command}`, present only then), and a remote server that
@@ -735,6 +735,8 @@ prints nothing.
 Every sync verifies the managed files on disk, not just the manifest revision, and restores what
 was edited or deleted locally — the restore is reported on its own line, because it discards
 someone's local change. See [`sync.md`](sync.md) §On-disk verification and healing.
+
+`upgrade-repair` takes the native service as current only when `/health` reports the installed version **and**, when it reports one, the installed build (`build`, [D2164](decisions/D2164-health-build-identity.md)): a service still on the previous build of the same version (a release candidate rebuilt under its tag) is replaced like an older version; a server that does not report `build` is judged by the version alone.
 
 This is also how a configured provider is repaired **in place** after a local upgrade: the same
 in-process runner is what `cartographer upgrade-repair` calls (D121). Repair in place is the
@@ -1045,7 +1047,7 @@ An uninstall (Meridian, the sync and doctor timers, the tray) checks that the jo
 Plain `restart` restarts the unit and returns. `restart --wait` gracefully replaces the process
 (`SIGTERM`, so in-flight requests drain) and only prints success once `/health` proves the
 installed binary version is serving from a new process (its `started_at` differs from the one
-read before the restart, D266); `--config` selects the config used for that verification,
+read before the restart, D266, and, when `/health` reports a `build`, it is the installed binary's: a rebuild under the same version string is not the replacement, [D2164](decisions/D2164-health-build-identity.md)); `--config` selects the config used for that verification,
 and is otherwise unnecessary because the installed service definition is discoverable.
 
 Windows takes the same three verbs to a different scheduler, so two behaviours are worth naming.

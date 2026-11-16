@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/agents"
+	"github.com/BeppeTemp/cartographer/internal/buildid"
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
@@ -255,10 +256,13 @@ func newServiceSnapshot(st service.Status) *serviceSnapshot {
 // read used by status and the bare `cartographer` screen. Provider states are explicit so one
 // server failure cannot turn into several conflicting error messages.
 type statusSnapshot struct {
-	Schema    string   `json:"schema_version"`
-	ServerURL string   `json:"server_url,omitempty"`
-	Client    string   `json:"client_version"`
-	Server    string   `json:"server_version,omitempty"`
+	Schema    string `json:"schema_version"`
+	ServerURL string `json:"server_url,omitempty"`
+	Client    string `json:"client_version"`
+	Server    string `json:"server_version,omitempty"`
+	// BuildSkew is true when the local native service reports this client's
+	// version but another build of it (additive; State is version_skew).
+	BuildSkew bool     `json:"build_skew,omitempty"`
 	Reachable bool     `json:"reachable"`
 	Ready     *bool    `json:"ready,omitempty"`
 	KBs       []string `json:"kbs,omitempty"`
@@ -636,6 +640,12 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 	s.Issues, s.CatalogueWarnings = statusIssues(manifests, s.Providers)
 	if s.Server != "" && s.Client != "" && s.Client != "dev" && s.Server != "dev" && s.Client != s.Server && s.State == "in_sync" {
 		s.State = "version_skew"
+	}
+	// Same version, another build: only the local service can be judged, since
+	// a remote server of this release is legitimately another binary.
+	if s.Client != "" && s.Client != "dev" && s.Client == s.Server && s.State == "in_sync" &&
+		s.Service != nil && s.Service.Installed && !buildid.Same(health.Build, buildid.Self()) {
+		s.State, s.BuildSkew = "version_skew", true
 	}
 	return s
 }

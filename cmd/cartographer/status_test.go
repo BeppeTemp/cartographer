@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/buildid"
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
@@ -24,6 +25,7 @@ func TestCmdStatus_VersionReport(t *testing.T) {
 		serverURL        string
 		clientVersion    string
 		serverVersion    string
+		serverBuild      string
 		serviceInstalled bool
 		want             []string
 		dontWant         []string
@@ -56,6 +58,44 @@ func TestCmdStatus_VersionReport(t *testing.T) {
 			},
 		},
 		{
+			name:             "same version, another build of the local service",
+			serverURL:        "http://127.0.0.1:39273/mcp",
+			clientVersion:    "v1.2.3",
+			serverVersion:    "v1.2.3",
+			serverBuild:      "vcs:rebuilt-elsewhere",
+			serviceInstalled: true,
+			want: []string{
+				"build skew: the local service runs another build of v1.2.3 than this binary",
+				"local service may still run the old binary — run: cartographer upgrade-repair",
+			},
+			dontWant: []string{"version skew:"},
+		},
+		{
+			name:             "same version and build",
+			serverURL:        "http://127.0.0.1:39273/mcp",
+			clientVersion:    "v1.2.3",
+			serverVersion:    "v1.2.3",
+			serverBuild:      buildid.Self(),
+			serviceInstalled: true,
+			dontWant:         []string{"skew:"},
+		},
+		{
+			name:             "a server without the build field",
+			serverURL:        "http://127.0.0.1:39273/mcp",
+			clientVersion:    "v1.2.3",
+			serverVersion:    "v1.2.3",
+			serviceInstalled: true,
+			dontWant:         []string{"skew:"},
+		},
+		{
+			name:          "a remote server is another binary by nature",
+			serverURL:     "https://cartographer.example/mcp",
+			clientVersion: "v1.2.3",
+			serverVersion: "v1.2.3",
+			serverBuild:   "vcs:remote",
+			dontWant:      []string{"skew:"},
+		},
+		{
 			name:          "dev is silent",
 			serverURL:     "https://cartographer.example/mcp",
 			clientVersion: "dev",
@@ -86,7 +126,7 @@ func TestCmdStatus_VersionReport(t *testing.T) {
 			oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
 			version = tc.clientVersion
 			statusHealthFn = func(*clientconfig.Config) (*client.Health, error) {
-				return &client.Health{Version: tc.serverVersion}, nil
+				return &client.Health{Version: tc.serverVersion, Build: tc.serverBuild}, nil
 			}
 			statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, error) {
 				return uniformManifests(served, projectionProviders(ps)), nil

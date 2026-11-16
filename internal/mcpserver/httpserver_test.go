@@ -14,6 +14,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/audit"
 	"github.com/BeppeTemp/cartographer/internal/auth"
+	"github.com/BeppeTemp/cartographer/internal/buildid"
 )
 
 // newMultiKBTestHandler mounts the given KB names on a fresh MultiKBServer
@@ -823,6 +824,28 @@ func TestHealth_ReportsProcessStartedAt(t *testing.T) {
 		}
 		if _, err := time.Parse(time.RFC3339Nano, got); err != nil {
 			t.Errorf("%s: started_at %q is not RFC 3339: %v", name, got, err)
+		}
+	}
+}
+
+// D-new-health-build-identity: /health names the build of the answering
+// executable, on the ready body and on the bootstrapping one, so a rebuild
+// that keeps its version string is told apart from the build it replaces.
+func TestHealth_ReportsTheBuildIdentity(t *testing.T) {
+	t.Parallel()
+	gate := NewBootGate("test")
+	for name, h := range map[string]http.Handler{
+		"multi-KB":      NewMultiKBServer("test").Handler(),
+		"bootstrapping": gate.Handler(),
+	} {
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/health", nil))
+		var body map[string]interface{}
+		if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+			t.Fatalf("%s: invalid JSON body: %v", name, err)
+		}
+		if got, _ := body["build"].(string); got == "" || got != buildid.Self() {
+			t.Errorf("%s: build = %v, want %q", name, body["build"], buildid.Self())
 		}
 	}
 }

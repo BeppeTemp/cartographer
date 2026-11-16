@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/buildid"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/service"
 )
@@ -1010,5 +1011,111 @@ func TestCmdUpgradeRepair_ReportsSkippedUnreadableWorkspace(t *testing.T) {
 	})
 	if !strings.Contains(out, "/home/user/proj") || strings.Contains(out, "pending") {
 		t.Errorf("output = %q, want the skipped workspace named and no pending sync", out)
+	}
+}
+
+// D-new-health-build-identity: a rebuild keeps its version string, so the
+// service reporting the installed version is current only when it also
+// reports the installed build (or does not report one at all).
+func TestCmdUpgradeRepair_SameVersionBuildIdentity(t *testing.T) {
+	cases := []struct {
+		name        string
+		build       string
+		wantReplace bool
+	}{
+		{"another build of the same version is replaced", "vcs:rebuilt-elsewhere", true},
+		{"the same build is left alone", buildid.Self(), false},
+		{"a server without the field keeps the version-only rule", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			saveRepairFns(t)
+			version = "v1.2.3"
+			repairEffectiveConfigFn = func(string) (string, error) { return "/cfg.yaml", nil }
+			repairServiceStatusFn = func(string) (service.Status, error) {
+				return service.Status{Installed: true, Running: true, HTTPAddr: "127.0.0.1:39273", ServiceBinPath: "/opt/bin/cartographer"}, nil
+			}
+			repairSameBinaryFn = func(string) bool { return true }
+			repairProbeHealthFn = func(string, time.Duration) (service.HealthStatus, error) {
+				return service.HealthStatus{Status: "ok", Version: "v1.2.3", Build: tc.build}, nil
+			}
+			var got service.ReplaceOptions
+			replaced := false
+			repairReplaceFn = func(opts service.ReplaceOptions) error { replaced, got = true, opts; return nil }
+			repairTargetDirFn = func() (string, error) { return t.TempDir(), nil }
+			withStdout(t, func() { cmdUpgradeRepair(nil) })
+			if replaced != tc.wantReplace {
+				t.Fatalf("replaced = %v, want %v", replaced, tc.wantReplace)
+			}
+			if replaced && got.ExpectedBuild != buildid.Self() {
+				t.Errorf("Replace ExpectedBuild = %q, want this binary's %q", got.ExpectedBuild, buildid.Self())
+			}
+		})
+	}
+}
+
+// A dev or empty client version proves no build: upgrade-repair must not
+// replace a service over a build difference there.
+func TestCmdUpgradeRepair_BuildIgnoredWhenItProvesNothing(t *testing.T) {
+	cases := []struct {
+		name    string
+		version string
+		same    bool
+	}{
+		{"a dev client", "dev", true},
+		{"an empty version", "", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			saveRepairFns(t)
+			version = tc.version
+			repairEffectiveConfigFn = func(string) (string, error) { return "/cfg.yaml", nil }
+			repairServiceStatusFn = func(string) (service.Status, error) {
+				return service.Status{Installed: true, Running: true, HTTPAddr: "127.0.0.1:39273", ServiceBinPath: "/opt/bin/cartographer"}, nil
+			}
+			repairSameBinaryFn = func(string) bool { return tc.same }
+			repairSwitchBinaryFn = func(string) error { return nil }
+			repairProbeHealthFn = func(string, time.Duration) (service.HealthStatus, error) {
+				return service.HealthStatus{Status: "ok", Version: tc.version, Build: "vcs:another"}, nil
+			}
+			failIfReplaceCalled(t)
+			repairTargetDirFn = func() (string, error) { return t.TempDir(), nil }
+			withStdout(t, func() { cmdUpgradeRepair(nil) })
+		})
+	}
+}
+
+// The lazy repair every `sync` runs acts only on a service launched by this
+// binary: another path, or a dev client, never triggers a replacement, even
+// when the build differs.
+func TestRepairStaleServiceBeforeSync_BuildNeedsTheSameBinary(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		version     string
+		same        bool
+		wantReplace bool
+	}{
+		{"same binary, another build", "v1.2.3", true, true},
+		{"another path", "v1.2.3", false, false},
+		{"dev client", "dev", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			saveRepairFns(t)
+			version = tc.version
+			repairEffectiveConfigFn = func(string) (string, error) { return "/cfg.yaml", nil }
+			repairServiceStatusFn = func(string) (service.Status, error) {
+				return service.Status{Installed: true, Running: true, HTTPAddr: "127.0.0.1:39273", ServiceBinPath: "/opt/bin/cartographer"}, nil
+			}
+			repairSameBinaryFn = func(string) bool { return tc.same }
+			repairProbeHealthFn = func(string, time.Duration) (service.HealthStatus, error) {
+				return service.HealthStatus{Status: "ok", Version: "v1.2.3", Build: "vcs:another"}, nil
+			}
+			replaced := false
+			repairReplaceFn = func(service.ReplaceOptions) error { replaced = true; return nil }
+			withStdout(t, func() { repairStaleServiceBeforeSync("http://127.0.0.1:39273/mcp") })
+			if replaced != tc.wantReplace {
+				t.Errorf("replaced = %v, want %v", replaced, tc.wantReplace)
+			}
+		})
 	}
 }

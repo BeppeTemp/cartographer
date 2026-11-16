@@ -15,7 +15,6 @@ make e2e             # HTTP/CLI end-to-end scenarios
 
 make ready MSG=<file>              # maintainer: queue the change, the lander lands it
 make decisions-new SLUG=my-choice TOPIC=control-plane   # D-new-<slug>, numbered on landing
-make decisions-index # regenerate docs/decisions.md (the release PR does it, D328)
 make worktree-add SLUG=my-change   # isolated worktree for a plan branch
 make worktree-rm  SLUG=my-change   # remove it (discards uncommitted work)
 make worktree-clean [DRY=1]        # drop worktrees of merged PRs and trains
@@ -65,6 +64,7 @@ internal/auth                     implements bearer-token authorization for the 
 internal/blocktext                implements the marker-delimited "managed block" primitive
 internal/boundaries               is the client import firewall
 internal/branding                 parses and judges the branding/ folder of a plugin's atlas side
+internal/buildid                  names the build of the running executable
 internal/changelog                regroups a release-please changelog by area
 internal/client                   is a minimal MCP client over HTTP (JSON-RPC 2.0)
 internal/clientconfig             reads and writes the client-side `.cartographer.yaml` file

@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"encoding/json"
+	"github.com/BeppeTemp/cartographer/internal/buildid"
 	"github.com/BeppeTemp/cartographer/internal/componentproto"
 	"net/http"
 	"sync/atomic"
@@ -63,7 +64,7 @@ func (g *BootGate) Handler() http.Handler {
 				})
 				return
 			}
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			body := map[string]interface{}{
 				"status":        "ok",
 				"version":       g.version,
 				"started_at":    processStartedAt,
@@ -74,7 +75,11 @@ func (g *BootGate) Handler() http.Handler {
 
 				"component_protocol":     componentproto.Protocol,
 				"component_min_protocol": componentproto.MinProtocol,
-			})
+			}
+			if b := buildid.Self(); b != "" {
+				body["build"] = b
+			}
+			json.NewEncoder(w).Encode(body)
 		default:
 			w.Header().Set("Retry-After", "5")
 			http.Error(w, "kb bootstrapping, retry", http.StatusServiceUnavailable)

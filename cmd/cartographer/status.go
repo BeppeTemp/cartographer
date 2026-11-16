@@ -109,7 +109,11 @@ func printServerLines(w, errw io.Writer, s statusSnapshot) {
 		}
 	}
 	if s.State == "version_skew" {
-		fmt.Fprintf(w, "version skew: client %s ≠ server %s\n", s.Client, s.Server)
+		if s.BuildSkew {
+			fmt.Fprintf(w, "build skew: the local service runs another build of %s than this binary\n", s.Server)
+		} else {
+			fmt.Fprintf(w, "version skew: client %s ≠ server %s\n", s.Client, s.Server)
+		}
 		if s.Service != nil && s.Service.Installed {
 			fmt.Fprintln(w, "local service may still run the old binary — run: cartographer upgrade-repair")
 		}

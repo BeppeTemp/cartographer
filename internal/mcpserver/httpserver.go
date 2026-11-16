@@ -14,6 +14,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/audit"
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/branding"
+	"github.com/BeppeTemp/cartographer/internal/buildid"
 	"github.com/BeppeTemp/cartographer/internal/componentproto"
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/feedback"
@@ -532,6 +533,12 @@ func (m *MultiKBServer) Handler() http.Handler {
 				// first beat. /health stays liveness.
 				"component_protocol":     componentproto.Protocol,
 				"component_min_protocol": componentproto.MinProtocol,
+			}
+			// The build of the answering executable (D2164):
+			// two builds can share a version, and a restart or a repair has to
+			// tell them apart. Absent when the binary cannot name itself.
+			if b := buildid.Self(); b != "" {
+				result["build"] = b
 			}
 			// D187: the client needs to know the mount topology before it
 			// writes a single MCP entry, and /health is the probe it already

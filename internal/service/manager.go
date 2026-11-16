@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/buildid"
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/procattr"
 	"github.com/BeppeTemp/cartographer/internal/webui"
@@ -935,6 +936,9 @@ type HealthStatus struct {
 	// a replacement means the old process answered. Empty from a server that
 	// predates the field.
 	StartedAt string `json:"started_at,omitempty"`
+	// Build names the serving executable (internal/buildid): two builds can
+	// share a version. Empty from a server that predates the field.
+	Build string `json:"build,omitempty"`
 	// Bootstrapping is true while the process is alive but still cloning and
 	// indexing its KBs (D348).
 	Bootstrapping bool `json:"bootstrapping,omitempty"`
@@ -1036,6 +1040,17 @@ func versionSatisfies(observed, expected string) bool {
 	return expected == "" || expected == "dev" || observed == expected
 }
 
+// ServesBuild is the one "this service already serves the expected binary"
+// rule, shared by Replace and upgrade-repair: the version satisfies
+// versionSatisfies and, when both sides name their build, the builds are
+// equal. A missing identity on either side leaves the version alone to decide.
+func ServesBuild(hs HealthStatus, expectedVersion, expectedBuild string) bool {
+	if expectedVersion == "" || expectedVersion == "dev" {
+		return versionSatisfies(hs.Version, expectedVersion)
+	}
+	return versionSatisfies(hs.Version, expectedVersion) && buildid.Same(hs.Build, expectedBuild)
+}
+
 // signalGraceful sends the platform's graceful-stop signal so the service
 // manager's supervisor (launchd KeepAlive / systemd Restart=on-failure)
 // relaunches it: SIGTERM lets serve.go drain in-flight HTTP requests before
@@ -1070,6 +1085,11 @@ type ReplaceOptions struct {
 	// ExpectedVersion is the binary version the caller expects to observe
 	// after replacement. Empty or "dev" skips the equality check.
 	ExpectedVersion string
+	// ExpectedBuild is the build identity (internal/buildid) the new process
+	// must report besides the version: a rebuild under the same version string
+	// is otherwise taken for the replacement. Empty, or a server that does not
+	// report the field, falls back to the version alone.
+	ExpectedBuild string
 	// Timeout bounds the poll loop; defaults to DefaultReplaceTimeout when <= 0.
 	Timeout time.Duration
 	// PollInterval paces retries; defaults to DefaultReplacePollInterval when <= 0.
@@ -1116,7 +1136,7 @@ func (m *Manager) Replace(opts ReplaceOptions) error {
 
 	endpoint := healthURL(cfg.HTTP)
 	deadline := time.Now().Add(timeout)
-	var lastStatus, lastVersion string
+	var lastStatus, lastVersion, lastBuild string
 	var lastErr error
 	var sameProcess, bootstrapping bool
 	for {
@@ -1130,9 +1150,9 @@ func (m *Manager) Replace(opts ReplaceOptions) error {
 			bootstrapping = errors.Is(err, errBootstrapping)
 		} else {
 			bootstrapping = false
-			lastStatus, lastVersion = hs.Status, hs.Version
+			lastStatus, lastVersion, lastBuild = hs.Status, hs.Version, hs.Build
 			sameProcess = !isReplacement(before, hs)
-			if versionSatisfies(hs.Version, opts.ExpectedVersion) && !sameProcess {
+			if ServesBuild(hs, opts.ExpectedVersion, opts.ExpectedBuild) && !sameProcess {
 				return nil
 			}
 		}
@@ -1147,7 +1167,7 @@ func (m *Manager) Replace(opts ReplaceOptions) error {
 	if bootstrapping {
 		return fmt.Errorf("service: timed out waiting for %s to serve version %s: the new process is still bootstrapping its KBs (clone and index); retry, or raise the timeout", endpoint, displayVersion(opts.ExpectedVersion))
 	}
-	return fmt.Errorf("service: timed out waiting for %s to serve version %s (last observed status=%q version=%q, last error=%v)", endpoint, displayVersion(opts.ExpectedVersion), lastStatus, lastVersion, lastErr)
+	return fmt.Errorf("service: timed out waiting for %s to serve version %s (last observed status=%q version=%q build=%q, expected build %q, last error=%v)", endpoint, displayVersion(opts.ExpectedVersion), lastStatus, lastVersion, lastBuild, opts.ExpectedBuild, lastErr)
 }
 
 // displayVersion renders an expected version for an error message, since an
