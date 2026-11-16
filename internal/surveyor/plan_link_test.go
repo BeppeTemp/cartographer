@@ -19,14 +19,19 @@ import (
 // gateServer is a real server over a committed KB whose "ingest" map already
 // holds live pages: a lone page passes the orphan check (D1099), so only a map
 // with neighbours shows what a unit with no link does to the write gate.
-func gateServer(t *testing.T) *mcpserver.Server {
+func gateServer(t *testing.T) *mcpserver.Server { return gateServerIndex(t, "generated") }
+
+// gateServerIndex is gateServer with the map's index mode: "curated" lists the
+// live pages by hand, so a new page needs index_entry (#2139).
+func gateServerIndex(t *testing.T, index string) *mcpserver.Server {
 	t.Helper()
 	k := kbtest.New(t)
 	if err := k.CreateMap("ingest", "Ingest", "map", nil); err != nil {
 		t.Fatal(err)
 	}
 	files := map[string]string{
-		"ingest/_map.md":      "---\ntype: Map\nkind: map\ntitle: Ingest\nindex: generated\n---\n# Ingest\n",
+		"ingest/_map.md":      "---\ntype: Map\nkind: map\ntitle: Ingest\nindex: " + index + "\n---\n# Ingest\n",
+		"ingest/index.md":     "# Ingest\n\n- [Plan](plan.md)\n- [Other](other.md)\n- [Another](another-live.md)\n",
 		"ingest/plan":         "---\ntype: IngestPlan\ntitle: Plan\nstatus: in-progress\n---\n# Plan\n\nSee [[ingest/other]].\n",
 		"ingest/other":        "---\ntype: Note\ntitle: Other\n---\n# Other\n\nSee [[ingest/plan]].\n",
 		"ingest/another-live": "---\ntype: Note\ntitle: Another\n---\n# Another\n\nSee [[ingest/plan]].\n",
@@ -54,7 +59,12 @@ func writeUnit(t *testing.T, s *mcpserver.Server, id, body string) (string, bool
 	t.Helper()
 	fm := map[string]any{"type": "IngestUnit", "shape": "ingest-unit", "title": "Unit", "source": "src-x", "plan": "ingest/plan",
 		"status": "open", "targets": []string{"ingest/other"}, "extract": "e", "verify": "v", "executor": "any"}
-	args, _ := json.Marshal(map[string]any{"operations": []map[string]any{{"op": "write", "id": id, "frontmatter": fm, "body": body}}})
+	return writeOp(t, s, unitWriteOp(id, fm, body))
+}
+
+func writeOp(t *testing.T, s *mcpserver.Server, op map[string]any) (string, bool) {
+	t.Helper()
+	args, _ := json.Marshal(map[string]any{"operations": []map[string]any{op}})
 	ctx := auth.ContextWithPrincipal(context.Background(), auth.Principal{ID: "admin", Policy: auth.Policy{Admin: true}})
 	res, err := s.Tools()["concept_batch"].Handler(ctx, args)
 	if err != nil {
@@ -90,6 +100,37 @@ func TestFeedUnitThroughTheRealWriteGate(t *testing.T) {
 	body := withPlanLink("Brief of the document.", "ingest/plan")
 	if text, isErr := writeUnit(t, s, "ingest/feed-new", body); isErr {
 		t.Fatalf("the unit with the plan link was refused: %s", text)
+	}
+}
+
+// A map with a curated index and other live pages refuses a unit whose creating
+// write lacks index_entry, naming index_incomplete; the unit write op of the
+// poll (system and feed) asks for it and lands in the index (#2139).
+func TestUnitsThroughTheRealWriteGateInACuratedIndexMap(t *testing.T) {
+	s := gateServerIndex(t, "curated")
+	c := system.Change{Kind: recipe.Added, Key: "g1"}
+	sysBody := systemBody("Brief.", "ingest/plan", c, "r1", "2026-01-01", nil)
+	feedBody := withPlanLink("Brief of the document.", "ingest/plan")
+	fm := map[string]any{"type": "IngestUnit", "shape": "ingest-unit", "title": "Unit", "source": "src-x", "plan": "ingest/plan",
+		"status": "open", "targets": []string{"ingest/other"}, "extract": "e", "verify": "v", "executor": "any"}
+	// The op as it was before the fix: refused, and the check is named.
+	text, isErr := writeOp(t, s, map[string]any{"op": "write", "id": "ingest/unit-old", "frontmatter": fm, "body": sysBody})
+	if !isErr || refusalCheck(text) != "write_gate: index_incomplete" {
+		t.Fatalf("no index_entry: err=%v check=%q text=%s", isErr, refusalCheck(text), text)
+	}
+	for id, body := range map[string]string{"ingest/unit-sys": sysBody, "ingest/unit-feed": feedBody} {
+		if text, isErr := writeUnit(t, s, id, body); isErr {
+			t.Fatalf("%s refused: %s", id, text)
+		}
+	}
+	res, err := s.Tools()["index_get"].Handler(context.Background(), []byte(`{"path":"ingest"}`))
+	if err != nil || res.IsError {
+		t.Fatalf("index_get: %v %v", err, res)
+	}
+	for _, id := range []string{"unit-sys", "unit-feed"} {
+		if !strings.Contains(res.Content[0].Text, id) {
+			t.Errorf("the curated index lacks %s: %s", id, res.Content[0].Text)
+		}
 	}
 }
 

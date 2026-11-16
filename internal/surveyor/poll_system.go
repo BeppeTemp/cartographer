@@ -413,7 +413,7 @@ func (r *pollRun) systemGroup(ctx context.Context, rec recipe.Recipe, sc *sysCtx
 		}
 		id := system.UnitID(sc.unitMap, f.ID, c.Key, idRev, len(units))
 		// c. Create the unit and supersede the group's still-open ones, all or nothing.
-		ops := []map[string]any{{"op": "write", "id": id, "frontmatter": fm, "body": body}}
+		ops := []map[string]any{unitWriteOp(id, fm, body)}
 		for _, u := range units {
 			if u.status == "open" && len(ops) <= systemMaxSupersede {
 				ops = append(ops, map[string]any{"op": "patch", "id": u.id, "if_match": u.hash,
@@ -517,4 +517,13 @@ func (r *pollRun) recordFailed(failed []string) error {
 		return nil
 	}
 	return r.fail(codeGroupsFailed, groupsFailedDetail(failed))
+}
+
+// unitWriteOp is the creating write of a unit, system or feed. The id is new
+// (create-only, no if_match), so it asks for its entry in the map's curated
+// index: the write gate refuses a new page of such a map without one
+// (`index_incomplete`, D907). index_entry is creation-only, so the supersede
+// patches of a system unit never carry it; in a generated index it is a note.
+func unitWriteOp(id string, fm map[string]any, body string) map[string]any {
+	return map[string]any{"op": "write", "id": id, "frontmatter": fm, "body": body, "index_entry": true}
 }

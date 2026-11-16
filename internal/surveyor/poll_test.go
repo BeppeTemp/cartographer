@@ -243,6 +243,11 @@ func (k *pkb) callTool(name string, args any) (client.ToolOutput, error) {
 				if _, exists := k.pages[oid]; exists {
 					return terr("already exists"), nil
 				}
+				// The real gate refuses a new page of a curated-index map with no
+				// index_entry (#2139); a unit's creating write always asks for it.
+				if op["index_entry"] != true {
+					return terr("write_gate: refused: index_incomplete"), nil
+				}
 				if k.refuseUnit != nil {
 					if why := k.refuseUnit(oid, fm); why != "" {
 						return terr(why), nil
@@ -250,6 +255,9 @@ func (k *pkb) callTool(name string, args any) (client.ToolOutput, error) {
 				}
 				todo = append(todo, applied{oid, fm, fmt.Sprint(op["body"]), true})
 			case "patch":
+				if _, has := op["index_entry"]; has {
+					return terr("'index_entry' applies only to a creation"), nil
+				}
 				p := k.pages[oid]
 				if p == nil || fmt.Sprint(p.ver) != op["if_match"] {
 					return terr("stale_write: the concept changed"), nil
