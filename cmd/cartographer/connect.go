@@ -644,7 +644,8 @@ func printConnectResult(dir string, providers []string, opts connectOptions, res
 		if isLoopbackURL(opts.ServerURL) && !opts.Auth {
 			ensureLocalGitIdentity(os.Stdout, "", true)
 		}
-		if isLoopbackURL(opts.ServerURL) && !res.Deferred {
+		// Deferred or not: the owner does not depend on the skill sync (#2143).
+		if isLoopbackURL(opts.ServerURL) {
 			recordWslServerOwner(os.Stdout, os.Stderr)
 		}
 		printWslWindowsHint(os.Stdout)
