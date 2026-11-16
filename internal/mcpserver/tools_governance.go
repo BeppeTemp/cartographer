@@ -639,11 +639,9 @@ func toolConflictResolve(k *kb.KB) Tool {
 
 // --- kb_status ---
 
-// KBCapabilitiesFor exposes the capability map in the /health shape, so the MCP
-// tool and the HTTP endpoint answer the identical question from one derivation
-// (D151). kbCapabilities already builds KBCapability values, so this is a plain
-// alias rather than a re-copy: the two used to be distinct structs with
-// identical fields, and the copy loop between them could only ever drift.
+// KBCapabilitiesFor is kbCapabilities for the tests of other packages: the
+// server derives the map itself, on read, for kb_status, /health and the Atlas
+// list (D151, #2150).
 func KBCapabilitiesFor(k *kb.KB) map[string]KBCapability {
 	return kbCapabilities(k)
 }
