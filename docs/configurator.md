@@ -141,7 +141,8 @@ decides every step **before** running any:
   file, `knowledge_bases.default.identity` in `.cartographer.yaml`. A first push the remote refuses is classified like
   Meridian's sync does: a refused author names that author and the identity to set (with Meridian
   identity, `commit --amend --reset-author --no-edit` re-authors the kept scaffold), a protected branch
-  says so, and only otherwise the hint is about authentication.
+  says so (a bare decline over commits with the fallback identity and none configured is worded as an inferred
+  identity refusal naming the protected branch as the other cause, as the sync does, #2158), and only otherwise the hint is about authentication.
 - **Workspace.** `--workspace <repo>` is passed through to `connect --workspace` (D193): the KBs are
   confined to that repository instead of every directory.
 - **Plugins.** `--plugin <source>` (repeatable; a git URL, optionally `@<ref>`, or a folder) installs a plugin

@@ -537,6 +537,13 @@ func writePushRefusalHints(w io.Writer, gitOut, remote, authorName, authorEmail 
 		} else {
 			fmt.Fprintln(w, "Hint: that is the identity git resolves for this folder. Use an email of your forge account (git config --global user.email, or a per-folder identity), then re-author the commit: git commit --amend --reset-author --no-edit in the KB.")
 		}
+	case gitx.IsProtectedBranchRejection(gitOut) && fallbackIdentity && gitx.IsBareHookDecline(gitOut):
+		// The same rule as SyncOut (#2151, D1063): a decline with no reason of
+		// its own, over commits carrying the fallback identity with none
+		// configured, is an inferred identity refusal; a decline that quotes a
+		// reason stays a protected branch below.
+		fmt.Fprintf(w, "Hint: the remote gave no reason for declining the push (only the generic \"hook declined\"); the commits carry the server's fallback identity, %s <%s>, and git has no identity of yours, so an author rule is the likely cause (inferred).\n", authorName, authorEmail)
+		fmt.Fprintln(w, "Hint: set a git identity the forge knows (git config --global user.email \"<an email of your forge account>\", or a per-folder identity), then re-author the commit as printed below. A protected branch or another hook would give the same output: if the identity is already right, check the branch protection too.")
 	case gitx.IsProtectedBranchRejection(gitOut):
 		fmt.Fprintln(w, "Hint: the branch is protected for this account: the remote refuses a direct push to it. Push with an account allowed to, or ask for the protection to be lifted on this branch.")
 	default:
