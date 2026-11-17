@@ -581,3 +581,83 @@ func TestIngestDataBlocksCarryAPerRunTokenSoDataCannotCloseThem(t *testing.T) {
 		t.Error("the token repeats")
 	}
 }
+
+// emptyRun runs the unit once with a model that writes nothing (a fresh
+// instance each time: the skip TTL is memory, the count is the unit's body).
+func emptyRun(t *testing.T, k *ikb, turns []Response, grant int) {
+	t.Helper()
+	in := newInst(t, TierSmall)
+	rt := rtFor(k, &smodel{Turns: turns}, "docs-aa")
+	if grant > 0 {
+		rt.Grant = grant
+	}
+	if _, err := in.Run(context.Background(), next(t, in, k), rt); err != nil {
+		t.Fatal(err)
+	}
+}
+
+var (
+	emptyTurns  = []Response{{Stop: StopEnd, Text: "nothing to do"}}
+	budgetTurns = []Response{{Stop: StopToolUse, ToolCalls: []ToolCall{{ID: "1", Name: "concept_list", Arguments: json.RawMessage(`{}`)}}, Usage: Usage{InputTokens: 30000}}}
+)
+
+func TestIngestThirdConsecutiveEmptyReleaseBlocksTheUnit(t *testing.T) {
+	k := newIKB()
+	k.src("s/a", map[string]any{"locator": "https://example.com/a"})
+	k.unit("u/1", "s/a", "open", "any", nil)
+	for i := 1; i <= 3; i++ {
+		emptyRun(t, k, emptyTurns, 0)
+		want := "open"
+		if i == 3 {
+			want = "blocked"
+		}
+		if k.status("u/1") != want {
+			t.Fatalf("after empty run %d status = %s, want %s", i, k.status("u/1"), want)
+		}
+	}
+	u := k.pages["u/1"]
+	if !strings.Contains(u.body, "the page may already be current") || u.fm["claimed_by"] != nil {
+		t.Fatalf("blocked unit: fm=%v body=%q", u.fm, u.body)
+	}
+	if it := next(t, newInst(t, TierSmall), k); it != nil {
+		t.Fatalf("a blocked unit was offered: %+v", it)
+	}
+	// A human reopens it: the count starts again.
+	k.pages["u/1"].fm["status"] = "open"
+	emptyRun(t, k, emptyTurns, 0)
+	if k.status("u/1") != "open" {
+		t.Fatalf("a reopened unit was blocked by the old count: %s", k.status("u/1"))
+	}
+}
+
+func TestIngestAnotherReasonResetsTheEmptyReleaseCount(t *testing.T) {
+	k := newIKB()
+	k.src("s/a", map[string]any{"locator": "https://example.com/a"})
+	k.unit("u/1", "s/a", "open", "any", nil)
+	emptyRun(t, k, emptyTurns, 0)
+	emptyRun(t, k, budgetTurns, 25000) // released for another reason
+	emptyRun(t, k, emptyTurns, 0)
+	emptyRun(t, k, emptyTurns, 0)
+	if k.status("u/1") != "open" {
+		t.Fatalf("status = %s, want open: the count is of consecutive empty runs", k.status("u/1"))
+	}
+	emptyRun(t, k, emptyTurns, 0)
+	if k.status("u/1") != "blocked" {
+		t.Fatalf("status = %s, want blocked after three in a row", k.status("u/1"))
+	}
+}
+
+func TestEmptyReleasesCountsOnlyTheSurveyorsTrailingNotes(t *testing.T) {
+	e := "> Surveyor note (t, r): released: nothing was written. Pages written so far: none."
+	b := "> Surveyor note (t, r): released: cut by budget. Pages written so far: none."
+	for body, want := range map[string]int{
+		"":                          0,
+		e + "\n\n" + e:              2,
+		e + "\n\n" + b + "\n\n" + e: 1,
+		e + "\n\nreleased: nothing was written. Pages written so far: none.": 1,
+	} {
+		if got := emptyReleases(body); got != want {
+			t.Errorf("emptyReleases(%q) = %d, want %d", body, got, want)
+		}
+	}
+}
