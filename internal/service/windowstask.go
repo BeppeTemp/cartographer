@@ -456,6 +456,13 @@ func (m *Manager) installWindows(binPath, configPath string, env ...EnvVar) erro
 		}
 		return err
 	}
+	if repair {
+		// The scheduler added its own entry for the user at registration: the
+		// repaired descriptor is exactly the one of the definition (#2221).
+		if err := m.setServeTaskDACL(sid); err != nil {
+			noticef("note: %v", err)
+		}
+	}
 	// The previous definition is put back when anything after the registration
 	// fails (#2179): the new one would otherwise run at the next start, on a
 	// port that was just refused.
@@ -547,6 +554,45 @@ func (m *Manager) serveTaskOwnerDiffers(sid string) bool {
 	}
 	noticef("note: could not read the descriptor of the registered task %s%s, so it is registered as it is (%v)", windowsTaskPathArg(), windowsServeTaskName, err)
 	return false
+}
+
+// setServeTaskDACL replaces the live DACL of the registered serve task with
+// taskSDDL(sid) through the Task Scheduler service, so no other entry of the
+// user stays behind (#2221): the scheduler adds its own read-only entry for the
+// principal at registration, and a repair that left it behind kept an ACE the
+// descriptor of the definition does not carry. 0x10 is
+// TASK_DONT_ADD_PRINCIPAL_ACE: the descriptor is applied as given.
+func (m *Manager) setServeTaskDACL(sid string) error {
+	if !sidPattern.MatchString(sid) {
+		return nil
+	}
+	script := fmt.Sprintf("$t = (New-Object -ComObject Schedule.Service); $t.Connect(); "+
+		"$t.GetFolder(%s).GetTask(%s).SetSecurityDescriptor(%s, 0x10)",
+		psQuote(strings.TrimSuffix(windowsTaskPathArg(), `\`)), psQuote(windowsServeTaskName), psQuote(taskSDDL(sid)))
+	if _, err := m.powershell(script); err != nil {
+		return fmt.Errorf("service: could not set the descriptor of the registered task %s%s: %w", windowsTaskPathArg(), windowsServeTaskName, err)
+	}
+	return nil
+}
+
+// RepairServeTaskDACL is what `upgrade-repair` runs at the same version
+// (#2221): when the live descriptor of the registered serve task does not grant
+// the user full control, it is replaced by the one the definition carries,
+// without stopping or restarting anything. It reports whether it changed it.
+// Nothing happens off Windows, without a resolvable SID, or for a task that is
+// not registered.
+func (m *Manager) RepairServeTaskDACL() (bool, error) {
+	if goos != "windows" {
+		return false, nil
+	}
+	sid := windowsTaskSID()
+	if !m.serveTaskOwnerDiffers(sid) {
+		return false, nil
+	}
+	if err := m.setServeTaskDACL(sid); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // RefreshTaskOwners brings the installed Windows tasks (Serve, Sync, Tray) up

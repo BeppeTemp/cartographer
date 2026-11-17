@@ -49,6 +49,7 @@ var (
 	repairCheckBinaryFn      = service.CheckStableBinary
 	repairDefinitionPathFn   = service.DefinitionPath
 	repairTaskOwnerFn        = func() ([]string, error) { return service.NewManager().RefreshTaskOwners() }
+	repairTaskDACLFn         = func() (bool, error) { return service.NewManager().RepairServeTaskDACL() }
 	repairSwitchBinaryFn     = func(configPath string) error { return service.NewManager().SwitchBinary(configPath) }
 )
 
@@ -88,7 +89,16 @@ func cmdUpgradeRepair(args []string) int {
 			fmt.Fprintln(os.Stderr, "Warning: could not hand a scheduled task to your user:", err)
 		}
 		if len(refreshed) > 0 {
-			fmt.Printf("scheduled tasks re-registered for your user: %s (nothing running was stopped)\n", strings.Join(refreshed, ", "))
+			fmt.Printf("scheduled tasks re-registered for your user: %s\n", strings.Join(refreshed, ", "))
+		}
+	}
+	if st.Installed {
+		// A task registered under an Administrators-owned descriptor stays so at
+		// the same version (#2221): the live descriptor is repaired in place.
+		if fixed, err := repairTaskDACLFn(); err != nil {
+			fmt.Fprintln(os.Stderr, "Warning: could not repair the descriptor of the scheduled task (run `cartographer service install` from an elevated terminal):", err)
+		} else if fixed {
+			fmt.Println("scheduled task access repaired for your user")
 		}
 	}
 	if !st.Installed {

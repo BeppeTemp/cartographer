@@ -417,3 +417,37 @@ func TestInstalls_Windows_DeniedRegisterKeepTheOldDefinition(t *testing.T) {
 		}
 	}
 }
+
+// #2221: upgrade-repair at the same version replaces a live descriptor that
+// does not grant the user, in place, and leaves a right one alone.
+func TestRepairServeTaskDACL(t *testing.T) {
+	origSID := windowsTaskSID
+	windowsTaskSID = func() string { return testSID }
+	t.Cleanup(func() { windowsTaskSID = origSID })
+
+	t.Run("wrong descriptor is replaced, nothing stopped", func(t *testing.T) {
+		withTestHome(t, "windows")
+		f := &fakeServeTask{running: true, enabled: true, ownerDiffers: true}
+		m := &Manager{run: f.run}
+		fixed, err := m.RepairServeTaskDACL()
+		if err != nil || !fixed {
+			t.Fatalf("repair = %v, %v", fixed, err)
+		}
+		all := joinedCalls(f.calls)
+		if !strings.Contains(all, "SetSecurityDescriptor") || !strings.Contains(all, taskSDDL(testSID)) || !strings.Contains(all, "0x10") {
+			t.Errorf("the descriptor was not set as the definition carries it:\n%s", all)
+		}
+		if strings.Contains(all, "Stop-ScheduledTask") || strings.Contains(all, "Unregister") || strings.Contains(all, "Register-ScheduledTask") {
+			t.Errorf("the repair touched the task or the server:\n%s", all)
+		}
+	})
+	t.Run("right descriptor is left alone", func(t *testing.T) {
+		withTestHome(t, "windows")
+		f := &fakeServeTask{}
+		m := &Manager{run: f.run}
+		fixed, err := m.RepairServeTaskDACL()
+		if err != nil || fixed || strings.Contains(joinedCalls(f.calls), "SetSecurityDescriptor") {
+			t.Errorf("repair = %v, %v, calls %v", fixed, err, f.calls)
+		}
+	})
+}

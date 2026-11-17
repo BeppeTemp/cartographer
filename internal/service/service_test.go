@@ -2342,3 +2342,33 @@ func TestVerifyServing(t *testing.T) {
 		t.Errorf("VerifyServing on a serving version: %v", err)
 	}
 }
+
+// A config the server cannot load is refused before anything is stopped,
+// written or registered, on every platform (#2221): the Windows case is a
+// double-quoted path with `\U`, an invalid YAML escape.
+func TestInstall_UnloadableConfigIsRefusedBeforeAnythingChanges(t *testing.T) {
+	for _, goosName := range []string{"darwin", "linux", "windows"} {
+		t.Run(goosName, func(t *testing.T) {
+			home := withTestHome(t, goosName)
+			cfgPath := filepath.Join(home, "server.yaml")
+			broken := "data: \"C:\\Users\\user\\data\"\n"
+			if err := os.WriteFile(cfgPath, []byte(broken), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			m, stub := newTestManager()
+			_, err := m.Install(InstallOptions{ConfigPath: cfgPath, DataDir: filepath.Join(home, "data"), HTTPAddr: "127.0.0.1:39273"})
+			if err == nil || !strings.Contains(err.Error(), "nothing was changed") || !strings.Contains(err.Error(), cfgPath) {
+				t.Fatalf("Install = %v, want a refusal naming the file and that nothing changed", err)
+			}
+			if len(stub.calls) != 0 {
+				t.Errorf("a refused install ran commands: %v", stub.calls)
+			}
+			if got, _ := os.ReadFile(cfgPath); string(got) != broken {
+				t.Errorf("the config was rewritten: %q", got)
+			}
+			if _, err := os.Stat(filepath.Join(home, "data")); err == nil {
+				t.Error("the data directory was created")
+			}
+		})
+	}
+}

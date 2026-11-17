@@ -24,6 +24,15 @@ const DefaultClientLockTimeout = 30 * time.Second
 // lock is held for the length of a sync, so polling costs nothing.
 const clientLockPollInterval = 100 * time.Millisecond
 
+// clientLockNoticeAfter is how long a blocked acquisition waits before it says
+// so (#2221): a sync behind a long-running one otherwise looks hung. Shorter
+// waits are routine and stay silent. A variable so a test need not wait.
+var clientLockNoticeAfter = 2 * time.Second
+
+// lockWaitNotice prints the one line of a long wait, to stderr. A variable so a
+// test can read it.
+var lockWaitNotice = func(msg string) { fmt.Fprintln(os.Stderr, msg) }
+
 // ErrClientDirDenied marks a client lock that could not be opened because the
 // process may not write the directory (Windows ERROR_ACCESS_DENIED, typically an
 // agent sandbox with a restricted token or another account). It is permissions,
@@ -86,7 +95,9 @@ func LockStateFile(dir, name string, timeout time.Duration) (func() error, error
 		return nil, fmt.Errorf("open client lock %s: %w", path, err)
 	}
 
-	deadline := time.Now().Add(timeout)
+	started := time.Now()
+	deadline := started.Add(timeout)
+	noticed := false
 	for {
 		err := tryLockFile(f)
 		if err == nil {
@@ -106,6 +117,10 @@ func LockStateFile(dir, name string, timeout time.Duration) (func() error, error
 		if time.Now().After(deadline) {
 			f.Close()
 			return nil, fmt.Errorf("another cartographer operation is holding %s (waited %s): wait for it to finish, or find the cartographer process that holds it and end it (the lock is released when that process dies; deleting the file would let a second one in)", path, timeout)
+		}
+		if !noticed && time.Since(started) >= clientLockNoticeAfter {
+			noticed = true
+			lockWaitNotice(fmt.Sprintf("waiting for the client lock %s, held by another cartographer process (a sync, connect or doctor still running; the lock is released when it ends, and this command gives up after %s)", path, timeout))
 		}
 		time.Sleep(clientLockPollInterval)
 	}

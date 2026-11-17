@@ -149,6 +149,12 @@ func (m *Manager) Install(opts InstallOptions) ([]string, error) {
 	if goos == "linux" && backend == BackendNone {
 		return nil, ErrNoServiceManager
 	}
+	// An existing config that the server cannot load is refused before anything
+	// is stopped, written or registered (#2221): the service would start on it
+	// and fail, after the running server was already gone.
+	if err := m.validateExistingConfig(opts); err != nil {
+		return nil, err
+	}
 
 	// An elevated shell is not refused (#1961): the task is registered for the
 	// logged-in user all the same (UserId and descriptor), which is also how a
@@ -204,6 +210,23 @@ func (m *Manager) Install(opts InstallOptions) ([]string, error) {
 	}
 
 	return warnings, nil
+}
+
+// validateExistingConfig loads the config Install is about to register, when
+// the file exists, with the loader the server itself uses. A file that is
+// absent is generated later and valid by construction.
+func (m *Manager) validateExistingConfig(opts InstallOptions) error {
+	configPath, err := opts.resolvedConfigPath()
+	if err != nil {
+		return fmt.Errorf("service: resolve config path: %w", err)
+	}
+	if _, err := os.Stat(configPath); err != nil {
+		return nil
+	}
+	if _, err := config.Load(configPath); err != nil {
+		return fmt.Errorf("service: the server cannot load %s, so nothing was changed (the installed service and server are as they were): fix the file and run `cartographer service install` again: %w", configPath, err)
+	}
+	return nil
 }
 
 // prepareConfig resolves the config path, writes a default config when none

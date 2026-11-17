@@ -1483,6 +1483,10 @@ func TestInstall_Windows_ElevatedInstallRepairsAnAdminOwnedTask(t *testing.T) {
 	if !f.running || f.ownerDiffers {
 		t.Errorf("running=%v ownerDiffers=%v after the repair:\n%s", f.running, f.ownerDiffers, joinedCalls(calls))
 	}
+	// #2221: the user entry the scheduler adds at registration is dropped.
+	if set := callIndex(calls, "SetSecurityDescriptor"); set < register {
+		t.Errorf("the descriptor must be set after the registration (set %d, register %d):\n%s", set, register, joinedCalls(calls))
+	}
 }
 
 // The decision: a descriptor that already grants the user, or a shell that is

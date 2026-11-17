@@ -251,15 +251,17 @@ func realignKBSettings(k *kb.KB, name string) (refusal string) {
 // the removed keys dropped, the schema's comments written, the original kept
 // beside it. Under the client-state lock, because every command that writes
 // the same file takes it (D172); a lock it cannot take, or a file it cannot
-// write, is a warning and never stops the sync.
-func realignClientConfig(dir string) {
+// write, is a warning and never stops the sync. It returns the backup path when
+// it rewrote the file, "" otherwise, so a sync that fails afterwards can say the
+// file was migrated (#2221).
+func realignClientConfig(dir string) string {
 	release, err := provisioning.LockClientState(dir, provisioning.DefaultClientLockTimeout)
 	if err != nil {
 		if errors.Is(err, provisioning.ErrClientDirDenied) {
-			return // the lock the sync takes next reports it, once
+			return "" // the lock the sync takes next reports it, once
 		}
 		fmt.Fprintf(os.Stderr, "warning: %s is not realigned: %v\n", clientconfig.Path(dir), err)
-		return
+		return ""
 	}
 	defer release()
 	rep, backup, err := clientconfig.RealignFile(dir, version)
@@ -267,13 +269,14 @@ func realignClientConfig(dir string) {
 		if rep.Substantive() {
 			fmt.Fprintf(os.Stderr, "warning: %s holds removed settings and cannot be rewritten (%v): they are ignored\n", clientconfig.Path(dir), err)
 		}
-		return
+		return ""
 	}
 	if rep.Empty() {
-		return
+		return ""
 	}
 	fmt.Fprintf(os.Stderr, "%s realigned for cartographer %s (the original is kept as %s):\n", clientconfig.Path(dir), version, backup)
 	for _, l := range rep.Lines() {
 		fmt.Fprintf(os.Stderr, "  - %s\n", l)
 	}
+	return backup
 }

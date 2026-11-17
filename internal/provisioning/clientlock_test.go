@@ -92,3 +92,29 @@ func TestLockClientState_RefusesASymlinkedLockFile(t *testing.T) {
 		}
 	}
 }
+
+// A command that waits on the client lock says so once, naming the lock and
+// that another process holds it (#2221); an acquisition that is not blocked
+// prints nothing.
+func TestLockClientState_SaysOnceThatItWaits(t *testing.T) {
+	notices := provisioning.CaptureLockWaitNoticeForTest(t, 50*time.Millisecond)
+	dir := t.TempDir()
+
+	free, err := provisioning.LockClientState(dir, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(*notices) != 0 {
+		t.Fatalf("an unblocked acquisition printed %v", *notices)
+	}
+	if _, err := provisioning.LockClientState(dir, 400*time.Millisecond); err == nil {
+		t.Fatal("the second acquisition should time out")
+	}
+	_ = free()
+	if len(*notices) != 1 {
+		t.Fatalf("notices = %v, want exactly one", *notices)
+	}
+	if n := (*notices)[0]; !strings.Contains(n, provisioning.ClientLockFileName) || !strings.Contains(n, "another cartographer process") {
+		t.Errorf("notice does not name the lock and its holder: %q", n)
+	}
+}
