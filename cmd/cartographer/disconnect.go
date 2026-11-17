@@ -29,7 +29,7 @@ func cmdDisconnect(args []string) int {
 	fs := flag.NewFlagSet("disconnect", flag.ExitOnError)
 	dryRun := fs.Bool("dry-run", false, "Print what would be removed without removing")
 	agentsCSV := fs.String("agents", "", "Comma-separated agent subset: claude,codex")
-	if code := bindPositionals("disconnect", parseFlagsAnywhere(fs, args), &target); code != 0 {
+	if code := bindTargetPositional("disconnect", parseFlagsAnywhere(fs, args), &target); code != 0 {
 		return code
 	}
 

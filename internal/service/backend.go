@@ -119,6 +119,11 @@ func isNoCrontab(out string, err error) bool {
 // creates the data directory. `service install --config-only` calls it on a
 // host where Install itself would stop with ErrNoServiceManager.
 func (m *Manager) PrepareConfig(opts InstallOptions) (warnings []string, configPath, dataDir string, err error) {
+	// The same refusal as Install (#2221, #2242): a config the server cannot
+	// load is not announced as written.
+	if err := m.validateExistingConfig(opts); err != nil {
+		return nil, "", "", err
+	}
 	return m.prepareConfig(opts)
 }
 

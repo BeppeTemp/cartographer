@@ -2099,7 +2099,7 @@ backup before discarding any state.
 - **0.29: `connect` refuses a `--server-url` with `?kb=`**: choose the KB with `--kb <name>` or `/mcp/<name>`.
 - **0.29: `sync`, `reconnect` and `upgrade-repair` exit 3** on a denied prune or an unreadable bound workspace (`configurator.md`, `sync.md`).
 - **0.29: `status` shows `[no access]`, not `[moved]`**, for a bound workspace the process cannot read; the tray shows No access or Approval pending.
-- **0.29: `service install` refuses a `--config` the server cannot load** and stops nothing (`--config-only` does not check).
+- **0.29: `service install` refuses a `--config` the server cannot load** and stops nothing (`--config-only` runs the same check, #2242).
 - **0.29: an invalid `mcp/<name>.json` is left out of `sync_pull`** with an issue (lint `mcp_invalid`): a descriptor served before disappears from clients until it is fixed.
 - **0.29: malformed `secret_refs` are refused** (`secret_ref_broken`).
 - **0.29: the write gate judges `unknown_type`**, and `services/` is never `unmapped_folder`.

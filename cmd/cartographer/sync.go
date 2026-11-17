@@ -103,6 +103,9 @@ func cmdSync(args []string) int {
 		if len(res.Unreadable) > 0 {
 			fmt.Fprintf(os.Stderr, "sync skipped unreadable workspaces: %s\n", escapeControl(strings.Join(res.Unreadable, ", ")))
 		}
+		if len(res.WriteDenied) > 0 {
+			fmt.Fprintln(os.Stderr, writeDeniedSummary(res.WriteDenied))
+		}
 		return syncFailureExit(err)
 	}
 	if !*dryRun {
@@ -159,8 +162,11 @@ func unreadableWorkspaces(projections []syncProjection) []string {
 // syncUnreadableExit is exitPartiallyConnected when the run skipped a bound
 // workspace it cannot read, 0 otherwise (#2135, same contract as D2118).
 func syncUnreadableExit(w io.Writer, res syncResult) int {
-	if len(res.Unreadable) == 0 && len(res.PruneDenied) == 0 {
+	if len(res.Unreadable) == 0 && len(res.PruneDenied) == 0 && len(res.WriteDenied) == 0 {
 		return 0
+	}
+	if len(res.WriteDenied) > 0 {
+		fmt.Fprintln(w, "Error: "+writeDeniedSummary(res.WriteDenied))
 	}
 	if len(res.Unreadable) > 0 {
 		fmt.Fprintf(w, "Error: sync skipped unreadable workspaces: %s\n", escapeControl(strings.Join(res.Unreadable, ", ")))
@@ -266,6 +272,10 @@ type syncResult struct {
 	// PruneDenied are the workspaces whose orphaned projection could not be
 	// pruned for lack of permission (#2178); the lock keeps it for a retry.
 	PruneDenied []string
+	// WriteDenied are the providers a write was denied for (#2242), one line
+	// each with the path and the remedy: every other provider was synced and
+	// the sync exits 3.
+	WriteDenied []string
 }
 
 // runSync is the single in-process sync implementation: reconcile the
@@ -502,7 +512,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 
 	// Do not write even the local bootstrap hook until the complete remote
 	// manifest has passed its content and signature checks.
-	hookWarnings, err := ensureBootstrapForProviders(targets, dir, opts.DryRun)
+	hookWarnings, hookDenied, err := ensureBootstrapDenials(targets, dir, opts.DryRun)
 	if err != nil {
 		return syncResult{}, err
 	}
@@ -546,7 +556,8 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		lockedBefore = lockedKeys(dir)
 	}
 	var pruneDenied []string
-	results, err := materializeForProviders(manifests, projections, dir, facts.Version, opts.DryRun, opts.NoHeal, portabilityOptions{PruneDenied: &pruneDenied, SearchRoots: cfg.ScanRoots(), Paths: cfg.Paths, Streams: opts.Streams, HeldPlugins: heldPlugins(cfg), MCPTokenEnv: tokenEnvName(cfg)}, kbOrderForProviders(cfg, targets), approvals)
+	writeDenied := slices.Clone(hookDenied)
+	results, err := materializeForProviders(manifests, projections, dir, facts.Version, opts.DryRun, opts.NoHeal, portabilityOptions{PruneDenied: &pruneDenied, WriteDenied: &writeDenied, SearchRoots: cfg.ScanRoots(), Paths: cfg.Paths, Streams: opts.Streams, HeldPlugins: heldPlugins(cfg), MCPTokenEnv: tokenEnvName(cfg)}, kbOrderForProviders(cfg, targets), approvals)
 	if err != nil {
 		return syncResult{}, err
 	}
@@ -591,9 +602,9 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		}
 	}
 	if len(pullFailures) > 0 || len(providerFailures) > 0 {
-		return syncResult{Revision: commonRevision(results, targets), Applied: results, Refused: refused, Unreadable: unreadable, PruneDenied: slices.Sorted(slices.Values(pruneDenied))}, partialSyncError{Failures: pullFailures, Skipped: skipped, Providers: providerFailures}
+		return syncResult{Revision: commonRevision(results, targets), Applied: results, Refused: refused, Unreadable: unreadable, PruneDenied: slices.Sorted(slices.Values(pruneDenied)), WriteDenied: denialLines(writeDenied)}, partialSyncError{Failures: pullFailures, Skipped: skipped, Providers: providerFailures}
 	}
-	return syncResult{Revision: commonRevision(results, targets), Applied: results, Refused: refused, Unreadable: unreadable, PruneDenied: slices.Sorted(slices.Values(pruneDenied))}, nil
+	return syncResult{Revision: commonRevision(results, targets), Applied: results, Refused: refused, Unreadable: unreadable, PruneDenied: slices.Sorted(slices.Values(pruneDenied)), WriteDenied: denialLines(writeDenied)}, nil
 }
 
 // partialSyncError reports a sync that went ahead without some KBs (#350):

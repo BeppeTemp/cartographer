@@ -31,7 +31,7 @@ func cmdReconnect(args []string) int {
 	fs := flag.NewFlagSet("reconnect", flag.ExitOnError)
 	dryRun := fs.Bool("dry-run", false, "Print what would be rebuilt without writing")
 	agentsCSV := fs.String("agents", "", "Comma-separated agent subset: claude,codex")
-	if code := bindPositionals("reconnect", parseFlagsAnywhere(fs, args), &target); code != 0 {
+	if code := bindTargetPositional("reconnect", parseFlagsAnywhere(fs, args), &target); code != 0 {
 		return code
 	}
 
