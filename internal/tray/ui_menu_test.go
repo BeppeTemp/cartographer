@@ -2,6 +2,7 @@ package tray
 
 import (
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -137,6 +138,33 @@ func TestRefillOpenMenuOnlyForAgents(t *testing.T) {
 	} {
 		if got := refillOpenMenu(tc.open, tc.prev, tc.next); got != tc.want {
 			t.Errorf("%s: refill = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestMenuItems_SyncKindsAndHints(t *testing.T) {
+	agents := Agents{Known: true, N: 3}
+	agents.Rows[0] = AgentRow{Name: "A", Sync: SyncDrift}
+	agents.Rows[1] = AgentRow{Name: "B", Sync: SyncApproval}
+	agents.Rows[2] = AgentRow{Name: "C", Sync: SyncNoAccess}
+	items := MenuItems(DefaultMenu(), Snapshot{State: StateRunning, KBCount: -1, Agents: agents})
+	var texts []string
+	for _, it := range items {
+		texts = append(texts, it.Text+"|"+it.Badge)
+	}
+	joined := strings.Join(texts, "\n")
+	for _, want := range []string{"A|Out of sync", "B|Approval pending", "C|No access", noAccessHint(runtime.GOOS), "cartographer approve"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("menu lacks %q:\n%s", want, joined)
+		}
+	}
+	if !strings.Contains(noAccessHint("darwin"), "Files and Folders") || strings.Contains(noAccessHint("linux"), "Files and Folders") {
+		t.Error("the hint names macOS settings only on darwin")
+	}
+	agents.Rows[1], agents.Rows[2] = AgentRow{Name: "B", Sync: SyncOK}, AgentRow{Name: "C", Sync: SyncOK}
+	for _, it := range MenuItems(DefaultMenu(), Snapshot{State: StateRunning, KBCount: -1, Agents: agents}) {
+		if strings.Contains(it.Text, "approve") || strings.Contains(it.Text, "No access") {
+			t.Errorf("unexpected hint row %q", it.Text)
 		}
 	}
 }

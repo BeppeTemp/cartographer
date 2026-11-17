@@ -241,7 +241,8 @@ func trayClientTarget() (tray.ClientTarget, error) {
 }
 
 // trayAgentRow maps one provider of the status snapshot. Only "in_sync" and
-// "drift" are judgements; every other state ("unknown" when the server, the
+// "drift" are judgements (drift is told apart from a pending approval and from
+// a workspace the process cannot read, #2216); every other state ("unknown" when the server, the
 // manifests or the lockfile could not be read) is Not checked.
 func trayAgentRow(p providerStatus) tray.AgentRow {
 	row := tray.AgentRow{Name: p.Name}
@@ -252,7 +253,15 @@ func trayAgentRow(p providerStatus) tray.AgentRow {
 	case "in_sync":
 		row.Sync = tray.SyncOK
 	case "drift":
-		row.Sync = tray.SyncDrift
+		// Typed fields of the snapshot, never its text (#2216).
+		switch {
+		case len(p.NoAccess) > 0:
+			row.Sync = tray.SyncNoAccess
+		case p.ApprovalPending:
+			row.Sync = tray.SyncApproval
+		default:
+			row.Sync = tray.SyncDrift
+		}
 	}
 	return row
 }

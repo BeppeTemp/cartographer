@@ -1268,6 +1268,13 @@ func workspaceStatuses(cfg *clientconfig.Config, provider, clientBaseDir string)
 			out = append(out, st)
 			continue
 		}
+		// A directory the process may not list is not a moved one: the git remote
+		// cannot be read, which says nothing about where it points (#2216).
+		if why := clientconfig.WorkspaceUnreadable(w.Path); why != "" {
+			st.State, st.Detail = "no access", why
+			out = append(out, st)
+			continue
+		}
 		if _, _, err := cfg.ResolveWorkspace(provider, w.Path); err != nil {
 			st.State, st.Detail = "moved", err.Error()
 			out = append(out, st)
@@ -1385,7 +1392,7 @@ func checkWorkspaceProjections(dir string, cfg *clientconfig.Config, providers [
 				})
 				continue
 			}
-			if w.Derived && (w.State == "gone" || w.State == "moved" || w.State == "unresolved") {
+			if w.Derived && (w.State == "gone" || w.State == "moved" || w.State == "unresolved" || w.State == "no access") {
 				// Derived state is rebuilt by sync: the fix is a sync, never an
 				// unbind (there is no explicit binding to remove).
 				if w.State == "unresolved" {
@@ -1414,6 +1421,12 @@ func checkWorkspaceProjections(dir string, cfg *clientconfig.Config, providers [
 					Check: "workspace", Severity: doctorError, Path: w.Path,
 					Message: fmt.Sprintf("%s: the bound workspace is not there any more", provider),
 					Fix:     fmt.Sprintf("cartographer workspace unbind %s %s", provider, w.Path),
+				})
+			case "no access":
+				out = append(out, doctorFinding{
+					Check: "workspace", Severity: doctorWarning, Path: w.Path,
+					Message: fmt.Sprintf("%s: %s", provider, w.Detail),
+					Fix:     clientconfig.GrantAccessHint,
 				})
 			case "moved":
 				out = append(out, doctorFinding{

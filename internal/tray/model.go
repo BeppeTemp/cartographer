@@ -136,6 +136,8 @@ const (
 	SyncUnknown Sync = iota // not checked: the server or the lockfile could not be read
 	SyncOK
 	SyncDrift
+	SyncApproval // the only difference is an artifact waiting for `cartographer approve`
+	SyncNoAccess // a bound workspace this process cannot read: not judged, not drift
 )
 
 // Agents is the client side of `cartographer status`, kept comparable.

@@ -116,6 +116,23 @@ func TestTrayAgentRow(t *testing.T) {
 	}
 }
 
+// A drifting provider is told apart by the typed fields of the snapshot (#2216).
+func TestTrayAgentRow_DriftKinds(t *testing.T) {
+	for name, tc := range map[string]struct {
+		p    providerStatus
+		want tray.Sync
+	}{
+		"real drift":       {providerStatus{State: "drift", Problem: "workspace x: whatever"}, tray.SyncDrift},
+		"approval pending": {providerStatus{State: "drift", ApprovalPending: true}, tray.SyncApproval},
+		"no access":        {providerStatus{State: "drift", NoAccess: []string{"/w"}}, tray.SyncNoAccess},
+	} {
+		tc.p.Name = "claude"
+		if got := trayAgentRow(tc.p); got.Sync != tc.want {
+			t.Errorf("%s: sync %v, want %v", name, got.Sync, tc.want)
+		}
+	}
+}
+
 // The tray's agent rows and `status` are one answer: for the same state each
 // row's badge is the mapping of the status provider's state (#1871). One agent
 // is in sync with the lockfile and one has drifted from it.

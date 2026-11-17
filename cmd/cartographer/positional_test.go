@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"flag"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,9 +12,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 func newPositionalFlagSet() (*flag.FlagSet, *string, *bool) {
@@ -486,5 +489,50 @@ func TestSync_UnreadableWorkspaceNamedWhenTheRunFails(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "sync skipped unreadable workspaces: ") || !strings.Contains(stderr, plain) {
 		t.Errorf("stderr does not name the skipped workspace:\n%s", stderr)
+	}
+}
+
+// #2216: `status` says an unreadable workspace has no access, never "moved",
+// and carries the typed field the tray reads.
+func TestStatus_UnreadableWorkspaceIsNoAccessNotMoved(t *testing.T) {
+	skipUnlessModeEnforced(t)
+	home, _, plain, remote := unreadableWorkspaceSetup(t)
+	cfg, err := clientconfig.Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	for _, w := range workspaceStatuses(cfg, "codex", home) {
+		if w.Path == plain || w.Path == remote {
+			seen[w.Path] = true
+			if w.State != "no access" || !strings.Contains(w.Detail, clientconfig.GrantAccessHint) {
+				t.Errorf("%s: state %q detail %q, want no access with the hint", w.Path, w.State, w.Detail)
+			}
+		}
+	}
+	if len(seen) != 2 {
+		t.Fatalf("both unreadable workspaces must be reported, got %v", seen)
+	}
+	stubBareStatus(t, &client.Health{Version: "v1.0.0"}, nil, contract.Manifest{Revision: "rev1"})
+	snap := snapshotForConfig(home, cfg, true)
+	for _, p := range snap.Providers {
+		if p.Name == "codex" && (p.State != "drift" || len(p.NoAccess) != 2) {
+			t.Errorf("codex: state %q no_access %v, want drift with both workspaces", p.State, p.NoAccess)
+		}
+		if p.Name == "claude" && len(p.NoAccess) != 0 {
+			t.Errorf("claude has no_access %v", p.NoAccess)
+		}
+	}
+	var b strings.Builder
+	old := os.Stdout
+	r, wp, _ := os.Pipe()
+	os.Stdout = wp
+	printWorkspaceLines(workspaceStatuses(cfg, "codex", home))
+	wp.Close()
+	os.Stdout = old
+	out, _ := io.ReadAll(r)
+	b.Write(out)
+	if strings.Contains(b.String(), "[moved]") || !strings.Contains(b.String(), "[no access]") {
+		t.Errorf("status lines:\n%s", b.String())
 	}
 }
