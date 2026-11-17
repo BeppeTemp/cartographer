@@ -306,6 +306,11 @@ func New(serverURL, token string) *MCPClient {
 // appends ?kb=<name> to the request URL, see MultiKBServer.Handler in httpserver.go).
 // An empty name targets the server's default single-KB endpoint.
 func (c *MCPClient) WithKB(name string) *MCPClient {
+	if isRoutedURL(c.ServerURL) && name != "" {
+		// The routed mount refuses ?kb= (HTTP 400): it takes the KB as a tool
+		// argument, which WithRoutedKB supplies (#2217).
+		return c.WithRoutedKB(name)
+	}
 	cp := *c
 	cp.KB = name
 	return &cp
@@ -320,6 +325,12 @@ func (c *MCPClient) WithRoutedKB(name string) *MCPClient {
 	cp.KB = ""
 	cp.routedKB = name
 	return &cp
+}
+
+// isRoutedURL reports whether serverURL is the routed endpoint (/mcp/routed).
+func isRoutedURL(serverURL string) bool {
+	u, err := url.Parse(serverURL)
+	return err == nil && strings.HasSuffix(strings.TrimRight(u.Path, "/"), "/mcp/routed")
 }
 
 // toolArgs adds the routed `kb` argument to the arguments of a tool call.

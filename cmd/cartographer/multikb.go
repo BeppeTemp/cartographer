@@ -174,6 +174,17 @@ type serverFacts struct {
 	health *client.Health
 }
 
+// probeCredential makes one authenticated call, to tell a refused token from a
+// server that simply lists no KB. Only the error is the answer.
+func probeCredential(serverURL, tokenSpec string, allowInsecure bool) error {
+	token, name := "", ""
+	if c := (&clientconfig.Config{Auth: true, Token: tokenSpec}); strings.TrimSpace(tokenSpec) != "" {
+		token = resolveToken(c)
+		name = tokenEnvName(c)
+	}
+	return client.New(serverURL, token).WithInsecureHTTP(allowInsecure).WithTokenEnv(name).Ping(probeTimeout)
+}
+
 // enumerateKBs obtains the mounted KB names and the server version from
 // /health.
 func enumerateKBs(serverURL string, auth bool, tokenSpec string, allowInsecure bool) (serverFacts, error) {
