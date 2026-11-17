@@ -384,3 +384,25 @@ func TestResolveCLIProviderIsNarrowedByBindings(t *testing.T) {
 		t.Errorf("claude at provider scope got a derived binding: %+v", got)
 	}
 }
+
+// A linked worktree of a --worktrees binding resolves like the bound folder:
+// its KBs, writable (#2196).
+func TestResolveLinkedWorktreeOfWorktreesBinding(t *testing.T) {
+	root := mkdir(t, t.TempDir())
+	repo := mkdir(t, root, "repo", "main")
+	wt := mkdir(t, root, "repo", "wt1")
+	prev := clientconfig.LinkedWorktrees
+	clientconfig.LinkedWorktrees = func(string) ([]string, error) { return []string{wt}, nil }
+	t.Cleanup(func() { clientconfig.LinkedWorktrees = prev })
+
+	cfg := baseConfig()
+	if err := cfg.BindWorkspaceWith("claude", repo, []string{"kb-b"}, clientconfig.BindOptions{Worktrees: true}); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{repo, wt} {
+		s := Resolve(cfg, "claude", dir)
+		if s.Err != nil || s.Unbound || s.ReadOnly || !reflect.DeepEqual(s.KBs, []string{"kb-b"}) {
+			t.Errorf("%s: scope = %+v, want kb-b writable and bound", dir, s)
+		}
+	}
+}
