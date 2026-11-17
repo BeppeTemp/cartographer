@@ -1803,3 +1803,22 @@ func TestBrokenLinkMapSlash(t *testing.T) {
 		t.Fatalf("want one finding with a fix (one finding per target), got %d of %v", fixed, got)
 	}
 }
+
+// #2239: the orphan message says how to fix it, and the check keeps its name.
+func TestRun_Orphan_MessageNamesTheFix(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "arch/dossier/index.md", "---\ntype: Index\ntitle: Dossier\n---\n")
+	writeFile(t, k.DataRoot(), "arch/dossier/orphan-concept.md", "---\ntype: Note\n---\nNo one links here.\n")
+	writeFile(t, k.DataRoot(), "arch/_archive.md", "---\ntype: Archive\ntitle: Arch\narchive_type: ops\n---\n")
+	findings, _ := Run(k, "", false)
+	f := findingFor(findings, "arch/dossier/orphan-concept.md", "orphan")
+	if f == nil {
+		t.Fatalf("no orphan finding: %v", findings)
+	}
+	for _, w := range []string{"no incoming links", "from an existing page", "same concept_batch", "outgoing links do not count"} {
+		if !strings.Contains(f.Message, w) {
+			t.Errorf("%q missing from %q", w, f.Message)
+		}
+	}
+}

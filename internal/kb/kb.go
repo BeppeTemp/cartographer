@@ -3120,6 +3120,9 @@ func (kb *KB) Validate(scope string) ([]ValidationError, error) {
 		scope = "."
 	}
 
+	if err := kb.CheckScope(scope); err != nil {
+		return nil, err
+	}
 	files, err := kb.listMDFiles(scope)
 	if err != nil {
 		return nil, fmt.Errorf("Validate: list files: %w", err)
@@ -3229,15 +3232,45 @@ func (kb *KB) Validate(scope string) ([]ValidationError, error) {
 				allowed[ct] = true
 			}
 			if !allowed[parsed.Type()] {
+				noun := "map"
+				if kv, _ := meta.Get("kind"); kv == "archive" {
+					noun = "archive"
+				}
 				errs = append(errs, ValidationError{
 					Path:    rel,
-					Message: fmt.Sprintf("type %q not allowed in archive %s (strict)", parsed.Type(), archiveName),
+					Message: fmt.Sprintf("type %q not allowed in %s %s (strict)", parsed.Type(), noun, archiveName),
 				})
 			}
 		}
 	}
 
 	return errs, nil
+}
+
+// ErrUnknownScope is the error of a scope that names no map, folder or concept.
+var ErrUnknownScope = errors.New("unknown scope")
+
+// CheckScope refuses a scope (a map name or a path prefix, as lint, validate
+// and gate_check take it) that names nothing in the KB, so a mistyped one never
+// reads as a clean KB. The message carries no server path (#2239). An empty
+// scope is the whole KB.
+func (kb *KB) CheckScope(scope string) error {
+	norm := strings.TrimSuffix(strings.ReplaceAll(scope, "\\", "/"), "/")
+	if norm == "" || norm == "." {
+		return nil
+	}
+	unknown := fmt.Errorf("%w %q; use a map name (map_list) or an id prefix", ErrUnknownScope, scope)
+	abs, err := kb.ResolvePath(norm)
+	if err != nil {
+		return unknown
+	}
+	if _, err := os.Stat(abs); err == nil {
+		return nil // a folder, or the concept's own file
+	}
+	if fi, err := os.Stat(abs + ".md"); err == nil && !fi.IsDir() {
+		return nil
+	}
+	return unknown
 }
 
 // listMDFiles recursively lists .md files in a directory relative to the data root.

@@ -364,3 +364,17 @@ func TestNonstandardField_KeyedFieldsAreNotSynonyms(t *testing.T) {
 		}
 	}
 }
+
+// #2239: a single observed value is no vocabulary, and the proposal says it
+// narrows future writes.
+func TestMissingValueContract_NeedsTwoDistinctValues(t *testing.T) {
+	t.Parallel()
+	same := []string{"active", "active", "active", "active", "active", "active"}
+	if msg := valueContractKB(t, "", same); msg != "" {
+		t.Errorf("one distinct value proposed a contract: %q", msg)
+	}
+	msg := valueContractKB(t, "", []string{"active", "active", "draft", "draft", "draft", "draft"})
+	if !strings.Contains(msg, "narrows future writes") {
+		t.Errorf("proposal does not warn: %q", msg)
+	}
+}

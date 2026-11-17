@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -103,6 +104,9 @@ func toolValidate(k *kb.KB) Tool {
 			}
 
 			errs, err := k.Validate(params.Scope)
+			if errors.Is(err, kb.ErrUnknownScope) {
+				return errorResult(err.Error()), nil
+			}
 			if err != nil {
 				return errorResult(fmt.Sprintf("validate: %v", err)), nil
 			}
@@ -199,6 +203,9 @@ func toolLint(k *kb.KB) Tool {
 				}
 			}
 
+			if err := k.CheckScope(params.Scope); err != nil {
+				return errorResult(err.Error()), nil
+			}
 			findings, err := lint.Run(k, params.Scope, params.ScopeNeighbors)
 			if err != nil {
 				return errorResult(fmt.Sprintf("lint: %v", err)), nil
@@ -495,6 +502,10 @@ func toolGateCheck(k *kb.KB) Tool {
 				lintScope = "changed_ids"
 			case params.Scope != "":
 				lintScope = "scope"
+			}
+
+			if err := k.CheckScope(params.Scope); err != nil {
+				return errorResult(err.Error()), nil
 			}
 
 			// 1. Validate

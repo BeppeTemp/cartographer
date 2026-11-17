@@ -160,6 +160,7 @@ func IsToolParamField(key string) bool {
 const (
 	valueContractMinConcepts = 5
 	valueContractMaxValues   = 8
+	valueContractMinValues   = 2 // distinct values observed before a vocabulary is proposed (#2239)
 	valueContractTypedShare  = 0.9
 )
 
@@ -505,6 +506,11 @@ func valueContractFindings(mapName string, contract kb.MapContract, fms map[okf.
 		if field != "status" && identifierValued(counts, len(carriers)) {
 			continue
 		}
+		// #2239: one observed value is no vocabulary; a contract made from it
+		// would refuse the next legitimate value.
+		if len(counts) < valueContractMinValues {
+			continue
+		}
 		// D295 WP3: status is always eligible (vocabulary every reader
 		// assumes), with no distinct-value cap.
 		if field != "status" && len(counts) > valueContractMaxValues {
@@ -579,6 +585,7 @@ func valueContractFindings(mapName string, contract kb.MapContract, fms map[okf.
 		}
 		msg := fmt.Sprintf("field %q takes %d distinct value(s) across %d concepts (%s) and has no value contract — declare it in _map.md: %s: [%s]",
 			field, len(counts), len(carriers), strings.Join(observed, ", "), key, strings.Join(proposed, ", "))
+		msg += " (declaring it narrows future writes: any other value is refused until the list names it)"
 		if len(mapping) > 0 {
 			from := make([]string, 0, len(mapping))
 			for m := range mapping {

@@ -67,3 +67,24 @@ func TestRepairedNamesFieldAndFlagsStatusOutsideVocabulary(t *testing.T) {
 		t.Fatalf("a known status was flagged: %v", out["findings"])
 	}
 }
+
+// #2239: lint, validate and gate_check refuse an unknown scope the same way,
+// naming map_list and no server path.
+func TestUnknownScopeIsRefusedByLintValidateGate(t *testing.T) {
+	t.Parallel()
+	s := graphToolKB(t, map[string]string{"ops/alpha.md": "---\ntype: Note\ntitle: A\n---\nx\n"})
+	for _, tool := range []string{"lint", "validate", "gate_check"} {
+		for _, scope := range []string{"nosuchmap", `\"\"`} {
+			text, isErr := callJSON(t, s, adminCtx, tool, `{"scope":"`+scope+`"}`)
+			if !isErr || !strings.Contains(text, "unknown scope") || !strings.Contains(text, "map_list") {
+				t.Errorf("%s %s: %v %q", tool, scope, isErr, text)
+			}
+			if strings.Contains(text, "lstat") || strings.Contains(text, "/data/") {
+				t.Errorf("%s %s: path leaked: %q", tool, scope, text)
+			}
+		}
+		if text, isErr := callJSON(t, s, adminCtx, tool, `{"scope":"ops"}`); isErr {
+			t.Errorf("%s: known scope refused: %q", tool, text)
+		}
+	}
+}
