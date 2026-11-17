@@ -46,6 +46,10 @@ func cmdStatus(args []string) int {
 		return 2
 	}
 	if len(remaining) != 0 {
+		if strings.HasPrefix(remaining[0], "-") {
+			// `status --json` is a guess from other tools: say the flag it has (#2242).
+			fmt.Fprintf(os.Stderr, "Error: unknown flag %q: the format is chosen with --output json\n", escapeControl(remaining[0]))
+		}
 		fmt.Fprintln(os.Stderr, "Usage: cartographer status [--output table|json]")
 		return 2
 	}

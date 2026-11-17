@@ -849,6 +849,9 @@ type portabilityOptions struct {
 	// PruneDenied, when set, collects the workspaces whose orphaned projection
 	// could not be removed for lack of permission (#2178).
 	PruneDenied *[]string
+	// WriteDenied, when set, collects the providers whose write was denied
+	// (#2242): the pass goes on with the others. Nil keeps the error fatal.
+	WriteDenied *[]writeDenial
 }
 
 // kbOrder, keyed by provider, is the KB names in that provider's explicit
@@ -1013,6 +1016,16 @@ func materializeForProviders(manifests map[string]contract.Manifest, projections
 		opts.Skipped = provisioning.AuthorizedSkipped(skipped, manifests[projectionKey(p)], opts)
 		opts.Unplaced = provisioning.UnplacedArtifacts(manifests[projectionKey(p)], configurator.Provider(p.Provider), p.Scope)
 		applied, err := provisioning.Apply(projected, opts)
+		if err != nil && portability.WriteDenied != nil && isWriteDenied(err) {
+			// Nothing of this provider is recorded: its lock entry stays what
+			// the last run wrote, so the next run retries it and judges
+			// whatever the partial write left against that entry (D178). The
+			// providers already applied are recorded by their checkpoint.
+			d := newWriteDenial(p.Label(), p.BaseDir, err)
+			fmt.Fprintf(portability.Streams.err(), "warning: %s not synced: %s\n", p.Label(), escapeControl(d.String()))
+			*portability.WriteDenied = append(*portability.WriteDenied, d)
+			continue
+		}
 		if err != nil {
 			// Name what is already recorded, so a rerun is informed rather
 			// than a guess about how far the previous one got.
@@ -1112,9 +1125,22 @@ func ensureBootstrapForProviders(providers []string, targetDir string, dryRun bo
 	return warnings, err
 }
 
+// ensureBootstrapDenials is ensureBootstrapForProviders for `sync`: a provider
+// whose hook cannot be written for lack of permission is returned as a denial
+// instead of failing the others (#2242).
+func ensureBootstrapDenials(providers []string, targetDir string, dryRun bool) ([]string, []writeDenial, error) {
+	var denied []writeDenial
+	warnings, _, err := ensureBootstrap(providers, targetDir, dryRun, &denied)
+	return warnings, denied, err
+}
+
 // ensureBootstrapRefusals is ensureBootstrapForProviders that also names, per
 // provider, the hooks the guard refused (#1693), for the connect summary.
 func ensureBootstrapRefusals(providers []string, targetDir string, dryRun bool) ([]string, map[string][]string, error) {
+	return ensureBootstrap(providers, targetDir, dryRun, nil)
+}
+
+func ensureBootstrap(providers []string, targetDir string, dryRun bool, denied *[]writeDenial) ([]string, map[string][]string, error) {
 	lockPath := lockFilePath(targetDir)
 	lockFile, err := provisioning.ReadLockFile(lockPath)
 	if err != nil {
@@ -1138,6 +1164,12 @@ func ensureBootstrapRefusals(providers []string, targetDir string, dryRun bool) 
 			refused[p] = append(refused[p], partBootstrapHook)
 			continue
 		}
+		if err != nil && denied != nil && isWriteDenied(err) {
+			d := newWriteDenial(p, targetDir, err)
+			warnings = append(warnings, fmt.Sprintf("%s: bootstrap hook not installed: %s", p, d))
+			*denied = append(*denied, d)
+			continue
+		}
 		if err != nil {
 			return nil, nil, fmt.Errorf("ensure bootstrap hook (%s): %w", p, err)
 		}
@@ -1148,6 +1180,10 @@ func ensureBootstrapRefusals(providers []string, targetDir string, dryRun bool) 
 		if provisioning.IsRefusal(err) {
 			warnings = append(warnings, fmt.Sprintf("%s: write-findings hook not installed: %v", p, err))
 			refused[p] = append(refused[p], partFindingsHook)
+		} else if err != nil && denied != nil && isWriteDenied(err) {
+			d := newWriteDenial(p, targetDir, err)
+			warnings = append(warnings, fmt.Sprintf("%s: write-findings hook not installed: %s", p, d))
+			*denied = append(*denied, d)
 		} else if err != nil {
 			return nil, nil, fmt.Errorf("ensure write-findings hook (%s): %w", p, err)
 		} else {
@@ -1578,6 +1614,29 @@ func bindPositionals(cmd string, pos []string, dst ...*string) int {
 		*dst[i] = v
 	}
 	return 0
+}
+
+// bindTargetPositional is bindPositionals for connect, reconnect and disconnect,
+// whose one positional is the server (or a provider name): a second word that
+// looks like a provider name is the user listing agents, so the error names the
+// flag that does it (#2242).
+func bindTargetPositional(cmd string, pos []string, dst *string) int {
+	if len(pos) > 1 && looksLikeAgentNames(pos) {
+		fmt.Fprintf(os.Stderr, "Error: %s: unexpected argument %q: to pick several agents use --agents %s\n", cmd, pos[1], strings.Join(pos, ","))
+		return 2
+	}
+	return bindPositionals(cmd, pos, dst)
+}
+
+// looksLikeAgentNames reports whether every word is a bare provider-style name
+// (no URL, path or host), which is what a list of agents looks like.
+func looksLikeAgentNames(words []string) bool {
+	for _, w := range words {
+		if w == "" || strings.ContainsAny(w, "/:.\\") {
+			return false
+		}
+	}
+	return true
 }
 
 // noExtraArgs parses a command that takes flags only: a positional is a usage
