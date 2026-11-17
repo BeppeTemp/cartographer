@@ -119,7 +119,7 @@ func cmdServiceSyncTimer(args []string) int {
 	switch action {
 	case "install":
 		fs := flag.NewFlagSet("service sync-timer install", flag.ExitOnError)
-		interval := fs.Duration("interval", service.DefaultSyncInterval, "How often to run `cartographer sync`")
+		interval := fs.Duration("interval", service.DefaultSyncInterval, "How often to run 'cartographer sync'")
 		if code := noExtraArgs(fs, rest); code != 0 {
 			return code
 		}
@@ -225,7 +225,7 @@ func cmdServiceInstall(args []string) int {
 	configFlag := fs.String("config", defaultConfig, "Path to the generated server config YAML")
 	dataFlag := fs.String("data", defaultDataDir(), "KB data directory (only used when generating a new config)")
 	httpFlag := fs.String("http", defaults.DefaultListenAddress, "HTTP listen address (only used when generating a new config)")
-	noTray := fs.Bool("no-tray", false, "Do not install the status icon (tray); remembered until `service tray install`")
+	noTray := fs.Bool("no-tray", false, "Do not install the status icon (tray); remembered until 'service tray install'")
 	configOnly := fs.Bool("config-only", false, "Write the config and create the data directory only, install nothing (for hosts with no service manager)")
 	if code := noExtraArgs(fs, args); code != 0 {
 		return code

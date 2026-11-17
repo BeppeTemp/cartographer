@@ -38,6 +38,10 @@ func NewLayout() *Layout {
 	return &Layout{order: map[uintptr][]string{}, indent: "  ", trailingNL: true}
 }
 
+// ErrInvalid is what Parse returns for a document that is not JSON: an empty or
+// blank file, a syntax error, trailing data or nesting past the depth limit.
+var ErrInvalid = errors.New("not valid JSON")
+
 // maxJSONDepth bounds the nesting a file may have to be rewritten. A client
 // settings file is a few levels deep; the encoder indents every level, so output
 // grows with the square of the depth, and a hostile file in a repository (18 KB
@@ -56,7 +60,7 @@ func Parse(data []byte) (map[string]interface{}, *Layout, error) {
 	// json.Valid first: it is iterative and refuses what json.Unmarshal would
 	// (trailing data, nesting past its depth limit) before decodeOrdered recurses.
 	if !json.Valid(data) {
-		return nil, nil, errors.New("not valid JSON")
+		return nil, nil, ErrInvalid
 	}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()

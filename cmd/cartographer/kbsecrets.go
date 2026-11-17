@@ -23,6 +23,10 @@ const kbSecretsUsage = "Usage: cartographer kb secrets init <kb> --recipient <ag
 
 // cmdKBSecrets dispatches `cartographer kb secrets <subcommand>`.
 func cmdKBSecrets(args []string) int {
+	if len(args) > 0 && isHelpArg(args[0]) {
+		fmt.Fprintln(os.Stdout, kbSecretsUsage)
+		return 0
+	}
 	if len(args) == 0 || args[0] != "init" {
 		fmt.Fprintln(os.Stderr, kbSecretsUsage)
 		return 2

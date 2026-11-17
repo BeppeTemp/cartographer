@@ -382,7 +382,7 @@ func cmdConnect(args []string) int {
 	workspaceFlag := fs.String("workspace", "", "Project the selected KBs into this repository instead of the global catalogue (D193)")
 	var pluginSrcs repeatedString
 	fs.Var(&pluginSrcs, "plugin", "Install a plugin (git URL[@ref] or folder) before the agents are resolved (repeatable)")
-	noTray := fs.Bool("no-tray", false, "Do not install the status icon (tray); remembered until `service tray install`")
+	noTray := fs.Bool("no-tray", false, "Do not install the status icon (tray); remembered until 'service tray install'")
 	approvePlugins := fs.Bool("approve-plugins", false, "Approve the plugins installed by this run, after printing what each one runs")
 	if code := bindPositionals("connect", parseFlagsAnywhere(fs, args), &target); code != 0 {
 		return code
@@ -1133,8 +1133,8 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 		for _, provider := range opts.Providers {
 			p := configurator.Provider(provider)
 			if !provisioning.SupportsProjectScope(p) {
-				return connectResult{}, fmt.Errorf("%s cannot be scoped to a workspace: %s",
-					provider, provisioning.ProjectScopeUnsupportedReason(p))
+				return connectResult{}, fmt.Errorf("%s cannot be scoped to a workspace: %s; drop %s from --agents to connect the others to the workspace, and connect %s on its own without --workspace",
+					provider, provisioning.ProjectScopeUnsupportedReason(p), provider, provider)
 			}
 			if err := existing.BindWorkspace(provider, opts.Workspace, selected); err != nil {
 				return connectResult{}, err

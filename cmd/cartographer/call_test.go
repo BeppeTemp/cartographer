@@ -238,7 +238,7 @@ func TestCallListAndDescribe(t *testing.T) {
 		t.Errorf("describe: %d %q", code, out)
 	}
 	code, _, e = runCall(t, "", "--provider", "claude", "--dir", ws, "--describe", "nope")
-	if code != 2 || !strings.Contains(e, `unknown tool "nope"; run "cartographer call --list"`) {
+	if code != 2 || !strings.Contains(e, `unknown tool "nope"; run "cartographer call --provider claude --list"`) {
 		t.Errorf("describe unknown: %d %q", code, e)
 	}
 }

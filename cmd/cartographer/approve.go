@@ -27,6 +27,19 @@ var (
 
 const approveUsage = "Usage: cartographer approve [revoke] <kind> <name> [--kb <kb>] [--yes] [--sync]   (kind: mcp, hook, skill, agent)\n       cartographer approve --pending [--kb <kb>] [--yes] [--sync]\n  --sync runs cartographer sync right after the approval (or the revoke) is written"
 
+// approveSyncFollows is true while cmdApprove has --sync to run: the messages
+// then do not tell the operator to run the sync that is about to run.
+var approveSyncFollows bool
+
+// syncAdvice is the "; run cartographer sync to <what>" tail of an approval
+// message, empty when --sync runs it right after.
+func syncAdvice(what string) string {
+	if approveSyncFollows {
+		return ""
+	}
+	return "; run cartographer sync to " + what
+}
+
 func cmdApprove(args []string) int {
 	if hasHelpFlag(args) {
 		fmt.Fprintln(os.Stdout, approveUsage)
@@ -38,6 +51,8 @@ func cmdApprove(args []string) int {
 	if i := slices.Index(args, "--sync"); i >= 0 {
 		runSync, args = true, slices.Delete(slices.Clone(args), i, i+1)
 	}
+	approveSyncFollows = runSync
+	defer func() { approveSyncFollows = false }()
 	then := func(code int) int {
 		if code == 0 && runSync {
 			return syncFn(nil)
@@ -101,7 +116,7 @@ func cmdApprove(args []string) int {
 			return 2
 		}
 		if kind == "mcp" {
-			fmt.Printf("revoked approval for MCP %s from KB %s; run cartographer sync to prune generated provider config\n", name, kbName)
+			fmt.Printf("revoked approval for MCP %s from KB %s%s\n", name, kbName, syncAdvice("prune generated provider config"))
 		} else {
 			fmt.Printf("revoked approval for %s %s from KB %s; what is already installed stays installed and registered (and keeps running) but is no longer refreshed: to remove it, delete its files and its registration in the client's settings by hand\n", kind, name, kbName)
 		}
@@ -119,7 +134,7 @@ func cmdApprove(args []string) int {
 		}
 	}
 	if len(matches) == 0 {
-		fmt.Fprintf(os.Stderr, "Error: %s artifact is not advertised by the server\n", kind)
+		fmt.Fprintf(os.Stderr, "Error: no %s artifact named %q is advertised by the server%s; check the name against cartographer approve --pending\n", kind, name, kbScope(kbName))
 		return 2
 	}
 	if len(matches) != 1 {
@@ -158,7 +173,7 @@ func cmdApprove(args []string) int {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
 	}
-	fmt.Printf("approved %s %s from KB %s; run cartographer sync to materialize it\n", kind, escapeControl(name), escapeControl(source))
+	fmt.Printf("approved %s %s from KB %s%s\n", kind, escapeControl(name), escapeControl(source), syncAdvice("materialize it"))
 	return then(0)
 }
 
@@ -450,6 +465,14 @@ func cmdApprovePending(args []string) (code int, approved bool) {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2, false
 	}
-	fmt.Printf("approved %d artifact(s); run cartographer sync to materialize them\n", len(pending))
+	fmt.Printf("approved %d artifact(s)%s\n", len(pending), syncAdvice("materialize them"))
 	return 0, true
+}
+
+// kbScope is " in KB <kb>" for a refusal that was narrowed with --kb.
+func kbScope(kb string) string {
+	if kb == "" {
+		return ""
+	}
+	return " in KB " + escapeControl(kb)
 }

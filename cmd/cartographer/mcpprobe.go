@@ -187,7 +187,13 @@ func printProbe(w io.Writer, kb, name string, r mcpprobe.Result) {
 		fmt.Fprintf(w, "via: %s\n", escapeControl(r.Via))
 	}
 	if r.Error != "" {
-		fmt.Fprintf(w, "session: failed: %s\n", escapeControl(r.Error))
+		// A child's stderr is several lines: one escaped line each, the first
+		// after the label, the rest indented under it.
+		lines := strings.Split(strings.TrimRight(r.Error, "\r\n"), "\n")
+		fmt.Fprintf(w, "session: failed: %s\n", escapeControl(strings.TrimRight(lines[0], "\r")))
+		for _, l := range lines[1:] {
+			fmt.Fprintf(w, "  %s\n", escapeControl(strings.TrimRight(l, "\r")))
+		}
 	} else if r.Protocol != "" {
 		fmt.Fprintf(w, "session: ok, protocol %s, server %s\ntools: %d\n", escapeControl(r.Protocol), escapeControl(r.Server), r.Tools)
 		for _, n := range r.ToolNames {

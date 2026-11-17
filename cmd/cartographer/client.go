@@ -402,6 +402,17 @@ func clientUnbind(dir string, cfg *clientconfig.Config, args []string) int {
 		return code
 	}
 
+	// Unbinding what is not bound changes nothing: say so rather than answer as
+	// if it had worked.
+	before, explicit := cfg.BoundKBs(provider)
+	for _, kb := range kbs {
+		switch {
+		case !explicit:
+			fmt.Fprintf(os.Stderr, "Note: %s has no explicit KB binding (it follows every known KB), so there is nothing to unbind for %s; `cartographer client bind %s <kb>` picks the KBs\n", provider, kb, provider)
+		case !slices.Contains(before, kb):
+			fmt.Fprintf(os.Stderr, "Note: %s was not bound to %s (bound: %s)\n", kb, provider, formatKBList(before))
+		}
+	}
 	for _, kb := range kbs {
 		if err := cfg.Unbind(provider, kb); err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)

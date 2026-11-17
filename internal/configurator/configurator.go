@@ -411,7 +411,7 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 					return written, fmt.Errorf("%s: %w", fullPath, mergeErr)
 				}
 				if mergeErr != nil {
-					return written, fmt.Errorf("existing file %s is not valid JSON: %w — fix or delete it manually", fullPath, mergeErr)
+					return written, unusableJSON(fullPath, mergeErr)
 				}
 				content = merged
 				var cur map[string]any
@@ -641,7 +641,7 @@ func removeEntryAt(cfg *ServerConfig, provider Provider, baseDir, relPath string
 	// removing our entry must not reorder, reindent or re-escape the rest (#1502).
 	root, layout, err := jsonorder.Parse(data)
 	if err != nil {
-		return false, fmt.Errorf("existing file %s is not valid JSON: %w — fix or delete it manually", fullPath, err)
+		return false, unusableJSON(fullPath, err)
 	}
 
 	// The entry may sit in any shape the provider reads (OpenCode's native
@@ -1259,4 +1259,13 @@ func emitAntigravityServer(name string, spec ServerSpec, _ EmitOptions) (*EmitRe
 		FilePath: ".gemini/config/mcp_config.json",
 		Content:  content,
 	}, nil
+}
+
+// unusableJSON is the refusal for a client config file that cannot be edited
+// in place. It says what to do: the file is left as it was.
+func unusableJSON(path string, err error) error {
+	if errors.Is(err, jsonorder.ErrInvalid) {
+		return fmt.Errorf("existing file %s is not valid JSON (an empty or blank file is not either): fix it, or delete it so that cartographer writes a new one", path)
+	}
+	return fmt.Errorf("existing file %s cannot be edited: %w; fix it, or delete it so that cartographer writes a new one", path, err)
 }

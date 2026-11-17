@@ -153,6 +153,8 @@ var surveyorRunFn = func(ctx context.Context, env *surveyorEnv, once bool) int {
 	return r.Run(ctx, once)
 }
 
+const surveyorUsage = "usage: cartographer surveyor --config <file> [--once] [--log-file <file>]\n       cartographer surveyor source test --config <file> ... (try a recipe before deploying it)"
+
 // cmdSurveyor runs `cartographer surveyor --config <file>`: the third role of the
 // binary, a background process for one perimeter. `serve` never starts it.
 func cmdSurveyor(args []string) int {
@@ -161,15 +163,21 @@ func cmdSurveyor(args []string) int {
 	}
 	fs := flag.NewFlagSet("surveyor", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	fs.Usage = func() {
+		fmt.Fprintln(os.Stderr, surveyorUsage)
+		fs.PrintDefaults()
+	}
 	configFlag := fs.String("config", "", "Path to the Surveyor YAML config (required)")
 	onceFlag := fs.Bool("once", false, "Evaluate the triggers once, run if due, and exit")
 	logFileFlag := fs.String("log-file", "", "Append the log to this file instead of stderr (created if absent; never rotated)")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return surveyorExitStart
 	}
 	if *configFlag == "" {
-		fmt.Fprintln(os.Stderr, "usage: cartographer surveyor --config <file> [--once] [--log-file <file>]\n       cartographer surveyor source test --config <file> ... (try a recipe before deploying it)")
-		fs.PrintDefaults()
+		fs.Usage()
 		return surveyorExitStart
 	}
 	if *logFileFlag != "" {

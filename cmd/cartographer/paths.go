@@ -459,7 +459,7 @@ func cmdPathsUnset(args []string) int {
 	remaining := withoutIgnored(cfg.IgnoredPaths, key, kind)
 	hadIgnore := len(remaining) != len(cfg.IgnoredPaths)
 	if !hadPath && !hadIgnore {
-		fmt.Fprintf(os.Stderr, "Error: no %q entry under paths: and no ignored key of that name\n", key)
+		fmt.Fprintf(os.Stderr, "Error: no %q entry under paths: and no ignored key of that name\n", args[0])
 		return 1
 	}
 	delete(cfg.Paths, key)
@@ -468,7 +468,7 @@ func cmdPathsUnset(args []string) int {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 1
 	}
-	fmt.Printf("paths: %s removed\n", key)
+	fmt.Printf("paths: %s removed\n", args[0])
 	fmt.Println("apply it with: cartographer sync")
 	return 0
 }

@@ -182,7 +182,7 @@ func cmdCall(args []string) int {
 				}
 				return 0
 			}
-			return describeTools(tools, *describe, "cartographer call --list", fail)
+			return describeTools(tools, *describe, "cartographer call --provider "+*provider+" --list", fail)
 		}
 		if len(rawPairs) > 0 {
 			// The schema types the key=value words (#1802). A bridge that
