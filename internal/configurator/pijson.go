@@ -25,7 +25,6 @@ package configurator
 // entry that silently does nothing.
 
 import (
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"sort"
@@ -73,7 +72,7 @@ func emitPiServer(name string, spec ServerSpec, _ EmitOptions) (*EmitResult, err
 	default:
 		return nil, fmt.Errorf("mcp %q: unsupported transport %q", name, spec.Type)
 	}
-	content, err := json.MarshalIndent(map[string]any{"mcpServers": map[string]any{name: entry}}, "", "  ")
+	content, err := marshalJSONIndent(map[string]any{"mcpServers": map[string]any{name: entry}})
 	if err != nil {
 		return nil, err
 	}

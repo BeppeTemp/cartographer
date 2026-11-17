@@ -11,7 +11,6 @@ package configurator
 // and are never written either.
 
 import (
-	"encoding/json"
 	"fmt"
 )
 
@@ -44,7 +43,7 @@ func emitClineServer(name string, spec ServerSpec, _ EmitOptions) (*EmitResult, 
 	default:
 		return nil, fmt.Errorf("mcp %q: unsupported transport %q", name, spec.Type)
 	}
-	content, err := json.MarshalIndent(map[string]any{"mcpServers": map[string]any{name: entry}}, "", "  ")
+	content, err := marshalJSONIndent(map[string]any{"mcpServers": map[string]any{name: entry}})
 	if err != nil {
 		return nil, err
 	}

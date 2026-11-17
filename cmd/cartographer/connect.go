@@ -601,6 +601,57 @@ func isRejectedCredential(err error) bool {
 	return errors.Is(err, client.ErrUnauthorized) || (errors.As(err, &re) && re.HTTPStatus == http.StatusForbidden)
 }
 
+// rejectedTokenError words a 401/403 of the server: where the token that was
+// sent came from, and the flags that fix it. There is no --token flag: the
+// token is read from the variable --token-env names (default
+// CARTOGRAPHER_TOKENS), and only --auth sends it.
+func rejectedTokenError(auth bool, token string, cause error) error {
+	cfg := &clientconfig.Config{Auth: auth, Token: token}
+	env := tokenEnvName(cfg)
+	if env == "" {
+		env = "CARTOGRAPHER_TOKENS"
+	}
+	fix := fmt.Sprintf("pass --auth and export the token in $%s (--token-env names another variable)", env)
+	switch {
+	case auth && tokenEnvName(cfg) == "":
+		fix = "fix the literal token connect was given"
+	case auth:
+		fix = fmt.Sprintf("export a valid token in $%s (--token-env names another variable)", env)
+	}
+	return fmt.Errorf("the server rejected the token (%s); %s, then run connect again: %w; the server is reachable; nothing was written", tokenSourceName(cfg), fix, cause)
+}
+
+// checkServerURLTarget refuses a server URL that is not an MCP endpoint of the
+// server it reached, once the server's own KB list is known: a /mcp/<kb> naming
+// a KB it does not mount, or a path that is neither /mcp, /mcp/routed nor
+// /mcp/<kb>. Written as it was, every later sync fails with an HTTP 400/404
+// while connect said "connected" (#2195). The server not listing its KBs (an
+// older one) is not verified, as before.
+func checkServerURLTarget(serverURL string, facts serverFacts) error {
+	if !facts.Listed {
+		return nil
+	}
+	u, err := url.Parse(serverURL)
+	if err != nil {
+		return nil // CheckServerURL already judged the URL
+	}
+	mounted := "this server mounts no KB"
+	if len(facts.Names) > 0 {
+		mounted = "this server mounts " + strings.Join(facts.Names, ", ")
+	}
+	if kb := client.PerKBName(serverURL); kb != "" && !strings.HasSuffix(u.Path, "/") {
+		if !slices.Contains(facts.Names, kb) {
+			return fmt.Errorf("--server-url %s names the KB %q, which the server does not mount: %s; use http(s)://<host>/mcp with --kb <name>, or /mcp/<name> of a mounted KB", serverURL, kb, mounted)
+		}
+		return nil
+	}
+	// A trailing slash is its own failure: /mcp/ is served as a KB with no name.
+	if p := u.Path; strings.HasSuffix(p, "/mcp") || strings.HasSuffix(p, "/mcp/routed") {
+		return nil
+	}
+	return fmt.Errorf("--server-url %s is not an MCP endpoint of the server (its path %q does not end in /mcp, with no trailing slash): %s; use http(s)://<host>/mcp", serverURL, u.Path, mounted)
+}
+
 // tokenSourceName says where the token that was sent came from.
 func tokenSourceName(cfg *clientconfig.Config) string {
 	switch {
@@ -1040,6 +1091,16 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 	}
 	facts, healthErr := enumerateKBs(opts.ServerURL, opts.Auth, opts.Token, opts.insecureHTTPAllowed())
 	kbs := facts.Names
+	// A refused credential is said as such, before the KB selection can hide
+	// it behind "the KB list could not be read" (#2195).
+	if isRejectedCredential(healthErr) {
+		return connectResult{}, rejectedTokenError(opts.Auth, opts.Token, healthErr)
+	}
+	if healthErr == nil {
+		if err := checkServerURLTarget(opts.ServerURL, facts); err != nil {
+			return connectResult{}, err
+		}
+	}
 
 	// 1a. Resolve and persist the KB selection BEFORE the first MCP entry or
 	// artifact is written (D190). `client bind` can only narrow a provider
@@ -1148,24 +1209,64 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 	} else if isRejectedCredential(pullErr) {
 		// The server answered and refused the credential: not "unreachable", and
 		// saving a config that cannot sync would hide it (#1299).
-		return connectResult{}, fmt.Errorf("the server rejected the token (%s); fix it (--token, or the variable it names) and run connect again: %w; the server is reachable; nothing was written", tokenSourceName(pullCfg), pullErr)
+		return connectResult{}, rejectedTokenError(opts.Auth, opts.Token, pullErr)
 	}
 
+	var retainedKBs []string
+	// persist writes .cartographer.yaml and the token file. It runs once before
+	// the first provider file is written and again at the end: a connect that
+	// fails part-way (a config dir that is not writable) then leaves the client
+	// config naming the providers it started on, so `status`, `sync` and a
+	// second `connect` see what is there instead of "no client config found"
+	// beside half-written provider files (#2195).
+	persist := func(early bool) error {
+		existing.ServerURL, existing.ServerName, existing.Auth, existing.Token = opts.ServerURL, opts.Name, opts.Auth, opts.Token
+		// Set on purpose, even when equal to the default Load applied.
+		existing.Assigned("server.url", "server.name", "server.token")
+		existing.AllowInsecureHTTP = opts.AllowInsecureHTTP
+		// The early save keeps the previous list: the refusals below read it to
+		// know which KBs still have a stale entry of ours.
+		if healthErr == nil && !early {
+			existing.KnownKBs = withRetainedKBs(kbs, retainedKBs)
+		}
+		for _, p := range opts.Providers {
+			existing.AddAgent(p)
+		}
+		if opts.DryRun {
+			return nil
+		}
+		if err := clientconfig.Save(opts.Dir, existing); err != nil {
+			return err
+		}
+		return syncTokenFile(opts)
+	}
+	// partial words an error after the first write: what is on disk and how to resume.
+	partial := func(err error) error {
+		if opts.DryRun || err == nil {
+			return err
+		}
+		return fmt.Errorf("%w\nconnect stopped part-way: %s is saved in %s, and the MCP entries of %s may be written in part; fix the cause and run `cartographer connect %s` again to finish (`cartographer disconnect %s` undoes it)",
+			err, clientconfig.FileName, opts.Dir, strings.Join(opts.Providers, ", "), strings.Join(opts.Providers, " "), strings.Join(opts.Providers, " "))
+	}
+
+	if err := persist(true); err != nil {
+		return connectResult{}, err
+	}
 	// A symlinked config file or directory is refused for its provider only
 	// (D148): the refusal is a warning, the other providers proceed.
-	var refusalNotes, retainedKBs []string
+	var refusalNotes []string
 	noteOnDiskBridgeCommand(opts.Providers, entriesByProvider, opts.Dir, claudeDirs)
 	if _, _, err := removeMCPEntries(opts.Name, existing.KnownKBs, providersToClear(opts.Providers, entriesByProvider), opts.Dir, claudeDirs, opts.Auth, opts.tokenEnvName(), opts.DryRun, entriesByProvider); provisioning.IsRefusal(err) {
 		refusalNotes = refusalWarnings(err)
 		// Their stale entries stay, so these KBs stay in known_kbs (as in sync).
 		retainedKBs = refusedEntryKBs(err, opts.Name, existing.KnownKBs)
 	} else if err != nil {
-		return connectResult{}, err
+		return connectResult{}, partial(err)
 	}
 	authorWarnings := setEntryAuthors(existing, entriesByProvider, globalIdentFn)
 	configsWritten, configWarnings, refusedMCP, err := applyMCPEntriesRefusals(entriesByProvider, opts.Providers, opts.Dir, claudeDirs, opts.Auth, opts.tokenEnvName(), opts.DryRun)
 	if err != nil {
-		return connectResult{}, err
+		return connectResult{}, partial(err)
 	}
 	configWarnings = appendUnique(append(configWarnings, authorWarnings...), refusalNotes...)
 	// A routed server writes one entry per provider, and one entry cannot
@@ -1194,7 +1295,7 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 	// the server comes back.
 	hookWarnings, hookRefused, err := ensureBootstrapRefusals(opts.Providers, opts.Dir, opts.DryRun)
 	if err != nil {
-		return connectResult{}, fmt.Errorf("ensure bootstrap hook: %w", err)
+		return connectResult{}, partial(fmt.Errorf("ensure bootstrap hook: %w", err))
 	}
 	configWarnings = appendUnique(configWarnings, hookWarnings...)
 
@@ -1217,7 +1318,7 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 		}
 		applied, err := materialize()
 		if err != nil {
-			return connectResult{}, err
+			return connectResult{}, partial(err)
 		}
 		// The placeholder step (D262): the keys are only known now, after the
 		// pull, so this is where they can be asked for. Answers go into
@@ -1228,7 +1329,7 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 			if rows := unresolvedRowsOf(applied, existing.IgnoredPaths); len(rows) > 0 {
 				answers, err := runPathsForm(rows)
 				if err != nil {
-					return connectResult{}, fmt.Errorf("placeholder step: %w", err)
+					return connectResult{}, partial(fmt.Errorf("placeholder step: %w", err))
 				}
 				if len(answers) > 0 {
 					if existing.Paths == nil {
@@ -1242,7 +1343,7 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 						existing.Paths[key] = path
 					}
 					if applied, err = materialize(); err != nil {
-						return connectResult{}, err
+						return connectResult{}, partial(err)
 					}
 				}
 			}
@@ -1253,24 +1354,9 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 	}
 	res.Skipped = skippedParts(refusedMCP, hookRefused, res.Applied)
 
-	// 3. Persist .cartographer.yaml.
-	existing.ServerURL, existing.ServerName, existing.Auth, existing.Token = opts.ServerURL, opts.Name, opts.Auth, opts.Token
-	// Set on purpose, even when equal to the default Load applied.
-	existing.Assigned("server.url", "server.name", "server.token")
-	existing.AllowInsecureHTTP = opts.AllowInsecureHTTP
-	if healthErr == nil {
-		existing.KnownKBs = withRetainedKBs(kbs, retainedKBs)
-	}
-	for _, p := range opts.Providers {
-		existing.AddAgent(p)
-	}
-	if !opts.DryRun {
-		if err := clientconfig.Save(opts.Dir, existing); err != nil {
-			return connectResult{}, err
-		}
-		if err := syncTokenFile(opts); err != nil {
-			return connectResult{}, err
-		}
+	// 3. Persist .cartographer.yaml (again: it was saved before the first write).
+	if err := persist(false); err != nil {
+		return connectResult{}, err
 	}
 
 	return res, nil
@@ -1419,7 +1505,12 @@ func resolveConnectKBs(cfg *clientconfig.Config, opts connectOptions, facts serv
 	}
 	mounted := facts.Names
 	listed := healthErr == nil && facts.Listed
-	return resolveKBSelection(opts.KBs, mounted, listed)
+	out, err := resolveKBSelection(opts.KBs, mounted, listed)
+	if err != nil && !listed && !opts.Auth && len(opts.KBs) == 1 && opts.KBs[0] == kbSelectionAll {
+		// An anonymous /health lists no KB of a server that wants a token.
+		err = fmt.Errorf("%w (a server with auth lists its KBs only to a token: pass --auth, with the token in $CARTOGRAPHER_TOKENS or the variable --token-env names)", err)
+	}
+	return out, err
 }
 
 // allProvidersBound reports whether every provider already has an explicit

@@ -488,6 +488,8 @@ The provider (and, for `kb` subcommands, the KB name) may be written before, bet
 (`connect claude --kb all`, `connect --kb all claude`); a second positional is a usage error naming it
 (exit 2), never ignored. A `--server-url` ending in `/mcp/<segment>` that fails `/health` with 404 is answered with a hint that the server URL is the one ending in `/mcp`.
 
+Before anything is written, `connect` checks the URL against the server it reached (#2195): a `/mcp/<kb>` naming a KB the server does not mount, a path that does not end in `/mcp` (or `/mcp/routed`, or a mounted `/mcp/<kb>`), or a trailing slash is refused, naming the KBs the server mounts. A 401/403 while reading the KB list is reported as a rejected token, with the real flags: `--auth` sends the token, read from the variable `--token-env` names (default `CARTOGRAPHER_TOKENS`); there is no `--token` flag. `connect` saves `.cartographer.yaml` before it writes the first provider file, so one that fails part-way (a config directory that is not writable) leaves the client config, names what may be written and says to run `connect` again to finish. A client config file that already exists and is not valid is refused for every provider, as `fix or delete it manually`: JSON for the JSON ones, TOML (a line-level syntax check, not a decoder) for Codex's `config.toml`. URLs are written with a plain `&` in every JSON config, the form `sync` keeps.
+
 | Flag | Default | Description |
 |------|---------|-------------|
 | (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `antigravity` \| `crush` \| `copilot` \| `pi` \| `cline` \| `all` (all detected agents) |
@@ -1375,7 +1377,7 @@ name (and its bindings) in memory, `sync`/`connect`/`status`/`doctor` print once
 | Claude Code | `.claude.json` (also `<dir>/.claude.json` for each `providers.claude.config_dirs`, D755) | `mcpServers` (JSON) |
 | Codex CLI | `.codex/config.toml` | managed block `[mcp_servers.cartographer]` (TOML, marker `cartographer:mcp:*`) |
 | Kiro | `.kiro/settings/mcp.json` | `mcpServers` (JSON) |
-| OpenCode | `.config/opencode/opencode.json` (an entry left in `opencode.json` by an earlier version is moved, #1172) | `mcp.servers.<name>` (2.x; the V1 `mcp.<name>` on 1.x; an unreadable version keeps the shape already on disk, and `sync` does not remove an entry it re-emits, #2102, so that holds) |
+| OpenCode | `.config/opencode/opencode.json` (an entry left in `opencode.json` by an earlier version is moved, #1172; next to an existing `opencode.jsonc` the `opencode.json` is still the managed file, which OpenCode merges with it; the `.jsonc` is never read or written, and one note says so when the `.json` is created, #2195) | `mcp.servers.<name>` (2.x; the V1 `mcp.<name>` on 1.x; an unreadable version keeps the shape already on disk, and `sync` does not remove an entry it re-emits, #2102, so that holds) |
 | Google Antigravity | `.gemini/config/mcp_config.json` | `mcpServers` (JSON) |
 | Crush | `.config/crush/crush.json` | `mcp` (JSON) |
 | GitHub Copilot (CLI, VS Code) | `.copilot/mcp-config.json` | `mcpServers` (JSON) |
