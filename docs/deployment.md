@@ -2096,6 +2096,13 @@ backup before discarding any state.
 - **0.29: a write into a folder with no `_map.md` is refused** (`unmapped_folder`) when the KB declares Maps.
 - **0.29: `audit verify` and `audit export` exit 3** on an intact chain that has unfinished attempts; the next server start appends `interrupted` completions.
 - **0.29: `connect` refuses** an invalid Codex `config.toml`, a `/mcp/<unknown-kb>` URL and a URL whose path does not end in `/mcp`.
+- **0.29: `connect` refuses a `--server-url` with `?kb=`**: choose the KB with `--kb <name>` or `/mcp/<name>`.
+- **0.29: `sync`, `reconnect` and `upgrade-repair` exit 3** on a denied prune or an unreadable bound workspace (`configurator.md`, `sync.md`).
+- **0.29: `status` shows `[no access]`, not `[moved]`**, for a bound workspace the process cannot read; the tray shows No access or Approval pending.
+- **0.29: `service install` refuses a `--config` the server cannot load** and stops nothing (`--config-only` does not check).
+- **0.29: an invalid `mcp/<name>.json` is left out of `sync_pull`** with an issue (lint `mcp_invalid`): a descriptor served before disappears from clients until it is fixed.
+- **0.29: malformed `secret_refs` are refused** (`secret_ref_broken`).
+- **0.29: the write gate judges `unknown_type`**, and `services/` is never `unmapped_folder`.
 - **0.29: `gate_check` with empty `changed_ids` fails** on open non-gap Contradictions (`blocked_by`).
 - **0.29: a Contradiction is closed by `resolution_status`** (`resolved` or `wontfix`); the new `contradiction_status` lint may flag existing KBs.
 - **0.29: these calls are now errors**: `lint` with an unknown check, `graph_neighbors` on an unknown id, `secret_set` with an empty value, `concept_write` with an unresolvable `secret_refs`, `asset_read` with `encoding: text` on binary content.
