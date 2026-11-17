@@ -3,6 +3,7 @@ package provisioning
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -58,7 +59,13 @@ func gitTrackedPaths(dir string) (map[string]bool, error) {
 	cmd.Env = gitx.Env()
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("provisioning: list tracked files in %s: %w", dir, gitErr(err))
+		gerr := gitErr(err)
+		if strings.Contains(gerr.Error(), "Operation not permitted") || strings.Contains(gerr.Error(), "Permission denied") {
+			// A folder the process may not enter (a TCC denial, chmod 000):
+			// callers that survive a permission error recognise it (#2218).
+			gerr = fmt.Errorf("%w: %v", fs.ErrPermission, gerr)
+		}
+		return nil, fmt.Errorf("provisioning: list tracked files in %s: %w", dir, gerr)
 	}
 	tracked := map[string]bool{}
 	for _, p := range strings.Split(string(out), "\x00") {

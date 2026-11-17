@@ -3560,9 +3560,10 @@ var ErrProviderNotRegistered = errors.New("provider is not registered")
 // absolute or leaves the base dir: it is never read, written or removed.
 var ErrUnsafeManagedPath = errors.New("managed path is not inside the base directory")
 
-// ErrPruneDenied marks a managed file the process may not remove (EPERM or
-// EACCES, #2178): a per-file refusal like a symlinked destination, the entry
-// stays in the lockfile and the next run retries it.
+// ErrPruneDenied marks a managed file whose removal failed for any reason
+// (EPERM or EACCES, #2178; a sharing violation, #2218): a per-file refusal
+// like a symlinked destination, the entry stays in the lockfile and the next
+// run retries it.
 var ErrPruneDenied = errors.New("removal denied")
 
 // IsRefusal reports whether err is a per-artifact refusal the pass survives
@@ -3724,6 +3725,12 @@ func pruneManaged(managed []ManagedFile, baseDir string, dryRun bool, keepHooks 
 	// whether the pass carries on with the next one. The file is left out of
 	// the returned list; anything else is a real error and stays fatal.
 	refused := func(mf ManagedFile, err error) bool {
+		if err != nil && !IsRefusal(err) {
+			// Any removal error (EPERM/EACCES, a sharing violation on Windows,
+			// a failed registration strip or ledger write, #2218) is the same
+			// per-file refusal: the entry stays and the next run retries.
+			err = fmt.Errorf("%w: %w", ErrPruneDenied, err)
+		}
 		if !IsRefusal(err) {
 			return false
 		}

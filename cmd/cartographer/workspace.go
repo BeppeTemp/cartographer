@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1590,14 +1591,25 @@ func pruneOrphanProjections(st syncStreams, lockFile *provisioning.LockFile, dec
 		// The workspace key and base dir are lockfile data: a file goes only
 		// while it still hashes to what the sync wrote, the rest is reported
 		// and kept (the section is dropped either way).
-		toPrune, kept := verifiedPrunable(provisioning.WithoutCoOwned(lock.Managed, keep), lock, key.Provider, base)
+		toPrune, kept, unverifiable := verifiedPrunable(provisioning.WithoutCoOwned(lock.Managed, keep), lock, key.Provider, base)
 		for _, k := range kept {
 			fmt.Fprintf(st.err(), "warning: %s: kept %s\n", key.String(), k)
 		}
-		if _, err := provisioning.PruneManaged(toPrune, base, false); err != nil {
+		removed, err := provisioning.PruneManaged(toPrune, base, false)
+		if err == nil && unverifiable {
+			// A file that could not even be read (an unreadable folder) is not
+			// judged: it stays, like a denied removal, and the next run retries.
+			err = fmt.Errorf("%w: files could not be verified", provisioning.ErrPruneDenied)
+		}
+		if err != nil {
 			if provisioning.IsRefusal(err) {
 				// Refused (D148): the projection stays in the lockfile, so the
 				// next sync retries it; the other projections are still pruned.
+				// What this pass did remove leaves the lock, and the hash of an
+				// artifact left partly standing is rebased on the files that
+				// remain: the retry must not judge the files sync itself took
+				// away "changed since sync" (#2218).
+				lockFile.SetProjection(key, provisioning.LockAfterPartialPrune(lock, removed, configurator.Provider(key.Provider), base))
 				fmt.Fprintf(st.err(), "warning: %s not pruned: %v\n", key.String(), err)
 				if denied != nil && errors.Is(err, provisioning.ErrPruneDenied) && !slices.Contains(*denied, key.Workspace) {
 					// A permission error (#2178) is a refused removal that
@@ -1612,7 +1624,7 @@ func pruneOrphanProjections(st syncStreams, lockFile *provisioning.LockFile, dec
 		// provider still bound to the workspace keeps its paths excluded (#656).
 		lockFile.RemoveProjection(key)
 		if err := writeWorkspaceExclusions(key.Workspace, workspaceProviders(*lockFile, declared, key.Workspace), workspaceOwnership(lockFile, declared, manifests, key.Workspace)); err != nil {
-			if !provisioning.ExcludeWarning(err) {
+			if !provisioning.ExcludeWarning(err) && !errors.Is(err, fs.ErrPermission) {
 				return nil, fmt.Errorf("prune %s: %w", key.String(), err)
 			}
 			fmt.Fprintf(st.err(), "warning: workspace %s: git exclude left unchanged: %v\n", key.Workspace, err)
