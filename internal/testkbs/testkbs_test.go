@@ -348,31 +348,40 @@ func TestSurveyorPayloads(t *testing.T) {
 }
 
 // A KB of the Surveyor's perimeter has commits by the Surveyor, and the runs of
-// the file cover them: the Atlas joins a run to what it changed by author and time.
+// that KB cover them: the Atlas joins a run to what it changed by author, KB and
+// time. The runs hang from now while the commits hang from midnight UTC, so a
+// run of another KB (a few seconds long) can pass over a commit at some time of
+// day: only the KB's own runs count, and the sweep pins the instants that once
+// made the test fail with "runs cover 5 of 4 commits" around 01:00 UTC.
 func TestSurveyorRunsCoverItsCommits(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	now := time.Now()
-	if err := Generate(filepath.Join(dir, SurveyorKBs()[0]), Spec{Name: SurveyorKBs()[0], Concepts: 40, Seed: 11}, now); err != nil {
+	kb := SurveyorKBs()[0]
+	day := time.Now().UTC().Truncate(24 * time.Hour)
+	if err := Generate(filepath.Join(dir, kb), Spec{Name: kb, Concepts: 40, Seed: 11}, day); err != nil {
 		t.Fatal(err)
 	}
-	times := surveyorCommitTimes(dir)[SurveyorKBs()[0]]
+	times := surveyorCommitTimes(dir)[kb]
 	if len(times) != len(surveyorCommitOffsets) {
 		t.Fatalf("surveyor commits %v, want %d", times, len(surveyorCommitOffsets))
 	}
-	p, err := surveyorWith(now, map[string][]time.Time{SurveyorKBs()[0]: times})
-	if err != nil {
-		t.Fatal(err)
-	}
-	covered := 0
-	for _, r := range p.Runs.(runsBody).Runs {
+	// 00:59:55 UTC: the 2h-old run of another KB covers the 23:00 commit of the day before.
+	for _, now := range []time.Time{time.Now(), day.Add(time.Hour - 5*time.Second), day.Add(time.Hour), day.Add(13 * time.Hour)} {
+		p, err := surveyorWith(now, map[string][]time.Time{kb: times})
+		if err != nil {
+			t.Fatal(err)
+		}
+		runs := p.Runs.(runsBody).Runs
 		for _, c := range times {
-			if !c.Before(r.StartedAt) && !c.After(r.StartedAt.Add(time.Duration(r.DurationMS)*time.Millisecond)) {
-				covered++
+			n := 0
+			for _, r := range runs {
+				if r.KB == kb && !c.Before(r.StartedAt) && !c.After(r.StartedAt.Add(time.Duration(r.DurationMS)*time.Millisecond)) {
+					n++
+				}
+			}
+			if n != 1 {
+				t.Errorf("now %s: commit %s is covered by %d runs of %s, want 1", now.Format(time.RFC3339), c.Format(time.RFC3339), n, kb)
 			}
 		}
-	}
-	if covered != len(times) {
-		t.Errorf("runs cover %d of %d commits", covered, len(times))
 	}
 }
