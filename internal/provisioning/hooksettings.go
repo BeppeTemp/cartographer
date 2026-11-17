@@ -110,6 +110,11 @@ func removeHookEntries(baseDir, hookName string, rels ...string) error {
 		settingsPath := filepath.Join(baseDir, filepath.FromSlash(rel))
 		data, err := os.ReadFile(settingsPath)
 		if errors.Is(err, os.ErrNotExist) {
+			// A refused earlier pass may have removed the file and failed on
+			// its ledger record: the retry finishes that (#2237).
+			if err := configurator.ForgetCreated(baseDir, rel); err != nil {
+				return err
+			}
 			continue
 		}
 		if err != nil {
@@ -118,6 +123,11 @@ func removeHookEntries(baseDir, hookName string, rels ...string) error {
 		// Every command the marker owns names the hook; JSON may escape its
 		// separators, never its name.
 		if !strings.Contains(string(data), hookName) {
+			// Entry already gone (a refused pass stripped it before its
+			// ledger write failed): the record goes too (#2237).
+			if err := configurator.DropOwner(baseDir, rel, hookName); err != nil {
+				return err
+			}
 			continue
 		}
 		settings, layout, err := loadOrderedJSONObject(settingsPath)
@@ -125,6 +135,9 @@ func removeHookEntries(baseDir, hookName string, rels ...string) error {
 			return err
 		}
 		if !stripHookEntries(settings, hookOwnershipMarker(hookName)) {
+			if err := configurator.DropOwner(baseDir, rel, hookName); err != nil {
+				return err
+			}
 			continue
 		}
 		// A file Cartographer created and left as `{}` goes rather than staying
