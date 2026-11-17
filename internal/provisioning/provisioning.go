@@ -957,7 +957,7 @@ func ReadLock(path string) (Lock, error) {
 		return Lock{}, fmt.Errorf("provisioning: parse lock %s: %w", path, err)
 	}
 	// Read as untrusted like ReadLockFile (#1824): the client prunes from it.
-	lock, _ = sanitizeLock(lock.Provider, "", lock)
+	lock, _ = sanitizeLock(lock.Provider, "", filepath.Dir(path), lock)
 	return lock, nil
 }
 
@@ -1016,6 +1016,16 @@ func lockPathLocal(p string) bool {
 	if p == "" || strings.HasPrefix(p, "/") || strings.HasPrefix(p, `\`) {
 		return false
 	}
+	// Spelled the same on every OS: a lockfile is data, and a Windows spelling
+	// (a ".." segment behind a backslash, a drive letter) is not local anywhere.
+	if len(p) >= 2 && p[1] == ':' && (p[0]|0x20) >= 'a' && (p[0]|0x20) <= 'z' {
+		return false
+	}
+	for _, seg := range strings.FieldsFunc(p, func(r rune) bool { return r == '/' || r == '\\' }) {
+		if seg == ".." {
+			return false
+		}
+	}
 	native := filepath.FromSlash(p)
 	if filepath.IsAbs(native) || filepath.Clean(native) == "." {
 		return false
@@ -1026,24 +1036,41 @@ func lockPathLocal(p string) bool {
 // lockBaseOK reports whether lock.BaseDir may be trusted for the projection it
 // is stored under: empty (the lockfile's own directory), or absolute and clean,
 // and for a workspace projection equal to the workspace key (SetProjection
-// always writes it so). A planted base_dir would move every managed path onto
-// another directory.
-func lockBaseOK(workspace string, lock Lock) bool {
+// always writes it so). A global projection records none (sync writes one only
+// when the base dir is not the lockfile's own directory, which for a global
+// projection it never is), so a recorded one must be home, the directory holding
+// the lockfile, when known. A planted base_dir would move every managed path
+// onto another directory.
+func lockBaseOK(workspace, home string, lock Lock) bool {
 	if workspace != "" {
 		return lock.BaseDir == workspace && filepath.IsAbs(workspace) && filepath.Clean(workspace) == workspace
 	}
 	if lock.BaseDir == "" {
 		return true
 	}
-	return filepath.IsAbs(lock.BaseDir) && filepath.Clean(lock.BaseDir) == lock.BaseDir
+	if !filepath.IsAbs(lock.BaseDir) || filepath.Clean(lock.BaseDir) != lock.BaseDir {
+		return false
+	}
+	if home == "" {
+		return true
+	}
+	if abs, err := filepath.Abs(home); err == nil {
+		home = abs
+	}
+	return lock.BaseDir == filepath.Clean(home)
 }
 
 // sanitizeLock drops from lock the entries ReadLockFile and ReadLock refuse to
 // hand out (#1824): all of them when the base dir is not trusted, otherwise
 // those whose path is not local. Kept entries keep their order.
-func sanitizeLock(provider, workspace string, lock Lock) (Lock, []DroppedEntry) {
+func sanitizeLock(provider, workspace, home string, lock Lock) (Lock, []DroppedEntry) {
 	var dropped []DroppedEntry
-	baseOK := lockBaseOK(workspace, lock)
+	// A section of a provider no longer registered (D898) is never resolved to a
+	// directory, so its recorded base_dir is data only.
+	if _, known := configurator.Lookup(configurator.Provider(provider)); !known && workspace == "" {
+		home = ""
+	}
+	baseOK := lockBaseOK(workspace, home, lock)
 	kept := lock.Managed[:0:0]
 	for _, mf := range lock.Managed {
 		if baseOK && lockPathLocal(mf.Path) {
@@ -1060,7 +1087,7 @@ func sanitizeLock(provider, workspace string, lock Lock) (Lock, []DroppedEntry) 
 
 // dropNonLocal sanitizes every Lock of lf and records what it dropped in
 // lf.Dropped.
-func (lf *LockFile) dropNonLocal() {
+func (lf *LockFile) dropNonLocal(home string) {
 	clean := func(workspace string, locks map[string]Lock) {
 		providers := make([]string, 0, len(locks))
 		for provider := range locks {
@@ -1068,7 +1095,7 @@ func (lf *LockFile) dropNonLocal() {
 		}
 		sort.Strings(providers)
 		for _, provider := range providers {
-			lock, dropped := sanitizeLock(provider, workspace, locks[provider])
+			lock, dropped := sanitizeLock(provider, workspace, home, locks[provider])
 			if len(dropped) > 0 {
 				locks[provider] = lock
 				lf.Dropped = append(lf.Dropped, dropped...)
@@ -1109,7 +1136,7 @@ func ReadLockFile(path string) (LockFile, error) {
 			return LockFile{}, fmt.Errorf("provisioning: parse legacy lockfile %s: %w", path, err)
 		}
 		lf := LockFile{Providers: map[string]Lock{v1.Provider: v1}}
-		lf.dropNonLocal()
+		lf.dropNonLocal(filepath.Dir(path))
 		return lf, nil
 	}
 
@@ -1120,7 +1147,7 @@ func ReadLockFile(path string) (LockFile, error) {
 	if lf.Providers == nil {
 		lf.Providers = map[string]Lock{}
 	}
-	lf.dropNonLocal()
+	lf.dropNonLocal(filepath.Dir(path))
 	return lf, nil
 }
 
@@ -3529,11 +3556,15 @@ var ErrCorruptedBlock = blocktext.ErrCorruptedBlock
 // the other providers go on (#2089).
 var ErrProviderNotRegistered = errors.New("provider is not registered")
 
+// ErrUnsafeManagedPath marks a managed entry whose recorded path is empty,
+// absolute or leaves the base dir: it is never read, written or removed.
+var ErrUnsafeManagedPath = errors.New("managed path is not inside the base directory")
+
 // IsRefusal reports whether err is a per-artifact refusal the pass survives
 // (a symlinked destination, D148, a corrupted marker block, or a provider that
 // is not registered) rather than a failure that stops it.
 func IsRefusal(err error) bool {
-	return errors.Is(err, ErrProviderNotRegistered) || errors.Is(err, ErrSymlinkDestination) || errors.Is(err, ErrCorruptedBlock) || errors.Is(err, ErrInvalidArtifactFile) || errors.Is(err, ErrForeignFrontmatter)
+	return errors.Is(err, ErrProviderNotRegistered) || errors.Is(err, ErrUnsafeManagedPath) || errors.Is(err, ErrSymlinkDestination) || errors.Is(err, ErrCorruptedBlock) || errors.Is(err, ErrInvalidArtifactFile) || errors.Is(err, ErrForeignFrontmatter)
 }
 
 // replaceBlock is replaceBetweenMarkers over an arbitrary marker pair: the
@@ -3695,6 +3726,13 @@ func pruneManaged(managed []ManagedFile, baseDir string, dryRun bool, keepHooks 
 		return true
 	}
 	for _, mf := range managed {
+		// The lockfile is data, not trust: an entry whose path is not local to
+		// baseDir is reported and left alone, whatever its kind, and the rest of
+		// the pass carries on.
+		if !lockPathLocal(mf.Path) {
+			refusals = append(refusals, PruneRefusal{File: mf, Err: fmt.Errorf("%q: %w", mf.Path, ErrUnsafeManagedPath)})
+			continue
+		}
 		fullPath := filepath.Join(baseDir, mf.Path)
 		if dryRun {
 			// A preview refuses what the real run would: a managed file, or the

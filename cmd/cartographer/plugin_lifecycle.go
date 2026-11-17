@@ -627,8 +627,17 @@ func pluginRemove(args []string) int {
 		}
 		changed := false
 		var retired []string // providers of a treeless plugin whose lock section is gone
+		// The configuration, not the lockfile, says which workspaces are ours.
+		cfgNow, err := clientconfig.Load(c.dir)
+		if err != nil {
+			return pluginFail(1, "%s", escapeControl(err.Error()))
+		}
 		for _, key := range lf.Projections() {
 			lock := lf.ForProjection(key)
+			if why := untrustedSection(cfgNow, key, lock, c.dir); why != "" {
+				fmt.Fprintf(os.Stderr, "[%s] kept: %s\n", escapeControl(key.Provider), escapeControl(why))
+				continue
+			}
 			// A plugin provider's own section is retired whole when our sync
 			// recorded it as this plugin's (Lock.Plugin). One attributed only by
 			// inference (an older lockfile, pluginOfSection) loses just the

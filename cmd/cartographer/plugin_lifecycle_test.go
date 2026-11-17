@@ -461,3 +461,40 @@ func TestPluginFailureTextFromTheSourceIsEscaped(t *testing.T) {
 		t.Fatalf("exit %d, raw ESC in the error: %q", code, errOut)
 	}
 }
+
+// A lockfile section is pruned only where the configuration says it lives: a
+// section of an unregistered provider recording another directory as base dir,
+// and a workspace section of a repository nothing binds, are reported and left.
+func TestPluginRemoveLeavesSectionsTheConfigurationDoesNotOwn(t *testing.T) {
+	home := pluginFixture(t)
+	runPlugin(t, "install", writePlugin(t, "team-forks", nil), "--yes")
+	victimDir := t.TempDir()
+	repo := t.TempDir()
+	planted := func(base string) string {
+		rel := filepath.Join("x", "SKILL.md")
+		if err := os.MkdirAll(filepath.Join(base, "x"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(base, rel), []byte("keep"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return filepath.Join(base, rel)
+	}
+	globalVictim, wsVictim := planted(victimDir), planted(repo)
+	entry := provisioning.ManagedFile{Kind: "skill", Name: "x", Path: filepath.Join("x", "SKILL.md"), Source: "plugin:team-forks"}
+	lf := provisioning.LockFile{Providers: map[string]provisioning.Lock{
+		"ghost": {Provider: "ghost", BaseDir: victimDir, Managed: []provisioning.ManagedFile{entry}},
+	}}
+	lf.SetProjection(provisioning.Projection{Provider: "claude", Workspace: repo}, provisioning.Lock{Managed: []provisioning.ManagedFile{entry}})
+	if err := provisioning.WriteLockFile(lockFilePath(home), lf); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := runPlugin(t, "remove", "team-forks"); code != 0 {
+		t.Fatalf("exit %d\n%s", code, out)
+	}
+	for _, f := range []string{globalVictim, wsVictim} {
+		if b, err := os.ReadFile(f); err != nil || string(b) != "keep" {
+			t.Errorf("%s was touched: %q, %v", f, b, err)
+		}
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
@@ -251,7 +252,7 @@ func doDisconnectLocked(opts disconnectOptions) (disconnectResult, error) {
 		// lockfile records for them, exactly as `workspace unbind` + `sync` would.
 		// Without this the repositories keep the files while the binding that
 		// pointed at them is gone, and nothing would ever look at them again.
-		wsRefused, err := pruneProviderWorkspaces(&lockFile, p, opts.Dir, opts.DryRun, &pr)
+		wsRefused, err := pruneProviderWorkspaces(&lockFile, cfg, p, opts.Dir, opts.DryRun, &pr)
 		if err != nil {
 			return disconnectResult{}, err
 		}
@@ -414,13 +415,20 @@ func removeStrings(list, remove []string) []string {
 // a working copy, not a directory Cartographer owns. It returns why a
 // repository was refused (D148); the provider then stays connected and the next
 // disconnect retries.
-func pruneProviderWorkspaces(lockFile *provisioning.LockFile, provider, clientDir string, dryRun bool, pr *disconnectProviderResult) ([]string, error) {
+func pruneProviderWorkspaces(lockFile *provisioning.LockFile, cfg *clientconfig.Config, provider, clientDir string, dryRun bool, pr *disconnectProviderResult) ([]string, error) {
 	var refused []string
 	for _, key := range lockFile.Projections() {
 		if key.Global() || key.Provider != provider {
 			continue
 		}
 		lock := lockFile.ForProjection(key)
+		// The workspace key is lockfile data: only one the configuration binds
+		// (or a linked worktree of a bound one) is pruned. Another is reported
+		// and left as it is; the next sync drops it with its own files.
+		if why := untrustedSection(cfg, key, lock, clientDir); why != "" {
+			pr.Workspaces = append(pr.Workspaces, workspacePruned{Path: key.Workspace, Kept: []string{"everything: " + why}})
+			continue
+		}
 		// A workspace lock records its repository as base dir (SetProjection);
 		// anything else would resolve the paths against another directory.
 		if lock.BaseDir != key.Workspace {
@@ -435,45 +443,7 @@ func pruneProviderWorkspaces(lockFile *provisioning.LockFile, provider, clientDi
 		keep := lockFile.CoOwnedPaths(key)
 		managed := provisioning.WithoutCoOwned(lock.Managed, keep)
 
-		var kept []string
-		inside := make([]provisioning.ManagedFile, 0, len(managed))
-		for _, mf := range managed {
-			if filepath.IsAbs(mf.Path) || !filepath.IsLocal(mf.Path) {
-				kept = append(kept, fmt.Sprintf("%s: not a path inside the repository", filepath.ToSlash(mf.Path)))
-				continue
-			}
-			inside = append(inside, mf)
-		}
-		modified := map[string]string{}
-		why := map[string]string{}
-		for _, f := range provisioning.VerifyManaged(provisioning.Lock{Managed: inside, ProjectScope: lock.ProjectScope}, configurator.Provider(provider), base) {
-			// Fail closed: only a file that is gone, or a registration that
-			// is gone, is safe to prune. Modified, unreadable and unknown
-			// (no recorded hash, pre-D138) content stays.
-			switch f.Reason {
-			case provisioning.DriftMissing, provisioning.DriftUnregistered, provisioning.DriftUnrunnable, provisioning.DriftForeign:
-			default:
-				modified[f.Kind+"\x00"+f.Name] = filepath.ToSlash(f.Path)
-				why[f.Kind+"\x00"+f.Name] = f.Reason
-			}
-		}
-		toPrune := make([]provisioning.ManagedFile, 0, len(inside))
-		keptArtifacts := map[string]bool{}
-		for _, mf := range inside {
-			key := mf.Kind + "\x00" + mf.Name
-			if path, ok := modified[key]; ok {
-				if !keptArtifacts[key] {
-					keptArtifacts[key] = true
-					if why[key] == provisioning.DriftModified {
-						kept = append(kept, path+": changed since sync")
-					} else {
-						kept = append(kept, path+": could not be verified ("+why[key]+")")
-					}
-				}
-				continue
-			}
-			toPrune = append(toPrune, mf)
-		}
+		toPrune, kept := verifiedPrunable(managed, lock, provider, base)
 
 		pruned, err := provisioning.PruneManaged(toPrune, base, dryRun)
 		var pruneRefused *provisioning.PruneRefusedError
@@ -534,4 +504,80 @@ func removeLockFile(lockPath string, empty provisioning.LockFile) error {
 		}
 	}
 	return fmt.Errorf("remove lockfile: %w", err)
+}
+
+// untrustedSection says why a lockfile section must not be pruned from, or ""
+// when it may: a workspace section only for a workspace the configuration binds
+// (or a linked worktree of a bound one), a global one only when it records no
+// base dir or the client directory itself. The lockfile is data, not trust.
+func untrustedSection(cfg *clientconfig.Config, key provisioning.Projection, lock provisioning.Lock, clientDir string) string {
+	if key.Global() {
+		if lock.BaseDir == "" {
+			return ""
+		}
+		want, err := filepath.Abs(clientDir)
+		if err == nil && filepath.Clean(lock.BaseDir) == filepath.Clean(want) {
+			return ""
+		}
+		return fmt.Sprintf("the lockfile records base dir %q for the global section, not the client directory", lock.BaseDir)
+	}
+	if cfg != nil {
+		for _, w := range cfg.WorkspaceBindings(key.Provider) {
+			if w.Path == key.Workspace {
+				return ""
+			}
+			if w.Worktrees && !w.Derived {
+				if wts, err := linkedWorktrees(w.Path); err == nil && slices.Contains(wts, key.Workspace) {
+					return ""
+				}
+			}
+		}
+	}
+	return fmt.Sprintf("workspace %s is not bound in the configuration", key.Workspace)
+}
+
+// verifiedPrunable splits a workspace section's managed files into the ones a
+// prune may remove and the reasons the others stay. Fail closed: a file is
+// removed only when it is gone, or still hashes to what the sync wrote; a path
+// outside the repository, modified or unverifiable content stays.
+func verifiedPrunable(managed []provisioning.ManagedFile, lock provisioning.Lock, provider, base string) (toPrune []provisioning.ManagedFile, kept []string) {
+	inside := make([]provisioning.ManagedFile, 0, len(managed))
+	for _, mf := range managed {
+		if filepath.IsAbs(mf.Path) || !filepath.IsLocal(mf.Path) {
+			kept = append(kept, fmt.Sprintf("%s: not a path inside the repository", filepath.ToSlash(mf.Path)))
+			continue
+		}
+		inside = append(inside, mf)
+	}
+	modified := map[string]string{}
+	why := map[string]string{}
+	for _, f := range provisioning.VerifyManaged(provisioning.Lock{Managed: inside, ProjectScope: lock.ProjectScope}, configurator.Provider(provider), base) {
+		// Fail closed: only a file that is gone, or a registration that
+		// is gone, is safe to prune. Modified, unreadable and unknown
+		// (no recorded hash, pre-D138) content stays.
+		switch f.Reason {
+		case provisioning.DriftMissing, provisioning.DriftUnregistered, provisioning.DriftUnrunnable, provisioning.DriftForeign:
+		default:
+			modified[f.Kind+"\x00"+f.Name] = filepath.ToSlash(f.Path)
+			why[f.Kind+"\x00"+f.Name] = f.Reason
+		}
+	}
+	toPrune = make([]provisioning.ManagedFile, 0, len(inside))
+	keptArtifacts := map[string]bool{}
+	for _, mf := range inside {
+		key := mf.Kind + "\x00" + mf.Name
+		if path, ok := modified[key]; ok {
+			if !keptArtifacts[key] {
+				keptArtifacts[key] = true
+				if why[key] == provisioning.DriftModified {
+					kept = append(kept, path+": changed since sync")
+				} else {
+					kept = append(kept, path+": could not be verified ("+why[key]+")")
+				}
+			}
+			continue
+		}
+		toPrune = append(toPrune, mf)
+	}
+	return toPrune, kept
 }

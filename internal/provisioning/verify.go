@@ -456,6 +456,9 @@ func foreignFiles(dir string, owned map[string]bool) []string {
 // drift, it simply does not concern it.
 func managedDest(mf ManagedFile, provider configurator.Provider, baseDir string, scope contract.Scope) (rel, full string, ok bool) {
 	rel = mf.Path
+	if mf.Kind == "agent" && !lockPathLocal(rel) {
+		return "", "", false
+	}
 	if mf.Kind != "agent" {
 		// skill/hook: a directory of its own.
 		if rel = contract.DestDirScoped(mf.Kind, mf.Name, provider, scope); rel == "" {
@@ -468,6 +471,9 @@ func managedDest(mf ManagedFile, provider configurator.Provider, baseDir string,
 // managedEntryPresent reports whether the managed key (mcp) or marker block
 // (instructions) is still in the shared file it was merged into.
 func managedEntryPresent(mf ManagedFile, provider configurator.Provider, baseDir string) (bool, error) {
+	if !lockPathLocal(mf.Path) {
+		return false, fmt.Errorf("%q: %w", mf.Path, ErrUnsafeManagedPath)
+	}
 	full := filepath.Join(baseDir, mf.Path)
 	data, err := os.ReadFile(full)
 	if os.IsNotExist(err) {
