@@ -298,6 +298,9 @@ func (r *pollRun) runSystem(ctx context.Context, rec recipe.Recipe, planID strin
 	}
 	r.summary = fmt.Sprintf("poll %s: identity=%s, groups added=%d modified=%d removed=%d unchanged=%d, units created=%d reused=%d superseded=%d, groups failed=%d, already handled=%d",
 		f.ID, identity, len(changes.Added), len(changes.Modified), len(changes.Removed), changes.Unchanged, r.created, r.reused, r.superseded, len(failed), r.skipped)
+	if len(failed) > 0 {
+		r.summary += " (first failure: " + failed[0] + ")"
+	}
 	if !l.Trusted {
 		r.summary += ", state=rebuilt (" + l.Reason + ")"
 	}
