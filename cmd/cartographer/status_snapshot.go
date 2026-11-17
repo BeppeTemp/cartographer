@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -66,6 +67,12 @@ type providerStatus struct {
 	// ApprovalPending is set when the only difference of a drifting provider is
 	// an artifact waiting for `cartographer approve` (#2216). Additive.
 	ApprovalPending bool `json:"approval_pending,omitempty"`
+	// PendingPrune lists the workspaces whose projection the lock still records
+	// although no binding declares it: a prune sync refused (access denied, a file
+	// in use, files it could not verify) and retries at the next run. Each names
+	// the workspace and the reason; the provider is out of sync until it is gone
+	// (#2238). Additive; empty otherwise.
+	PendingPrune []pendingPrune `json:"pending_prune,omitempty"`
 	// DriftReason names each projection that is out of sync with nothing to
 	// list under it: a revision that differs from the lock's, or a projection
 	// sync never applied (#2105). Additive; empty when the drift is itemized.
@@ -119,6 +126,64 @@ type providerStatus struct {
 	// projection that wrote one (D1182): the block is paid on every model call
 	// of every session. Informational, never drift.
 	InstructionsBlocks []instructionsBlockStatus `json:"instructions_blocks,omitempty"`
+}
+
+// onlyWaitingForApproval is true when the provider has pending entries and every
+// one of them waits for `cartographer approve` (needs_approval, approval_stale):
+// a hook never applied counts as much as one whose approval was revoked, and a
+// pending entry of any other kind is real drift that keeps the flag off (#2216).
+func onlyWaitingForApproval(lists ...[]statusArtifact) bool {
+	n := 0
+	for _, l := range lists {
+		for _, a := range l {
+			if t := statusArtifactTrust(a); t != "needs_approval" && t != "approval_stale" {
+				return false
+			}
+			n++
+		}
+	}
+	return n > 0
+}
+
+// pendingPrune is one workspace projection waiting to be removed.
+type pendingPrune struct {
+	Workspace string `json:"workspace"`
+	Reason    string `json:"reason"`
+}
+
+// pendingPrunes reads the lock for the workspace projections of provider that
+// no binding declares any more: what a refused prune left (#2218) or an unbind
+// not yet synced. It only reads: the prune itself is sync's (pruneOrphanProjections),
+// and it judges the same cases it skips, so status never lists what sync would drop silently.
+func pendingPrunes(lockFile provisioning.LockFile, provider string, declared []syncProjection, clientBaseDir string) []pendingPrune {
+	wanted := map[string]bool{}
+	for _, d := range declared {
+		wanted[projectionKey(d)] = true
+		if d.WorktreesUnlisted {
+			return nil // sync keeps every undeclared projection until a listing succeeds
+		}
+	}
+	var out []pendingPrune
+	for _, key := range lockFile.Projections() {
+		if key.Global() || key.Provider != provider || wanted[projectionKey(syncProjection{Provider: key.Provider, Workspace: key.Workspace})] {
+			continue
+		}
+		lock := lockFile.ForProjection(key)
+		if _, err := os.Stat(key.Workspace); os.IsNotExist(err) && lock.Worktree {
+			continue // a removed linked worktree: sync drops the record silently
+		}
+		base := provisioning.LockBaseDir(lock, clientBaseDir)
+		_, kept, unverifiable := verifiedPrunable(provisioning.WithoutCoOwned(lock.Managed, lockFile.CoOwnedPaths(key)), lock, key.Provider, base)
+		reason := "the last sync could not remove it (permission denied or a file in use); the next sync retries"
+		switch {
+		case unverifiable:
+			reason = "files could not be verified (the folder is unreadable); the next sync retries"
+		case len(kept) > 0:
+			reason = "kept as changed since sync: " + joinCapped(kept, 3)
+		}
+		out = append(out, pendingPrune{Workspace: key.Workspace, Reason: reason})
+	}
+	return out
 }
 
 // instructionsBlockStatus is the size of one steering file's managed block.
@@ -635,16 +700,17 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 				ApprovedMCP: cfg.ApprovedMCPHashes(), ActivePlugins: manifestPlugins(manifests[projectionKey(sp)]),
 			})...)
 		}
+		p.PendingPrune = pendingPrunes(lockFile, p.Name, provProjections[p.Name], dir)
 		held := heldArtifacts(pm, d, cfg, configurator.Provider(p.Name))
-		if d.InSync && len(p.Diverged) == 0 && len(held) == 0 {
+		if d.InSync && len(p.Diverged) == 0 && len(held) == 0 && len(p.PendingPrune) == 0 {
 			p.State = "in_sync"
 			continue
 		}
 		p.State = "drift"
 		p.DriftReason = reasons
 		p.Added, p.Updated, p.Removed = snapshotArtifacts(d.Added, cfg), snapshotArtifacts(d.Updated, cfg), snapshotRemoved(d.Removed)
-		p.ApprovalPending = len(held) > 0 && len(d.Added)+len(d.Updated)+len(d.Removed) == 0 && len(p.Diverged) == 0 && len(reasons) == 0
 		p.Updated = append(p.Updated, snapshotArtifacts(held, cfg)...)
+		p.ApprovalPending = onlyWaitingForApproval(p.Added, p.Updated) && len(p.Removed) == 0 && len(p.Diverged) == 0 && len(reasons) == 0 && len(p.PendingPrune) == 0
 		tagHookSettings(p.Added, provProjections[p.Name], manifests)
 		tagHookSettings(p.Updated, provProjections[p.Name], manifests)
 		tagProjectScope(p.Added, provProjections[p.Name], manifests)

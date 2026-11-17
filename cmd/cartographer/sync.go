@@ -62,10 +62,7 @@ func cmdSync(args []string) int {
 		return reportOnly(dir, *reportTo)
 	}
 	migratedBackup := ""
-	if !*dryRun {
-		migratedBackup = realignClientConfig(dir)
-	}
-	// The lock comes before the load: the config saved at the end of the sync
+	// The lock comes before the realignment and the load: the config saved at the end of the sync
 	// must be the one read after every other writer finished (D172). A dry run
 	// writes nothing and takes none.
 	locked := false
@@ -79,6 +76,9 @@ func cmdSync(args []string) int {
 		unlock = sync.OnceFunc(release)
 		defer unlock()
 		locked = true
+		// Under the one lock the sync waits for: a second wait here would
+		// double the delay and repeat the message (#2238).
+		migratedBackup = realignClientConfig(dir)
 	}
 	cfg, err := clientconfig.Load(dir)
 	if err != nil {
