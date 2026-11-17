@@ -758,10 +758,12 @@ func hashToken(token string) string {
 
 func extractBearer(r *http.Request) (string, bool) {
 	v := r.Header.Get("Authorization")
-	if !strings.HasPrefix(v, "Bearer ") {
+	// The scheme is case-insensitive (RFC 7235 section 2.1).
+	const scheme = "Bearer "
+	if len(v) < len(scheme) || !strings.EqualFold(v[:len(scheme)], scheme) {
 		return "", false
 	}
-	token := strings.TrimPrefix(v, "Bearer ")
+	token := v[len(scheme):]
 	if token == "" {
 		return "", false
 	}

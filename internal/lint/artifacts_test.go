@@ -649,9 +649,10 @@ func TestArtifactUnusedNotAvoidableAtWrite(t *testing.T) {
 	}
 }
 
-// A secrets/ path with a ".." segment names no file this check resolves, in a
-// sops command and in a secret_refs entry alike.
-func TestLint_SecretsPathsInNonCanonicalFormAreLeftAlone(t *testing.T) {
+// A secrets/ path with a ".." segment names no file this check resolves in a
+// sops command, and a secret_refs entry with one is refused (#2194), not left
+// for secret_resolve to refuse later.
+func TestLint_SecretsPathsInNonCanonicalForm(t *testing.T) {
 	t.Parallel()
 	if got := sopsFileArg("decrypt secrets/../data/x.sops.yaml"); got != "" {
 		t.Errorf("sopsFileArg = %q, want empty", got)
@@ -665,8 +666,8 @@ func TestLint_SecretsPathsInNonCanonicalFormAreLeftAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := findingsOf(findings, "secret_ref_broken"); len(got) != 0 {
-		t.Fatalf("want no secret_ref_broken, got %v", got)
+	if got := findingsOf(findings, "secret_ref_broken"); len(got) != 1 {
+		t.Fatalf("want one secret_ref_broken, got %v", got)
 	}
 }
 

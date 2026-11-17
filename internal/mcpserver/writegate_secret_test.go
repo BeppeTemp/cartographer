@@ -66,7 +66,8 @@ func TestWriteGate_BrokenSecretRef(t *testing.T) {
 		args, _ := json.Marshal(map[string]any{"id": "ops/svc", "frontmatter": map[string]any{"type": "Service", "title": "S", "secret_refs": refs}, "body": "# S\n\nSee [C](clean.md).\n", "index_entry": true})
 		return callJSON(t, s, adminCtx, "concept_write", string(args))
 	}
-	for _, refs := range [][]string{{"X=secrets/missing.sops.yaml#/x"}, {"PW=secrets/app.sops.yaml#/nope"}} {
+	for _, refs := range [][]string{{"X=secrets/missing.sops.yaml#/x"}, {"PW=secrets/app.sops.yaml#/nope"},
+		{"X=secrets/../../../../etc/hosts#/a"}, {"X=/etc/hosts#/a"}, {"X=secrets/app.sops.yaml#nope"}} {
 		text, isErr := write(refs...)
 		refusedCleanly(t, k, head, text, isErr, "secret_ref_broken")
 		if strings.Contains(text, k.Root) {

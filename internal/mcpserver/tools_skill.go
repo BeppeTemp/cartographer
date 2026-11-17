@@ -103,6 +103,9 @@ func toolServiceGet(k *kb.KB) Tool {
 
 			data, err := k.ReadConcept(okf.ConceptID(params.ServiceID))
 			if err != nil {
+				if errors.Is(err, okf.ErrNotFound) && !strings.Contains(params.ServiceID, "/") {
+					return errorResult(fmt.Sprintf("service_get %q: concept not found; service_id is the full concept id including its map, such as services/%s", params.ServiceID, params.ServiceID)), nil
+				}
 				return errorResult(fmt.Sprintf("service_get %q: %v", params.ServiceID, relPathErr(err, k.Root))), nil
 			}
 
@@ -467,6 +470,11 @@ func toolSecretSet(k *kb.KB) Tool {
 		}
 		if err := json.Unmarshal(args, &p); err != nil {
 			return errorResult("invalid params: " + err.Error()), nil
+		}
+		if p.Value == "" {
+			// sops leaves an empty string in clear, so it would fail later with a
+			// message about the file's encryption instead of the argument.
+			return errorResult("secret_set: 'value' must not be empty: an empty string cannot be stored encrypted"), nil
 		}
 		if !isSecretsPath(p.Path) {
 			return errorResult(fmt.Sprintf("secret_set: path %q must be a local secrets/<name>.sops.yaml path, for example %s", p.Path, suggestSopsPath(p.Path))), nil

@@ -1,6 +1,11 @@
 package mcpserver
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+	"regexp"
+	"strings"
+)
 
 // This file used to carry Cartographer's own MCP wire implementation: the
 // JSON-RPC envelope, the two protocol eras and the rules for telling them
@@ -125,7 +130,7 @@ func textResult(text string) ToolResult {
 // errorResult builds a ToolResult that signals an application-level error.
 func errorResult(msg string) ToolResult {
 	return ToolResult{
-		Content: []ContentBlock{{Type: "text", Text: msg}},
+		Content: []ContentBlock{{Type: "text", Text: friendlyTypeError(msg)}},
 		IsError: true,
 	}
 }
@@ -137,4 +142,37 @@ func emptyIfNil[T any](s []T) []T {
 		return []T{}
 	}
 	return s
+}
+
+// goTypeError matches encoding/json's UnmarshalTypeError text for a struct
+// field: the JSON kind given, the (dotted) field path and the Go type wanted.
+var goTypeError = regexp.MustCompile(`json: cannot unmarshal (\S+) into Go struct field (?:\S*\.)?(\w+) of type (\S+)`)
+
+// friendlyTypeError rewrites a Go type-mismatch error that reached a tool
+// result into the argument name and the JSON type expected, so a caller never
+// reads a Go struct or Go type name. Any other text is returned unchanged.
+func friendlyTypeError(msg string) string {
+	return goTypeError.ReplaceAllStringFunc(msg, func(m string) string {
+		g := goTypeError.FindStringSubmatch(m)
+		return fmt.Sprintf("argument %q must be %s (got %s)", g[2], jsonTypeName(g[3]), g[1])
+	})
+}
+
+// jsonTypeName names the JSON type a Go type decodes from.
+func jsonTypeName(goType string) string {
+	switch {
+	case goType == "bool":
+		return "a boolean"
+	case goType == "string":
+		return "a string"
+	case strings.HasPrefix(goType, "int"), strings.HasPrefix(goType, "uint"):
+		return "an integer"
+	case strings.HasPrefix(goType, "float"):
+		return "a number"
+	case strings.HasPrefix(goType, "[]"):
+		return "an array"
+	case strings.HasPrefix(goType, "map["), strings.HasPrefix(goType, "struct"):
+		return "an object"
+	}
+	return "of type " + goType
 }

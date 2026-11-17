@@ -292,6 +292,14 @@ func unmappedFolderFinding(k *kb.KB, name string, archives []string) Finding {
 	if declared := declaredMaps(k, archives); len(declared) > 0 {
 		msg += fmt.Sprintf("; closest declared maps: %s — write under one of them, or declare this one with map_create first", strings.Join(closestMaps(name, declared), ", "))
 	}
+	if _, err := okf.PathToID(name + ".md"); err != nil {
+		// The scaffold would refuse this name at apply: say so now and offer
+		// no fix, so a dry run never plans what the apply skips.
+		return newFinding("unmapped_folder", Finding{
+			Path:    name,
+			Message: msg + " — and its name is not a valid map name (no spaces or special characters): rename the folder, then scaffold the descriptor",
+		})
+	}
 	msg += " — fix: scaffold the descriptor"
 	return newFinding("unmapped_folder", Finding{
 		Path:    name,

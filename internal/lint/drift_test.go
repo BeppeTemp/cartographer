@@ -203,6 +203,17 @@ func TestUnmappedFolder(t *testing.T) {
 	}
 }
 
+// A folder whose name no map can bear gets a finding with no fix: the dry run
+// of kb_repair must not plan what the apply refuses.
+func TestUnmappedFolderWithAnInvalidNameOffersNoFix(t *testing.T) {
+	t.Parallel()
+	files := map[string]string{"sp ace/a.md": "---\ntype: Note\ntitle: A\n---\n# A\n"}
+	f := findingsOf(driftRun(t, files), "unmapped_folder")
+	if len(f) != 1 || f[0].Fix != nil || !strings.Contains(f[0].Message, "not a valid map name") {
+		t.Fatalf("findings: %+v", f)
+	}
+}
+
 func TestStrayFile(t *testing.T) {
 	t.Parallel()
 	files := map[string]string{

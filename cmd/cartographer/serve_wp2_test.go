@@ -221,3 +221,17 @@ func TestAnnounceConfigRealignsOthersWhenAliasesCannotMove(t *testing.T) {
 		t.Errorf("no warning:\n%s", buf.String())
 	}
 }
+
+// TestCheckListenSafetyNamesAnInvalidAddress: a malformed address is reported
+// as such, not as an auth refusal.
+func TestCheckListenSafetyNamesAnInvalidAddress(t *testing.T) {
+	for _, addr := range []string{"garbage", ":99999", "127.0.0.1:x", ":-1"} {
+		err := checkListenSafety(addr, false)
+		if err == nil || !strings.Contains(err.Error(), "invalid listen address") {
+			t.Errorf("checkListenSafety(%q) = %v, want invalid listen address", addr, err)
+		}
+	}
+	if err := checkListenSafety("127.0.0.1:0", false); err != nil {
+		t.Errorf("port 0 is valid: %v", err)
+	}
+}

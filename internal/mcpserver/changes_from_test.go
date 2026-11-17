@@ -97,6 +97,8 @@ func TestChangesSince_From(t *testing.T) {
 			t.Errorf("%s: want a tool error, got %s", name, text)
 		} else if name != "both" && !strings.Contains(text, "unknown revision; use since") {
 			t.Errorf("%s: error = %s", name, text)
+		} else if name == "short" && !strings.Contains(text, "full 40-character") {
+			t.Errorf("short: error does not ask for a full sha: %s", text)
 		}
 	}
 }

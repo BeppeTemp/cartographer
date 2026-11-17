@@ -681,3 +681,26 @@ func TestIsPublicRequest_DocumentIsReadOnlyPublic(t *testing.T) {
 		t.Error("other public paths keep their method-blind exemption")
 	}
 }
+
+// TestMiddlewareSchemeIsCaseInsensitive: RFC 7235 makes the auth scheme
+// case-insensitive; the token itself stays exact.
+func TestMiddlewareSchemeIsCaseInsensitive(t *testing.T) {
+	ts := NewTokenStore([]string{testToken})
+	handler := ts.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	for _, scheme := range []string{"bearer ", "BEARER ", "bEaReR "} {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		req.Header.Set("Authorization", scheme+testToken)
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Errorf("%q: code %d, want 200", scheme, rr.Code)
+		}
+	}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "bearer "+strings.ToUpper(testToken)+"x")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusUnauthorized {
+		t.Errorf("altered token: code %d", rr.Code)
+	}
+}

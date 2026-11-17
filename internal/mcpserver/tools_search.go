@@ -6,6 +6,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -245,10 +246,24 @@ func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *s
 			break
 		}
 	}
+	if len(hits) == 0 && queryTooShort(params.Query) {
+		notes = append(notes, "no term of the query has 3 characters: the index matches terms of at least 3 characters, so a shorter query may find nothing; use a longer term")
+	}
 	if len(notes) > 0 {
 		result["note"] = strings.Join(notes, " ")
 	}
 	return jsonResult(result), nil
+}
+
+// queryTooShort reports whether no term of query reaches the index's
+// three-character minimum, the reason an empty answer carries a note.
+func queryTooShort(query string) bool {
+	for _, t := range strings.Fields(query) {
+		if utf8.RuneCountInString(strings.Trim(t, `"*()`)) >= 3 {
+			return false
+		}
+	}
+	return true
 }
 
 // Thresholds under which the best section's excerpt is not used (D1207): a body

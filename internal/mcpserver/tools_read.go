@@ -1067,7 +1067,7 @@ func toolChangesSince(k *kb.KB) Tool {
 				commits, head, err = gitx.LogNameStatusRange(k.Root, params.From)
 				switch {
 				case errors.Is(err, gitx.ErrUnknownRev):
-					return errorResult("unknown revision; use since"), nil
+					return errorResult("unknown revision; use since (from needs the full 40-character commit sha, never a short one)"), nil
 				case errors.Is(err, gitx.ErrRangeTooLarge):
 					return errorResult("too many commits after that revision; use since"), nil
 				case err != nil:
@@ -1597,6 +1597,13 @@ func toolGraphNeighbors(k *kb.KB) Tool {
 			// principal every node is visible and the result is unchanged.
 			visibleID := visiblePredicate(ctx, k)
 			visible := func(id okf.ConceptID) bool { return visibleID(string(id)) }
+			// An id that is no concept and that no page links to (a broken
+			// link target still has in-edges) is a mistake, not an empty
+			// neighborhood.
+			_, exists := graph.Exists[okf.ConceptID(params.ID)]
+			if !exists && len(graph.In[okf.ConceptID(params.ID)]) == 0 {
+				return errorResult(fmt.Sprintf("graph_neighbors %q: concept not found", params.ID)), nil
+			}
 			neighbors, err := graph.NeighborsWithin(okf.ConceptID(params.ID), depth, direction, visible)
 			if err != nil {
 				return errorResult(fmt.Sprintf("graph_neighbors %q: %v", params.ID, err)), nil
