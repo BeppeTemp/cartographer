@@ -261,7 +261,7 @@ type statusSnapshot struct {
 	Client    string `json:"client_version"`
 	Server    string `json:"server_version,omitempty"`
 	// BuildSkew is true when the local native service reports this client's
-	// version but another build of it (additive; State is version_skew).
+	// version but another build of it (additive; State is version_skew when the sync is otherwise in_sync).
 	BuildSkew bool     `json:"build_skew,omitempty"`
 	Reachable bool     `json:"reachable"`
 	Ready     *bool    `json:"ready,omitempty"`
@@ -642,10 +642,15 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		s.State = "version_skew"
 	}
 	// Same version, another build: only the local service can be judged, since
-	// a remote server of this release is legitimately another binary.
-	if s.Client != "" && s.Client != "dev" && s.Client == s.Server && s.State == "in_sync" &&
+	// a remote server of this release is legitimately another binary. Whatever
+	// the sync state: a client in permanent drift would never show it (#2177);
+	// the state becomes version_skew only when nothing else is wrong.
+	if s.Client != "" && s.Client != "dev" && s.Client == s.Server &&
 		s.Service != nil && s.Service.Installed && !buildid.Same(health.Build, buildid.Self()) {
-		s.State, s.BuildSkew = "version_skew", true
+		s.BuildSkew = true
+		if s.State == "in_sync" {
+			s.State = "version_skew"
+		}
 	}
 	return s
 }

@@ -10,6 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	"time"
+
+	"github.com/BeppeTemp/cartographer/internal/buildid"
 	"github.com/BeppeTemp/cartographer/internal/service"
 )
 
@@ -34,7 +37,9 @@ func TestServiceWithoutActionFails(t *testing.T) {
 // duration of the test, restoring the originals on cleanup.
 func withServiceRestartStubs(t *testing.T, restart func() error, replace func(service.ReplaceOptions) error) {
 	t.Helper()
-	origRestart, origReplace := serviceRestartFn, serviceReplaceFn
+	origRestart, origReplace, origVerify := serviceRestartFn, serviceReplaceFn, serviceVerifyFn
+	serviceVerifyFn = func(service.ReplaceOptions) error { return nil }
+	t.Cleanup(func() { serviceVerifyFn = origVerify })
 	if restart != nil {
 		serviceRestartFn = restart
 	}
@@ -64,6 +69,22 @@ func TestCmdServiceRestart_PlainIsBackwardCompatible(t *testing.T) {
 	}
 	if !strings.Contains(out, "service restarted") {
 		t.Errorf("output = %q, want it to report the plain restart", out)
+	}
+}
+
+// #2177: the plain restart claims success only once /health serves.
+func TestCmdServiceRestart_PlainVerifiesHealth(t *testing.T) {
+	withServiceRestartStubs(t, func() error { return nil }, nil)
+	serviceVerifyFn = func(service.ReplaceOptions) error {
+		return errors.New("timed out; launchctl print: state = spawn scheduled")
+	}
+	var code int
+	out := withStdout(t, func() { code = cmdServiceRestart(nil) })
+	if code != exitStatusError {
+		t.Errorf("exit = %d, want %d", code, exitStatusError)
+	}
+	if strings.Contains(out, "service restarted") {
+		t.Errorf("output = %q, must not claim a restart that is not serving", out)
 	}
 }
 
@@ -374,5 +395,32 @@ func TestPrintServiceStatus_DeniedProbeIsNotChecked(t *testing.T) {
 	js, err := json.Marshal(newServiceSnapshot(st))
 	if err != nil || !strings.Contains(string(js), `"health_checked":false`) || !strings.Contains(string(js), `"health_skip_reason":"connection_denied"`) {
 		t.Errorf("json = %s, %v", js, err)
+	}
+}
+
+// #2177: `service status` compares the running service's build with this
+// binary's, on every platform.
+func TestServiceBuildSkew(t *testing.T) {
+	oldVersion, oldProbe := version, repairProbeHealthFn
+	version = "v1.2.3"
+	t.Cleanup(func() { version, repairProbeHealthFn = oldVersion, oldProbe })
+	up := service.Status{Installed: true, HealthChecked: true, Healthy: true, HTTPAddr: "127.0.0.1:1"}
+	for name, tc := range map[string]struct {
+		st   service.Status
+		hs   service.HealthStatus
+		want bool
+	}{
+		"another build":     {up, service.HealthStatus{Status: "ok", Version: "v1.2.3", Build: "vcs:other"}, true},
+		"same build":        {up, service.HealthStatus{Status: "ok", Version: "v1.2.3", Build: buildid.Self()}, false},
+		"no build reported": {up, service.HealthStatus{Status: "ok", Version: "v1.2.3"}, false},
+		"another version":   {up, service.HealthStatus{Status: "ok", Version: "v1.2.2", Build: "vcs:other"}, false},
+		"not healthy":       {service.Status{Installed: true}, service.HealthStatus{Status: "ok", Version: "v1.2.3", Build: "vcs:other"}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			repairProbeHealthFn = func(string, time.Duration) (service.HealthStatus, error) { return tc.hs, nil }
+			if got, _ := serviceBuildSkew(tc.st); got != tc.want {
+				t.Errorf("serviceBuildSkew = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
