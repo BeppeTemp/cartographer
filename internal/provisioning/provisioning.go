@@ -3560,11 +3560,16 @@ var ErrProviderNotRegistered = errors.New("provider is not registered")
 // absolute or leaves the base dir: it is never read, written or removed.
 var ErrUnsafeManagedPath = errors.New("managed path is not inside the base directory")
 
+// ErrPruneDenied marks a managed file the process may not remove (EPERM or
+// EACCES, #2178): a per-file refusal like a symlinked destination, the entry
+// stays in the lockfile and the next run retries it.
+var ErrPruneDenied = errors.New("removal denied")
+
 // IsRefusal reports whether err is a per-artifact refusal the pass survives
 // (a symlinked destination, D148, a corrupted marker block, or a provider that
 // is not registered) rather than a failure that stops it.
 func IsRefusal(err error) bool {
-	return errors.Is(err, ErrProviderNotRegistered) || errors.Is(err, ErrUnsafeManagedPath) || errors.Is(err, ErrSymlinkDestination) || errors.Is(err, ErrCorruptedBlock) || errors.Is(err, ErrInvalidArtifactFile) || errors.Is(err, ErrForeignFrontmatter)
+	return errors.Is(err, ErrProviderNotRegistered) || errors.Is(err, ErrUnsafeManagedPath) || errors.Is(err, ErrSymlinkDestination) || errors.Is(err, ErrCorruptedBlock) || errors.Is(err, ErrInvalidArtifactFile) || errors.Is(err, ErrForeignFrontmatter) || errors.Is(err, ErrPruneDenied)
 }
 
 // replaceBlock is replaceBetweenMarkers over an arbitrary marker pair: the
@@ -3808,6 +3813,11 @@ func pruneManaged(managed []ManagedFile, baseDir string, dryRun bool, keepHooks 
 			}
 		}
 		if err := safewrite.Remove(baseDir, fullPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			if errors.Is(err, fs.ErrPermission) {
+				// EPERM/EACCES (a read-only parent, a macOS privacy-protected
+				// folder over SSH, #2178): one file cannot go, the pass does not.
+				err = fmt.Errorf("%w: %w", ErrPruneDenied, err)
+			}
 			if refused(mf, err) {
 				continue
 			}

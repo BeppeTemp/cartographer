@@ -822,6 +822,9 @@ type portabilityOptions struct {
 	// MCPTokenEnv is the token variable of the client configuration, passed on
 	// to a launcher entry (Codex filters the environment).
 	MCPTokenEnv string
+	// PruneDenied, when set, collects the workspaces whose orphaned projection
+	// could not be removed for lack of permission (#2178).
+	PruneDenied *[]string
 }
 
 // kbOrder, keyed by provider, is the KB names in that provider's explicit
@@ -896,7 +899,7 @@ func materializeForProviders(manifests map[string]contract.Manifest, projections
 	// This runs before the projections are applied, so the files are gone
 	// before anything is written in their place.
 	if !dryRun {
-		orphans, err := pruneOrphanProjections(portability.Streams, &lockFile, projections, manifests, targetDir)
+		orphans, err := pruneOrphanProjections(portability.Streams, &lockFile, projections, manifests, targetDir, portability.PruneDenied)
 		if err != nil {
 			return nil, err
 		}

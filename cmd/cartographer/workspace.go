@@ -1530,7 +1530,7 @@ func joinCapped(items []string, max int) string {
 // removed by `disconnect`, which owns that decision — reaching it from here
 // would delete a connected provider's catalogue because it was absent from one
 // `sync --client` invocation.
-func pruneOrphanProjections(st syncStreams, lockFile *provisioning.LockFile, declared []syncProjection, manifests map[string]contract.Manifest, clientBaseDir string) ([]string, error) {
+func pruneOrphanProjections(st syncStreams, lockFile *provisioning.LockFile, declared []syncProjection, manifests map[string]contract.Manifest, clientBaseDir string, denied *[]string) ([]string, error) {
 	wanted := map[string]bool{}
 	providersInPlay := map[string]bool{}
 	unlisted := map[string]bool{}
@@ -1586,6 +1586,11 @@ func pruneOrphanProjections(st syncStreams, lockFile *provisioning.LockFile, dec
 				// Refused (D148): the projection stays in the lockfile, so the
 				// next sync retries it; the other projections are still pruned.
 				fmt.Fprintf(st.err(), "warning: %s not pruned: %v\n", key.String(), err)
+				if denied != nil && errors.Is(err, provisioning.ErrPruneDenied) && !slices.Contains(*denied, key.Workspace) {
+					// A permission error (#2178) is a refused removal that
+					// the run exits 3 for, as for an unreadable workspace.
+					*denied = append(*denied, key.Workspace)
+				}
 				continue
 			}
 			return nil, fmt.Errorf("prune %s: %w", key.String(), err)
