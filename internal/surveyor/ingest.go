@@ -627,7 +627,7 @@ func (in *ingestInstance) patchOwn(rt Runtime, id string, fm map[string]any, not
 }
 
 // emptyReleaseMark is what the Surveyor's own release note says when a run wrote
-// nothing; emptyReleaseLimit consecutive such notes block the unit (D-new).
+// nothing; emptyReleaseLimit consecutive such notes block the unit (D2182).
 const (
 	emptyReleaseMark  = "): released: nothing was written. "
 	emptyReleaseLimit = 3

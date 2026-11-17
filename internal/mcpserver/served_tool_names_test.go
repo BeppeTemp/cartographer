@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/skillbundle"
 )
@@ -82,5 +83,25 @@ func TestServedTextNamesOnlyRegisteredTools(t *testing.T) {
 	}
 	if checked < 30 {
 		t.Fatalf("only %d tool names found: the scan no longer matches the served text", checked)
+	}
+}
+
+// #2215: the gate_blockers message is built in code, not in a served text file,
+// so it is scanned on its own: every tool it names is in the registry.
+func TestGateBlockerMessageNamesRegisteredTools(t *testing.T) {
+	t.Parallel()
+	out := gateBlockedBy(nil, nil, []kb.GateBlocker{{ConceptPath: "a.md", Kind: "contradiction"}})
+	if len(out) != 1 {
+		t.Fatalf("got %d entries, want 1", len(out))
+	}
+	token := regexp.MustCompile("`([a-z]+(?:_[a-z0-9]+)+)`")
+	ms := token.FindAllStringSubmatch(out[0]["message"], -1)
+	if len(ms) == 0 {
+		t.Fatalf("message names no tool: %q", out[0]["message"])
+	}
+	for _, m := range ms {
+		if m[1] != "resolution_status" && !IsToolName(m[1]) {
+			t.Errorf("gate_blockers message names %q, not in the tool registry", m[1])
+		}
 	}
 }
