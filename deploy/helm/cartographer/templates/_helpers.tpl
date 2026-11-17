@@ -60,8 +60,8 @@ app.kubernetes.io/managed-by: {{ .root.Release.Service }}
 {{- end -}}
 {{- end -}}
 
-{{/* Every template-time refusal lives here; the output is empty. */}}
-{{- define "cartographer.validate" -}}
+{{/* The refusals of an enabled Meridian; the output is empty. Only the meridian-* templates call it: Helm attributes a refusal to the first template that raises it, so a Meridian refusal must not come from a Surveyor file. */}}
+{{- define "cartographer.validateMeridian" -}}
 {{- if .Values.meridian.enabled -}}
 {{- $s := .Values.meridian -}}
 {{- if $s.url -}}
@@ -102,7 +102,12 @@ app.kubernetes.io/managed-by: {{ .root.Release.Service }}
 {{- if and $s.ingress.enabled (not $s.ingress.hosts) -}}
 {{- fail "meridian.ingress.enabled needs meridian.ingress.hosts: name at least one host" -}}
 {{- end -}}
-{{- else -}}
+{{- end -}}
+{{- end -}}
+
+{{/* Every other template-time refusal (the Surveyors, and a release without Meridian); the output is empty. */}}
+{{- define "cartographer.validate" -}}
+{{- if not .Values.meridian.enabled -}}
 {{- $s := .Values.meridian -}}
 {{- if not .Values.surveyors -}}
 {{- fail "a release with no Meridian and no Surveyor renders nothing: add a surveyors entry or set meridian.enabled=true" -}}

@@ -410,6 +410,10 @@ func cmdApprovePending(args []string) (code int, approved bool) {
 			escapeControl(a.Name), escapeControl(a.Source), escapeControl(a.Name), escapeControl(strings.TrimPrefix(a.Source, "kb:")))
 	}
 	if len(pending) == 0 {
+		if len(mcps) > 0 {
+			fmt.Printf("%d MCP descriptor(s) wait for a per-item approval: --pending does not approve them\n", len(mcps))
+			return 0, false
+		}
 		fmt.Println("nothing is waiting for approval")
 		return 0, false
 	}

@@ -219,6 +219,9 @@ done
 
 echo "→ every refusal"
 neg "no token source" '{}' nobase
+# The refusal names a Meridian template, not the Surveyor file Helm happens to render first.
+out=$(helm template ci "$chart" 2>&1 || true)
+case $out in *"at (cartographer/templates/meridian-"*"no token source"*) ;; *) fail "the no-token-source refusal is not raised from a meridian template: $out" ;; esac
 neg "mutually exclusive" '{meridian: {extraEnvFrom: [e], config: {auth: {tokens: ["${A}"]}}}}'
 neg "whole-value" '{meridian: {tokens: {existingSecret: {name: ""}}, extraEnvFrom: [e], config: {auth: {tokens: [{token: literal}]}}}}'
 neg "needs meridian.extraEnvFrom" '{meridian: {tokens: {existingSecret: {name: ""}}, config: {auth: {tokens: ["${A}"]}}}}'

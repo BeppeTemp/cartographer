@@ -1,4 +1,4 @@
-{{- include "cartographer.validate" . -}}
+{{- include "cartographer.validate" . -}}{{- include "cartographer.validateMeridian" . -}}
 {{- $full := include "cartographer.fullname" . -}}
 {{- $s := .Values.meridian -}}
 Cartographer {{ .Chart.AppVersion }} is installed as release {{ .Release.Name }}.

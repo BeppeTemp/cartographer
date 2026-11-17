@@ -1,4 +1,4 @@
-{{- include "cartographer.validate" . -}}
+{{- include "cartographer.validate" . -}}{{- include "cartographer.validateMeridian" . -}}
 {{- if .Values.meridian.enabled -}}
 {{- $s := .Values.meridian.service }}
 apiVersion: v1
