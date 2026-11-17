@@ -58,6 +58,14 @@ type providerStatus struct {
 	// bound workspace that is gone, or a provider that cannot be scoped to a
 	// workspace. Empty otherwise.
 	Problem string `json:"problem,omitempty"`
+	// NoAccess lists the bound workspaces this process cannot read (EPERM or
+	// EACCES: on macOS a missing Files and Folders grant). The provider is not
+	// judged, so it is not real drift; the tray reads this field, never Problem's
+	// text (#2216). Additive; empty otherwise.
+	NoAccess []string `json:"no_access,omitempty"`
+	// ApprovalPending is set when the only difference of a drifting provider is
+	// an artifact waiting for `cartographer approve` (#2216). Additive.
+	ApprovalPending bool `json:"approval_pending,omitempty"`
 	// DriftReason names each projection that is out of sync with nothing to
 	// list under it: a revision that differs from the lock's, or a projection
 	// sync never applied (#2105). Additive; empty when the drift is itemized.
@@ -168,7 +176,8 @@ type workspaceStatus struct {
 	Path string   `json:"path"`
 	KBs  []string `json:"kbs,omitempty"`
 	// State is "ok", "gone" (the bound directory is not there any more),
-	// "moved" (its git remote is not the one it was bound to) or "inactive"
+	// "moved" (its git remote is not the one it was bound to), "no access" (the
+	// process cannot read it) or "inactive"
 	// (the files are correct but the client will not read them — a Codex
 	// project that is not trusted). Each is reported, none is healed: a
 	// projection that silently fell back to the global catalogue is the
@@ -563,6 +572,11 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 			// no reason (#2105, #2135).
 			p.State = "drift"
 			p.Problem = fmt.Sprintf("workspace %s: %s", w.Workspace, w.Unreadable)
+			for _, u := range provProjections[p.Name] {
+				if u.Unreadable != "" {
+					p.NoAccess = append(p.NoAccess, u.Workspace)
+				}
+			}
 			s.State = "drift"
 			continue
 		}
@@ -629,6 +643,7 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		p.State = "drift"
 		p.DriftReason = reasons
 		p.Added, p.Updated, p.Removed = snapshotArtifacts(d.Added, cfg), snapshotArtifacts(d.Updated, cfg), snapshotRemoved(d.Removed)
+		p.ApprovalPending = len(held) > 0 && len(d.Added)+len(d.Updated)+len(d.Removed) == 0 && len(p.Diverged) == 0 && len(reasons) == 0
 		p.Updated = append(p.Updated, snapshotArtifacts(held, cfg)...)
 		tagHookSettings(p.Added, provProjections[p.Name], manifests)
 		tagHookSettings(p.Updated, provProjections[p.Name], manifests)

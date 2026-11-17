@@ -3,6 +3,7 @@ package tray
 import (
 	"fmt"
 	"net/url"
+	"runtime"
 	"strings"
 	"unicode/utf16"
 )
@@ -219,6 +220,7 @@ func InfoItems(s Snapshot) []MenuItem {
 		items = append(items, MenuItem{Status: true, Text: "Update available", Badge: withV(s.LatestVersion), Tone: ToneUpdate})
 	}
 	if s.Agents.Known {
+		noAccess, approval := false, false
 		items = append(items, MenuItem{Separator: true}, MenuItem{Status: true, Section: true, Text: "Agents"})
 		if s.Agents.N == 0 {
 			items = append(items, MenuItem{Status: true, Text: "None connected"})
@@ -230,8 +232,20 @@ func InfoItems(s Snapshot) []MenuItem {
 				it.Badge, it.Tone = "In sync", ToneOK
 			case SyncDrift:
 				it.Badge, it.Tone = "Out of sync", ToneBusy
+			case SyncApproval:
+				it.Badge, it.Tone = "Approval pending", ToneBusy
+			case SyncNoAccess:
+				it.Badge, it.Tone = "No access", ToneIdle
 			}
+			noAccess = noAccess || r.Sync == SyncNoAccess
+			approval = approval || r.Sync == SyncApproval
 			items = append(items, it)
+		}
+		if noAccess {
+			items = append(items, MenuItem{Status: true, Text: noAccessHint(runtime.GOOS), Tone: ToneIdle})
+		}
+		if approval {
+			items = append(items, MenuItem{Status: true, Text: "Run `cartographer approve` to apply the pending artifacts", Tone: ToneIdle})
 		}
 	}
 	if kbs := s.KBs(); len(kbs) > 0 {
@@ -318,4 +332,12 @@ func (it MenuItem) CommandID() int {
 // KB submenu the user has open.
 func refillOpenMenu(open bool, prev, next Snapshot) bool {
 	return open && prev.Agents != next.Agents
+}
+
+// noAccessHint says how to let the tray read a bound workspace (#2216).
+func noAccessHint(goos string) string {
+	if goos == "darwin" {
+		return "No access: System Settings → Privacy & Security → Files and Folders (or Full Disk Access)"
+	}
+	return "No access to a bound workspace: grant this process read access to it"
 }
