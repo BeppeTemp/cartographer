@@ -176,22 +176,44 @@ func TestBuildManifest_MCPDescriptorCanBeVerified(t *testing.T) {
 	}
 }
 
-func TestBuildManifest_MCP_MalformedFileFailsBuild(t *testing.T) {
-	kbRoot := t.TempDir()
-	writeMCPFixture(t, kbRoot, "broken", `{not json`)
-
-	if _, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{}); err == nil {
-		t.Fatal("expected BuildManifest to fail on a malformed mcp/*.json file")
+// A descriptor that does not validate is left out of the manifest with an
+// issue naming it, and the rest of the KB is still built (#2219): one bad
+// file must not fail the pull of every artifact.
+func TestBuildManifest_MCP_InvalidDescriptorIsLeftOutWithAnIssue(t *testing.T) {
+	cases := map[string]string{
+		"broken": `{not json`,
+		"notype": `{"url":"https://example.com/mcp"}`,
+		"leaky":  `{"type":"http","url":"https://example.com/mcp","headers":{"Authorization":"Bearer sk-live-hardcoded"}}`,
 	}
-}
+	for name, content := range cases {
+		t.Run(name, func(t *testing.T) {
+			kbRoot := t.TempDir()
+			writeMCPFixture(t, kbRoot, name, content)
+			writeMCPFixture(t, kbRoot, "good", `{"type":"http","url":"https://example.com/mcp"}`)
 
-func TestBuildManifest_MCP_LiteralSecretFailsBuild(t *testing.T) {
-	kbRoot := t.TempDir()
-	writeMCPFixture(t, kbRoot, "leaky",
-		`{"type":"http","url":"https://example.com/mcp","headers":{"Authorization":"Bearer sk-live-hardcoded"}}`)
-
-	if _, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{}); err == nil {
-		t.Fatal("expected BuildManifest to fail on a literal secret in headers")
+			m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
+			if err != nil {
+				t.Fatalf("BuildManifest must not fail on one bad descriptor: %v", err)
+			}
+			var mcps []string
+			for _, a := range m.Artifacts {
+				if a.Kind == "mcp" {
+					mcps = append(mcps, a.Name)
+				}
+			}
+			if len(mcps) != 1 || mcps[0] != "good" {
+				t.Fatalf("mcp artifacts = %v, want only the valid one", mcps)
+			}
+			found := false
+			for _, is := range m.Issues {
+				if strings.Contains(is, `mcp "`+name+`" left out`) {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("no issue naming %q: %v", name, m.Issues)
+			}
+		})
 	}
 }
 
