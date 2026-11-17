@@ -14,8 +14,13 @@ import (
 // cmdWsl is internal, not in the usage table: the Windows keep-alive task runs
 // `cartographer wsl keepalive` inside the distro.
 func cmdWsl(args []string) int {
+	const usage = "usage: cartographer wsl keepalive   (internal: run by the Windows task that keeps the WSL distro alive)"
+	if hasHelpFlag(args) {
+		fmt.Fprintln(os.Stdout, usage)
+		return 0
+	}
 	if len(args) != 1 || args[0] != "keepalive" {
-		fmt.Fprintln(os.Stderr, "usage: cartographer wsl keepalive   (internal: run by the Windows task that keeps the WSL distro alive)")
+		fmt.Fprintln(os.Stderr, usage)
 		return exitStatusError
 	}
 	if !wslDetectFn().Is {

@@ -198,6 +198,10 @@ func cmdDocs(args []string) int {
 
 // cmdDocsExport is `cartographer docs export <dir>`.
 func cmdDocsExport(args []string) int {
+	if hasHelpFlag(args) {
+		fmt.Fprintln(os.Stdout, "usage: cartographer docs export <dir>")
+		return 0
+	}
 	if len(args) != 1 || args[0] == "" || args[0][0] == '-' {
 		fmt.Fprintln(os.Stderr, "usage: cartographer docs export <dir>")
 		return 2

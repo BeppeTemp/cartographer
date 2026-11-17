@@ -99,7 +99,7 @@ func cmdUpgradeRepair(args []string) int {
 				fmt.Fprintln(os.Stderr, "Warning: could not refresh the status icon:", err)
 			}
 		}
-		fmt.Println("native service not installed — nothing to repair")
+		fmt.Println("native service not installed — nothing to repair; this command does not sync the providers then: run `cartographer sync` for that")
 		return exitRepairOK
 	}
 	// The tray is repaired before the stopped-service return: a stopped

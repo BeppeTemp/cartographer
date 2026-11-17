@@ -24,7 +24,7 @@ the help of root, `paths`, `kb`, `client` and `workspace` (`help`, `-h` or
 `--help` as the only argument) and of `service` (`-h` or `--help` only) writes to
 stdout and exits 0, with no client config needed; `-h`/`--help` anywhere in the arguments of
 `agents`, `status`, `approve`, `config`, `mcp`, `update`, `client`, `workspace` and
-`service sync-timer` does the same, and no subcommand answers help with an `Error:` line or exit 2; no argument outside a terminal
+`service sync-timer` does the same, and no subcommand, at any depth (`surveyor`, `surveyor source test`, `kb secrets`, every `plugin <sub>`, `docs export`), answers help with an `Error:` line or exit 2 (`TestEveryCommandHelpIsASuccess` walks the tree from the usage text); no argument outside a terminal
 prints the usage on stdout and exits 0, and an unknown subcommand fails on
 stderr with exit 2.
 Unknown commands only offer a correction for one command within edit distance
@@ -811,7 +811,7 @@ cartographer doctor [--output table|json] [--provider claude]
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--output` | `table` | `json` emits the report as JSON (`cartographer.doctor/v1`) instead of text, like `agents`, `status` and `update check` |
-| `--json` | `false` | Deprecated alias of `--output json`, kept working |
+| `--json` | `false` | Deprecated alias of `--output json`, kept working; with an explicit `--output table` it is refused (exit 2) |
 | `--provider` | *(unset)* | Narrow the run to one provider — inspected even if it is not connected |
 
 **It never repairs, and never writes** — no lockfile migration, no directory creation, no cache

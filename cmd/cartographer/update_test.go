@@ -81,6 +81,9 @@ func TestMain(m *testing.M) {
 		fmt.Println(`{"next_cursor":"c1"}`)
 		os.Exit(0)
 	}
+	if len(os.Args) > 2 && os.Args[1] == "--run-cli" { // the test binary as the CLI: a flag set that exits the process (TestEveryCommandHelpIsASuccess)
+		os.Exit(run(os.Args[2:]))
+	}
 	gitxtest.QuietGit() // a detached git gc would break t.TempDir cleanup
 	// The git deadlines no test here is about: a local fetch, commit or push
 	// against a bare repository on a loaded Windows runner (6 shards x every

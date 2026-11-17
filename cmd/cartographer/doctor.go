@@ -91,6 +91,14 @@ func cmdDoctor(args []string) int {
 		fmt.Fprintf(os.Stderr, "Error: invalid --output %q (want table|json)\n", *output)
 		return 2
 	}
+	if *asJSONAlias && *output == "table" {
+		explicit := false
+		fs.Visit(func(f *flag.Flag) { explicit = explicit || f.Name == "output" })
+		if explicit {
+			fmt.Fprintln(os.Stderr, "Error: --json asks for JSON and --output table for the table: pass one of them (--output json)")
+			return 2
+		}
+	}
 	asJSON := *output == "json" || *asJSONAlias
 	// `doctor run|schedule|unschedule|status` were removed (D704): without this
 	// a leftover job's `doctor run --kb …` would run every check instead.

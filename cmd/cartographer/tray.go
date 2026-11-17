@@ -26,15 +26,22 @@ var trayGOOS = runtime.GOOS
 // stays visible, shown stopped, when the server is down and can restart it. It reads
 // /health and acts only through service.Manager and the OS "open".
 func cmdTray(args []string) int {
+	fs := flag.NewFlagSet("tray", flag.ExitOnError)
+	logFile := fs.String("log-file", "", "Append the tray's log to this file (a Scheduled Task has nowhere else to put it)")
+	interval := fs.Duration("interval", tray.DefaultInterval, "How often the server is probed (minimum 1s)")
+	configFlag := fs.String("config", "", "Local server config YAML (default: discovered from the installed service definition, else the standard path); passing it forces the local server, never the client config's")
+	// Help is a success on every platform, so it comes before the platform check.
+	if hasHelpFlag(args) {
+		fmt.Fprintln(os.Stdout, "usage: cartographer tray [--log-file <path>] [--interval <duration>] [--config <path>]   (Windows and macOS only)")
+		fs.SetOutput(os.Stdout)
+		fs.PrintDefaults()
+		return 0
+	}
 	// Before anything touches a file: there is no tray to run elsewhere.
 	if trayGOOS != "windows" && trayGOOS != "darwin" {
 		fmt.Fprintln(os.Stderr, "Error: cartographer tray is supported on Windows and macOS only")
 		return exitStatusError
 	}
-	fs := flag.NewFlagSet("tray", flag.ExitOnError)
-	logFile := fs.String("log-file", "", "Append the tray's log to this file (a Scheduled Task has nowhere else to put it)")
-	interval := fs.Duration("interval", tray.DefaultInterval, "How often the server is probed (minimum 1s)")
-	configFlag := fs.String("config", "", "Local server config YAML (default: discovered from the installed service definition, else the standard path); passing it forces the local server, never the client config's")
 	if code := noExtraArgs(fs, args); code != 0 {
 		return code
 	}

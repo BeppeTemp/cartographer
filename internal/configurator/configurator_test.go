@@ -1208,3 +1208,25 @@ func TestRemove_ListedLeafLinkIsKeptWhenTheFileWouldBeDeleted(t *testing.T) {
 		t.Errorf("target = %q, %v", b, err)
 	}
 }
+
+// #2200: a client config that is not JSON (an empty or blank file included) is
+// refused with one sentence that says what to do, not "not valid JSON: not valid JSON".
+func TestRemove_UnusableJSONSaysWhatToDo(t *testing.T) {
+	cfg := &configurator.ServerConfig{Name: "wiki", URL: "https://mcp.example.test/mcp"}
+	dir := t.TempDir()
+	r, err := configurator.Emit(cfg, configurator.ProviderKiro)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, r.FilePath)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err = configurator.Remove(cfg, configurator.ProviderKiro, dir, false)
+	if err == nil || strings.Count(err.Error(), "not valid JSON") != 1 || !strings.Contains(err.Error(), "fix it, or delete it") {
+		t.Errorf("err = %v", err)
+	}
+}

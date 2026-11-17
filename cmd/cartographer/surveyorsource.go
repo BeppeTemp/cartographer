@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -74,6 +75,9 @@ func cmdSurveyorSourceTest(args []string) int {
 	showF := fs.String("show", "", "Print the content of this entry key as it would travel in its unit")
 	fs.Var(&include, "include", "Glob for the recipe, with --recipe (repeatable)")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return sourceTestStart
 	}
 	usage := func(format string, a ...any) int {

@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -246,5 +249,58 @@ func TestKBListWithoutADataDirSaysThereIsNoKBYet(t *testing.T) {
 	printKBRows(&buf, absent, nil, syscall.ECONNREFUSED)
 	if !strings.Contains(buf.String(), "cartographer service start") {
 		t.Errorf("an empty listing hides the server guidance: %q", buf.String())
+	}
+}
+
+var helpUsageLine = regexp.MustCompile(`(?im)^\s*(?:usage:\s*)?cartographer((?: [a-z][a-z0-9-]*)+)`)
+
+// #2200: help is a success on every command of the tree. The tree is read from
+// the help itself: each usage line names the subcommands one level down, so a
+// new subcommand is walked without a list to update. The test binary runs as the
+// CLI in a child process (TestMain), because a flag set that exits the process
+// on -h would end this one.
+func TestEveryCommandHelpIsASuccess(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots := []string{"hook", "plugin", "tray", "wsl"} // dispatched, not in the usage table
+	for _, c := range subcommands {
+		if c.name != "help" && c.name != "version" {
+			roots = append(roots, c.name)
+		}
+	}
+	seen := map[string]bool{}
+	var walk func(path []string)
+	walk = func(path []string) {
+		key := strings.Join(path, " ")
+		if seen[key] || len(path) > 4 {
+			return
+		}
+		seen[key] = true
+		cmd := exec.Command(exe, append([]string{"--run-cli"}, append(slices.Clone(path), "-h")...)...)
+		cmd.Env = append(os.Environ(), "HOME="+t.TempDir(), "USERPROFILE="+t.TempDir())
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &stdout, &stderr
+		runErr := cmd.Run()
+		all := stdout.String() + stderr.String()
+		if runErr != nil || strings.Contains(all, "Error:") || !strings.Contains(strings.ToLower(all), "usage") {
+			t.Errorf("cartographer %s -h: err=%v\n%s", key, runErr, all)
+			return
+		}
+		for _, m := range helpUsageLine.FindAllStringSubmatch(all, -1) {
+			words := strings.Fields(m[1])
+			if len(words) > len(path) && slices.Equal(words[:len(path)], path) {
+				walk(words[:len(path)+1])
+			}
+		}
+	}
+	for _, r := range roots {
+		walk([]string{r})
+	}
+	for _, want := range []string{"surveyor source test", "kb secrets", "plugin install", "service tray"} {
+		if !seen[want] {
+			t.Errorf("the walk never reached %q: the usage text stopped naming it", want)
+		}
 	}
 }

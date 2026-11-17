@@ -50,6 +50,10 @@ const maxFeedbackFindings = 10
 
 func cmdHook(args []string) (code int) {
 	const usage = "usage: cartographer hook write-findings [--channel stderr|context|copilot] | dispatch --provider cline --event <Event>   (internal: reads a hook payload on stdin)"
+	if len(args) > 0 && hasHelpFlag(args[:1]) {
+		fmt.Fprintln(os.Stdout, usage)
+		return 0
+	}
 	if len(args) > 0 && args[0] == "dispatch" {
 		return cmdHookDispatch(args[1:])
 	}

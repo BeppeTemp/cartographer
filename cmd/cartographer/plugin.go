@@ -62,6 +62,10 @@ func cmdPlugin(args []string) int {
 		return pluginFail(2, "%s", pluginUsage)
 	}
 	rest := args[1:]
+	if hasHelpFlag(rest) { // `plugin <sub> -h`: help is a success, never the usage of an error
+		fmt.Println(pluginUsage)
+		return 0
+	}
 	switch args[0] {
 	case "new":
 		return pluginNew(rest)

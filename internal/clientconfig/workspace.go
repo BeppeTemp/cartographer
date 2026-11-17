@@ -144,6 +144,9 @@ func CanonicalWorkspacePath(dir string) (string, error) {
 	if err != nil {
 		// The path must exist to be bound: binding a directory that is not
 		// there records a guard nothing can ever check.
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", fmt.Errorf("workspace folder %q does not exist: create it, or pass the path of an existing folder", dir)
+		}
 		return "", fmt.Errorf("clientconfig: workspace path %q: %w", dir, err)
 	}
 	return resolved, nil

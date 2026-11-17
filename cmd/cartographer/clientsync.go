@@ -1273,7 +1273,7 @@ func printApplySummary(wr io.Writer, dir string, results map[string]provisioning
 			fmt.Fprintf(wr, "[%s] needs_approval: %s/%s [%s]\n", p, escapeControl(na.Kind), escapeControl(na.Name), escapeControl(na.Source))
 		}
 		for _, ua := range r.Unsupported {
-			fmt.Fprintf(wr, "[%s] unsupported: %s/%s [%s] (kind has no destination for this provider)\n", p, escapeControl(ua.Kind), escapeControl(ua.Name), escapeControl(ua.Source))
+			fmt.Fprintf(wr, "[%s] unsupported: %s/%s [%s] (not installed for this provider: its kind has no destination there, or a warning says why it was skipped)\n", p, escapeControl(ua.Kind), escapeControl(ua.Name), escapeControl(ua.Source))
 		}
 		// What the resolver decided for this client (D1656): an agent installed as
 		// a skill, an artifact left out for a requirement, and the capabilities
