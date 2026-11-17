@@ -1471,3 +1471,20 @@ func TestCmdKBCreateIdentityRefusalHint(t *testing.T) {
 		t.Errorf("hint misclassifies the refusal:\n%s", out)
 	}
 }
+
+// remoteTextErr is an error whose message is bounded and whose whole output
+// is behind RemoteText, as the errors gitx returns for a remote's refusal.
+type remoteTextErr struct{ msg, full string }
+
+func (e remoteTextErr) Error() string      { return e.msg }
+func (e remoteTextErr) RemoteText() string { return e.full }
+
+func TestPushRefusalHintsUseTheWholeOutput(t *testing.T) {
+	banner := strings.Repeat("remote: "+strings.Repeat("=", 80)+"\n", 30)
+	err := remoteTextErr{msg: "git push: " + banner[:200], full: banner + "remote: error: GH006: Protected branch update failed\n"}
+	var b strings.Builder
+	writePushRefusalHintsFor(&b, err, "https://forge.example.com/g/kb-a.git", "Op", "op@example.com", false)
+	if !strings.Contains(b.String(), "protected for this account") {
+		t.Fatalf("generic hint instead of the protected-branch one: %q", b.String())
+	}
+}

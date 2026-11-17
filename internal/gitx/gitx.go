@@ -368,9 +368,9 @@ func gitNetError(ctx context.Context, remote, verb, what string, err error, outp
 		label += " " + what
 	}
 	if remedy := remoteRemedy(output); remedy != "" {
-		return fmt.Errorf("%s: %s\n%s", label, remedy, strings.TrimSpace(output))
+		return remoteErrorf("%s: %s\n%s", label, remedy, remoteOut(strings.TrimSpace(output)))
 	}
-	return fmt.Errorf("git %s %s %s: %w: %s", verb, shown, what, redactedErr(err, remote), strings.TrimSpace(output))
+	return remoteErrorf("git %s %s %s: %w: %s", verb, shown, what, redactedErr(err, remote), remoteOut(strings.TrimSpace(output)))
 }
 
 // RemoteRemedy is remoteRemedy for a caller that holds a git error's text: the
@@ -431,9 +431,9 @@ func lsRemoteProbe(ctx context.Context, remote string) (RemoteRefs, error) {
 			remedy = remoteRemedy(output)
 		}
 		if remedy != "" {
-			return RemoteRefs{}, fmt.Errorf("git ls-remote %s: %s\n%s", shown, remedy, output)
+			return RemoteRefs{}, remoteErrorf("git ls-remote %s: %s\n%s", shown, remedy, remoteOut(output))
 		}
-		return RemoteRefs{}, fmt.Errorf("git ls-remote %s: %w: %s", shown, redactedErr(err, remote), output)
+		return RemoteRefs{}, remoteErrorf("git ls-remote %s: %w: %s", shown, redactedErr(err, remote), remoteOut(output))
 	}
 	return parseLsRemoteSymref(string(out)), nil
 }
@@ -475,7 +475,7 @@ func ProbeRemoteContent(ctx context.Context, remote string) (RemoteProbe, error)
 		if ctx.Err() != nil {
 			return probe, fmt.Errorf("%w for %s: %v", ErrProbeTimeout, RedactRemoteURL(remote), ctx.Err())
 		}
-		return probe, fmt.Errorf("git fetch %s: %w: %s", RedactRemoteURL(remote), redactedErr(err, remote), RedactRemoteText(strings.TrimSpace(string(out)), remote))
+		return probe, remoteErrorf("git fetch %s: %w: %s", RedactRemoteURL(remote), redactedErr(err, remote), remoteOut(RedactRemoteText(strings.TrimSpace(string(out)), remote)))
 	}
 	_, ok, err := ForgeInitialized(tmp, "FETCH_HEAD")
 	if err != nil {
@@ -759,7 +759,7 @@ func LsRemote(dir, remote string, env ...string) (RemoteRefs, error) {
 		return RemoteRefs{}, fmt.Errorf("git ls-remote %s: %w", RedactRemoteURL(remote), &RemoteTimeoutError{Remote: RedactRemoteURL(remote), After: FetchTimeout})
 	}
 	if err != nil {
-		return RemoteRefs{}, fmt.Errorf("git ls-remote %s: %w: %s", RedactRemoteURL(remote), redactedErr(err, remote), RedactRemoteText(scrubRepoOutput(dir, strings.TrimSpace(stderr.String())), remote))
+		return RemoteRefs{}, remoteErrorf("git ls-remote %s: %w: %s", RedactRemoteURL(remote), redactedErr(err, remote), remoteOut(RedactRemoteText(scrubRepoOutput(dir, strings.TrimSpace(stderr.String())), remote)))
 	}
 	refs := parseLsRemoteSymref(string(out))
 	if refs.Default != "" && RemoteBranchExists(dir, remote, refs.Default) {
@@ -1029,7 +1029,7 @@ func PullRebaseAutostash(dir, remote, branch string, env ...string) error {
 	// not detach HEAD": name the lock before the conflict markers are read.
 	if hint := indexLockHint(dir, out); hint != "" {
 		hint += abortRebaseIfStarted(dir)
-		return fmt.Errorf("git pull --rebase --autostash %s %s: %w: %s%s", RedactRemoteURL(remote), branch, redactedErr(err, remote), RedactRemoteText(out, remote), hint)
+		return remoteErrorf("git pull --rebase --autostash %s %s: %w: %s%s", RedactRemoteURL(remote), branch, redactedErr(err, remote), remoteOut(RedactRemoteText(out, remote)), hint)
 	}
 	// Detect rebase conflict: output contains "CONFLICT" or "rebase" stall markers.
 	if strings.Contains(out, "CONFLICT") ||
@@ -1056,7 +1056,7 @@ func PullRebaseAutostash(dir, remote, branch string, env ...string) error {
 			Branch:    branch,
 		}
 	}
-	return fmt.Errorf("git pull --rebase --autostash %s %s: %w: %s", RedactRemoteURL(remote), branch, redactedErr(err, remote), RedactRemoteText(out, remote))
+	return remoteErrorf("git pull --rebase --autostash %s %s: %w: %s", RedactRemoteURL(remote), branch, redactedErr(err, remote), remoteOut(RedactRemoteText(out, remote)))
 }
 
 // Branch returns the current branch name, or "" if detached HEAD.
@@ -1107,7 +1107,7 @@ func fetchWith(dir, remote string, opts, env []string) error {
 		return fmt.Errorf("git fetch %s: %w", RedactRemoteURL(remote), &RemoteTimeoutError{Remote: RedactRemoteURL(remote), After: FetchTimeout})
 	}
 	if err != nil {
-		return fmt.Errorf("git fetch %s: %w: %s", RedactRemoteURL(remote), redactedErr(err, remote), RedactRemoteText(scrubRepoOutput(dir, string(out)), remote))
+		return remoteErrorf("git fetch %s: %w: %s", RedactRemoteURL(remote), redactedErr(err, remote), remoteOut(RedactRemoteText(scrubRepoOutput(dir, string(out)), remote)))
 	}
 	return nil
 }
@@ -1230,7 +1230,7 @@ func RebaseOntoAutostash(dir, remote, branch string, env ...string) error {
 	}
 	if hint := indexLockHint(dir, out); hint != "" {
 		hint += abortRebaseIfStarted(dir)
-		return fmt.Errorf("git rebase --autostash %s: %w: %s%s", target, err, out, hint)
+		return remoteErrorf("git rebase --autostash %s: %w: %s%s", target, err, remoteOut(out), hint)
 	}
 	if strings.Contains(out, "CONFLICT") || strings.Contains(out, "could not apply") || strings.Contains(out, "error: could not") {
 		files, _ := UnmergedFiles(dir)
@@ -1238,7 +1238,7 @@ func RebaseOntoAutostash(dir, remote, branch string, env ...string) error {
 		_, _ = runGit(dir, "rebase", "--abort")
 		return &RebaseConflictError{Files: files, LocalSHA: localSHA, RemoteSHA: remoteSHA, Remote: RedactRemoteURL(remote), Branch: branch}
 	}
-	return fmt.Errorf("git rebase --autostash %s: %w: %s", target, err, out)
+	return remoteErrorf("git rebase --autostash %s: %w: %s", target, err, remoteOut(out))
 }
 
 // TreePaths returns the paths of every file in ref's tree, slash-separated
@@ -1518,9 +1518,9 @@ func pushError(what string, err error, out string) error {
 		return fmt.Errorf("%s: %w", what, err)
 	}
 	if remedy := remoteRemedy(out); remedy != "" {
-		return fmt.Errorf("%s: %s\n%s: %w", what, remedy, strings.TrimSpace(out), err)
+		return remoteErrorf("%s: %s\n%s: %w", what, remedy, remoteOut(strings.TrimSpace(out)), err)
 	}
-	return fmt.Errorf("%s: %w: %s", what, err, out)
+	return remoteErrorf("%s: %w: %s", what, err, remoteOut(out))
 }
 
 // PushTimeout bounds one git push. A push carries data, so it gets a longer
@@ -2524,7 +2524,7 @@ func AddRemote(dir, name, url string) error {
 	}
 	out, err := runGit(dir, "remote", "add", "--", name, url)
 	if err != nil {
-		return fmt.Errorf("git remote add %s: %w: %s", name, redactedErr(err, url), RedactRemoteText(out, url))
+		return remoteErrorf("git remote add %s: %w: %s", name, redactedErr(err, url), remoteOut(RedactRemoteText(out, url)))
 	}
 	return nil
 }

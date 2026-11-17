@@ -123,10 +123,7 @@ func quoteLine(output string, phrases []string, rejectedOnly bool) string {
 	if line == "" {
 		return ""
 	}
-	line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "remote:"))
-	if len(line) > 200 {
-		line = line[:200] + "..."
-	}
+	line = BoundRemoteLines(strings.TrimPrefix(strings.TrimSpace(line), "remote:"), 1)
 	return fmt.Sprintf(" (the remote said: %q)", line)
 }
 
@@ -157,7 +154,7 @@ func IsRemoteUnreachable(err error) bool {
 	if errors.Is(err, ErrProbeTimeout) {
 		return true
 	}
-	lower := strings.ToLower(err.Error())
+	lower := strings.ToLower(RemoteText(err))
 	for _, p := range unreachablePhrases {
 		if strings.Contains(lower, p) {
 			return true
@@ -260,7 +257,7 @@ func ProbePushAccess(ctx context.Context, remote string, env ...string) error {
 		remedy = remoteRemedy(output)
 	}
 	if remedy != "" {
-		return fmt.Errorf("git push --dry-run %s: %s\n%s", shown, remedy, output)
+		return remoteErrorf("git push --dry-run %s: %s\n%s", shown, remedy, remoteOut(output))
 	}
-	return fmt.Errorf("git push --dry-run %s: %w: %s", shown, redactedErr(err, remote), output)
+	return remoteErrorf("git push --dry-run %s: %w: %s", shown, redactedErr(err, remote), remoteOut(output))
 }
