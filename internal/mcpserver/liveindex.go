@@ -140,7 +140,7 @@ func parseConceptMeta(content string) conceptMeta {
 // first occurrence of any tokenized term of query, or the first maxChars
 // runes of body as a fallback (no term found, or empty query/body).
 func extractSnippet(body, query string, maxChars int) string {
-	body = strings.TrimSpace(body)
+	body = strings.TrimSpace(search.CapExcerptText(body))
 	if body == "" {
 		return ""
 	}

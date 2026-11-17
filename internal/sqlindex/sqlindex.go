@@ -22,6 +22,7 @@
 package sqlindex
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"io/fs"
@@ -51,6 +52,21 @@ type Hit struct {
 type Index struct {
 	db   *sql.DB
 	path string
+	ctx  context.Context // nil: queries run to completion; see WithContext
+}
+
+// WithContext returns a view of ix whose queries stop when ctx ends: a search
+// of a client that disconnected must not keep a core busy (#2189). The view
+// shares the database; closing it is closing ix.
+func (ix *Index) WithContext(ctx context.Context) *Index {
+	return &Index{db: ix.db, path: ix.path, ctx: ctx}
+}
+
+func (ix *Index) context() context.Context {
+	if ix.ctx == nil {
+		return context.Background()
+	}
+	return ix.ctx
 }
 
 // Open opens a SQLite index at dbPath. It creates the schema if it does not
@@ -517,7 +533,7 @@ func deleteTx(tx *sql.Tx, id string) error {
 // AllHashes returns the persisted content hash for every indexed concept.
 // Callers use it to reconcile the derived index with the KB files on disk.
 func (ix *Index) AllHashes() (map[string]string, error) {
-	rows, err := ix.db.Query(`SELECT id, content_hash FROM concepts`)
+	rows, err := ix.db.QueryContext(ix.context(), `SELECT id, content_hash FROM concepts`)
 	if err != nil {
 		return nil, fmt.Errorf("sqlindex: all hashes: %w", err)
 	}
@@ -548,7 +564,7 @@ func (ix *Index) IDsContaining(subs []string) (map[string]bool, error) {
 		if sub == "" {
 			continue
 		}
-		rows, err := ix.db.Query(`SELECT id FROM concepts WHERE instr(body, ?) > 0`, sub)
+		rows, err := ix.db.QueryContext(ix.context(), `SELECT id FROM concepts WHERE instr(body, ?) > 0`, sub)
 		if err != nil {
 			return nil, fmt.Errorf("sqlindex: ids containing: %w", err)
 		}
@@ -653,12 +669,13 @@ func (ix *Index) searchFTS(query, scope string, limit int, allow func(id string)
 
 	// The AND pass is asked for at least the floor so that a small limit
 	// cannot make full matches beyond the page look like OR-only ones.
-	hits, _, err := ix.searchFTSFiltered(sanitizeFTSQuery(q), scope, max(limit, search.OrFallbackFloor), allow, snippets)
+	terms := ftsTokens(strings.ReplaceAll(q, "\"", ""))
+	hits, _, err := ix.searchFTSFiltered(sanitizeFTSQuery(q), terms, scope, max(limit, search.OrFallbackFloor), allow, snippets)
 	if err != nil {
 		return nil, err
 	}
 
-	tokens := ftsTokens(strings.ReplaceAll(q, "\"", ""))
+	tokens := terms
 	if len(hits) < search.OrFallbackFloor && len(tokens) >= 2 {
 		seen := make(map[string]bool, len(hits))
 		for _, h := range hits {
@@ -666,7 +683,7 @@ func (ix *Index) searchFTS(query, scope string, limit int, allow func(id string)
 		}
 		// The OR query also returns the full matches: ask for enough extra
 		// rows that `limit` OR-only hits survive the de-duplication.
-		fallback, _, err := ix.searchFTSFiltered(`"`+strings.Join(tokens, `" OR "`)+`"`, scope, limit+len(hits), allow, snippets)
+		fallback, _, err := ix.searchFTSFiltered(`"`+strings.Join(tokens, `" OR "`)+`"`, tokens, scope, limit+len(hits), allow, snippets)
 		if err != nil {
 			return nil, err
 		}
@@ -683,12 +700,12 @@ func (ix *Index) searchFTS(query, scope string, limit int, allow func(id string)
 	return hits, nil
 }
 
-func (ix *Index) searchFTSFiltered(query, scope string, limit int, allow func(id string) bool, snippets bool) ([]Hit, bool, error) {
+func (ix *Index) searchFTSFiltered(query string, terms []string, scope string, limit int, allow func(id string) bool, snippets bool) ([]Hit, bool, error) {
 	hits, found, err := ix.pageFTS(query, scope, limit, allow)
 	if err != nil || !snippets || len(hits) == 0 {
 		return hits, found, err
 	}
-	return hits, found, ix.fillSnippets(query, hits)
+	return hits, found, ix.fillSnippets(query, terms, hits)
 }
 
 // pageFTS pages ranked (id, score) rows until it has limit allowed hits.
@@ -732,20 +749,24 @@ var snippetRowsEvaluated atomic.Int64
 const ftsSnippetChunk = 200
 
 // fillSnippets sets Snippet on every hit with one query per chunk of ids,
-// against the same MATCH expression that ranked them.
-func (ix *Index) fillSnippets(query string, hits []Hit) error {
+// against the same MATCH expression that ranked them. The excerpt is cut in Go
+// from the first search.ExcerptScanBytes of the body, not by FTS5's snippet():
+// that one is quadratic in the matches of a body and never returned for a
+// megabyte of one repeated character (#2189). A hit whose body has no match
+// in that prefix but whose assets have one takes the assets excerpt.
+func (ix *Index) fillSnippets(query string, terms []string, hits []Hit) error {
 	at := make(map[string]int, len(hits))
 	for i, h := range hits {
 		at[h.ID] = i
 	}
 	for start := 0; start < len(hits); start += ftsSnippetChunk {
 		chunk := hits[start:min(start+ftsSnippetChunk, len(hits))]
-		args := []any{ftsSnippetTokens, ftsSnippetTokens, query}
+		args := []any{search.ExcerptScanBytes, search.ExcerptScanBytes, query}
 		for _, h := range chunk {
 			args = append(args, h.ID)
 		}
-		rows, err := ix.db.Query(
-			`SELECT id, `+ftsSnippet+`, `+ftsAssetSnippet+`
+		rows, err := ix.db.QueryContext(ix.context(),
+			`SELECT id, substr(body, 1, ?), substr(assets, 1, ?)
 			 FROM concepts_fts
 			 WHERE concepts_fts MATCH ? AND id IN (`+strings.TrimSuffix(strings.Repeat("?,", len(chunk)), ",")+`)`,
 			args...,
@@ -754,13 +775,13 @@ func (ix *Index) fillSnippets(query string, hits []Hit) error {
 			return fmt.Errorf("sqlindex: snippets: %w", err)
 		}
 		for rows.Next() {
-			var id, bodySnip, assetSnip string
-			if err := rows.Scan(&id, &bodySnip, &assetSnip); err != nil {
+			var id, body, assets string
+			if err := rows.Scan(&id, &body, &assets); err != nil {
 				rows.Close()
 				return fmt.Errorf("sqlindex: scan snippet: %w", err)
 			}
 			snippetRowsEvaluated.Add(1)
-			hits[at[id]].Snippet = pickSnippet(bodySnip, assetSnip)
+			hits[at[id]].Snippet = excerptOf(body, assets, terms)
 		}
 		err = rows.Err()
 		rows.Close()
@@ -771,44 +792,31 @@ func (ix *Index) fillSnippets(query string, hits []Hit) error {
 	return nil
 }
 
-// ftsRank and the two snippet expressions are the ranking and excerpt of every
-// search query. bm25's weights are positional over ALL columns, the
-// unindexed id included: the leading 0 is id's, then title 5, meta 2, body 1,
-// assets 1 (D277). Dropping the 0 silently shifts every weight one column to
-// the left.
-// snippet() reads column 3, the body: a match only in title or meta yields
-// the start of the body, as the in-memory excerpt does with no term found,
-// and an empty body yields "", for which the caller uses its own excerpt. A
-// match only in the assets (column 4) would yield that same start of the
-// body, so both columns are excerpted with match marks and pickSnippet takes
-// the assets excerpt when only it carries a mark.
-const (
-	ftsRank         = `-1.0 * bm25(concepts_fts, 0.0, 5.0, 2.0, 1.0, 1.0)`
-	ftsSnippet      = `snippet(concepts_fts, 3, char(1), char(2), '…', ?)`
-	ftsAssetSnippet = `snippet(concepts_fts, 4, char(1), char(2), '…', ?)`
-	snipMarks       = "\x01\x02"
-)
+// ftsRank is the ranking of every search query. bm25's weights are positional
+// over ALL columns, the unindexed id included: the leading 0 is id's, then
+// title 5, meta 2, body 1, assets 1 (D277). Dropping the 0 silently shifts
+// every weight one column to the left.
+const ftsRank = `-1.0 * bm25(concepts_fts, 0.0, 5.0, 2.0, 1.0, 1.0)`
 
-// pickSnippet chooses between the body and assets excerpts and strips the
-// match marks.
-func pickSnippet(body, assets string) string {
-	pick := body
-	if !strings.Contains(body, "\x01") && strings.Contains(assets, "\x01") {
-		pick = assets
-	}
-	return strings.Map(func(r rune) rune {
-		if strings.ContainsRune(snipMarks, r) {
-			return -1
+// excerptOf is the excerpt of a concept: the body's around the first match
+// (the start of the body when only the title or meta match, and "" for an empty
+// body, for which the caller uses its own excerpt), or the assets' when only
+// they hold a match.
+func excerptOf(body, assets string, terms []string) string {
+	snip, found := search.Excerpt(body, terms, ftsSnippetTokens)
+	if !found && assets != "" {
+		if a, ok := search.Excerpt(assets, terms, ftsSnippetTokens); ok {
+			return a
 		}
-		return r
-	}, pick)
+	}
+	return snip
 }
 
 func (ix *Index) searchFTSPage(query, scope string, limit, offset int) ([]Hit, error) {
 	var rows *sql.Rows
 	var err error
 	if scope != "" {
-		rows, err = ix.db.Query(
+		rows, err = ix.db.QueryContext(ix.context(),
 			`SELECT c.id, `+ftsRank+` AS score
 			 FROM concepts_fts
 			 JOIN concepts c ON c.id = concepts_fts.id
@@ -818,7 +826,7 @@ func (ix *Index) searchFTSPage(query, scope string, limit, offset int) ([]Hit, e
 			query, likePrefixPattern(scope), limit, offset,
 		)
 	} else {
-		rows, err = ix.db.Query(
+		rows, err = ix.db.QueryContext(ix.context(),
 			`SELECT c.id, `+ftsRank+` AS score
 			 FROM concepts_fts
 			 JOIN concepts c ON c.id = concepts_fts.id
@@ -850,7 +858,7 @@ func (ix *Index) searchFTSPage(query, scope string, limit, offset int) ([]Hit, e
 // Count returns the number of indexed concepts.
 func (ix *Index) Count() (int, error) {
 	var n int
-	err := ix.db.QueryRow(`SELECT COUNT(*) FROM concepts`).Scan(&n)
+	err := ix.db.QueryRowContext(ix.context(), `SELECT COUNT(*) FROM concepts`).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("sqlindex: count: %w", err)
 	}
@@ -860,36 +868,29 @@ func (ix *Index) Count() (int, error) {
 // sectionRank is the ranking of BestSection: bm25's weights are positional
 // over all columns of sections_fts, the two unindexed ones (id, heading)
 // included, then the heading text 3 and the section body 1 (D1207).
-const (
-	sectionRank    = `-1.0 * bm25(sections_fts, 0.0, 0.0, 3.0, 1.0)`
-	sectionSnippet = `snippet(sections_fts, 3, char(1), char(2), '…', ?)`
-)
+const sectionRank = `-1.0 * bm25(sections_fts, 0.0, 0.0, 3.0, 1.0)`
 
-// BestSection returns the "##" section of concept id that best matches query:
-// its heading as okf.ExtractSection accepts it and an excerpt of its text. The
-// query's tokens (ftsTokens: terms under three characters match nothing, as for
-// pages) are OR-ed, so a section holding any of them qualifies and bm25 picks
-// the best. No matching section, or none indexed, is ok == false, not an error.
 func (ix *Index) BestSection(id, query string) (heading, snippet string, ok bool, err error) {
 	tokens := ftsTokens(strings.ReplaceAll(query, "\"", ""))
 	if len(tokens) == 0 {
 		return "", "", false, nil
 	}
 	match := `"` + strings.Join(tokens, `" OR "`) + `"`
-	var snip string
-	err = ix.db.QueryRow(
-		`SELECT heading, `+sectionSnippet+`
+	var text string
+	err = ix.db.QueryRowContext(ix.context(),
+		`SELECT heading, substr(body, 1, ?)
 		 FROM sections_fts
 		 WHERE sections_fts MATCH ? AND id = ?
 		 ORDER BY `+sectionRank+` DESC, rowid
 		 LIMIT 1`,
-		ftsSnippetTokens, match, id,
-	).Scan(&heading, &snip)
+		search.ExcerptScanBytes, match, id,
+	).Scan(&heading, &text)
 	if err == sql.ErrNoRows {
 		return "", "", false, nil
 	}
 	if err != nil {
 		return "", "", false, fmt.Errorf("sqlindex: best section: %w", err)
 	}
-	return heading, pickSnippet(snip, ""), true, nil
+	snip, _ := search.Excerpt(text, tokens, ftsSnippetTokens)
+	return heading, snip, true, nil
 }

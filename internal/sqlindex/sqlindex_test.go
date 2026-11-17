@@ -447,7 +447,7 @@ func TestBestSection(t *testing.T) {
 	if err != nil || !ok || h != "## Rollback" {
 		t.Fatalf("BestSection = %q %q %v %v, want ## Rollback", h, snip, ok, err)
 	}
-	if !strings.Contains(snip, "snapshot") || strings.ContainsAny(snip, snipMarks) {
+	if !strings.Contains(snip, "snapshot") || strings.ContainsAny(snip, "\x01\x02") {
 		t.Errorf("snippet = %q, want the section excerpt without match marks", snip)
 	}
 	// A title-only match (frontmatter title, not a section) names nothing.
