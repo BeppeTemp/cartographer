@@ -197,7 +197,10 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 		for _, r := range p.DriftReason {
 			fmt.Printf("  out of sync, nothing itemized: %s (run `cartographer sync`)\n", escapeControl(r))
 		}
-		if p.Problem == "" && len(p.DriftReason) == 0 && len(p.Diverged)+len(p.Added)+len(p.Updated)+len(p.Removed) == 0 {
+		for _, pp := range p.PendingPrune {
+			fmt.Printf("  prune pending in %s: %s (run `cartographer sync`)\n", escapeControl(pp.Workspace), escapeControl(pp.Reason))
+		}
+		if p.Problem == "" && len(p.DriftReason) == 0 && len(p.PendingPrune) == 0 && len(p.Diverged)+len(p.Added)+len(p.Updated)+len(p.Removed) == 0 {
 			fmt.Println("  no itemized difference: run `cartographer sync`; if it stays, report `status --output json`")
 		}
 		printBindingLine(p)
@@ -318,6 +321,8 @@ func driftHeader(p providerStatus) string {
 			why = "approval pending"
 		case len(p.Diverged) > 0:
 			why = "diverged on disk"
+		case len(p.PendingPrune) > 0:
+			why = "a projection is waiting to be pruned"
 		}
 		return fmt.Sprintf("drift (revision %s unchanged: %s)", p.Revision, why)
 	}

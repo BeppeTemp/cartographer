@@ -149,3 +149,54 @@ func TestSyncFailureExit_DeniedClientDirIsDistinct(t *testing.T) {
 		t.Errorf("contention exit = %d, want 2", got)
 	}
 }
+
+// #2238: the sync waits for the client lock once. The realignment runs under
+// the lock the sync already holds and takes none of its own: with another
+// process holding the lock it would wait a second DefaultClientLockTimeout and
+// repeat its message.
+func TestRealignClientConfigTakesNoLockOfItsOwn(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+	writeClientConfig(t, home, "update:\n  check: false\n")
+	release, err := provisioning.LockClientState(home, provisioning.DefaultClientLockTimeout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	done := make(chan string, 1)
+	go func() { done <- realignClientConfig(home) }()
+	select {
+	case backup := <-done:
+		if backup == "" {
+			t.Error("the file was not migrated")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the realignment waited for the client lock the caller holds")
+	}
+}
+
+// #2238: a file carrying `update: {check: false}` is migrated once: the first
+// realignment writes the final form, the sync's own save leaves it alone, and
+// the next one finds nothing to do and writes no second backup.
+func TestRealignClientConfigConvergesInOnePass(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+	writeClientConfig(t, home, "update: {check: false}\n")
+	if backup := realignClientConfig(home); backup == "" {
+		t.Fatal("the first realignment did not migrate the file")
+	}
+	cfg, err := clientconfig.Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := clientconfig.Save(home, cfg); err != nil { // the end of the sync
+		t.Fatal(err)
+	}
+	if backup := realignClientConfig(home); backup != "" {
+		t.Errorf("the second realignment rewrote the file again (backup %s)", backup)
+	}
+	baks, _ := filepath.Glob(clientconfig.Path(home) + ".bak-*")
+	if len(baks) != 1 {
+		t.Errorf("want one backup, got %v", baks)
+	}
+}

@@ -296,7 +296,7 @@ func cmdWorkspace(args []string) int {
 }
 
 const workspaceUsage = `usage: cartographer workspace bind <provider> <path> --kb <name>[,<name>...]
-       cartographer workspace bind codex <path> --kb <name>[,<name>...] [--trust]
+       cartographer workspace bind codex <path> --kb <name>[,<name>...] [--trust]    (--trust applies to codex only)
        cartographer workspace bind <provider> <path> --no-kb
        cartographer workspace bind <provider> <path> --kb <name>[,<name>...] --worktrees
        cartographer workspace unbind <provider> <path>

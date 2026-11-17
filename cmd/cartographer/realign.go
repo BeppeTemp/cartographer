@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -12,7 +11,6 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/kb"
-	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/settingschema"
 )
 
@@ -249,21 +247,13 @@ func realignKBSettings(k *kb.KB, name string) (refusal string) {
 
 // realignClientConfig brings ~/.cartographer.yaml up to date on a sync (D903):
 // the removed keys dropped, the schema's comments written, the original kept
-// beside it. Under the client-state lock, because every command that writes
-// the same file takes it (D172); a lock it cannot take, or a file it cannot
-// write, is a warning and never stops the sync. It returns the backup path when
+// beside it. The caller holds the client-state lock, because every command that
+// writes the same file takes it (D172), and takes it once for the whole sync: a
+// lock it cannot get is the sync's one error, not a second wait here (#2238). A
+// file it cannot write is a warning and never stops the sync. It returns the backup path when
 // it rewrote the file, "" otherwise, so a sync that fails afterwards can say the
 // file was migrated (#2221).
 func realignClientConfig(dir string) string {
-	release, err := provisioning.LockClientState(dir, provisioning.DefaultClientLockTimeout)
-	if err != nil {
-		if errors.Is(err, provisioning.ErrClientDirDenied) {
-			return "" // the lock the sync takes next reports it, once
-		}
-		fmt.Fprintf(os.Stderr, "warning: %s is not realigned: %v\n", clientconfig.Path(dir), err)
-		return ""
-	}
-	defer release()
 	rep, backup, err := clientconfig.RealignFile(dir, version)
 	if err != nil {
 		if rep.Substantive() {
