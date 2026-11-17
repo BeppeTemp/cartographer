@@ -1041,7 +1041,14 @@ func (k *KB) TreeClean() bool {
 // held someone's unsaved work this would destroy it. Known window: an outside
 // edit written while the handler runs is discarded with the handler's residue.
 func (k *KB) DiscardUncommitted() error {
-	return gitx.DiscardChanges(k.Root)
+	err := gitx.DiscardChanges(k.Root)
+	// A lock that is not ours refuses the reset too. The write that failed on it
+	// never staged anything, so the index is still HEAD's and the files go back
+	// without it (#2190).
+	if err != nil && gitx.HasIndexLock(k.Root) != "" && gitx.RestoreWithoutIndex(k.Root) == nil {
+		return nil
+	}
+	return err
 }
 
 // CommitPaths creates one commit containing changes to paths only, by

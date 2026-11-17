@@ -169,9 +169,10 @@ func TestGitWrap_CommitFailureIsRecordedAndDoesNotSchedulePush(t *testing.T) {
 		t.Fatalf("git config: %v: %s", err, out)
 	}
 	res := writeWrappedTool(t, k, "test_write", nil)
-	warning := syncWarning(t, res)
-	if warning["sync_state"] != "failed" || !strings.Contains(warning["last_error"].(string), "commit:") {
-		t.Fatalf("warning = %+v", warning)
+	// #2190: the call fails and its write is rolled back, so there is nothing
+	// to push and no failed state to report.
+	if !res.IsError || !strings.Contains(res.Content[0].Text, "commit failed") {
+		t.Fatalf("result = %+v, want a commit-failure error", res)
 	}
 	branch, _ := gitx.Branch(k.Root)
 	if count := remoteCommitCount(t, bare, branch); count != "1" {

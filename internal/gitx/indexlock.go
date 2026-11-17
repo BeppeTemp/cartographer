@@ -142,3 +142,69 @@ func isOwnToplevel(dir string) bool {
 	}
 	return top == want
 }
+
+// RestoreWithoutIndex puts the working tree back to HEAD while a foreign
+// index.lock refuses every index write: untracked files are removed, a modified
+// or deleted tracked file is rewritten from HEAD's blob (git cat-file and status
+// take no lock). It handles only the plain states a write leaves (modified,
+// deleted, untracked) and refuses the rest, which a reset must settle.
+func RestoreWithoutIndex(dir string) error {
+	out, err := runGit(dir, "status", "--porcelain", "-z", "--untracked-files=all")
+	if err != nil {
+		return fmt.Errorf("git status: %w", err)
+	}
+	type step struct {
+		path      string
+		untracked bool
+	}
+	var steps []step
+	for _, e := range strings.Split(out, "\x00") {
+		if e == "" {
+			continue
+		}
+		if len(e) < 4 {
+			return fmt.Errorf("unexpected status entry %q", e)
+		}
+		xy, path := e[:2], e[3:]
+		switch {
+		case xy == "??":
+			steps = append(steps, step{path, true})
+		case xy == " M" || xy == " D" || xy == " T":
+			steps = append(steps, step{path, false})
+		default:
+			return fmt.Errorf("status %q of %s needs a reset", xy, path)
+		}
+	}
+	for _, st := range steps {
+		abs := filepath.Join(dir, filepath.FromSlash(st.path))
+		if fi, err := os.Lstat(abs); err == nil && fi.Mode()&os.ModeSymlink != 0 && !st.untracked {
+			return fmt.Errorf("%s is a symlink", st.path)
+		}
+		if st.untracked {
+			if err := os.Remove(abs); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+			for d := filepath.Dir(abs); d != dir && strings.HasPrefix(d, dir); d = filepath.Dir(d) {
+				if os.Remove(d) != nil { // not empty: stop
+					break
+				}
+			}
+			continue
+		}
+		blob, err := runGit(dir, "cat-file", "blob", "HEAD:"+st.path)
+		if err != nil {
+			return fmt.Errorf("git cat-file %s: %w", st.path, err)
+		}
+		if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+			return err
+		}
+		mode := os.FileMode(0o644)
+		if fi, err := os.Stat(abs); err == nil {
+			mode = fi.Mode().Perm()
+		}
+		if err := os.WriteFile(abs, []byte(blob), mode); err != nil {
+			return err
+		}
+	}
+	return nil
+}

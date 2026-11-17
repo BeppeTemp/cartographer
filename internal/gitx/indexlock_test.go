@@ -475,3 +475,40 @@ func namesLock(msg, lock string) bool {
 	real, err := filepath.EvalSymlinks(lock)
 	return err == nil && strings.Contains(msg, filepath.ToSlash(real))
 }
+
+// RestoreWithoutIndex puts the tree back to HEAD while a foreign index.lock
+// refuses the reset (#2190): a modified and a deleted tracked file come back,
+// an untracked one and its emptied folder go.
+func TestRestoreWithoutIndex_RestoresTheTreeUnderALock(t *testing.T) {
+	dir := repoWithCommit(t)
+	if err := os.WriteFile(filepath.Join(dir, "a.md"), []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "new", "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "new", "sub", "x.md"), []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, ".git", "index.lock"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := RestoreWithoutIndex(dir); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "a.md")); string(b) != "a\n" {
+		t.Fatalf("a.md = %q, want HEAD's content", b)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "new")); !os.IsNotExist(err) {
+		t.Fatalf("the untracked folder is still there (%v)", err)
+	}
+	if err := os.Remove(filepath.Join(dir, "a.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := RestoreWithoutIndex(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "a.md")); err != nil {
+		t.Fatalf("the deleted file did not come back: %v", err)
+	}
+}
