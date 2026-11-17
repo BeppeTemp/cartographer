@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -166,6 +167,20 @@ func TestReportOnly_SendsToTheGivenURLAndChangesNothing(t *testing.T) {
 	}
 	if string(before) != string(after) {
 		t.Fatalf("client config changed:\n%s\n---\n%s", before, after)
+	}
+}
+
+// A refused settings report exits 1 and says why (#2199).
+func TestReportOnly_SaysWhyTheSettingsWereNotSent(t *testing.T) {
+	home := usageClientHome(t)
+	setHome(t, home)
+	if err := clientconfig.Save(home, clientconfig.Default()); err != nil {
+		t.Fatal(err)
+	}
+	var code int
+	errOut := stderrOf(t, func() { code = reportOnly(home, "http://127.0.0.1:1/x") })
+	if code != 1 || !strings.Contains(errOut, "client settings not sent: ") || strings.HasSuffix(strings.TrimSpace(errOut), "not sent:") {
+		t.Fatalf("exit %d, stderr %q", code, errOut)
 	}
 }
 

@@ -186,7 +186,7 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 			fmt.Printf("[%s] %s\n", p.Name, strings.ReplaceAll(p.State, "_", "-"))
 			continue
 		}
-		fmt.Printf("[%s] drift (manifest %s, lock %s)\n", p.Name, p.Revision, p.LockRevision)
+		fmt.Printf("[%s] %s\n", p.Name, driftHeader(p))
 		if p.Problem != "" {
 			fmt.Printf("  cannot sync: %s\n", p.Problem)
 		}
@@ -288,6 +288,36 @@ func renderStatus(output string, s statusSnapshot, code int) int {
 	printTrayNotRunning()
 
 	return code
+}
+
+// driftHeader is the first line of a drifting provider: the revisions when they
+// differ, and otherwise what the state is. A provider sync cannot even project
+// has no revision to show, and one whose manifest and lock agree is out of sync
+// for a reason that is not the catalogue (#2199).
+func driftHeader(p providerStatus) string {
+	switch {
+	case p.Revision == "" && p.LockRevision == "":
+		if p.Problem != "" {
+			return "drift (sync cannot project this provider)"
+		}
+		return "drift"
+	case p.Revision == p.LockRevision:
+		why := "the files on this machine differ from the lock"
+		held := false
+		for _, a := range append(append([]statusArtifact{}, p.Added...), p.Updated...) {
+			if t := statusArtifactTrust(a); t == "needs_approval" || t == "approval_stale" || a.HeldReason != "" {
+				held = true
+			}
+		}
+		switch {
+		case held:
+			why = "approval pending"
+		case len(p.Diverged) > 0:
+			why = "diverged on disk"
+		}
+		return fmt.Sprintf("drift (revision %s unchanged: %s)", p.Revision, why)
+	}
+	return fmt.Sprintf("drift (manifest %s, lock %s)", p.Revision, p.LockRevision)
 }
 
 // printHookRegistrationHint says where the sync registers a pending hook.

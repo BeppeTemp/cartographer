@@ -734,6 +734,14 @@ func pluginRemove(args []string) int {
 			delete(fresh.Workspaces, rp)
 			delete(fresh.Scopes, rp)
 		}
+		// The binding and the unbound mode of every provider the plugin declared go
+		// too (disconnect keeps them for a reconnect, but this provider is gone for
+		// good): left behind they make the next load report a "no longer supported"
+		// client whose files remove already pruned (#2199).
+		for _, rp := range append(slices.Clone(providers), retired...) {
+			delete(fresh.Clients, rp)
+			delete(fresh.UnboundModes, rp)
+		}
 		if err := clientconfig.Save(c.dir, fresh); err != nil {
 			return pluginFail(1, "%s", escapeControl(err.Error()))
 		}

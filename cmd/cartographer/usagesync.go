@@ -130,10 +130,16 @@ func reportUsage(cfg *clientconfig.Config, dir string) int {
 // or fails a sync. The server keeps the report for the principal that sent it
 // and shows it to that principal only.
 func reportClientSettings(cfg *clientconfig.Config, dir string) bool {
+	return sendClientSettings(cfg, dir) == nil
+}
+
+// sendClientSettings is reportClientSettings with the reason it failed, for the
+// one caller that tells the operator (`sync --report-to`, #2199).
+func sendClientSettings(cfg *clientconfig.Config, dir string) error {
 	report, err := clientconfig.Report(dir, version)
 	if err != nil {
 		slog.Debug("client settings report skipped", "err", err)
-		return false
+		return err
 	}
 	report.Providers = reportProviders(cfg)
 	report.Placeholders = reportPlaceholders(cfg, dir)
@@ -141,9 +147,9 @@ func reportClientSettings(cfg *clientconfig.Config, dir string) bool {
 	c := client.New(cfg.ServerURL, resolveToken(cfg)).WithInsecureHTTP(cfg.InsecureHTTPAllowed()).WithTokenEnv(tokenEnvName(cfg))
 	if err := c.ReportClientSettings(report, probeTimeout); err != nil {
 		slog.Debug("client settings report not delivered", "err", err)
-		return false
+		return err
 	}
-	return true
+	return nil
 }
 
 // reportPlugins is the plugins installed here, computed as `plugin list`
@@ -201,9 +207,10 @@ func reportOnly(dir, url string) int {
 		return 2
 	}
 	usage := reportUsage(cfg, dir)
-	settings := reportClientSettings(cfg, dir)
-	fmt.Printf("reported to %s: %d usage entries, client settings %s\n", url, usage, map[bool]string{true: "sent", false: "not sent"}[settings])
-	if !settings {
+	sendErr := sendClientSettings(cfg, dir)
+	fmt.Printf("reported to %s: %d usage entries, client settings %s\n", url, usage, map[bool]string{true: "sent", false: "not sent"}[sendErr == nil])
+	if sendErr != nil {
+		fmt.Fprintf(os.Stderr, "Error: client settings not sent: %s\n", escapeControl(sendErr.Error()))
 		return 1
 	}
 	return 0

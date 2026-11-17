@@ -67,6 +67,28 @@ func TestStatusTableRetainsDriftDetails(t *testing.T) {
 	}
 }
 
+// The drift header says what the state is when the revisions say nothing: an
+// unreadable workspace has none, and a pending approval leaves both equal (#2199).
+func TestStatusDriftHeaderSaysWhatTheStateIs(t *testing.T) {
+	cases := []struct {
+		name string
+		p    providerStatus
+		want string
+	}{
+		{"unreadable workspace", providerStatus{Problem: "workspace /w: unreadable"}, "drift (sync cannot project this provider)"},
+		{"approval pending", providerStatus{Revision: "r1", LockRevision: "r1", Added: []statusArtifact{{Kind: "agent", Name: "a", Source: "kb:x"}}}, "drift (revision r1 unchanged: approval pending)"},
+		{"diverged", providerStatus{Revision: "r1", LockRevision: "r1", Diverged: []statusArtifact{{Kind: "skill", Name: "s"}}}, "drift (revision r1 unchanged: diverged on disk)"},
+	}
+	for _, c := range cases {
+		c.p.Name, c.p.Connected, c.p.State = "claude", true, "drift"
+		s := statusSnapshot{Schema: statusSchema, Reachable: true, Client: "v1", Server: "v1", ServerURL: "http://x/mcp", State: "drift", Providers: []providerStatus{c.p}}
+		out := withStdout(t, func() { renderStatus("table", s, 1) })
+		if !strings.Contains(out, c.want) || strings.Contains(out, "manifest , lock") {
+			t.Errorf("%s: output %q lacks %q", c.name, out, c.want)
+		}
+	}
+}
+
 func TestSnapshotArtifactsMCPApprovalStates(t *testing.T) {
 	cfg := clientconfig.Default()
 	if err := cfg.ApproveMCP("kb", "approved", "same", time.Now()); err != nil {

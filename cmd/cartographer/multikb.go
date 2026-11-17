@@ -130,7 +130,7 @@ func resolveKBTargets(health *client.Health, selectedNames []string) ([]kbTarget
 			}
 			prefix, ok := prefixByName[name]
 			if !ok {
-				return nil, fmt.Errorf("configured KB %q is not among the KBs currently advertised by the server (stale selection: check .cartographer.yaml or the server config; the server lists only the KBs the token may read)", name)
+				return nil, staleSelectionError(name)
 			}
 			targets = append(targets, kbTarget{Name: name, ToolPrefix: prefix})
 		}
@@ -141,6 +141,13 @@ func resolveKBTargets(health *client.Health, selectedNames []string) ([]kbTarget
 		return []kbTarget{{ToolPrefix: (*health.KBs)[0].ToolPrefix}}, nil
 	}
 	return []kbTarget{{}}, nil
+}
+
+// staleSelectionError is the refusal for a configured KB the server does not
+// advertise, with the command that fixes it: the binding names a KB that is no
+// longer mounted (or that the token may not read).
+func staleSelectionError(name string) error {
+	return fmt.Errorf("configured KB %q is not among the KBs currently advertised by the server (stale selection: the server lists only the KBs the token may read; remove it from the providers that name it with `cartographer client unbind <provider> %s`, or from a workspace binding with `cartographer workspace unbind`, or mount the KB again)", name, name)
 }
 
 // serverFacts is what a single /health request tells the client: the mounted
