@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -613,5 +614,40 @@ func TestGateCheck_ChangedIDsReportWhatLintReports(t *testing.T) {
 		if !strings.Contains(text, `"check":"`+check+`"`) {
 			t.Errorf("gate_check changed_ids misses %s: %s", check, text)
 		}
+	}
+}
+
+// A foreign index.lock taken while the gate holds its staged write must never
+// strand the repository's index on blobs the gate's quarantine took with it
+// (#2222): the gate stages into a private index, so the real one is untouched,
+// every later write succeeds and the object store is whole.
+func TestWriteGate_ForeignIndexLockLeavesNoDanglingIndex(t *testing.T) {
+	k := gateKB(t)
+	s := gateSeed(t, k, map[string]string{"ops/p": draftPage})
+	lock := filepath.Join(k.Root, ".git", "index.lock")
+	orig := gateAfterStage
+	gateAfterStage = func(*kb.KB) {
+		if err := os.WriteFile(lock, nil, 0o644); err != nil {
+			t.Error(err)
+		}
+	}
+	defer func() { gateAfterStage = orig }()
+	callJSON(t, s, adminCtx, "concept_write", `{"id":"ops/q","frontmatter":{"type":"Note","title":"Q"},"body":"See [P](p.md).","index_entry":true}`)
+	gateAfterStage = orig
+	if err := os.Remove(lock); err != nil {
+		t.Fatal(err)
+	}
+	// Every blob the index names is in the object store.
+	for _, line := range strings.Split(strings.TrimSpace(gitOut(t, k, "ls-files", "-s")), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 2 {
+			continue
+		}
+		if err := exec.Command("git", "-C", k.Root, "cat-file", "-e", f[1]).Run(); err != nil {
+			t.Fatalf("index names a missing object: %s", line)
+		}
+	}
+	if text, isErr := callJSON(t, s, adminCtx, "concept_write", `{"id":"ops/r","frontmatter":{"type":"Note","title":"R"},"body":"See [P](p.md).","index_entry":true}`); isErr {
+		t.Fatalf("the next write failed: %s", text)
 	}
 }

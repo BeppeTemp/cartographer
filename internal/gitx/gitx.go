@@ -2897,6 +2897,8 @@ func OldestUnpushedAt(dir, remote, branch string) (at time.Time, ok bool, err er
 // everything the repository holds but writes its new objects into the
 // quarantine only. The write gate stages and stashes through it, so a write it
 // refuses leaves no object behind, not even the blob of the refused text (#2186).
+// It carries its own copy of the index (GIT_INDEX_FILE), so the repository's
+// index never names an object the quarantine holds (#2222).
 type Quarantine struct {
 	// Env is the environment to pass to the git calls that must write into it.
 	Env []string
@@ -2921,18 +2923,28 @@ func NewQuarantine(dir string) (*Quarantine, error) {
 	if err != nil {
 		return nil, fmt.Errorf("quarantine: %w", err)
 	}
-	return &Quarantine{dir: tmp, Env: []string{"GIT_OBJECT_DIRECTORY=" + tmp, "GIT_ALTERNATE_OBJECT_DIRECTORIES=" + objs}}, nil
+	// A private copy of the index: what the gate stages names quarantined
+	// blobs, so it must never reach the real index, where a foreign
+	// index.lock would keep a reset from undoing it once the quarantine is
+	// gone (#2222). The real index is not touched at all.
+	idx, err := runGit(dir, "rev-parse", "--git-path", "index")
+	if err != nil {
+		_ = os.RemoveAll(tmp)
+		return nil, fmt.Errorf("git rev-parse --git-path index: %w: %s", err, idx)
+	}
+	idx = strings.TrimSpace(idx)
+	if !filepath.IsAbs(idx) {
+		idx = filepath.Join(dir, idx)
+	}
+	private := filepath.Join(tmp, "index")
+	if b, err := os.ReadFile(idx); err == nil {
+		if err := os.WriteFile(private, b, 0o644); err != nil {
+			_ = os.RemoveAll(tmp)
+			return nil, fmt.Errorf("quarantine: %w", err)
+		}
+	}
+	return &Quarantine{dir: tmp, Env: []string{"GIT_OBJECT_DIRECTORY=" + tmp, "GIT_ALTERNATE_OBJECT_DIRECTORIES=" + objs, "GIT_INDEX_FILE=" + private}}, nil
 }
 
 // Close deletes everything written into the quarantine.
 func (q *Quarantine) Close() { _ = os.RemoveAll(q.dir) }
-
-// ResetIndex points the index back at HEAD without touching the working tree
-// ("git reset -q", mixed). It writes no object; env is a Quarantine's when the
-// index names blobs that only it holds.
-func ResetIndex(dir string, env ...string) error {
-	if out, err := runGitEnv(dir, env, "reset", "-q"); err != nil {
-		return fmt.Errorf("git reset -q: %w: %s%s", err, out, indexLockHint(dir, out))
-	}
-	return nil
-}
