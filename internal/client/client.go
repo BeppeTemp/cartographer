@@ -434,6 +434,11 @@ func (c *MCPClient) requestURL() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("client: invalid server URL %q: %w", c.ServerURL, err)
 	}
+	if PerKBName(c.ServerURL) == c.KB {
+		// The path already names this KB; the server refuses a ?kb= next to it
+		// when they differ, and adds nothing when they agree (#2172).
+		return c.ServerURL, nil
+	}
 	q := u.Query()
 	q.Set("kb", c.KB)
 	u.RawQuery = q.Encode()
@@ -683,6 +688,25 @@ func mcpSubpathHint(serverURL string) string {
 	}
 	u.Path, u.RawQuery, u.Fragment = p[:i]+"/mcp", "", ""
 	return fmt.Sprintf(" (the server URL is %s, without the trailing %q)", u, p[i+len("/mcp"):])
+}
+
+// PerKBName is the KB a per-KB endpoint URL (/mcp/<kb>, behind any proxy
+// prefix) names, and "" for any other form: /mcp, /mcp?kb=<kb>, /mcp/routed.
+func PerKBName(serverURL string) string {
+	u, err := url.Parse(serverURL)
+	if err != nil {
+		return ""
+	}
+	p := strings.TrimRight(u.Path, "/")
+	i := strings.LastIndex(p, "/mcp/")
+	if i < 0 {
+		return ""
+	}
+	name := p[i+len("/mcp/"):]
+	if name == "" || name == "routed" || strings.Contains(name, "/") {
+		return ""
+	}
+	return name
 }
 
 // stripMCPPath drops the terminal endpoint of an MCP path and any trailing

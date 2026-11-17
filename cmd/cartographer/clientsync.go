@@ -501,7 +501,13 @@ func annotateStaleBinding(err error, requiredBy map[string][]string) error {
 // deliberately evaluated here, before anything is materialized, so a collision
 // stops the sync instead of silently deciding which KB an agent reads.
 func fetchMergedManifest(cfg *clientconfig.Config) (contract.Manifest, error) {
-	cs, err := fetchCandidates(cfg, cfg.KnownKBs)
+	kbs := cfg.KnownKBs
+	if kb := client.PerKBName(cfg.ServerURL); kb != "" {
+		// A per-KB endpoint serves its own KB only: the other KBs of the
+		// server are not this client's (#2172).
+		kbs = []string{kb}
+	}
+	cs, err := fetchCandidates(cfg, kbs)
 	if err != nil {
 		return contract.Manifest{}, err
 	}

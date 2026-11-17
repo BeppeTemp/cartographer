@@ -118,3 +118,14 @@ func TestRoutedEndpointDropsTheKBSelectorOfEveryForm(t *testing.T) {
 		}
 	}
 }
+
+func TestPerKBName(t *testing.T) {
+	for in, want := range map[string]string{
+		"http://h/mcp/kb-a": "kb-a", "http://h/p/mcp/kb-a/": "kb-a", "http://h/mcp": "", "http://h/mcp?kb=x": "",
+		"http://h/mcp/routed": "", "http://h/mcp/a/b": "",
+	} {
+		if got := client.PerKBName(in); got != want {
+			t.Errorf("PerKBName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
