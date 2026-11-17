@@ -1403,7 +1403,7 @@ func TestLint_AssetsThatUsedToAbortTheRun(t *testing.T) {
 	}
 }
 
-func TestLint_UnlistableAssetsIsAFinding(t *testing.T) {
+func TestLint_SymlinkedAssetIsAFindingNotAnAbortedListing(t *testing.T) {
 	t.Parallel()
 	k := tempKB(t)
 	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\nkind: map\ntitle: M\n---\n# M\n")
@@ -1416,8 +1416,9 @@ func TestLint_UnlistableAssetsIsAFinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("lint.Run: %v", err)
 	}
-	if !hasCheck(findings, "m/c", "unlistable_assets") {
-		t.Errorf("want unlistable_assets on m/c, got %+v", findings)
+	// The listing skips the symlink (#2191); the symlinked_path check reports it.
+	if !hasCheck(findings, "data/m/c/link.txt", "symlinked_path") || hasCheck(findings, "m/c", "unlistable_assets") {
+		t.Errorf("want symlinked_path on data/m/c/link.txt and no unlistable_assets, got %+v", findings)
 	}
 }
 

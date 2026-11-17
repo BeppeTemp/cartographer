@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -52,8 +53,12 @@ func toolAssetRead(k *kb.KB) Tool {
 			if err != nil {
 				return errorResult(err.Error()), nil
 			}
+			binary := !utf8.Valid(data) || bytes.IndexByte(data, 0) >= 0
+			if binary && p.Encoding == "text" {
+				return errorResult("asset " + p.Path + " is binary: read it with encoding: base64"), nil
+			}
 			encoding, content := "text", string(data)
-			if p.Encoding == "base64" || !utf8.Valid(data) {
+			if p.Encoding == "base64" || binary {
 				encoding, content = "base64", base64.StdEncoding.EncodeToString(data)
 			}
 			return assetResult(map[string]interface{}{"path": entry.Path, "content": content, "encoding": encoding, "sha256": entry.SHA256, "size": entry.Size, "executable": entry.Executable}), nil
