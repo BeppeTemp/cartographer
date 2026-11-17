@@ -1189,3 +1189,48 @@ func bridgeServerSpec(provider string, auth bool, tokenEnv string) (configurator
 	}
 	return spec, nil
 }
+
+// resolveTypedKBTargets is resolveKBTargets for names the operator typed on the
+// command line (kb repair <kb>, kb secrets init <kb>, reindex --kb <kb>): a name
+// the server does not mount says so plainly and lists what it does mount, since
+// the "stale selection: check .cartographer.yaml" advice of resolveKBTargets is
+// about names read from a file, not typed ones. server is the address the
+// health came from.
+func resolveTypedKBTargets(health *client.Health, names []string, server string) ([]kbTarget, error) {
+	if health != nil && health.KBs != nil {
+		mounted := make(map[string]bool, len(*health.KBs))
+		var list []string
+		for _, kb := range *health.KBs {
+			mounted[kb.Name] = true
+			list = append(list, kb.Name)
+		}
+		for _, name := range names {
+			if !mounted[name] {
+				return nil, fmt.Errorf("no KB named %q on %s; mounted: %s", name, server, mountedList(list))
+			}
+		}
+	}
+	return resolveKBTargets(health, names)
+}
+
+func mountedList(names []string) string {
+	if len(names) == 0 {
+		return "none"
+	}
+	sort.Strings(names)
+	return strings.Join(names, ", ")
+}
+
+// noLocalKBError is the answer of the offline kb commands (rename, unmount) to a
+// name with no directory under the data dir, in the wording of resolveTypedKBTargets.
+func noLocalKBError(name, dataDir string) error {
+	var list []string
+	if entries, err := os.ReadDir(dataDir); err == nil {
+		for _, e := range entries {
+			if _, err := os.Stat(filepath.Join(dataDir, e.Name(), "data", "index.md")); err == nil {
+				list = append(list, e.Name())
+			}
+		}
+	}
+	return fmt.Errorf("no KB named %q in %s; mounted: %s", name, dataDir, mountedList(list))
+}

@@ -145,7 +145,7 @@ func printReindexHint(imported int, kbRoot string) {
 		fmt.Println("search index rebuilt")
 		return
 	}
-	fmt.Printf("search index not updated by this process — run `cartographer reindex` so search sees the %d imported concept(s)\n", imported)
+	fmt.Printf("search index not updated by this process — run `cartographer reindex --kb <kb>` so search sees the %d imported concept(s)\n", imported)
 }
 
 // reindexAfterImportFn is indirected so tests can describe the outcome instead of

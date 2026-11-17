@@ -41,7 +41,7 @@ func runUnmount(t *testing.T, args ...string) (int, string) {
 	t.Helper()
 	var code int
 	orig := printPostUnmountGuidanceFn
-	printPostUnmountGuidanceFn = func(string, bool) {}
+	printPostUnmountGuidanceFn = func(string, bool) int { return 0 }
 	defer func() { printPostUnmountGuidanceFn = orig }()
 	out := withStdout(t, func() { code = cmdKBUnmount(args) })
 	return code, out

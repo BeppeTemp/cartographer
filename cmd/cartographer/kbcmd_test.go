@@ -61,7 +61,7 @@ func TestValidateKBName(t *testing.T) {
 func withNoGuidance(t *testing.T, f func()) {
 	t.Helper()
 	orig := printPostCreateGuidanceFn
-	printPostCreateGuidanceFn = func(string, bool) {}
+	printPostCreateGuidanceFn = func(string, bool) int { return 0 }
 	defer func() { printPostCreateGuidanceFn = orig }()
 	f()
 }
@@ -1233,7 +1233,7 @@ func TestPrintPostCreateGuidance_NamesOpenSessions(t *testing.T) {
 	if err := os.WriteFile(cfg, []byte("http: "+strings.TrimPrefix(srv.URL, "http://")+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	out := withStdout(t, func() { printPostCreateGuidance(cfg, false) })
+	out := withStdout(t, func() { _ = printPostCreateGuidance(cfg, false) })
 	for _, want := range []string{"cartographer service restart", "On connected client machines, run: cartographer sync", openSessionsLine} {
 		if strings.Count(out, want) != 1 {
 			t.Errorf("want %q exactly once in:\n%s", want, out)

@@ -96,7 +96,7 @@ func cmdKBRepair(args []string) int {
 		fmt.Fprintln(os.Stderr, "kb repair:", err)
 		return kbRepairExitError
 	}
-	targets, err := resolveKBTargets(health, []string{name})
+	targets, err := resolveTypedKBTargets(health, []string{name}, cfg.ServerURL)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kb repair:", err)
 		return kbRepairExitError

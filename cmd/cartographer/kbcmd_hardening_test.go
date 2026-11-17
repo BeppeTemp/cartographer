@@ -52,7 +52,7 @@ func TestPrintPostCreateGuidance_RestartRunsWhenHealthFailsOrBootstraps(t *testi
 	defer srv.Close()
 	restarts := stubRestart(t, true)
 
-	out := withStdout(t, func() { printPostCreateGuidance(guidanceConfig(t, srv), true) })
+	out := withStdout(t, func() { _ = printPostCreateGuidance(guidanceConfig(t, srv), true) })
 	if atomic.LoadInt32(restarts) != 1 {
 		t.Errorf("restarts = %d, want 1", *restarts)
 	}
@@ -69,7 +69,7 @@ func TestPrintPostCreateGuidance_RestartWithoutAServiceSaysSo(t *testing.T) {
 	defer srv.Close()
 	restarts := stubRestart(t, false)
 
-	stderr := withStderr(t, func() { printPostCreateGuidance(guidanceConfig(t, srv), true) })
+	stderr := withStderr(t, func() { _ = printPostCreateGuidance(guidanceConfig(t, srv), true) })
 	if atomic.LoadInt32(restarts) != 0 {
 		t.Error("restarted a service that is not installed")
 	}

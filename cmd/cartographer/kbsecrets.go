@@ -77,13 +77,19 @@ func cmdKBSecretsInit(args []string) int {
 		fmt.Fprintln(os.Stderr, "kb secrets init:", err)
 		return 1
 	}
+	// Like every kb command it talks to the local service its config describes
+	// (the config's http:, else the default address), never to the client's
+	// server_url (docs/deployment.md).
+	localCfg := *cfg
+	localCfg.ServerURL = serverBaseURL(*configFlag) + "/mcp"
+	cfg = &localCfg
 	token := resolveToken(cfg)
 	health, err := client.New(cfg.ServerURL, token).WithInsecureHTTP(cfg.InsecureHTTPAllowed()).Health(probeTimeout)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kb secrets init:", err)
 		return 1
 	}
-	targets, err := resolveKBTargets(health, []string{name})
+	targets, err := resolveTypedKBTargets(health, []string{name}, cfg.ServerURL)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "kb secrets init:", err)
 		return 1
