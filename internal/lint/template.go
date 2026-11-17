@@ -2,6 +2,8 @@ package lint
 
 import (
 	"fmt"
+	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -125,6 +127,12 @@ type templateCtx struct {
 func newTemplateCtx(in conceptInput) (templateCtx, bool) {
 	c := in.Contract
 	if in.Parsed == nil || c == nil || !c.HasTemplateKeys() {
+		return templateCtx{}, false
+	}
+	// A map's own index page is no concept of the map (a whole-KB lint never
+	// walks it): it follows no template. The write paths (CheckConcept) see it
+	// by id, so the exemption is here, one rule for both.
+	if rel := filepath.ToSlash(in.RelPath); path.Base(rel) == "index.md" && strings.Count(rel, "/") == 1 {
 		return templateCtx{}, false
 	}
 	x := templateCtx{in: in, pageType: strings.TrimSpace(in.Parsed.Type())}

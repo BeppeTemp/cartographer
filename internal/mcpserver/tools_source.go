@@ -190,6 +190,10 @@ func toolSourceRegister(k *kb.KB) Tool {
 			}
 			if dupID != "" {
 				res := map[string]interface{}{"id": dupID, "duplicate": true, "ingest_status": dupStatus}
+				// #2175: the existing page's hash, the if_match of the patch that follows.
+				if data, rerr := k.ReadConcept(okf.ConceptID(dupID)); rerr == nil {
+					res["content_hash"] = data.ContentHash
+				}
 				if p.Locator != "" && dupLoc != "" && p.Locator != dupLoc {
 					res["locator_mismatch"] = true
 					res["existing_locator"] = dupLoc
