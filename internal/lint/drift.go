@@ -352,3 +352,47 @@ func strayFileFindings(k *kb.KB, scope string) []Finding {
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out
 }
+
+// CheckType is unknown_type for one written page: the part of the drift audit
+// that needs the type palette (templates and strict maps) but not a read of
+// every concept, so the write gate and gate_check with changed_ids report what
+// lint reports on that page (#2220). value_case_variant needs the status
+// spellings of the whole KB and stays with lint.
+func CheckType(k *kb.KB, id okf.ConceptID, content string) []Finding {
+	// A map's index is no concept for lint (its type is Index), and a write or
+	// gate_check can name it.
+	if strings.HasSuffix(string(id), "/index") || id == "index" {
+		return nil
+	}
+	fmRaw, _, ok := okf.SplitFrontmatter(content)
+	if !ok {
+		return nil
+	}
+	parsed, err := okf.ParseFrontmatter(fmRaw)
+	if err != nil || parsed == nil {
+		return nil
+	}
+	archives, err := k.ListArchives()
+	if err != nil {
+		return nil
+	}
+	contracts := map[string]kb.MapContract{}
+	for _, a := range archives {
+		if c, err := k.ReadMapContract(a); err == nil {
+			contracts[a] = c
+		}
+	}
+	var contract *kb.MapContract
+	if parts := strings.Split(string(id), "/"); len(parts) > 1 {
+		if c, ok := contracts[parts[0]]; ok {
+			contract = &c
+		}
+	}
+	var out []Finding
+	for _, f := range newDriftData(k, nil, contracts).conceptFindings(okf.IDToPath(id), parsed, contract) {
+		if f.Check == "unknown_type" {
+			out = append(out, f)
+		}
+	}
+	return out
+}

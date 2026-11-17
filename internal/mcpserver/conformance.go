@@ -256,6 +256,9 @@ func writeLintFindings(k *kb.KB, written, gone []string) []lint.Finding {
 		scoped = append(scoped, okf.ConceptID(id))
 		if data, err := k.ReadConcept(okf.ConceptID(id)); err == nil {
 			found = append(found, lint.CheckConcept(k, okf.ConceptID(id), data.Content)...)
+			// unknown_type is a whole-KB check for lint but one page's fact for
+			// the gate: lint and the gate report the same page the same (#2220).
+			found = append(found, lint.CheckType(k, okf.ConceptID(id), data.Content)...)
 		}
 	}
 	for _, id := range gone {

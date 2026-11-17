@@ -79,6 +79,26 @@ func gateMessage(m string) string { return strings.TrimSuffix(m, lint.SecretHist
 
 type gateKey struct{ path, check, message string }
 
+// gateIdentity is what the gate compares a finding by. A check that quotes the
+// page's own text (open_marker quotes its first marker line) is keyed on path
+// and check alone, and the finding's Count says how many there are: editing
+// the quoted line is not a new finding, adding a marker is (#2220).
+func gateIdentity(path, check, message string) gateKey {
+	if check == "open_marker" {
+		message = ""
+	}
+	return gateKey{path, check, gateMessage(message)}
+}
+
+// gateCount is the multiplicity of a finding for the gate: its Count for a
+// counted check, 1 otherwise.
+func gateCount(f lint.Finding) int {
+	if f.Check == "open_marker" && f.Count > 0 {
+		return f.Count
+	}
+	return 1
+}
+
 // judgeWrite is the gate proper. It runs after the handler, the generated
 // index regeneration and the repair-on-write (D349), so what it judges is what
 // would be committed. It fails open (nil) on a git problem that leaves the
@@ -180,9 +200,9 @@ func judgeWrite(k *kb.KB, toolName string, view *callerView) *ToolResult {
 		res := errorResult("write_gate: could not restore the write, nothing was written")
 		return &res
 	}
-	pre := map[gateKey]bool{}
+	pre := map[gateKey]int{}
 	for _, f := range base {
-		pre[gateKey{f.Path, f.Check, gateMessage(f.Message)}] = true
+		pre[gateIdentity(f.Path, f.Check, f.Message)] += gateCount(f)
 	}
 	oldPath := map[string]string{} // finding path of a renamed concept -> its old path
 	for newID, oldID := range renamedFrom {
@@ -200,12 +220,12 @@ func judgeWrite(k *kb.KB, toolName string, view *callerView) *ToolResult {
 		if op, ok := oldPath[p]; ok {
 			p = op
 		}
-		if pre[gateKey{p, f.Check, gateMessage(f.Message)}] {
+		if pre[gateIdentity(p, f.Check, f.Message)] >= gateCount(f) {
 			continue
 		}
 		// A finding that names the moved concept (a map's index_incomplete)
 		// is the same finding under its old id.
-		msg := gateMessage(f.Message)
+		msg := f.Message
 		for newID, oldID := range renamedFrom {
 			msg = strings.ReplaceAll(msg, newID, oldID)
 			// A fix hint spells the page by file name ("write ../topic.md"):
@@ -214,7 +234,7 @@ func judgeWrite(k *kb.KB, toolName string, view *callerView) *ToolResult {
 				msg = strings.ReplaceAll(msg, nb, ob)
 			}
 		}
-		if !pre[gateKey{p, f.Check, msg}] {
+		if pre[gateIdentity(p, f.Check, msg)] < gateCount(f) {
 			introduced = append(introduced, f)
 		}
 	}
