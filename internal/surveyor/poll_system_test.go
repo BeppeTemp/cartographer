@@ -310,7 +310,11 @@ func TestSystemPollAGroupRefusedForASecretFailsAloneAndIsRetried(t *testing.T) {
 		return ""
 	}
 	s.list("namespace/bad", "token "+secret, "namespace/good", "fine")
-	s.mustPoll()
+	res := s.mustPoll()
+	// #2245: the first failure's reason is in the summary line too.
+	if !strings.Contains(res.Summary, "groups failed=1") || !strings.Contains(res.Summary, "first failure: namespace/bad: unit_refused (write_gate: potential_secret)") || strings.Contains(res.Summary, secret) {
+		t.Errorf("summary = %q", res.Summary)
+	}
 	fe, _ := s.feed()["feed_error"].(string)
 	if !strings.HasPrefix(fe, "groups_failed: 1 groups failed") || !strings.Contains(fe, "namespace/bad: unit_refused (write_gate: potential_secret)") || strings.Contains(fe, secret) {
 		t.Fatalf("feed_error = %q", fe)

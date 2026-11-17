@@ -40,3 +40,40 @@ func TestInvalidFieldValue_ServerOwnedFieldNeverRefused(t *testing.T) {
 		t.Error("a value outside the vocabulary must still be refused")
 	}
 }
+
+// #2245: the vocabulary the Surveyor writes on an IngestUnit / IngestPlan is the
+// server's too.
+func TestMissingValueContract_SkipsIngestOwnedFields(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "ingest/_map.md", "---\ntype: Map\nkind: journal\ntitle: I\n---\n# I\n")
+	for i := 0; i < 6; i++ {
+		writeFile(t, k.DataRoot(), fmt.Sprintf("ingest/u%d.md", i),
+			fmt.Sprintf("---\ntype: IngestUnit\ntitle: U%d\nstatus: open\nexecutor: any\nobserved_change: added\n---\nx\n", i))
+	}
+	if f := findingFor(observed(t, k), "ingest/_map.md", "missing_value_contract"); f != nil {
+		t.Errorf("proposal for server-owned fields: %s", f.Message)
+	}
+}
+
+func TestInvalidFieldValue_IngestUnitObservedChangeNeverRefused(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "ingest/_map.md", "---\ntype: Map\nkind: journal\ntitle: I\n"+
+		"field_values.IngestUnit.observed_change: [added]\nfield_values.IngestUnit.status: [open]\n---\n# I\n")
+	has := func(change, status string) bool {
+		c := "---\ntype: IngestUnit\ntitle: A\nobserved_change: " + change + "\nstatus: " + status + "\n---\nx\n"
+		for _, f := range CheckConcept(k, "ingest/a", c) {
+			if f.Check == "invalid_field_value" {
+				return true
+			}
+		}
+		return false
+	}
+	if has("modified", "done") {
+		t.Error("documented value refused")
+	}
+	if !has("bogus", "open") {
+		t.Error("a value outside the vocabulary must still be refused")
+	}
+}

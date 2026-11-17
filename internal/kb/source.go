@@ -15,19 +15,33 @@ var SourceIngestStatuses = []string{"pending", "ingested", "skipped"}
 // snapshots.
 var SourceShapes = []string{"document", "collection", "feed", "system"}
 
-// ServerOwnedValues returns the vocabulary of a field the server itself
-// writes on a page of type t (the Source lifecycle fields the poll and the
-// ingest tools record), and whether the field is one. A map contract neither
-// proposes nor narrows it: the server's writes would be refused (#2226).
+// ServerOwnedValues returns the vocabulary of a field the server or the
+// Surveyor itself writes on a page of type t (the Source lifecycle fields, the
+// IngestUnit and IngestPlan status, executor and observed_change), and whether
+// the field is one. A map contract neither proposes nor narrows it: the
+// writes would be refused (#2226, #2245).
 func ServerOwnedValues(t, field string) ([]string, bool) {
-	if !IsSourceType(t) {
-		return nil, false
-	}
-	switch field {
-	case "ingest_status":
-		return SourceIngestStatuses, true
-	case "source_shape":
-		return SourceShapes, true
+	switch {
+	case IsSourceType(t):
+		switch field {
+		case "ingest_status":
+			return SourceIngestStatuses, true
+		case "source_shape":
+			return SourceShapes, true
+		}
+	case IsIngestUnitType(t):
+		switch field {
+		case "status":
+			return IngestUnitStatuses, true
+		case "executor":
+			return IngestExecutors, true
+		case "observed_change":
+			return IngestObservedChanges, true
+		}
+	case IsIngestPlanType(t):
+		if field == "status" {
+			return IngestPlanStatuses, true
+		}
 	}
 	return nil, false
 }
