@@ -60,7 +60,7 @@ func installTrayWithService(noTray bool) {
 		return
 	}
 	if err := trayInstallFn(); err != nil {
-		fmt.Fprintln(os.Stderr, "Warning: the status icon was not installed:", err)
+		warnTrayInstall(err, "")
 		return
 	}
 	if trayInstalledFn() {
@@ -111,10 +111,22 @@ func ensureClientTray(opts connectOptions, res connectResult) {
 		return
 	}
 	if err := trayInstallFn(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: the status icon was not installed (a session with no GUI, such as ssh, cannot show one); run `cartographer service tray install` from the desktop session: %v\n", err)
+		warnTrayInstall(err, "; a session with no GUI, such as ssh, cannot show one: run `cartographer service tray install` from the desktop session")
 		return
 	}
 	fmt.Println("tray installed (status icon at logon; remove it with `cartographer service tray uninstall`)")
+}
+
+// warnTrayInstall words a failed InstallTray after the state it left. The
+// definition is written before the tray is started, so a start refused by a
+// session with no GUI leaves the tray installed but not running: the very state
+// `status` reports (trayNotRunningMsg), and the message must say the same.
+func warnTrayInstall(err error, hint string) {
+	if trayInstalledFn() {
+		fmt.Fprintf(os.Stderr, "Warning: %s: %v%s\n", trayNotRunningMsg, err, hint)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "Warning: the status icon was not installed: %v%s\n", err, hint)
 }
 
 // clientTrayNeeded: not opted out and not installed yet.

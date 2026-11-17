@@ -1,4 +1,4 @@
-{{- include "cartographer.validate" . -}}
+{{- include "cartographer.validate" . -}}{{- include "cartographer.validateMeridian" . -}}
 {{- if .Values.meridian.enabled -}}
 {{- $p := .Values.meridian.persistence -}}
 {{- if not (or $p.existingClaim $p.emptyDir) }}

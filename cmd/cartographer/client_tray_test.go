@@ -96,6 +96,21 @@ func TestEnsureClientTray_FailureIsAWarning(t *testing.T) {
 	}
 }
 
+// A start refused after the definition was written leaves the tray installed:
+// connect words it as `status` does, not as "not installed".
+func TestEnsureClientTray_StartFailureSaysInstalledButNotRunning(t *testing.T) {
+	_, _ = stubTrayState(t, false)
+	installed := false
+	trayInstallFn = func() error { installed = true; return errors.New("needs a logged-in GUI session") }
+	trayInstalledFn = func() bool { return installed }
+	errOut := withStderr(t, func() {
+		withStdout(t, func() { ensureClientTray(connectOptions{Providers: []string{"claude"}}, connectResult{}) })
+	})
+	if !strings.Contains(errOut, trayNotRunningMsg) || strings.Contains(errOut, "was not installed") {
+		t.Fatalf("stderr = %q", errOut)
+	}
+}
+
 func TestPrintConnectResult_TrayDryRunAndRun(t *testing.T) {
 	_, c := stubTrayState(t, false)
 	claude := []string{"claude"}

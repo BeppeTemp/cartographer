@@ -222,6 +222,9 @@ func TestCmdApprovePending_LeavesMCPDescriptorsToTheSingleForm(t *testing.T) {
 	if !strings.Contains(out, "cartographer approve mcp tools --kb kb-a") {
 		t.Errorf("the MCP descriptor must be named with its own command:\n%s", out)
 	}
+	if strings.Contains(out, "nothing is waiting") || !strings.Contains(out, "wait for a per-item approval") {
+		t.Errorf("only per-item approvals wait: the output must not say nothing waits:\n%s", out)
+	}
 	cfg, _ := clientconfig.Load(home)
 	if len(cfg.MCPApprovals) != 0 {
 		t.Errorf("--pending --yes approved an MCP descriptor: %+v", cfg.MCPApprovals)
