@@ -6,9 +6,11 @@ import (
 	"errors"
 	"image/color"
 	"image/png"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -136,7 +138,7 @@ func TestRunEmitsOnChangeOnly(t *testing.T) {
 		t.Fatalf("first snapshot %+v", first)
 	}
 	f.ticks <- time.Now() // unchanged: nothing emitted
-	f.set(func() { f.health, f.pErr = nil, &client.RemoteError{Code: client.CodeUnreachable} })
+	f.set(func() { f.health, f.pErr = nil, refused() })
 	f.ticks <- time.Now()
 	if got := <-out; got.State != StateStopped {
 		t.Fatalf("after failure: %+v", got)
@@ -708,5 +710,80 @@ func TestSlotKeepsTheNewestUntilTaken(t *testing.T) {
 	s.Put(Snapshot{State: StateStarting})
 	if sn, ok := s.Take(); !ok || sn.State != StateStarting {
 		t.Errorf("a snapshot put after a take was lost: %+v, %v", sn, ok)
+	}
+}
+
+// refused is the probe error of an address nobody listens on.
+func refused() error {
+	return &client.RemoteError{Code: client.CodeUnreachable, Cause: &net.OpError{Op: "dial", Err: syscall.ECONNREFUSED}}
+}
+
+// timedOut is the probe error of a server that accepted and did not answer in time.
+func timedOut() error {
+	return &client.RemoteError{Code: client.CodeUnreachable, Cause: context.DeadlineExceeded}
+}
+
+// runStates feeds the probe errors one per poll (nil = a healthy answer), the
+// first poll answering healthy, and returns the states Run emitted.
+func runStates(t *testing.T, errs ...error) []State {
+	t.Helper()
+	answers := append([]error{nil}, errs...)
+	answers = append(answers, nil) // the closing tick: its poll ends the run
+	ticks := make(chan time.Time)
+	var n int
+	d := Deps{
+		Status: func() (service.Status, error) {
+			return service.Status{Installed: true, HTTPAddr: "127.0.0.1:1111"}, nil
+		},
+		Probe: func(string) (*client.Health, error) {
+			e := answers[n]
+			n++
+			if e != nil {
+				return nil, e
+			}
+			return &client.Health{Version: "1", Ready: boolp(true)}, nil
+		},
+		NewTicker: func(time.Duration) (<-chan time.Time, func()) { return ticks, func() {} },
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	var got []State
+	done := make(chan struct{})
+	go func() {
+		Run(ctx, d, 0, func(s Snapshot) { got = append(got, s.State) })
+		close(done)
+	}()
+	for range len(answers) - 1 {
+		ticks <- time.Now()
+	}
+	cancel() // a tick is taken only after the previous poll ended: all polls are done
+	<-done
+	return got
+}
+
+func TestOneSlowProbeKeepsRunning(t *testing.T) {
+	got := runStates(t, timedOut(), nil, timedOut(), timedOut(), nil)
+	if len(got) != 1 || got[0] != StateRunning {
+		t.Fatalf("emitted %v, want only the first Running", got)
+	}
+}
+
+func TestConsecutiveFailedProbesGoStopped(t *testing.T) {
+	errs := make([]error, StoppedAfter)
+	for i := range errs {
+		errs[i] = timedOut()
+	}
+	got := runStates(t, errs...)
+	if len(got) != 3 || got[1] != StateStopped {
+		t.Fatalf("emitted %v, want Running, Stopped, Running", got)
+	}
+	got = runStates(t, errs[:StoppedAfter-1]...)
+	if len(got) != 1 {
+		t.Fatalf("one failure short: emitted %v", got)
+	}
+}
+
+func TestRefusedConnectionGoesStoppedAtOnce(t *testing.T) {
+	if got := runStates(t, refused()); len(got) < 2 || got[1] != StateStopped {
+		t.Fatalf("emitted %v, want Stopped after the first refusal", got)
 	}
 }

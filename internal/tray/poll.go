@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
@@ -17,8 +18,15 @@ const (
 	// DefaultInterval is how often the server is probed.
 	DefaultInterval = 5 * time.Second
 	// MinInterval is the smallest interval `--interval` accepts.
-	MinInterval  = time.Second
-	probeTimeout = 2 * time.Second
+	MinInterval = time.Second
+	// probeTimeout tolerates a busy server: /health of a server in the middle
+	// of a background sync_pull answers in 1-2 s (#2236).
+	probeTimeout = 5 * time.Second
+	// StoppedAfter is how many consecutive failed probes (a timeout, a reset)
+	// turn a Running tray into Stopped: one slow or lost answer shows no
+	// flicker. A refused connection (nothing listens), a restart in flight and
+	// every other failure are shown at once.
+	StoppedAfter = 3
 	// AgentsInterval is how often the agent clients are re-read: that is the
 	// `cartographer status` path, which reads files and asks the server, and
 	// its answer changes only on a sync.
@@ -229,8 +237,22 @@ func Run(ctx context.Context, d Deps, interval time.Duration, emit func(Snapshot
 	}
 	every := max(1, int(AgentsInterval/interval))
 	polls := 0
+	failed := 0 // consecutive transient probe failures
 	poll := func() {
 		snap := d.snapshot(&good, &lastErr, cm)
+		switch {
+		case !cm.transient:
+			failed = 0
+		case have && last.State == StateRunning && !snap.Restarting && failed+1 < StoppedAfter:
+			// A probe that timed out or was lost, not a refusal: the server may
+			// only be busy. Keep what was shown until it fails again.
+			failed++
+			held := last
+			held.Agents = snap.Agents
+			snap = held
+		default:
+			failed++
+		}
 		if d.Agents != nil {
 			back := have && last.State != StateRunning && snap.State == StateRunning
 			if polls%every == 0 || back {
@@ -293,6 +315,7 @@ func (d Deps) now() time.Time {
 // tick. With no earlier good read the answer is Stopped, never NotInstalled:
 // an unreadable definition proves nothing about installation.
 func (d Deps) snapshot(good **service.Status, lastErr *string, cm *clientMemo) Snapshot {
+	cm.transient = false
 	st, err := d.Status()
 	var health *client.Health
 	if err != nil {
@@ -329,6 +352,7 @@ func (d Deps) snapshot(good **service.Status, lastErr *string, cm *clientMemo) S
 	if err == nil && health == nil {
 		err = errors.New("empty health response")
 	}
+	cm.transient = st.Installed && transientProbeErr(err)
 	snap := Classify(health, err, st)
 	snap.LogPath = d.LogPath
 	snap.Restarting = d.Busy != nil && d.Busy()
@@ -340,6 +364,9 @@ type clientMemo struct {
 	good     *ClientTarget // last target that resolved
 	loadErr  string        // the Client() error already logged
 	probeErr string        // the refused-server_url error already logged
+	// transient: the last snapshot() probe failed in a way that does not prove
+	// the server is down (it timed out or the answer was lost, #2236).
+	transient bool
 }
 
 // clientSnapshot probes the client's server. ok is false when there is no
@@ -390,7 +417,24 @@ func (d Deps) clientSnapshot(cm *clientMemo) (Snapshot, bool) {
 	if err == nil && health == nil {
 		err = errors.New("empty health response")
 	}
+	cm.transient = transientProbeErr(err)
 	return ClassifyClient(health, err, t), true
+}
+
+// transientProbeErr says a failed probe does not prove the server is down: the
+// request was sent and got no answer in time (or the connection dropped). A
+// refused connection means nothing listens, so it is not transient; neither is
+// a DNS failure, a foreign answer, a 401 or a refused server_url.
+func transientProbeErr(err error) bool {
+	var re *client.RemoteError
+	if !errors.As(err, &re) || re.Code != client.CodeUnreachable {
+		return false
+	}
+	var en syscall.Errno
+	if errors.As(err, &en) && (en == syscall.ECONNREFUSED || en == 10061) { // WSAECONNREFUSED
+		return false
+	}
+	return true
 }
 
 // logProbeOnce writes a probe-side line once until the message changes or a
