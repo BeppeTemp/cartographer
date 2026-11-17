@@ -878,6 +878,7 @@ func TestDoDisconnect_WorkspacePruneKeepsEditedFilesAndStaysInside(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
+	bindWorkspaceInConfig(t, dir, "claude", canon)
 	lf.SetProjection(provisioning.Projection{Provider: "claude", Workspace: canon}, provisioning.Lock{Managed: managed})
 	if err := provisioning.WriteLockFile(lockFilePath(dir), lf); err != nil {
 		t.Fatal(err)
@@ -966,6 +967,7 @@ func TestDoDisconnect_WorkspacePruneKeepsWhatItCannotVerify(t *testing.T) {
 	if err := os.WriteFile(skill, []byte("---\nname: old\n---\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	bindWorkspaceInConfig(t, dir, "claude", canon)
 	lf, _ := provisioning.ReadLockFile(lockFilePath(dir))
 	lf.SetProjection(provisioning.Projection{Provider: "claude", Workspace: canon}, provisioning.Lock{Managed: []provisioning.ManagedFile{
 		{Kind: "skill", Name: "old", Path: ".claude/skills/old/SKILL.md"},
@@ -1064,4 +1066,56 @@ func TestRemoveLockFile_LinkedLockfile(t *testing.T) {
 			t.Error("the target should have been rewritten empty")
 		}
 	})
+}
+
+// A workspace section of a repository the configuration does not bind is
+// reported and left: the workspace key in the lockfile is not a trust root.
+func TestDoDisconnect_LeavesAnUnboundWorkspaceSection(t *testing.T) {
+	dir := setupDisconnectFixture(t, "claude")
+	ws := t.TempDir()
+	victim := filepath.Join(ws, ".claude", "agents", "ops.md")
+	if err := os.MkdirAll(filepath.Dir(victim), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(victim, []byte("agent\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ah := provisioning.ContentHashFiles([]contract.ArtifactFile{{Path: "ops.md", Content: []byte("agent\n")}})
+	lf, err := provisioning.ReadLockFile(lockFilePath(dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	canon, _ := clientconfig.CanonicalWorkspacePath(ws)
+	lf.SetProjection(provisioning.Projection{Provider: "claude", Workspace: canon}, provisioning.Lock{Managed: []provisioning.ManagedFile{
+		{Kind: "agent", Name: "ops", Path: ".claude/agents/ops.md", ContentHash: ah, MaterializedHash: ah},
+	}})
+	if err := provisioning.WriteLockFile(lockFilePath(dir), lf); err != nil {
+		t.Fatal(err)
+	}
+	res, err := doDisconnect(disconnectOptions{Providers: []string{"claude"}, Dir: dir})
+	if err != nil {
+		t.Fatalf("doDisconnect: %v", err)
+	}
+	if _, err := os.Stat(victim); err != nil {
+		t.Errorf("a file of an unbound workspace was removed: %v", err)
+	}
+	if got := res.Providers[0].Workspaces; len(got) != 1 || len(got[0].Pruned) != 0 || len(got[0].Kept) == 0 {
+		t.Errorf("workspaces = %+v, want one reported and kept", got)
+	}
+}
+
+// bindWorkspaceInConfig binds ws for provider in dir's configuration: the
+// lockfile alone does not make a workspace prunable.
+func bindWorkspaceInConfig(t *testing.T, dir, provider, ws string) {
+	t.Helper()
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.BindWorkspace(provider, ws, []string{"kb-a"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
 }

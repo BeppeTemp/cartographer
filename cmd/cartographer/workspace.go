@@ -1574,7 +1574,14 @@ func pruneOrphanProjections(st syncStreams, lockFile *provisioning.LockFile, dec
 		// Not what another provider's projection of this workspace still
 		// records (D364): .agents/skills/<n>/ is Codex's and Antigravity's.
 		keep := lockFile.CoOwnedPaths(key)
-		if _, err := provisioning.PruneManaged(provisioning.WithoutCoOwned(lock.Managed, keep), base, false); err != nil {
+		// The workspace key and base dir are lockfile data: a file goes only
+		// while it still hashes to what the sync wrote, the rest is reported
+		// and kept (the section is dropped either way).
+		toPrune, kept := verifiedPrunable(provisioning.WithoutCoOwned(lock.Managed, keep), lock, key.Provider, base)
+		for _, k := range kept {
+			fmt.Fprintf(st.err(), "warning: %s: kept %s\n", key.String(), k)
+		}
+		if _, err := provisioning.PruneManaged(toPrune, base, false); err != nil {
 			if provisioning.IsRefusal(err) {
 				// Refused (D148): the projection stays in the lockfile, so the
 				// next sync retries it; the other projections are still pruned.

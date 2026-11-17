@@ -268,3 +268,47 @@ func TestWorktreesRealListingFailurePrunesNothing(t *testing.T) {
 		t.Errorf("the live worktree's file was removed: %v", err)
 	}
 }
+
+// An orphaned workspace section removes only what still hashes to what the
+// sync wrote: a recorded path with no hash (or an edited file) is reported and
+// kept, a file Cartographer wrote is cleaned, and the section goes either way.
+func TestPruneOrphanProjectionsRemovesOnlyVerifiedFiles(t *testing.T) {
+	ws := t.TempDir()
+	skillDir := filepath.Join(ws, ".claude", "skills", "mine")
+	victimDir := filepath.Join(ws, ".claude", "skills", "theirs")
+	for _, d := range []string{skillDir, victimDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, "SKILL.md"), []byte("---\nname: x\n---\nbody\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h, err := provisioning.ContentHashDirOSForKind(skillDir, "skill")
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := provisioning.Projection{Provider: "claude", Workspace: ws}
+	lf := &provisioning.LockFile{}
+	lf.SetProjection(key, provisioning.Lock{Managed: []provisioning.ManagedFile{
+		{Kind: "skill", Name: "mine", Path: ".claude/skills/mine/SKILL.md", ContentHash: h, MaterializedHash: h},
+		{Kind: "skill", Name: "theirs", Path: ".claude/skills/theirs/SKILL.md"},
+	}})
+	declared := []syncProjection{{Provider: "claude", Workspace: "/elsewhere", Scope: contract.ScopeProject}}
+	var out, errb bytes.Buffer
+	if _, err := pruneOrphanProjections(syncStreams{Out: &out, Err: &errb}, lf, declared, nil, t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(skillDir, "SKILL.md")); !os.IsNotExist(err) {
+		t.Errorf("the verified file survived: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(victimDir, "SKILL.md")); err != nil {
+		t.Errorf("an unverifiable file was removed: %v", err)
+	}
+	if containsKey(lf, key) {
+		t.Error("the section stayed in the lockfile")
+	}
+	if !strings.Contains(errb.String(), "could not be verified") {
+		t.Errorf("the kept file is not reported: %q", errb.String())
+	}
+}
