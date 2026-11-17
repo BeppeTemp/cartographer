@@ -186,7 +186,7 @@ func (x templateCtx) bindingFindings() []Finding {
 	var out []Finding
 	switch {
 	case !x.hasShape && !x.bound:
-		msg := fmt.Sprintf("no %q field and no template resolves for it: map %q requires every page to follow one of its templates", kb.ShapeField, x.in.MapName)
+		msg := fmt.Sprintf("no %q field and no template resolves for it: map %q requires every page to follow one of its templates: set %q to a template slug, or set the page's \"type\" to the type of one of them", kb.ShapeField, x.in.MapName, kb.ShapeField)
 		var fix *Fix
 		if cands := x.candidates(); len(cands) == 1 {
 			fix = &Fix{Kind: FixSetValue, Field: kb.ShapeField, To: cands[0]}

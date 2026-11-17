@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -1664,6 +1665,12 @@ type fixpointOutcome struct {
 	// Renames are the rename_field fixes that took effect, for the map
 	// contracts that name the renamed field (renameInContracts).
 	Renames []*lint.Fix
+	// Fields says, per check, which field each applied fix touched ("stato ->
+	// status", "lint_ignore dropped"), so a write's `repaired` names what changed.
+	Fields map[string][]string
+	// StatusRenamed is set when a rename landed on "status": its value may lie
+	// outside the status vocabulary, which repairWritten then reports.
+	StatusRenamed bool
 	// Stuck lists the checks left with a finding the applier could not fix on
 	// its own (a person's call, or a fix that does nothing): reported once.
 	Stuck []string
@@ -1818,8 +1825,17 @@ func repairConceptFixpointOnly(k *kb.KB, id okf.ConceptID, allowed []string, see
 				out.Changed[check] += changed
 				passChanged += changed
 				for _, fx := range fixes {
-					if fx.Kind == lint.FixRenameField {
+					switch fx.Kind {
+					case lint.FixRenameField:
 						out.Renames = append(out.Renames, fx)
+						if _, still := fm.Get(fx.Field); !still {
+							out.addField(check, fx.Field+" -> "+fx.To)
+							out.StatusRenamed = out.StatusRenamed || fx.To == "status"
+						}
+					case lint.FixDropField:
+						out.addField(check, fx.Field+" dropped")
+					case lint.FixSetValue:
+						out.addField(check, fx.Field+" set to "+fx.To)
 					}
 				}
 			}
@@ -1858,6 +1874,16 @@ func repairConceptFixpointOnly(k *kb.KB, id okf.ConceptID, allowed []string, see
 	}
 	out.Hash = hash
 	return out, nil
+}
+
+// addField records one touched field under a check, once.
+func (o *fixpointOutcome) addField(check, what string) {
+	if o.Fields == nil {
+		o.Fields = map[string][]string{}
+	}
+	if !slices.Contains(o.Fields[check], what) {
+		o.Fields[check] = append(o.Fields[check], what)
+	}
 }
 
 // nonConvergence is the skip reason of a concept the fixpoint left alone, and

@@ -640,7 +640,7 @@ func toolConceptPatch(k *kb.KB, facts *factFinder) Tool {
 				return errorResult("'id' is required"), nil
 			}
 			if params.IfMatch == "" {
-				return errorResult("'if_match' is required"), nil
+				return errorResult(ifMatchRequiredMsg), nil
 			}
 
 			// 'edits' presence is checked on the raw JSON (not len(params.Edits))
@@ -816,7 +816,7 @@ func toolIndexPatch(k *kb.KB) Tool {
 				return errorResult("invalid params: " + err.Error()), nil
 			}
 			if params.IfMatch == "" {
-				return errorResult("'if_match' is required"), nil
+				return errorResult(ifMatchRequiredMsg), nil
 			}
 
 			// Same 'edits' vs top-level mutual-exclusion handling as
@@ -3318,7 +3318,7 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 
 				case "patch":
 					if op.IfMatch == "" {
-						return errorResult(fmt.Sprintf("%s: 'if_match' is required for a patch operation", label)), nil
+						return errorResult(fmt.Sprintf("%s: 'if_match' is required for a patch operation: %s", label, ifMatchHowTo)), nil
 					}
 					if !existed {
 						return errorResult(fmt.Sprintf("%s: not found", label)), nil

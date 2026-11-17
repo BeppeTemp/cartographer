@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/search"
 )
 
@@ -320,4 +321,45 @@ func foldVocabulary(counts map[string]int, fams valueFamilies) (values []string,
 		mapping = nil
 	}
 	return values, mapping
+}
+
+// StatusOutsideVocabulary judges the status a page holds after a repair
+// renamed a field onto it (stato -> status): the value is carried over as it
+// was, so it may be a word no reader of the status field knows. It is a
+// finding when the value is neither a member of a synonym family nor in the
+// map's open_statuses; a map that declares field_values for status is judged by
+// invalid_field_value already, and reported nowhere twice.
+func StatusOutsideVocabulary(k *kb.KB, id okf.ConceptID, content string) (Finding, bool) {
+	fmRaw, _, ok := okf.SplitFrontmatter(content)
+	if !ok {
+		return Finding{}, false
+	}
+	parsed, err := okf.ParseFrontmatter(fmRaw)
+	if err != nil {
+		return Finding{}, false
+	}
+	v, isStr := parsed.Get("status")
+	status, _ := v.(string)
+	status = strings.TrimSpace(status)
+	if !isStr || status == "" {
+		return Finding{}, false
+	}
+	var contract *kb.MapContract
+	if parts := strings.Split(string(id), "/"); len(parts) > 1 {
+		if c, err := k.ReadMapContract(parts[0]); err == nil {
+			contract = &c
+		}
+	}
+	if contract != nil {
+		if allowed, declared := contract.AllowedValues(parsed.Type(), "status"); declared && len(allowed) > 0 {
+			return Finding{}, false
+		}
+	}
+	if statusValueKnown(contract, familiesFor(contract), status) {
+		return Finding{}, false
+	}
+	return newFinding("invalid_field_value", Finding{
+		Path:    okf.IDToPath(id),
+		Message: fmt.Sprintf("field \"status\" holds %q, which is outside the status vocabulary (no synonym family or open_statuses of the map has it): set a status the map uses, or declare the value with map_update (field_values)", status),
+	}), true
 }

@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	gopath "path"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
@@ -122,8 +124,14 @@ func toolIndexGet(k *kb.KB) Tool {
 				}
 			}
 
+			if strings.HasSuffix(params.Path, ".md") {
+				return errorResult(fmt.Sprintf("index_get %q: 'path' is the folder or map name (%q), not a file: the index.md of that folder is read for you; to read a page use concept_read with its id", params.Path, strings.TrimSuffix(gopath.Dir(params.Path), "."))), nil
+			}
 			content, err := k.ReadIndex(params.Path)
 			if err != nil {
+				if errors.Is(err, syscall.ENOTDIR) || errors.Is(err, okf.ErrNotFound) {
+					return errorResult(fmt.Sprintf("index_get %q: no such folder: 'path' is a map or folder name (e.g. \"tasks\"), and a page id is read with concept_read", params.Path)), nil
+				}
 				return errorResult(fmt.Sprintf("index_get %q: %v", params.Path, relPathErr(err, k.Root))), nil
 			}
 
@@ -272,6 +280,9 @@ func toolConceptRead(k *kb.KB, reads *readAccessLog) Tool {
 				}
 			}
 
+			if strings.HasSuffix(params.ID, ".md") {
+				return errorResult(fmt.Sprintf("concept_read %q: an id has no .md extension: use %q", params.ID, strings.TrimSuffix(params.ID, ".md"))), nil
+			}
 			var data *kb.ConceptData
 			if params.Rev != "" {
 				if !revPattern.MatchString(params.Rev) {
@@ -286,6 +297,9 @@ func toolConceptRead(k *kb.KB, reads *readAccessLog) Tool {
 				var err error
 				data, err = k.ReadConcept(okf.ConceptID(params.ID))
 				if err != nil {
+					if errors.Is(err, syscall.ENOTDIR) {
+						return errorResult(fmt.Sprintf("concept_read %q: no such concept: an id is a path without .md (e.g. \"sensors/sens-01\"); a folder index is read with index_get", params.ID)), nil
+					}
 					return errorResult(fmt.Sprintf("concept_read %q: %v", params.ID, relPathErr(err, k.Root))), nil
 				}
 			}

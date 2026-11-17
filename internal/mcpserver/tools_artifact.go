@@ -280,7 +280,7 @@ func toolArtifactRead(k *kb.KB) Tool {
 			}
 			info, err := classifyArtifactPath(params.Path)
 			if err != nil {
-				return errorResult(relPathErr(err, k.Root)), nil
+				return errorResult(relPathErr(err, k.Root) + "; a KB page is read with concept_read (its id, no .md), a folder's index with index_get"), nil
 			}
 			if params.Encoding != "" && params.Encoding != "text" && params.Encoding != "base64" {
 				return errorResult("encoding must be text or base64"), nil
@@ -1023,7 +1023,7 @@ func toolArtifactDelete(k *kb.KB) Tool {
 				return errorResult(relPathErr(err, k.Root)), nil
 			}
 			if params.IfMatch == "" {
-				return errorResult("'if_match' is required"), nil
+				return errorResult(ifMatchRequiredMsg), nil
 			}
 			if err := rejectArtifactSymlinks(k.Root, params.Path); err != nil {
 				return errorResult(relPathErr(err, k.Root)), nil

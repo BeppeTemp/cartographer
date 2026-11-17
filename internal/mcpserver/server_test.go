@@ -6068,8 +6068,7 @@ func TestServer_Lint_CheckFilterArray(t *testing.T) {
 	k := setupTestKB(t)
 	setupProblemsKB(t, k)
 	pages := callLintPages(t, k,
-		map[string]any{"check": []string{"broken_link", "open_marker"}},
-		map[string]any{"check": "no_such_check"})
+		map[string]any{"check": []string{"broken_link", "open_marker"}})
 	seen := map[string]bool{}
 	for _, f := range pages[0].Findings {
 		seen[f.Check] = true
@@ -6077,8 +6076,13 @@ func TestServer_Lint_CheckFilterArray(t *testing.T) {
 	if len(seen) != 2 || !seen["broken_link"] || !seen["open_marker"] {
 		t.Errorf("want exactly broken_link and open_marker, got %v", seen)
 	}
-	if len(pages[1].Findings) != 0 || pages[1].Count == 0 {
-		t.Errorf("an unknown check is an empty page with the real count: %+v", pages[1])
+	// An unknown check is an error that lists the valid ones (#2184), not an
+	// empty page that reads as "that check found nothing".
+	s := New("1.0.0")
+	RegisterKBTools(s, k, Deps{})
+	text, isErr := callJSON(t, s, adminCtx, "lint", `{"check":"no_such_check"}`)
+	if !isErr || !strings.Contains(text, "valid checks are") || !strings.Contains(text, "broken_link") {
+		t.Errorf("an unknown check must be an error naming the valid ones: %v %s", isErr, text)
 	}
 }
 
