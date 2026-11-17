@@ -592,3 +592,69 @@ func TestSystemPollFailedGroupsAreRecordedBeforeAnErrorReturn(t *testing.T) {
 		t.Fatalf("feed_error = %q", fe)
 	}
 }
+
+// The Source moving under a poll (an executor, a person) between the lease and
+// the cursor patch must not cost the cursor: the state file is already the new
+// one, and a cursor that does not match it makes the next poll rebuild from
+// empty, so a changed group came back as added (#2188).
+func TestSystemPollCursorSurvivesTheSourceMovingUnderThePoll(t *testing.T) {
+	s := newSysEnv(t)
+	s.list("storage/x", "one")
+	s.mustPoll()
+	first := s.unitsOf("storage/x")[0]
+	s.clock = s.clock.Add(2 * time.Hour)
+	s.list("storage/x", "two")
+	calls := 0
+	s.k.fault = func(name string, _ int) error {
+		if name == "concept_patch" {
+			if calls++; calls == 2 { // the cursor patch, after the lease patch
+				s.src().ver++ // someone else wrote the Source
+			}
+		}
+		return nil
+	}
+	s.mustPoll()
+	s.k.fault = nil
+	if calls < 2 || s.feed()["feed_cursor"] != sha(s.stateFile()) {
+		t.Fatalf("cursor %v does not match the state file (concept_patch calls %d)", s.feed()["feed_cursor"], calls)
+	}
+	s.clock = s.clock.Add(2 * time.Hour)
+	s.list("storage/x", "three")
+	res := s.mustPoll()
+	if strings.Contains(res.Summary, "rebuilt") {
+		t.Fatalf("state rebuilt: %s", res.Summary)
+	}
+	var third *ipage
+	for _, id := range s.unitsOf("storage/x") {
+		if id != first && s.k.pages[id].fm["observed_revision"] == system.Revision("three") {
+			third = s.k.pages[id]
+		}
+	}
+	if third == nil || third.fm["observed_change"] != "modified" {
+		t.Fatalf("third revision unit = %+v", third)
+	}
+}
+
+// A Source whose lease changed hands under the poll is a lost lease, not a retry.
+func TestSystemPollCursorPatchStopsWhenTheLeaseWasTaken(t *testing.T) {
+	s := newSysEnv(t)
+	s.list("storage/x", "one")
+	s.mustPoll() // the state exists: the second patch of the next poll is the cursor's
+	s.clock = s.clock.Add(2 * time.Hour)
+	s.list("storage/x", "two")
+	before := s.feed()["feed_cursor"]
+	calls := 0
+	s.k.fault = func(name string, _ int) error {
+		if name == "concept_patch" {
+			if calls++; calls == 2 {
+				s.src().ver++
+				s.src().fm["feed_checked_at"] = "2031-02-03T12:00:09Z"
+			}
+		}
+		return nil
+	}
+	res := s.mustPoll()
+	if !strings.Contains(res.Summary, "lease_lost") || s.feed()["feed_cursor"] != before {
+		t.Fatalf("summary %q cursor %v", res.Summary, s.feed()["feed_cursor"])
+	}
+}

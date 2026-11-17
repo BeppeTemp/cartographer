@@ -275,7 +275,14 @@ func (r *pollRun) runSystem(ctx context.Context, rec recipe.Recipe, planID strin
 			fm["ingest_status"], fm["ingested_at"] = "ingested", in.now().UTC().Format(time.RFC3339)
 		}
 	}
-	if _, err := r.patch(args, "poll "+f.ID); err != nil && !errors.Is(err, feed.ErrLeaseLost) {
+	if err := r.patchCursor(args, leasedAt); err != nil {
+		if errors.Is(err, feed.ErrLeaseLost) {
+			// The state file is already written: without the cursor the next poll
+			// finds a digest mismatch and rebuilds from empty (every group "added").
+			// Say so on the run instead of ending quietly.
+			r.code = "lease_lost"
+			return nil
+		}
 		return err
 	}
 	r.summary = fmt.Sprintf("poll %s: identity=%s, groups added=%d modified=%d removed=%d unchanged=%d, units created=%d reused=%d superseded=%d, groups failed=%d, already handled=%d",
@@ -526,4 +533,33 @@ func (r *pollRun) recordFailed(failed []string) error {
 // patches of a system unit never carry it; in a generated index it is a note.
 func unitWriteOp(id string, fm map[string]any, body string) map[string]any {
 	return map[string]any{"op": "write", "id": id, "frontmatter": fm, "body": body, "index_entry": true}
+}
+
+// cursorRetries bounds how often the cursor patch is redone on a Source that
+// moved under the poll without the lease changing hands.
+const cursorRetries = 3
+
+// patchCursor writes the cursor (and the bookkeeping that goes with it) after the
+// state file is saved. A stale_write here is not always a lost lease: units,
+// an executor or a person may have touched the Source since the lease patch. The
+// state file is already the new one, so dropping the cursor would make the next
+// poll distrust the state and rebuild it from empty, reporting every group as
+// added (#2188). While feed_checked_at is still ours, the patch is redone on a
+// fresh hash; only a changed lease is a lost one.
+func (r *pollRun) patchCursor(args map[string]any, leasedAt string) error {
+	reason := "poll " + r.f.ID
+	for attempt := 0; ; attempt++ {
+		_, err := r.patch(args, reason)
+		if !errors.Is(err, feed.ErrLeaseLost) || attempt >= cursorRetries {
+			return err
+		}
+		cur, rerr := readConcept(r.rt.Tools, r.f.ID)
+		if rerr != nil {
+			return rerr
+		}
+		if got, _ := cur.Frontmatter[feed.KeyCheckedAt].(string); got != leasedAt || cur.ContentHash == "" {
+			return feed.ErrLeaseLost
+		}
+		args["if_match"] = cur.ContentHash
+	}
 }

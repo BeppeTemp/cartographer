@@ -294,6 +294,7 @@ in its body; a removed group becomes a unit that marks the owning page "observed
 The Surveyor never deletes, archives or moves anything because of an observation, and the poll's model never reads a
 snapshot. The state lives in the asset `system-state.jsonl` of the Source (its digest is `feed_cursor`); data-plane.md
 §ledger has the format and the extra `feed_error` codes (`state_error`, `groups_failed`).
+The cursor is written last, after the state file: a `stale_write` on it is retried on a fresh hash while the poll still holds the lease, and a lost lease ends the run as `lease_lost`.
 
 A reference lister for Kubernetes ships in the repository, not in the binary:
 [`examples/system-recipes/kubernetes/`](https://github.com/BeppeTemp/cartographer/blob/main/examples/system-recipes/kubernetes/README.md) (Python 3, standard library only,
