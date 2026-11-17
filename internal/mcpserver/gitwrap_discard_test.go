@@ -75,3 +75,43 @@ func TestGitWrap_FailedHandlerDiscardsNothingWhenTheTreeWasNotClean(t *testing.T
 		t.Fatalf("unsaved work was discarded: %v", err)
 	}
 }
+
+// #2190: a commit refused by an index.lock that appeared during the call fails
+// the call, names the lock, leaves nothing of the write on disk, and the next
+// write after the lock is gone commits.
+func TestGitWrap_CommitFailureFailsTheCallAndRestoresTheTree(t *testing.T) {
+	t.Parallel()
+	k, _ := setupGitKB(t)
+	head := gitOut(t, k, "rev-parse", "HEAD")
+	lock := filepath.Join(k.Root, ".git", "index.lock")
+	res := writeWrappedTool(t, k, "test_write", func() {
+		if err := os.WriteFile(lock, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	})
+	text := ""
+	if len(res.Content) > 0 {
+		text = res.Content[0].Text
+	}
+	if !res.IsError || res.CommitSHA != "" || strings.Contains(text, `"ok"`) {
+		t.Fatalf("a failed commit answered %+v, want an error", res)
+	}
+	if !strings.Contains(text, "index.lock") || !strings.Contains(text, "remove that file") {
+		t.Fatalf("error %q must name the lock file and the remedy", text)
+	}
+	if _, err := os.Stat(filepath.Join(k.Root, "data", "wrapped.md")); !os.IsNotExist(err) {
+		t.Fatalf("the written file is still on disk (stat err %v)", err)
+	}
+	if got := gitOut(t, k, "rev-parse", "HEAD"); got != head {
+		t.Fatalf("HEAD moved to %s", got)
+	}
+	if err := os.Remove(lock); err != nil {
+		t.Fatal(err)
+	}
+	if res := writeWrappedTool(t, k, "test_write", nil); res.IsError || res.CommitSHA == "" {
+		t.Fatalf("the write after the lock was removed = %+v, want a commit", res)
+	}
+	if strings.Contains(gitOut(t, k, "log", "--format=%s"), externalChangesSubject) {
+		t.Fatal("the residue of the failed write was committed as external changes")
+	}
+}

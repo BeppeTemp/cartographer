@@ -31,9 +31,10 @@ const pushFlushTimeout = 5 * time.Second
 //   - If the original handler returns a Go error or an application error
 //     (res.IsError), no commit is attempted, and when the working tree was clean
 //     before the handler ran, it is restored to HEAD (discardFailedWrite, D1549).
-//   - If the commit itself fails, the error is logged to stderr but is NOT
-//     propagated to the MCP client: a commit failure never turns a successful
-//     operation into an error.
+//   - If the commit itself fails, the call fails (#2190): never a success
+//     without a commit. When the tree was clean before the handler it is
+//     restored to HEAD, and the error carries git's own words (a lock file is
+//     named, with the remedy).
 //   - A KB that is a git repository always commits: there is no setting that
 //     turns the commit off (D903). CommitOp is a no-op only outside a repository.
 //
@@ -135,8 +136,7 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 				}
 				if commitErr != nil {
 					fmt.Fprintf(os.Stderr, "cartographer: git commit failed (%s): %v\n", orig.Name, commitErr)
-					k.SetGitStatus("failed", fmt.Errorf("commit: %w", commitErr))
-					appendSyncWarning(ctx, &res, k)
+					res = commitFailureResult(k, orig.Name, commitErr, cleanBefore)
 					return nil
 				}
 				// Step 2 / D76-WP4: push after the commit. If SyncOutDebounce
@@ -188,6 +188,29 @@ func discardFailedWrite(k *kb.KB, tool string, res *ToolResult) bool {
 	last.Text = strings.ReplaceAll(last.Text, "; "+recoveryHint, "")
 	last.Text += "; " + discardedNote
 	return true
+}
+
+// commitFailureResult is the answer of a write whose handler succeeded and whose
+// commit failed (#2190): an error, never a success without a commit. Under a tree
+// that was clean before the call the files this call wrote are restored (D1549's
+// rollback); otherwise they stay uncommitted, as the error says, because the tree
+// also holds work that is not this call's. The error holds git's own text, which
+// names the lock file and says to remove it when no git runs in the clone.
+func commitFailureResult(k *kb.KB, tool string, commitErr error, cleanBefore bool) ToolResult {
+	fmt.Fprintf(os.Stderr, "cartographer: git commit failed (%s): %v\n", tool, commitErr)
+	note := "the changes are left uncommitted in the working tree"
+	if cleanBefore {
+		if err := k.DiscardUncommitted(); err != nil {
+			fmt.Fprintf(os.Stderr, "cartographer: rollback of %s after a failed commit failed: %v\n", tool, err)
+			note = "the changes could not be restored and are left uncommitted in the working tree"
+		} else {
+			note = discardedNote
+		}
+	}
+	if note != discardedNote {
+		k.SetGitStatus("failed", fmt.Errorf("commit: %w", commitErr))
+	}
+	return errorResult(fmt.Sprintf("%s: not saved, the commit failed: %v; %s", tool, commitErr, note))
 }
 
 // discardedNote ends the error of a write gitWrap rolled back.
