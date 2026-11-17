@@ -1270,14 +1270,14 @@ func TestInstall_Windows_RefusesAnAddressAnotherProgramHolds(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &fakeServeTask{}
 			err, sleeps := installOnAddress(t, f, tc.state)
-			if err == nil || !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), "service start") {
-				t.Fatalf("Install error = %v, want %q and the service start hint", err, tc.want)
+			if err == nil || !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), "nothing was changed") {
+				t.Fatalf("Install error = %v, want %q and the nothing-changed note", err, tc.want)
 			}
 			if all := joinedCalls(f.calls); strings.Contains(all, "Start-ScheduledTask") {
 				t.Errorf("the task was started next to a busy address:\n%s", all)
 			}
-			if !strings.Contains(joinedCalls(f.calls), "Register-ScheduledTask") {
-				t.Error("the task must stay registered, as the error says")
+			if strings.Contains(joinedCalls(f.calls), "Register-ScheduledTask") {
+				t.Error("a refused install must register nothing (#2179)")
 			}
 			if sleeps != 0 {
 				t.Errorf("slept %d times: a task that is not Running has nothing to wait for", sleeps)
@@ -1302,6 +1302,12 @@ func TestInstall_Windows_StartsWhenTheAddressIsFree(t *testing.T) {
 // what the tests read.
 func replaceOver(t *testing.T, f *fakeServeTask, withDefinition ...bool) (error, string) {
 	t.Helper()
+	return replaceOverListener(t, f, func() ListenerState { return ListenerNone }, withDefinition...)
+}
+
+// replaceOverListener is replaceOver with the state listenerAt answers.
+func replaceOverListener(t *testing.T, f *fakeServeTask, listener func() ListenerState, withDefinition ...bool) (error, string) {
+	t.Helper()
 	home := withTestHome(t, "windows")
 	binPath := filepath.Join(t.TempDir(), "cartographer.exe")
 	if err := os.WriteFile(binPath, []byte("bin"), 0o644); err != nil {
@@ -1318,7 +1324,7 @@ func replaceOver(t *testing.T, f *fakeServeTask, withDefinition ...bool) (error,
 	}
 	serveAddrAnswers = func(string) bool { return f.running }
 	windowsSleep = func(time.Duration) {}
-	listenerAt = func(string) ListenerState { return ListenerNone }
+	listenerAt = func(string) ListenerState { return listener() }
 	t.Cleanup(func() {
 		osExecutable, setShutdownEvent, serveAddrAnswers, windowsSleep = origExecutable, origEvent, origAnswers, origSleep
 	})
@@ -1648,5 +1654,105 @@ func TestInstall_Windows_UnchangedDefinitionStopsAfterTheRegistration(t *testing
 	register, event, start := callIndex(calls, "Register-ScheduledTask"), callIndex(calls, "SHUTDOWN-EVENT"), callIndex(calls, "Start-ScheduledTask")
 	if register < 0 || event < register || start < event || !f.running {
 		t.Errorf("want register (%d), stop (%d), start (%d), running=%v:\n%s", register, event, start, f.running, joinedCalls(calls))
+	}
+}
+
+// #2179: a refused install leaves the previous task and process as they were.
+// The address the new config names is held by another program while the old
+// server runs on its own: nothing is stopped, registered or rewritten.
+func TestInstall_Windows_RefusalBeforeAnythingIsTouched(t *testing.T) {
+	f := &fakeServeTask{running: true, drains: true, enabled: true}
+	err, taskPath := replaceOverListener(t, f, func() ListenerState { return ListenerForeign })
+	if err == nil || !strings.Contains(err.Error(), "another program answers") {
+		t.Fatalf("Install = %v, want the listener refusal", err)
+	}
+	all := joinedCalls(f.calls)
+	for _, bad := range []string{"SHUTDOWN-EVENT", "Stop-ScheduledTask", "Register-ScheduledTask", "Unregister-ScheduledTask"} {
+		if strings.Contains(all, bad) {
+			t.Errorf("%s ran before the refusal:\n%s", bad, all)
+		}
+	}
+	if !f.running {
+		t.Error("the old server was stopped")
+	}
+	if data, _ := os.ReadFile(taskPath); !strings.Contains(string(data), `C:\old\cartographer.exe`) {
+		t.Errorf("the installed definition was replaced:\n%s", data)
+	}
+}
+
+// A listener that appears after the old server was stopped (the pre-check saw
+// the address free) puts the previous definition back and starts it again.
+func TestInstall_Windows_FailureAfterRegistrationRestoresThePreviousTask(t *testing.T) {
+	f := &fakeServeTask{running: true, drains: true, enabled: true}
+	err, taskPath := replaceOverListener(t, f, func() ListenerState {
+		if f.running {
+			return ListenerNone
+		}
+		return ListenerForeign
+	})
+	if err == nil || !strings.Contains(err.Error(), "registered again") {
+		t.Fatalf("Install = %v, want the refusal naming the restored task", err)
+	}
+	data, _ := os.ReadFile(taskPath)
+	if !strings.Contains(string(data), `C:\old\cartographer.exe`) || strings.Contains(string(data), "39273") {
+		t.Errorf("the previous definition was not put back:\n%s", data)
+	}
+	if n := len(f.registered); n != 2 || !strings.Contains(f.registered[1], `C:\old\cartographer.exe`) {
+		t.Errorf("registrations = %d, want the new one then the old one again", n)
+	}
+	if !f.running {
+		t.Error("the previous server was not started again")
+	}
+}
+
+// #2179: the live DACL comes from the Task Scheduler service, not from the
+// cmdlet, which returns the descriptor of the definition XML.
+func TestServeTaskOwnerDiffers_ReadsTheLiveDescriptor(t *testing.T) {
+	withTestHome(t, "windows")
+	var scripts []string
+	m := &Manager{run: func(name string, args ...string) (string, error) {
+		scripts = append(scripts, strings.Join(args, " "))
+		return "", nil
+	}}
+	if m.serveTaskOwnerDiffers(testSID) {
+		t.Error("an exit 0 probe is not differs")
+	}
+	var probe string
+	for _, sc := range scripts {
+		if strings.Contains(sc, "AccessMask") {
+			probe = sc
+		}
+	}
+	if !strings.Contains(probe, "Schedule.Service") || !strings.Contains(probe, "GetSecurityDescriptor(4)") || !strings.Contains(probe, `GetFolder('\Cartographer')`) {
+		t.Errorf("the probe does not read the live descriptor through COM:\n%s", probe)
+	}
+	if strings.Contains(probe, "(Get-ScheduledTask") {
+		t.Errorf("the probe still reads the cmdlet's descriptor:\n%s", probe)
+	}
+}
+
+// #2179: status reads the config the installed definition passes, not the
+// default server.yaml.
+func TestStatus_Windows_ReadsTheConfigOfTheInstalledTask(t *testing.T) {
+	home := withTestHome(t, "windows")
+	taskPath, _ := WindowsTaskPath()
+	logPath, _ := WindowsLogPath()
+	custom := filepath.Join(home, "other", "server.yaml")
+	if err := os.MkdirAll(filepath.Dir(taskPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(taskPath, []byte(RenderWindowsTaskXML(`C:\bin\cartographer.exe`, custom, logPath, "", "")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := &Manager{run: (&fakeServeTask{running: true, enabled: true}).run}
+	st, err := m.Status("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.ConfigPath != custom {
+		t.Errorf("ConfigPath = %q, want the installed task's %q", st.ConfigPath, custom)
+	}
+	if st, _ := m.Status("explicit.yaml"); st.ConfigPath != "explicit.yaml" {
+		t.Errorf("an explicit config must win, got %q", st.ConfigPath)
 	}
 }
