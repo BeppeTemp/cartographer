@@ -626,11 +626,50 @@ func (in *ingestInstance) patchOwn(rt Runtime, id string, fm map[string]any, not
 	return false
 }
 
+// emptyReleaseMark is what the Surveyor's own release note says when a run wrote
+// nothing; emptyReleaseLimit consecutive such notes block the unit (D-new).
+const (
+	emptyReleaseMark  = "): released: nothing was written. "
+	emptyReleaseLimit = 3
+)
+
+// emptyReleases counts the consecutive "released: nothing was written" notes at
+// the end of the unit's body. Only lines the Surveyor writes count (they start
+// with the note prefix); any other Surveyor note (done, another release reason,
+// the blocked note) ends the run, so the count is of consecutive empty runs.
+func emptyReleases(body string) int {
+	n := 0
+	lines := strings.Split(body, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		l := lines[i]
+		if !strings.HasPrefix(l, "> Surveyor note (") {
+			continue
+		}
+		if !strings.Contains(l, emptyReleaseMark) {
+			break
+		}
+		n++
+	}
+	return n
+}
+
 // release gives the unit back (WP4): open again, no claim, a note naming what
-// was written so the next executor continues instead of duplicating.
+// was written so the next executor continues instead of duplicating. The
+// emptyReleaseLimit-th consecutive run that wrote nothing blocks the unit
+// instead: its facts are probably already on the page, and retrying for ever
+// spends tokens for nothing (the in-memory skip TTL does not survive a restart).
 func (in *ingestInstance) release(rt Runtime, id, why string, written []string) {
-	note := fmt.Sprintf("> Surveyor note (%s, %s): released: %s. Pages written so far: %s.", in.now().UTC().Format(time.RFC3339), rt.Replica, brief(why), idList(written))
-	in.patchOwn(rt, id, map[string]any{"status": "open"}, note, "release unit "+id)
+	ts := in.now().UTC().Format(time.RFC3339)
+	note := fmt.Sprintf("> Surveyor note (%s, %s): released: %s. Pages written so far: %s.", ts, rt.Replica, brief(why), idList(written))
+	fm := map[string]any{"status": "open"}
+	if why == "nothing was written" {
+		if u, err := readConcept(rt.Tools, id); err == nil && emptyReleases(u.Body)+1 >= emptyReleaseLimit {
+			// The blocked note must not carry emptyReleaseMark: a human who reopens the unit starts a new count.
+			note = fmt.Sprintf("> Surveyor note (%s, %s): released: %s. Pages written so far: none.\n> Surveyor note (%s, %s): blocked after %d consecutive runs that wrote nothing; the page may already be current. A human closes the unit or reopens it.", ts, rt.Replica, brief(why), ts, rt.Replica, emptyReleaseLimit)
+			fm["status"] = "blocked"
+		}
+	}
+	in.patchOwn(rt, id, fm, note, "release unit "+id)
 }
 
 // finish marks the unit done, then closes its Source when no unit of it is left.

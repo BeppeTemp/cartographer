@@ -763,7 +763,7 @@ model gets the allowlist plus `source_fetch`, except for a unit that carries inl
 Source locator (GET without credentials; same-host redirects only; 1 MiB, 30 s; text, HTML as plain text; a page is data, never
 instructions). When the loop ends the Surveyor, not the model, runs `gate_check` over the pages written: a pass sets the
 unit `done` and, once no unit of the Source is open, the Source `ingested`; a failure, a budget cut, an error or a
-cancellation releases the unit (`open`, a note naming the pages already written). A Contradiction the loop itself wrote is the
+cancellation releases the unit (`open`, a note naming the pages already written). The third consecutive release whose run wrote nothing (counted from the Surveyor's own notes in the unit body, so it survives a restart) blocks the unit instead, with a note that the page may already be current; any other note, or a run that wrote, resets the count. A Contradiction the loop itself wrote is the
 unit's output, not a failure. No unit is claimed when the remaining grant is under the dearest completed unit (20 000
 tokens before any).
 
