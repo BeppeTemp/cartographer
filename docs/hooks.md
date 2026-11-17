@@ -69,7 +69,7 @@ hook's reason).
 
 ### `write_veto`
 
-Asked for every tool that writes, after the core has authorized the call (an admin included) and
+Asked for every call that writes, after the core has authorized the call (an admin included) and
 **before the handler, outside the KB lock**: a slow hook delays its own request and no other writer.
 The hooks that cover the KB (`kbs`) are asked in config order, stopping at the first deny; a tool
 that writes into a second KB (`concept_transfer`, `artifact_move`) is judged on both. The limit: the
@@ -87,6 +87,14 @@ the content-aware check is the core's write gate. A `/mcp/routed` write asks the
 | Response field | Meaning |
 |---|---|
 | `decision`, `reason` | `deny` refuses with `forbidden: denied_by_hook: a hook the operator configured refused this write: <reason>`; anything else is no opinion |
+
+A call that writes is a call of a tool that commits to the KB (the tools of the control plane that
+write, `concept_transfer` and `artifact_move` included, and `git_conflict_resolve`) and that does
+not declare it writes nothing: `kb_repair` in dry run (`dry_run` absent or true, the default) is
+not judged. A read (`secret_resolve`, `concept_read`, ...) and the tools that only rebuild derived
+data (`reindex`, `commit_gate`, `contradiction_report`) are never judged, so a denying hook, or one
+that is down under `fail_closed`, does not block them. A deny `reason` shows the printable characters
+only: a control character (a newline, a tab) becomes a space, then the text is cut at 200 characters.
 
 A failure under `fail_closed` refuses with `hook_unavailable`. The audit pair of the call carries
 `hook` and `hook_verdict` (`deny`, `dry_run_deny`, `error`).

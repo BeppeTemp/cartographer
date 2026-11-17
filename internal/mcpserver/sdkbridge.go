@@ -340,7 +340,7 @@ func (s *Server) callToolChecked(ctx context.Context, name string, args json.Raw
 	// The write veto: after the core authorization, outside the KB lock (see
 	// vetoWrite). A routed view leaves it to the target KB's server, so a routed
 	// write calls the hooks once; with no hook configured this is a no-op.
-	if !refusalsOnly && hookReg.Len() > 0 && ToolRequiresWrite(name) {
+	if !refusalsOnly && hookReg.Len() > 0 && ToolRequiresWrite(name) && callWrites(tool, args) {
 		extra, err := s.vetoWrite(ctx, hookReg, hookKB, name, args, resources)
 		if err != nil {
 			s.auditDeniedWith("", who, name, args, extra)

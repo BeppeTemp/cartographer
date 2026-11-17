@@ -114,6 +114,20 @@ func TestDenyReasonIsBounded(t *testing.T) {
 	}
 }
 
+func TestSanitizeReasonTurnsControlCharactersIntoASpace(t *testing.T) {
+	for in, want := range map[string]string{
+		"frozen\nuntil the window": "frozen until the window",
+		"a\t\r\nb":                 "a b",
+		"\nlead":                   "lead",
+		"tail\x00":                 "tail",
+		"ok":                       "ok",
+	} {
+		if got := SanitizeReason(in); got != want {
+			t.Errorf("SanitizeReason(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestTimeout(t *testing.T) {
 	release := make(chan struct{})
 	s, _ := serve(t, func(w http.ResponseWriter, r *http.Request) {

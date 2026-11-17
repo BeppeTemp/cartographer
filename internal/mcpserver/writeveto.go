@@ -36,6 +36,19 @@ func awaitBlockingSinks(ctx context.Context, sinks []*hooks.Sink, hash string) (
 	return ""
 }
 
+// callWrites says whether a call is one the write veto judges: the tool commits
+// (gitWrap, the two-KB moves, git_conflict_resolve) and this call does not
+// declare it writes nothing (kb_repair in dry run). A read that the read-only
+// list does not name (secret_resolve) and a tool that only rebuilds derived
+// data never commit, so they are not judged and a hook that is down cannot
+// block them. Plugin tools and unknown names are not registered here.
+func callWrites(tool *Tool, args json.RawMessage) bool {
+	if tool == nil || !(tool.GitWrapped || tool.OwnsCommit) {
+		return false
+	}
+	return tool.WritesNothing == nil || !tool.WritesNothing(args)
+}
+
 // vetoWrite asks every write_veto hook that covers the KB, in config order,
 // whether it objects to the call, and stops at the first deny. It runs from
 // callToolChecked after the core authorization (a hook is never called for a

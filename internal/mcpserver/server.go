@@ -46,6 +46,13 @@ type Tool struct {
 	// GitWrapped is set by gitWrap: the tool commits (and syncs) after a
 	// successful call, so it accepts the optional `reason` argument (D272).
 	GitWrapped bool
+	// OwnsCommit marks a tool that commits without gitWrap (git_conflict_resolve
+	// takes the KB lock and finalizes the merge itself). With GitWrapped it is
+	// what the write veto calls a writing tool (callWrites).
+	OwnsCommit bool
+	// WritesNothing, when set, reports that this call of a committing tool
+	// writes nothing (kb_repair in dry run), so the write veto skips it.
+	WritesNothing func(args json.RawMessage) bool
 	// AcceptsKB is set on a routed tool: its handler strips and resolves `kb`
 	// even when the schema does not declare it (a one-KB URL), so the
 	// unknown-argument check lets it through (#1279).
