@@ -15,6 +15,23 @@ var SourceIngestStatuses = []string{"pending", "ingested", "skipped"}
 // snapshots.
 var SourceShapes = []string{"document", "collection", "feed", "system"}
 
+// ServerOwnedValues returns the vocabulary of a field the server itself
+// writes on a page of type t (the Source lifecycle fields the poll and the
+// ingest tools record), and whether the field is one. A map contract neither
+// proposes nor narrows it: the server's writes would be refused (#2226).
+func ServerOwnedValues(t, field string) ([]string, bool) {
+	if !IsSourceType(t) {
+		return nil, false
+	}
+	switch field {
+	case "ingest_status":
+		return SourceIngestStatuses, true
+	case "source_shape":
+		return SourceShapes, true
+	}
+	return nil, false
+}
+
 // SourceTemplate is the text of templates/source.md, the template
 // source_register writes into a ledger journal that has none (D1072). It is
 // composed from the server's own shape of a Source, so a change to the

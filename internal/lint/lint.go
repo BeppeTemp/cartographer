@@ -1411,7 +1411,9 @@ func mapFieldContractFindings(relPath, mapName string, contract kb.MapContract, 
 		reported := map[string]bool{}
 		for _, g := range got {
 			g = strings.TrimSpace(g)
-			if fieldValueAllowed(allowed, g) || reported[g] {
+			// #2226: a server-owned field's documented values are never refused,
+			// whatever a contract narrowed them to.
+			if owned, isOwned := kb.ServerOwnedValues(parsed.Type(), field); (isOwned && fieldValueAllowed(owned, g)) || fieldValueAllowed(allowed, g) || reported[g] {
 				continue
 			}
 			reported[g] = true
