@@ -208,6 +208,17 @@ func (r *pollRun) runSystem(ctx context.Context, rec recipe.Recipe, planID strin
 		return r.fail(pf.Code, pf.Detail)
 	}
 	identity, l, changes := obs.Identity, obs.Loaded, obs.Changes
+	if !l.Trusted {
+		// A rebuilt state forgets what was handled, the units do not (#2188).
+		seed, serr := r.seedFromUnits(unitMap, obs.Groups)
+		if serr != nil {
+			return serr
+		}
+		if len(seed) > 0 {
+			l.State = seed
+			changes, _ = system.Plan(l.State, obs.Groups)
+		}
+	}
 	// 7. Each changed group, in key order, isolated from the others.
 	plan, _ := readConcept(tools, planID)
 	sc := &sysCtx{planID: planID, planBody: plan.Body, unitMap: unitMap, maps: maps}
@@ -324,6 +335,32 @@ func (r *pollRun) groupUnits(sc *sysCtx, key string) ([]unitRow, error) {
 		return out[i].id > out[j].id
 	})
 	return out, nil
+}
+
+// seedFromUnits is the state a rebuild starts from: each listed group that
+// already has a unit takes the newest unit's observed_revision as its previous
+// revision (no title or snapshot is known), so an unchanged group is not
+// extracted again and a different revision is modified, not added. A group
+// whose newest unit is a removal is absent, as it was.
+func (r *pollRun) seedFromUnits(unitMap string, groups []system.Group) (system.State, error) {
+	sc := &sysCtx{unitMap: unitMap}
+	seed := system.State{}
+	for _, g := range groups {
+		units, err := r.groupUnits(sc, g.Key)
+		if err != nil {
+			return nil, err
+		}
+		for _, u := range units {
+			if u.status == "skipped" {
+				continue
+			}
+			if u.change != recipe.Removed && len(u.rev) == 16 {
+				seed[g.Key] = system.Item{Key: g.Key, Revision: u.rev, ObservedAt: u.at}
+			}
+			break
+		}
+	}
+	return seed, nil
 }
 
 // handledBy reports whether a unit already covers the change.
