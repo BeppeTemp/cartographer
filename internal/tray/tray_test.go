@@ -688,3 +688,25 @@ func TestTrayShowsPushLag(t *testing.T) {
 		t.Error("a KB in sync is reported as not pushed")
 	}
 }
+
+// The handoff to a UI thread keeps the newest snapshot until someone takes it,
+// however many were put before the thread ran (#2183).
+func TestSlotKeepsTheNewestUntilTaken(t *testing.T) {
+	var s Slot
+	if _, ok := s.Take(); ok {
+		t.Fatal("an empty slot gave a snapshot")
+	}
+	s.Put(Snapshot{State: StateStopped})
+	s.Put(Snapshot{State: StateRunning, Version: "v1"})
+	sn, ok := s.Take()
+	if !ok || sn.State != StateRunning || sn.Version != "v1" {
+		t.Fatalf("Take = %+v, %v; want the Running snapshot", sn, ok)
+	}
+	if _, ok := s.Take(); ok {
+		t.Error("a taken snapshot was given twice")
+	}
+	s.Put(Snapshot{State: StateStarting})
+	if sn, ok := s.Take(); !ok || sn.State != StateStarting {
+		t.Errorf("a snapshot put after a take was lost: %+v, %v", sn, ok)
+	}
+}

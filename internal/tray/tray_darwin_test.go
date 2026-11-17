@@ -21,7 +21,7 @@ func TestSelectorActionsCoverEveryAction(t *testing.T) {
 			t.Errorf("action %d has no selector", a)
 		}
 	}
-	for _, internal := range []string{selApply, selStop, selOpenKB, selMenuNeedsUpdate, selMenuWillOpen, selMenuDidClose} {
+	for _, internal := range []string{selDidFinishLaunching, selStop, selOpenKB, selMenuNeedsUpdate, selMenuWillOpen, selMenuDidClose} {
 		if seenSel[internal] {
 			t.Errorf("internal selector %q collides with an action selector", internal)
 		}
@@ -29,7 +29,7 @@ func TestSelectorActionsCoverEveryAction(t *testing.T) {
 	// The delegate methods and the internal selectors are all different too:
 	// one method table registers them on the same class.
 	all := map[string]bool{}
-	for _, sel := range []string{selApply, selStop, selOpenKB, selMenuNeedsUpdate, selMenuWillOpen, selMenuDidClose} {
+	for _, sel := range []string{selDidFinishLaunching, selStop, selOpenKB, selMenuNeedsUpdate, selMenuWillOpen, selMenuDidClose} {
 		if all[sel] {
 			t.Errorf("selector %q is used twice on the target class", sel)
 		}
