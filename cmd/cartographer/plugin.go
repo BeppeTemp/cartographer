@@ -467,6 +467,9 @@ type pluginRow struct {
 	State           string         `json:"state"`
 	Contributions   map[string]int `json:"contributions"`
 	UpdateAvailable bool           `json:"update_available"`
+	// PendingVersion is the version of the installed tree waiting for approval
+	// while Version, the active one, stays: set with UpdateAvailable.
+	PendingVersion string `json:"pending_version,omitempty"`
 	// InvalidReason is why an invalid plugin is invalid, with the fix: `plugin
 	// show` only.
 	InvalidReason string `json:"invalid_reason,omitempty"`
@@ -477,6 +480,12 @@ func newPluginRow(name string, e clientconfig.PluginEntry, st core.Status, p cor
 		Approved: e.Approved, State: string(st), Contributions: map[string]int{}, UpdateAvailable: e.Approved != "" && e.Installed != e.Approved}
 	for pt, cs := range p.Contributions {
 		r.Contributions[pt] = len(cs)
+	}
+	if r.UpdateAvailable {
+		r.PendingVersion = e.Version
+		if st == core.StatusActive {
+			r.Version = p.Manifest.Version // the approved tree runs, not the installed one
+		}
 	}
 	return r
 }
@@ -515,7 +524,7 @@ func pluginList(args []string) int {
 			line += "  [" + strings.Join(cs, ", ") + "]"
 		}
 		if r.UpdateAvailable {
-			line += "  update available"
+			line += "  update available: " + r.PendingVersion
 		}
 		fmt.Println(escapeControl(line))
 	}
@@ -537,6 +546,7 @@ func pluginShow(args []string) int {
 		return pluginFail(2, "no plugin named %q (see `cartographer plugin list`)", pos[0])
 	}
 	st, p, tree := pluginViewWith(store, pos[0], e, true)
+	pendingVersion := e.Version // the installed tree's, before e describes the shown one
 	if tree == "" {
 		if st == core.StatusInvalid {
 			// Read past the range, the tree is still invalid: say for what.
@@ -550,7 +560,16 @@ func pluginShow(args []string) int {
 				return pluginFail(1, "%s is invalid (%s); fix it with `cartographer plugin update %s`, or drop it with `cartographer plugin remove %s`", pos[0], escapeControl(err.Error()), pos[0], pos[0])
 			}
 		}
-		return pluginFail(1, "%s is %s: the stored tree cannot be read; reinstall it with `cartographer plugin install %s`", pos[0], st, gitx.RedactRemoteURL(e.Source))
+		// Not fetched or modified: no tree to preview, so show the state and its remedy.
+		fix := stateRemedy(pos[0], st)
+		if output == "json" {
+			row := newPluginRow(pos[0], e, st, core.Plugin{})
+			row.InvalidReason = string(st) + "; " + fix
+			printJSON(map[string]any{"schema": pluginSchema, "plugin": row, "tree": ""})
+			return 0
+		}
+		fmt.Printf("state: %s; the stored tree cannot be read\nfix: %s\n", st, escapeControl(fix))
+		return 0
 	}
 	if tree == "approved" && e.Approved != e.Installed {
 		// Ref, sha and version describe the installed tree, not the one shown.
@@ -558,6 +577,9 @@ func pluginShow(args []string) int {
 	}
 	if output == "json" {
 		row := newPluginRow(pos[0], e, st, p)
+		if row.UpdateAvailable {
+			row.PendingVersion = pendingVersion
+		}
 		if st == core.StatusInvalid {
 			problem, fix := invalidReason(pos[0], e, st, store)
 			row.InvalidReason = problem + "; " + fix

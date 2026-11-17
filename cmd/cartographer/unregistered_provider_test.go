@@ -408,7 +408,11 @@ func TestStatusListsAnUnregisteredProviderAsSkipped(t *testing.T) {
 			if found.State != "skipped" || found.Connected || found.Plugin != "team-forks" {
 				t.Errorf("provider = %+v", *found)
 			}
-			for _, want := range []string{"team-forks", "plugin update", "plugin remove"} {
+			wants := []string{"team-forks", "plugin update"}
+			if name == "out of range" { // invalid: update and approve, or remove; not fetched: update alone (#2197)
+				wants = append(wants, "plugin remove")
+			}
+			for _, want := range wants {
 				if !strings.Contains(found.Skipped, want) {
 					t.Errorf("reason lacks %q: %s", want, found.Skipped)
 				}

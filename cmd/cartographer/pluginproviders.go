@@ -183,8 +183,25 @@ func invalidReason(name string, e clientconfig.PluginEntry, st core.Status, stor
 	if _, err := store.Open(name, digest, pluginOpts()); err != nil {
 		problem = strings.TrimPrefix(err.Error(), core.ErrInvalid.Error()+": ")
 	}
-	fix = fmt.Sprintf("run `cartographer plugin update %s` and approve it, or `cartographer plugin remove %s`", name, name)
-	return problem, fix
+	return problem, stateRemedy(name, st)
+}
+
+// stateRemedy is the one command that leaves each state that does not run: the
+// start-up warning, the command error, `plugin show` and the skipped-provider
+// reason all say it, so they cannot disagree. modified and not fetched are put
+// back by `plugin update` (it fetches the approved tree again); invalid has
+// nothing to put back, so its other way out is `plugin remove`.
+func stateRemedy(name string, st core.Status) string {
+	switch st {
+	case core.StatusDisabled:
+		return fmt.Sprintf("run `cartographer plugin enable %s`", name)
+	case core.StatusPending:
+		return fmt.Sprintf("run `cartographer plugin approve %s`", name)
+	case core.StatusInvalid:
+		return fmt.Sprintf("run `cartographer plugin update %s` and approve it, or `cartographer plugin remove %s`", name, name)
+	}
+	// not fetched, modified
+	return fmt.Sprintf("run `cartographer plugin update %s`", name)
 }
 
 // unregisteredWhy is, per provider name, why the last registration left it out
