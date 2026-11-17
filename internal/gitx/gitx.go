@@ -2563,8 +2563,8 @@ func StashPushEnv(dir string, env ...string) error {
 }
 
 // StashPop pops the last stash. Returns error if nothing to pop.
-func StashPop(dir string) error {
-	out, err := runGit(dir, append(noEOL, "stash", "pop")...)
+func StashPop(dir string, env ...string) error {
+	out, err := runGitEnv(dir, env, append(noEOL, "stash", "pop")...)
 	if err != nil {
 		return fmt.Errorf("git stash pop: %w: %s%s", err, out, indexLockHint(dir, out))
 	}
@@ -2572,8 +2572,8 @@ func StashPop(dir string) error {
 }
 
 // StashDrop discards the last stash without applying it ("git stash drop").
-func StashDrop(dir string) error {
-	out, err := runGit(dir, "stash", "drop")
+func StashDrop(dir string, env ...string) error {
+	out, err := runGitEnv(dir, env, "stash", "drop")
 	if err != nil {
 		return fmt.Errorf("git stash drop: %w: %s", err, out)
 	}
@@ -2667,11 +2667,16 @@ func RevertNoCommit(dir, sha string, env ...string) error {
 // returns what differs from HEAD, renames detected (-M), parsed from the
 // NUL-separated form so a path with spaces or unusual bytes survives (D350).
 // The index is left staged; DiscardChanges or a commit clears it.
-func StagedChanges(dir string) ([]FileChange, error) {
-	if err := stageAll(dir, nil); err != nil {
+func StagedChanges(dir string) ([]FileChange, error) { return StagedChangesEnv(dir, nil) }
+
+// StagedChangesEnv is StagedChanges with env layered on the git processes: the
+// write gate passes a Quarantine's, so the blobs it stages never reach the
+// repository's own object store.
+func StagedChangesEnv(dir string, env []string) ([]FileChange, error) {
+	if err := stageAll(dir, env); err != nil {
 		return nil, err
 	}
-	out, err := runGit(dir, "-c", "core.quotepath=off", "diff", "--cached", "-M", "--name-status", "-z", "HEAD")
+	out, err := runGitEnv(dir, env, "-c", "core.quotepath=off", "diff", "--cached", "-M", "--name-status", "-z", "HEAD")
 	if err != nil {
 		return nil, fmt.Errorf("git diff --cached: %w: %s", err, out)
 	}
@@ -2885,4 +2890,49 @@ func OldestUnpushedAt(dir, remote, branch string) (at time.Time, ok bool, err er
 		return time.Time{}, false, fmt.Errorf("git log %s..HEAD: commit time %q: %w", ref, lines[len(lines)-1], perr)
 	}
 	return time.Unix(sec, 0).UTC(), true, nil
+}
+
+// Quarantine is a throwaway object directory layered over the repository's own
+// (GIT_OBJECT_DIRECTORY plus an alternate pointing at the real one): git reads
+// everything the repository holds but writes its new objects into the
+// quarantine only. The write gate stages and stashes through it, so a write it
+// refuses leaves no object behind, not even the blob of the refused text (#2186).
+type Quarantine struct {
+	// Env is the environment to pass to the git calls that must write into it.
+	Env []string
+	dir string
+}
+
+// NewQuarantine creates a quarantine next to the repository's objects.
+func NewQuarantine(dir string) (*Quarantine, error) {
+	gitDir, err := runGit(dir, "rev-parse", "--absolute-git-dir")
+	if err != nil {
+		return nil, fmt.Errorf("git rev-parse --absolute-git-dir: %w: %s", err, gitDir)
+	}
+	objs, err := runGit(dir, "rev-parse", "--git-path", "objects")
+	if err != nil {
+		return nil, fmt.Errorf("git rev-parse --git-path objects: %w: %s", err, objs)
+	}
+	objs = strings.TrimSpace(objs)
+	if !filepath.IsAbs(objs) {
+		objs = filepath.Join(dir, objs)
+	}
+	tmp, err := os.MkdirTemp(strings.TrimSpace(gitDir), "cartographer-quarantine-")
+	if err != nil {
+		return nil, fmt.Errorf("quarantine: %w", err)
+	}
+	return &Quarantine{dir: tmp, Env: []string{"GIT_OBJECT_DIRECTORY=" + tmp, "GIT_ALTERNATE_OBJECT_DIRECTORIES=" + objs}}, nil
+}
+
+// Close deletes everything written into the quarantine.
+func (q *Quarantine) Close() { _ = os.RemoveAll(q.dir) }
+
+// ResetIndex points the index back at HEAD without touching the working tree
+// ("git reset -q", mixed). It writes no object; env is a Quarantine's when the
+// index names blobs that only it holds.
+func ResetIndex(dir string, env ...string) error {
+	if out, err := runGitEnv(dir, env, "reset", "-q"); err != nil {
+		return fmt.Errorf("git reset -q: %w: %s%s", err, out, indexLockHint(dir, out))
+	}
+	return nil
 }

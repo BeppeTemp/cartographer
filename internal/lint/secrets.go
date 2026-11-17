@@ -2,8 +2,11 @@ package lint
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
+	"github.com/BeppeTemp/cartographer/internal/gitx"
+	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 	"github.com/BeppeTemp/cartographer/internal/secretscan"
 )
@@ -45,16 +48,43 @@ func secretMatches(text string) []secretMatch {
 	return out
 }
 
-const secretAdvice = "; move it to the KB's secrets/ (SOPS-encrypted) and rotate it, because if the page was ever committed the value is already in git history; if it was an example, rewrite it as a placeholder"
+const secretAdvice = "; move it to the KB's secrets/ (SOPS-encrypted); if it was an example, rewrite it as a placeholder"
+
+// SecretHistoryClause ends the message of a potential_secret on a page that has
+// git history: the value is already there, so it needs rotating. A page with no
+// history gets no such claim (#2186: a refused write is never committed). The
+// write gate compares messages before and after a write and strips this clause
+// first, so a page that moved keeps the identity of its finding.
+const SecretHistoryClause = "; the page is in git history, so the value is already there: rotate it"
+
+// pageHistory says whether the page at id has a commit in the KB's git history.
+func pageHistory(k *kb.KB, id okf.ConceptID) func() bool {
+	return func() bool {
+		loc, err := k.LocateConcept(id)
+		if err != nil {
+			return false
+		}
+		rel, err := filepath.Rel(k.Root, loc.File)
+		if err != nil {
+			return false
+		}
+		revs, err := gitx.FileHistory(k.Root, filepath.ToSlash(rel), 1)
+		return err == nil && len(revs) == 1
+	}
+}
 
 // secretFindings scans the body and every line of the frontmatter of one concept. The
 // message names the kind and the location, never the value (D1202).
 func secretFindings(in conceptInput) []Finding {
 	var out []Finding
+	advice := secretAdvice
 	emit := func(kind, where string) {
+		if in.History != nil && advice == secretAdvice && in.History() {
+			advice += SecretHistoryClause
+		}
 		out = append(out, newFinding("potential_secret", Finding{
 			Path:    in.RelPath,
-			Message: fmt.Sprintf("potential secret: %s %s%s", kind, where, secretAdvice),
+			Message: fmt.Sprintf("potential secret: %s %s%s", kind, where, advice),
 		}))
 	}
 	for _, m := range secretMatches(in.Body) {
