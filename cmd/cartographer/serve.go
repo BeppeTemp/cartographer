@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -767,7 +768,7 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 	eventCh := watchShutdownEvent()
 	serveErrCh := make(chan error, 1)
 	go func() {
-		log.Printf("HTTP server listening on %s", addr)
+		log.Printf("HTTP server listening on %s", ln.Addr())
 		serveErrCh <- httpSrv.Serve(ln)
 	}()
 
@@ -1172,11 +1173,27 @@ const toolsProfile = "agent"
 // (service.IsLoopbackListenAddr); an empty host (":39273") listens on every interface and is not loopback. The
 // local service pins auth off and listens on 127.0.0.1, so it is unaffected.
 func checkListenSafety(addr string, authOn bool) error {
+	if err := checkListenAddr(addr); err != nil {
+		return err
+	}
 	if authOn || service.IsLoopbackListenAddr(addr) {
 		return nil
 	}
 	return fmt.Errorf("refusing to listen on %q with authentication off: that address is reachable beyond this machine and would serve every KB, writes included, to anyone who can connect. "+
 		"Configure a token (auth.tokens, CARTOGRAPHER_TOKENS or --tokens), or listen on a loopback address such as 127.0.0.1:39273", addr)
+}
+
+// checkListenAddr refuses an address that is not host:port with a port in
+// 0..65535, before the auth check can mislead about it.
+func checkListenAddr(addr string) error {
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("invalid listen address %q: want host:port, such as 127.0.0.1:39273 or :39273", addr)
+	}
+	if n, err := strconv.Atoi(port); err != nil || n < 0 || n > 65535 {
+		return fmt.Errorf("invalid listen address %q: the port must be a number from 0 to 65535", addr)
+	}
+	return nil
 }
 
 // withLoopbackHostGuard installs mcpserver.LoopbackHostGuard around h when the

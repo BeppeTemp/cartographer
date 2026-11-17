@@ -208,6 +208,9 @@ func toolConceptNew(k *kb.KB, sim *similarFinder, facts *factFinder) Tool {
 					return errorResult("concept_new: " + listErr.Error()), nil
 				}
 				slugs := available
+				if len(slugs) == 0 {
+					return errorResult(fmt.Sprintf("concept_new: template %q not found: this KB has no template yet; write the page with concept_write, or add a template with artifact_write under templates/", params.Template)), nil
+				}
 				truncated := len(slugs) > 20
 				if truncated {
 					slugs = slugs[:20]

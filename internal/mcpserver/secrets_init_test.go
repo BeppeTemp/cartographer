@@ -115,3 +115,13 @@ func TestSecretsInitIsAdvancedAndSecretGated(t *testing.T) {
 		t.Error("secrets_init classification")
 	}
 }
+
+// An empty value is refused up front: sops would leave it in clear and the
+// failure would read as a problem of the file.
+func TestSecretSetRefusesAnEmptyValue(t *testing.T) {
+	k := secretKB(t, "")
+	res := callSecretSet(t, k, "secrets/new.sops.yaml", "/a", "")
+	if !res.IsError || !strings.Contains(res.Content[0].Text, "must not be empty") {
+		t.Fatalf("got %#v", res)
+	}
+}

@@ -27,7 +27,24 @@ func secretRefFindings(fm *okf.Frontmatter, relPath, kbRoot string) []Finding {
 			continue
 		}
 		name, file, ptr := entry[:eq], entry[eq+1:hash], entry[hash+1:]
-		if !sops.InSecretsDir(file) || !strings.HasPrefix(ptr, "/") {
+		if strings.HasPrefix(entry[eq+1:], "hook:") {
+			continue // served by a resolver hook, not a file of the KB
+		}
+		// A reference that can never resolve (a path that leaves secrets/, a
+		// pointer that is no JSON Pointer) is refused here, at write time,
+		// instead of later by secret_resolve.
+		if !sops.InSecretsDir(file) {
+			out = append(out, newFinding("secret_ref_broken", Finding{
+				Path:    relPath,
+				Message: fmt.Sprintf("secret_refs %s: the file must be a canonical path under secrets/ (no .. or . segment), as secrets/<name>.sops.yaml; fix the reference or create the secret with secret_set", name),
+			}))
+			continue
+		}
+		if !strings.HasPrefix(ptr, "/") {
+			out = append(out, newFinding("secret_ref_broken", Finding{
+				Path:    relPath,
+				Message: fmt.Sprintf("secret_refs %s: the key must be a JSON Pointer starting with /, as secrets/<name>.sops.yaml#/key; fix the reference", name),
+			}))
 			continue
 		}
 		if problem := sops.RefProblem(kbRoot, file, ptr); problem != "" {
