@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -310,5 +311,23 @@ func TestTrayConfigPassedForcesLocal(t *testing.T) {
 		if got := trayConfigPassed(fs); got != want {
 			t.Errorf("%q: trayConfigPassed = %v, want %v", args, got, want)
 		}
+	}
+}
+
+func TestLogTransitionOnePerChange(t *testing.T) {
+	var lines []string
+	logf := func(f string, a ...any) { lines = append(lines, fmt.Sprintf(f, a...)) }
+	var last *tray.Snapshot
+	for _, s := range []tray.Snapshot{
+		{State: tray.StateStopped},
+		{State: tray.StateStopped, KBCount: 3},
+		{State: tray.StateRunning, Version: "v1"},
+		{State: tray.StateRunning, Version: "v1", KBCount: 4},
+		{State: tray.StateRunning, Version: "v2"},
+	} {
+		logTransition(logf, &last, s)
+	}
+	if len(lines) != 3 {
+		t.Fatalf("got %d lines, want 3 (stopped, running v1, running v2): %q", len(lines), lines)
 	}
 }

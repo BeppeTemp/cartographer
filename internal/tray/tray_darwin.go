@@ -4,9 +4,9 @@ package tray
 
 import (
 	"errors"
+	"log"
 	"runtime"
 	"strings"
-	"sync"
 	"unsafe"
 
 	"github.com/ebitengine/purego"
@@ -61,19 +61,17 @@ const (
 )
 
 const (
-	selOpenKB = "openKB:"      // a KB row: the action is the sender's tag
-	selApply  = "applyUpdate:" // a snapshot is waiting in pending
-	selStop   = "stopLoop:"    // updates was closed: leave the run loop
+	selOpenKB = "openKB:"   // a KB row: the action is the sender's tag
+	selStop   = "stopLoop:" // updates was closed: leave the run loop
 
 	// NSMenuDelegate methods of the status menu; no menu item sends them.
 	selMenuNeedsUpdate = "menuNeedsUpdate:" // the menu is about to open
 	selMenuWillOpen    = "menuWillOpen:"
 	selMenuDidClose    = "menuDidClose:"
 
-	// commonModes is the value of NSRunLoopCommonModes: a snapshot handed over
-	// while the menu is open (the run loop is in the tracking mode) must still
-	// reach the main thread.
-	commonModes = "kCFRunLoopCommonModes"
+	// NSApplicationDelegate: the run loop is up, take what arrived before it.
+	selDidFinishLaunching = "applicationDidFinishLaunching:"
+
 	// defaultMode is the value of NSDefaultRunLoopMode, where [NSApp run] waits.
 	defaultMode = "kCFRunLoopDefaultMode"
 )
@@ -91,11 +89,11 @@ type macUI struct {
 	app, item, button, target objc.ID
 	statusMenu                objc.ID
 	snap                      Snapshot // the newest applied; read on the main thread only
+	shown                     bool     // a snapshot was applied by applyPending; main thread only
 	open                      bool     // the status menu is showing; main thread only
 	images                    map[State]objc.ID
 
-	mu      sync.Mutex
-	pending *Snapshot
+	pending Slot // the newest snapshot not applied yet (#2183)
 }
 
 func s(name string) objc.SEL { return objc.RegisterName(name) }
@@ -129,6 +127,9 @@ func (u *macUI) Run(menu Menu, updates <-chan Snapshot, onAction func(Action)) e
 	if err != nil {
 		return err
 	}
+	if err := u.initDispatch(); err != nil {
+		return err
+	}
 	go u.feed(updates)
 	u.app.Send(s("run"))
 	pool(func() {
@@ -157,6 +158,7 @@ func (u *macUI) setup() error {
 	}
 	u.statusMenu = newMenu()
 	u.statusMenu.Send(s("setDelegate:"), u.target)
+	u.app.Send(s("setDelegate:"), u.target)
 	u.item.Send(s("setMenu:"), u.statusMenu)
 	u.apply(Snapshot{KBCount: -1})
 	return nil
@@ -181,6 +183,7 @@ func (u *macUI) registerTarget() error {
 				// The rows are read once more for the next opening; a result
 				// that lands while the menu shows is applied by apply.
 				u.onAction(ActionMenuOpened)
+				u.applyPending() // whatever the wake-up missed
 				u.refill()
 			}
 		}},
@@ -197,7 +200,7 @@ func (u *macUI) registerTarget() error {
 		objc.MethodDef{Cmd: s(selOpenKB), Fn: func(_ objc.ID, _ objc.SEL, sender objc.ID) {
 			u.onAction(Action(objc.Send[int](sender, s("tag"))))
 		}},
-		objc.MethodDef{Cmd: s(selApply), Fn: func(objc.ID, objc.SEL, objc.ID) { u.applyPending() }},
+		objc.MethodDef{Cmd: s(selDidFinishLaunching), Fn: func(objc.ID, objc.SEL, objc.ID) { u.applyPending() }},
 		objc.MethodDef{Cmd: s(selStop), Fn: func(objc.ID, objc.SEL, objc.ID) { u.stop() }},
 	)
 	cls, err := objc.RegisterClass("CartographerTrayTarget", objc.GetClass("NSObject"), nil, nil, methods)
@@ -213,39 +216,62 @@ func (u *macUI) registerTarget() error {
 func (u *macUI) feed(updates <-chan Snapshot) {
 	runtime.LockOSThread() // onMain's pool must drain on the thread that made it
 	for sn := range updates {
-		u.mu.Lock()
-		u.pending = &sn
-		u.mu.Unlock()
-		u.onMain(selApply)
+		u.pending.Put(sn)
+		u.wake()
 	}
 	u.onMain(selStop)
 }
 
-// onMain runs sel on the main thread. A snapshot (selApply) goes in the common
-// run loop modes, so it arrives while a menu is open (#1871). selStop goes in
-// the default mode only: dispatched in the common modes it never ran stop() on
-// SIGTERM and [NSApp run] kept going (#2031, test/macos/tray.sh). The mode is
-// named explicitly because the plain performSelector...waitUntilDone: call,
-// tried first, did not deliver it either once a common-modes call had gone out.
-func (u *macUI) onMain(sel string) {
-	mode := commonModes
-	if sel == selStop {
-		mode = defaultMode
+// Grand Central Dispatch's main queue is drained by the main run loop in every
+// mode, the menu-tracking one included, and a block queued before [NSApp run]
+// waits for it. performSelectorOnMainThread:, used first (42f59c85, 1ee675df),
+// never delivered in a real Aqua session (#2183). The wake-up carries no data:
+// the snapshot sits in pending, and applicationDidFinishLaunching: and
+// menuNeedsUpdate: take it too, so a lost wake-up is harmless.
+var (
+	dispatchAsyncF func(queue, ctx, fn uintptr)
+	mainQueue      uintptr
+	applyCallback  uintptr
+	applyTarget    *macUI // set by initDispatch before the first wake
+)
+
+func (u *macUI) initDispatch() error {
+	lib, err := purego.Dlopen("/usr/lib/libSystem.B.dylib", purego.RTLD_NOW|purego.RTLD_GLOBAL)
+	if err != nil {
+		return err
 	}
+	if mainQueue, err = purego.Dlsym(lib, "_dispatch_main_q"); err != nil {
+		return err
+	}
+	purego.RegisterLibFunc(&dispatchAsyncF, lib, "dispatch_async_f")
+	applyTarget = u
+	applyCallback = purego.NewCallback(func(uintptr) { applyTarget.applyPending() })
+	return nil
+}
+
+// wake asks the main thread, from any goroutine, to apply the waiting snapshot.
+func (u *macUI) wake() { dispatchAsyncF(mainQueue, 0, applyCallback) }
+
+// onMain runs sel on the main thread in the default mode, where [NSApp run]
+// waits (selStop only: dispatched in the common modes it never ran stop() on
+// SIGTERM, #2031, test/macos/tray.sh).
+func (u *macUI) onMain(sel string) {
 	// Off the main thread: no run loop pool is active here, so bring our own.
 	pool(func() {
-		modes := class("NSArray").Send(s("arrayWithObject:"), nsString(mode))
+		modes := class("NSArray").Send(s("arrayWithObject:"), nsString(defaultMode))
 		u.target.Send(s("performSelectorOnMainThread:withObject:waitUntilDone:modes:"), s(sel), objc.ID(0), false, modes)
 	})
 }
 
 func (u *macUI) applyPending() {
-	u.mu.Lock()
-	p := u.pending
-	u.pending = nil
-	u.mu.Unlock()
-	if p != nil {
-		pool(func() { u.apply(*p) })
+	if sn, ok := u.pending.Take(); ok {
+		if !u.shown || sn.State != u.snap.State {
+			// The UI side of the transition line: the poll's says what it saw,
+			// this one what reached the menu (#2183; test/macos/tray.sh).
+			log.Printf("tray: menu shows state %v", sn.State)
+		}
+		u.shown = true
+		pool(func() { u.apply(sn) })
 	}
 }
 

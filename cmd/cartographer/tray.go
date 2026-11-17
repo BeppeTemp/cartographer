@@ -119,8 +119,10 @@ func runTray(ctx context.Context, ui tray.UI, deps tray.Deps, interval time.Dura
 	pollDone := make(chan struct{})
 	go func() {
 		defer close(pollDone)
+		var last *tray.Snapshot
 		tray.Run(ctx, deps, interval, func(s tray.Snapshot) {
 			actions.Observe(s)
+			logTransition(deps.Logf, &last, s)
 			emit(s)
 		})
 		closeUpdates()
@@ -135,6 +137,18 @@ func runTray(ctx context.Context, ui tray.UI, deps tray.Deps, interval time.Dura
 		return exitStatusError
 	}
 	return 0
+}
+
+// logTransition writes one tray-log line when the state or the version of the
+// snapshots changes, so a menu that stays on its placeholder is told apart from
+// a poll that sees nothing (#2183). State and version only: no path, no token.
+func logTransition(logf func(string, ...any), last **tray.Snapshot, s tray.Snapshot) {
+	if logf == nil || (*last != nil && (*last).State == s.State && (*last).Version == s.Version) {
+		*last = &s
+		return
+	}
+	*last = &s
+	logf("tray: state %v version %q", s.State, s.Version)
 }
 
 // trayServerLogPath is the log "Open log" shows: the server's, per platform.
