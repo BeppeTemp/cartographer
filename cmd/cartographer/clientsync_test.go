@@ -565,6 +565,26 @@ func TestPrintApplySummary_ReregisteredIsNotADiscard(t *testing.T) {
 	}
 }
 
+// A section that left the instructions block is "pruned" in the lock's terms, but
+// the file is rewritten in the same pass: the summary must not say it went away
+// right after saying it was written (#2199). A pruned path nothing rewrote stays.
+func TestPrintApplySummary_RewrittenInstructionsFileIsNotPruned(t *testing.T) {
+	results := map[string]provisioning.AppliedResult{"claude": {
+		Written: []provisioning.ManagedFile{{Kind: "instructions", Name: "kb-a", Path: ".claude/CLAUDE.md"}},
+		Pruned: []provisioning.ManagedFile{
+			{Kind: "instructions", Name: "kb-b", Path: ".claude/CLAUDE.md"},
+			{Kind: "skill", Name: "old", Path: ".claude/skills/old/SKILL.md"},
+		},
+	}}
+	out := withStdout(t, func() { printApplySummary(os.Stdout, t.TempDir(), results, false, nil) })
+	if !strings.Contains(out, "wrote .claude/CLAUDE.md") || strings.Contains(out, "pruned .claude/CLAUDE.md") {
+		t.Errorf("output = %q", out)
+	}
+	if !strings.Contains(out, "pruned .claude/skills/old/SKILL.md") {
+		t.Errorf("a pruned skill is no longer reported: %q", out)
+	}
+}
+
 // --- D171: cross-KB collisions ---
 
 // syncPullPayload renders the sync_pull response for one KB exposing a single
@@ -1370,6 +1390,45 @@ func TestSyncContinuesPastAKBThatCannotBePulled(t *testing.T) {
 	}
 	if got := lf.ForProvider("codex"); len(got.Managed) != 0 || got.AppliedRevision != "" {
 		t.Errorf("codex, bound to the failed KB, got lockfile entries: %+v", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".codex")); !os.IsNotExist(err) {
+		t.Errorf("codex's configuration was touched (err=%v)", err)
+	}
+}
+
+// TestSyncStaleSelectionCostsOnlyTheProvidersNamingIt (#2199): codex names a KB
+// the server no longer mounts; claude, bound to a mounted one, is applied, and
+// the report names the stale KB, the provider kept, and the command that fixes it.
+func TestSyncStaleSelectionCostsOnlyTheProvidersNamingIt(t *testing.T) {
+	srv := syncPullServer(t, func(kb string) (string, bool) {
+		return syncPullPayload(t, kb, "skill-"+kb), false
+	})
+	defer srv.Close()
+
+	dir := t.TempDir()
+	cfg := &clientconfig.Config{
+		ServerURL: srv.URL + "/mcp", ServerName: "cartographer",
+		Agents: []string{"claude", "codex"}, KnownKBs: []string{"one", "two"},
+		Clients: map[string]clientconfig.ClientBinding{
+			"claude": {KBs: []string{"one"}},
+			"codex":  {KBs: []string{"gone"}},
+		},
+	}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	_, err := runSync(dir, cfg, syncOptions{})
+	var partial partialSyncError
+	if !errors.As(err, &partial) {
+		t.Fatalf("err = %v (%T), want a partialSyncError", err, err)
+	}
+	for _, want := range []string{`"gone"`, "stale selection", "client unbind <provider> gone", "kept their previous state: codex"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("report missing %q:\n%s", want, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".claude", "skills", "skill-one", "SKILL.md")); err != nil {
+		t.Errorf("claude, bound to a mounted KB, was not applied: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, ".codex")); !os.IsNotExist(err) {
 		t.Errorf("codex's configuration was touched (err=%v)", err)

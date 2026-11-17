@@ -242,6 +242,54 @@ func TestSyncRetiresTheProviderOfADisabledPlugin(t *testing.T) {
 	}
 }
 
+// After `plugin remove` of a plugin that declared a provider, the next process
+// finds nothing naming that provider: no "no longer supported" notice, which
+// would say files are left in place that remove already pruned (#2199).
+func TestPluginRemoveLeavesNothingNamingItsProvider(t *testing.T) {
+	srv := healthOnlyServer(t)
+	defer srv.Close()
+	home, _ := deliveryMachine(t, srv.URL)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	freshProcess(t, home)
+	if code, out := runPlugin(t, "install", providerPlugin(t, "team-forks"), "--yes"); code != 0 {
+		t.Fatalf("install: %d\n%s", code, out)
+	}
+	registerPluginProviders(&bytes.Buffer{})
+	cfg, err := clientconfig.Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ServerURL, cfg.ServerName, cfg.Agents = srv.URL+"/mcp", "cartographer", []string{"claude", "fork-cli"}
+	bound := clientconfig.ClientBinding{KBs: []string{}, KBsSet: true}
+	cfg.Clients = map[string]clientconfig.ClientBinding{"claude": bound, "fork-cli": bound}
+	if err := clientconfig.Save(home, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runSync(home, cfg, syncOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if code, out := runPlugin(t, "remove", "team-forks"); code != 0 {
+		t.Fatalf("remove: %d\n%s", code, out)
+	}
+	freshProcess(t, home)
+	registerPluginProviders(&bytes.Buffer{})
+	got, err := clientconfig.Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Unsupported) > 0 {
+		b, _ := os.ReadFile(clientconfig.Path(home))
+		t.Errorf("the next load still finds a binding for %v after the plugin was removed\n%s", got.Unsupported, b)
+	}
+	var errw bytes.Buffer
+	if _, err := runSync(home, got, syncOptions{Streams: syncStreams{Err: &errw}}); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(errw.String(), "no longer supported") {
+		t.Errorf("sync after remove: %s", errw.String())
+	}
+}
+
 // registerPluginProviders must run before anything loads the client config.
 func TestRegistrationPrecedesRunInMain(t *testing.T) {
 	file, err := parser.ParseFile(token.NewFileSet(), "main.go", nil, 0)

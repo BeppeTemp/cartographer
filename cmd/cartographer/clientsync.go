@@ -573,6 +573,30 @@ func pullCandidatesPartial(cfg *clientconfig.Config, health *client.Health, kbNa
 	cs := candidateSet{Named: make(map[string][]contract.Artifact), Placeholders: make(map[string][]string), PathRegistries: make(map[string]contract.PathRegistry), Issues: make(map[string][]string), FeedbackModes: make(map[string]string), Plugins: loadActivePlugins(cfg).Artifacts}
 	token := resolveToken(cfg)
 	tokenEnv := tokenEnvName(cfg)
+	// A selection the server no longer advertises costs only the providers that
+	// name it: it is a failure of that KB (#2199), like a pull that failed, and
+	// the others are still pulled.
+	var stale []kbPullFailure
+	if health != nil && health.KBs != nil {
+		mounted := make(map[string]bool, len(*health.KBs))
+		for _, kb := range *health.KBs {
+			mounted[kb.Name] = true
+		}
+		var live []string
+		for _, name := range kbNames {
+			if mounted[name] {
+				live = append(live, name)
+			} else {
+				stale = append(stale, kbPullFailure{KB: name, Err: staleSelectionError(escapeControl(name))})
+			}
+		}
+		if len(stale) > 0 {
+			kbNames = live
+			if len(live) == 0 {
+				return cs, stale, nil
+			}
+		}
+	}
 	targets, err := resolveKBTargets(health, kbNames)
 	if err != nil {
 		return cs, nil, err
@@ -599,7 +623,7 @@ func pullCandidatesPartial(cfg *clientconfig.Config, health *client.Health, kbNa
 	wg.Wait()
 
 	seen := make(map[string]contract.Artifact)
-	var failed []kbPullFailure
+	failed := stale
 
 	for i, target := range targets {
 		res := results[i]
@@ -1198,6 +1222,13 @@ func printApplySummary(wr io.Writer, dir string, results map[string]provisioning
 		for _, pr := range r.Pruned {
 			cleanPath := filepath.ToSlash(pr.Path)
 			if pr.Kind == "instructions" && reportedPruned[cleanPath] {
+				continue
+			}
+			// A section that left the block is "pruned" in the lock's terms, but
+			// when the same pass rewrote the file the block is still there: the
+			// line would say the file went away right after saying it was
+			// written (#2199).
+			if pr.Kind == "instructions" && reportedInstructions[pr.Path] {
 				continue
 			}
 			reportedPruned[cleanPath] = true

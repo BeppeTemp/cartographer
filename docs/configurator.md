@@ -697,7 +697,7 @@ cartographer sync [--client <provider>]... [--dry-run] [--no-heal] [--log-file <
 | `--no-heal` | `false` | Reports managed artifacts that diverged on disk instead of restoring them from Meridian (D139) |
 | `--log-file` | *(none)* | Appends this run's output to that file instead of stdout/stderr (created if absent, never rotated); the Windows sync task uses it, where nothing else records a failing background run (D217); on Windows a run that is the only process on its console releases it, so the task's window closes ([D1479](decisions/D1479-the-windows-service-detaches-from-its-console.md)) |
 | `--auto-trust` | `false` | Accepted and ignored, with a warning (D906): session-start hooks written by older versions still pass it |
-| `--report-to` | *(none)* | Only sends this machine's usage and client-settings reports (D326, D818) to that MCP endpoint, and changes nothing: the config is read, never saved, nothing is provisioned, the configured server is not contacted. It is how `make dev DATA=<dir>` shows the real client on a live instance (D1044). The configured token goes with the reports, so the URL must name a server on this machine (`localhost`, `127.0.0.1`, `::1`): any other host is refused with exit 2 |
+| `--report-to` | *(none)* | Only sends this machine's usage and client-settings reports (D326, D818) to that MCP endpoint, and changes nothing: the config is read, never saved, nothing is provisioned, the configured server is not contacted. It is how `make dev DATA=<dir>` shows the real client on a live instance (D1044). The configured token goes with the reports, so the URL must name a server on this machine (`localhost`, `127.0.0.1`, `::1`): any other host is refused with exit 2; a settings report the server did not take exits 1 and prints `client settings not sent: <reason>` on stderr |
 
 For Claude Code the `cartographer` MCP entries are written to `$HOME/.claude.json` and to
 `<dir>/.claude.json` for every `providers.claude.config_dirs` (D755), and removed from all of them.
@@ -1366,7 +1366,7 @@ Every provider declares a config file and an emitter, and materializes under the
 A configuration that still names a client the registry no longer knows keeps working: `Load` drops the
 name (and its bindings) in memory, `sync`/`connect`/`status`/`doctor` print once
 `<name>: this agent client is no longer supported …`, the first writing command removes it from
-`.cartographer.yaml` and drops its lockfile section, and the files delivered earlier are never touched.
+`.cartographer.yaml` and drops its lockfile section, and the files delivered earlier are never touched. `plugin remove` of a plugin that declared a provider removes that provider's binding and unbound mode along with its files, so the next command prints no such notice (#2199).
 
 ## Files generated per provider (HTTP transport)
 
