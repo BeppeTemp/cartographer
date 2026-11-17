@@ -1,6 +1,7 @@
 package lint
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -279,5 +280,43 @@ func TestScopedCheck_UnmappedFolderOnWrite(t *testing.T) {
 	writeFile(t, legacy.DataRoot(), "opz/b.md", "---\ntype: Note\ntitle: B\n---\n# B\n")
 	if f := findingsOf(ScopedCheck(legacy, []okf.ConceptID{"opz/b"}), "unmapped_folder"); len(f) != 0 {
 		t.Fatalf("a KB with no declared Map is unjudged: %+v", f)
+	}
+}
+
+// CheckType is the write path's unknown_type: it reports what Run reports on
+// the same page, and only that (#2220).
+func TestCheckTypeAgreesWithRun(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.Root, "templates/note.md", "---\ntype: Note\ntitle: Note\n---\n# {{title}}\n")
+	writeFile(t, k.DataRoot(), "arch/_map.md", "---\ntype: Map\nkind: map\ntitle: Arch\ntemplates: [note]\n---\n# Arch\n")
+	pages := map[string]string{
+		"arch/a": "---\ntype: note\ntitle: A\n---\n# A\n",
+		"arch/b": "---\ntype: Gizmo\ntitle: B\n---\n# B\n",
+		"arch/c": "---\ntype: Note\ntitle: C\n---\n# C\n",
+	}
+	for id, c := range pages {
+		writeFile(t, k.DataRoot(), id+".md", c)
+	}
+	all, err := Run(k, "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id, c := range pages {
+		var want, got []string
+		for _, f := range findingsOf(all, "unknown_type") {
+			if f.Path == okf.IDToPath(okf.ConceptID(id)) {
+				want = append(want, f.Message)
+			}
+		}
+		for _, f := range CheckType(k, okf.ConceptID(id), c) {
+			got = append(got, f.Message)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: CheckType %q, Run %q", id, got, want)
+		}
+	}
+	if len(CheckType(k, "arch/a", pages["arch/a"])) != 1 {
+		t.Fatal("fixture: the case variant is not reported")
 	}
 }

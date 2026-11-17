@@ -547,3 +547,71 @@ func TestWriteGate_PassingWriteCommitsIntoTheRealStore(t *testing.T) {
 		t.Fatalf("committed page: %q", got)
 	}
 }
+
+// #2220: editing the line that quotes a pre-existing open_marker is not a new
+// finding; a marker the call adds is.
+func TestWriteGate_EditedMarkerLineIsNotNew(t *testing.T) {
+	t.Parallel()
+	k := gateKB(t)
+	s := gateSeed(t, k, map[string]string{
+		"ops/p": "---\ntype: Note\ntitle: P\n---\n# P\n\nTODO fix revproxy later\n\nSee [Q](q.md).\n",
+		"ops/q": "---\ntype: Note\ntitle: Q\n---\n# Q\n\nSee [P](p.md).\n",
+	})
+	patch := func(old, repl string) string {
+		cd, _ := k.ReadConcept("ops/p")
+		b, _ := json.Marshal(map[string]string{"id": "ops/p", "old_string": old, "new_string": repl, "if_match": cd.ContentHash})
+		return string(b)
+	}
+	if text, isErr := callJSON(t, s, adminCtx, "concept_patch", patch("revproxy", "Reverse proxy")); isErr {
+		t.Fatalf("editing the line of a pre-existing marker was refused: %s", text)
+	}
+	head := gitOut(t, k, "rev-parse", "HEAD")
+	text, isErr := callJSON(t, s, adminCtx, "concept_patch", patch("See [Q]", "TODO another\n\nSee [Q]"))
+	refusedCleanly(t, k, head, text, isErr, "open_marker")
+}
+
+// #2220: the write gate and gate_check changed_ids report the unknown_type
+// that lint reports on the page (type note where the KB declares Note).
+func TestWriteGate_UnknownTypeIsJudged(t *testing.T) {
+	t.Parallel()
+	k := gateKB(t)
+	if err := os.MkdirAll(filepath.Join(k.Root, "templates"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(k.Root, "templates", "note.md"), []byte("---\ntype: Note\ntitle: Note\n---\n# {{title}}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mapMD := "---\ntype: Map\nkind: map\ntitle: Ops\ntemplates: [note]\n---\n# Ops\n"
+	s := gateSeed(t, k, map[string]string{
+		"ops/_map": mapMD,
+		"ops/ok":   "---\ntype: Note\ntitle: Ok\n---\n# Ok\n\nSee [Ok2](ok2.md).\n",
+		"ops/ok2":  "---\ntype: Note\ntitle: Ok2\n---\n# Ok2\n\nSee [Ok](ok.md).\n",
+	})
+	head := gitOut(t, k, "rev-parse", "HEAD")
+	text, isErr := callJSON(t, s, adminCtx, "concept_write", `{"id":"ops/bad","frontmatter":{"type":"note","title":"Bad"},"body":"# Bad\n\nSee [Ok](ok.md).\n","index_entry":true}`)
+	refusedCleanly(t, k, head, text, isErr, "unknown_type")
+}
+
+// #2220: gate_check changed_ids lists the same per-page findings lint does:
+// unknown_type and contradiction_status.
+func TestGateCheck_ChangedIDsReportWhatLintReports(t *testing.T) {
+	t.Parallel()
+	k := gateKB(t)
+	if err := os.MkdirAll(filepath.Join(k.Root, "templates"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(k.Root, "templates", "note.md"), []byte("---\ntype: Note\ntitle: Note\n---\n# {{title}}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := gateSeed(t, k, map[string]string{
+		"ops/_map": "---\ntype: Map\nkind: map\ntitle: Ops\ntemplates: [note]\n---\n# Ops\n",
+		"ops/a":    "---\ntype: note\ntitle: A\n---\n# A\n",
+		"ops/c":    "---\ntype: Contradiction\ntitle: C\nresolution_status: banana\n---\n# C\n",
+	})
+	text := mustText(t, s, "gate_check", `{"changed_ids":["ops/a","ops/c"]}`)
+	for _, check := range []string{"unknown_type", "contradiction_status"} {
+		if !strings.Contains(text, `"check":"`+check+`"`) {
+			t.Errorf("gate_check changed_ids misses %s: %s", check, text)
+		}
+	}
+}
