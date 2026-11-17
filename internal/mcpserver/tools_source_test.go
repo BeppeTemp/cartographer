@@ -102,6 +102,32 @@ func TestSourceRegisterDuplicateBySHA(t *testing.T) {
 	}
 }
 
+// #2175: the duplicate path returns the existing page's hash too, and the map's
+// index page, touched after the first registration set the templates up, passes
+// the gate and takes a patch.
+func TestSourceRegisterDuplicateHashAndIndexGate(t *testing.T) {
+	t.Parallel()
+	k, s := sourceFixture(t, true)
+	first := registerSource(t, s, `{"title":"A","source_kind":"document","sha256":"`+shaA+`","timestamp":"2026-01-01"}`)
+	dup := registerSource(t, s, `{"title":"Other","source_kind":"document","sha256":"`+shaA+`"}`)
+	data, err := k.ReadConcept("sources/2026-01-01-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dup["duplicate"] != true || dup["content_hash"] != data.ContentHash || first["content_hash"] != data.ContentHash {
+		t.Fatalf("duplicate = %v, page hash %q", dup, data.ContentHash)
+	}
+	if c, err := k.ReadMapContract("sources"); err != nil || len(c.Templates) == 0 {
+		t.Fatalf("the first registration must declare templates: %v %v", c, err)
+	}
+	gate := decodeJSON(t, mustText(t, s, "gate_check", `{"changed_ids":["sources/index"]}`))
+	if gate["pass"] != true {
+		t.Fatalf("gate_check on the map index: %v", gate)
+	}
+	idx := decodeJSON(t, mustText(t, s, "index_get", `{"path":"sources","with_hash":true}`))
+	callOK(t, s, "index_patch", `{"path":"sources","if_match":"`+idx["content_hash"].(string)+`","old_string":"# Sources","new_string":"# Sources\n\nThe ledger."}`)
+}
+
 func TestSourceRegisterDuplicateByLocator(t *testing.T) {
 	t.Parallel()
 	_, s := sourceFixture(t, true)
