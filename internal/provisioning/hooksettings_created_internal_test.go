@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -135,5 +136,41 @@ func TestRegisterHookSettings_NameMentionIsNotOwnership(t *testing.T) {
 	}
 	if _, err := os.Stat(settings); err != nil {
 		t.Fatalf("the user's own settings.json must stay: %v", err)
+	}
+}
+
+// #2237: a pass that removed the settings file we created but could not write
+// the ledger (read-only base dir) leaves the record behind; the retry, which
+// finds the file gone, drops it and deletes the ledger.
+func TestRemoveHookEntries_RetryDropsTheLedgerOfAGoneFile(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("a read-only directory does not deny the owner on Windows or as root")
+	}
+	base := t.TempDir()
+	hookDir := filepath.Join(base, "hook-src")
+	if err := os.MkdirAll(hookDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(hookDir, "hook.json"), []byte(`{"event":"PostToolUse","command":"./notify.sh"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := registerHookSettings(base, "", "notify", hookDir); err != nil || !ok {
+		t.Fatalf("register = %v, %v", ok, err)
+	}
+	if err := os.Chmod(base, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(base, 0o755) })
+	if err := removeHookEntries(base, "notify", ".claude/settings.json"); err == nil {
+		t.Fatal("the ledger write should have been refused")
+	}
+	if err := os.Chmod(base, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := removeHookEntries(base, "notify", ".claude/settings.json"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(base, ".cartographer-created.json")); !os.IsNotExist(err) {
+		t.Errorf("ledger left behind: %v", err)
 	}
 }
