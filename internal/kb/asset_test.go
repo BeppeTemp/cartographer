@@ -137,7 +137,6 @@ func TestAssetFilesystemGuardsAndOutOfBandFiles(t *testing.T) {
 		func() error { _, _, err := k.ReadAsset("map/owner", "final.csv"); return err },
 		func() error { _, err := k.WriteAsset("map/owner", "final.csv", []byte("x"), "", nil); return err },
 		func() error { return k.DeleteAsset("map/owner", "final.csv", "hash") },
-		func() error { _, err := k.ListAssets("map/owner"); return err },
 	} {
 		if err := op(); !errors.Is(err, okf.ErrInvalidPath) {
 			t.Fatalf("final symlink: expected ErrInvalidPath, got %v", err)
@@ -156,7 +155,6 @@ func TestAssetFilesystemGuardsAndOutOfBandFiles(t *testing.T) {
 			return err
 		},
 		func() error { return k.DeleteAsset("map/owner", "linked/target.csv", "hash") },
-		func() error { _, err := k.ListAssets("map/owner"); return err },
 	} {
 		if err := op(); !errors.Is(err, okf.ErrInvalidPath) {
 			t.Fatalf("intermediate symlink: expected ErrInvalidPath, got %v", err)
@@ -260,5 +258,84 @@ func TestDeleteAssetMissingIfMatchIsNotAStaleWrite(t *testing.T) {
 	}
 	if errors.Is(err, okf.ErrStaleWrite) {
 		t.Fatalf("a missing if_match must not unwrap as ErrStaleWrite: %v", err)
+	}
+}
+
+// #2191: a symlink (to a file or a directory, inside or outside the KB) is
+// skipped by the listing, the healthy assets are listed, and no error carries
+// the server's absolute path.
+func TestListAssetsSkipsSymlinksAndErrorsCarryNoServerPath(t *testing.T) {
+	t.Parallel()
+	k := expandedAssetKB(t)
+	owner := filepath.Join(k.DataRoot(), "map", "owner")
+	if _, err := k.WriteAsset("map/owner", "good.csv", []byte("ok"), "", nil); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("s"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(outside, "secret.txt"), filepath.Join(owner, "link.txt")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(owner, "linkdir")); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := k.ListAssets("map/owner")
+	if err != nil {
+		t.Fatalf("ListAssets: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Path != "good.csv" {
+		t.Fatalf("want only good.csv, got %+v", entries)
+	}
+
+	root := filepath.ToSlash(k.DataRoot())
+	check := func(what string, err error) {
+		t.Helper()
+		if err == nil {
+			t.Fatalf("%s: want an error", what)
+		}
+		if strings.Contains(filepath.ToSlash(err.Error()), root) || strings.Contains(err.Error(), outside) {
+			t.Fatalf("%s: error carries a server path: %v", what, err)
+		}
+	}
+	_, _, err = k.ReadAsset("map/owner", "link.txt")
+	check("read symlink", err)
+	_, err = k.WriteAsset("map/owner", "link.txt", []byte("x"), "", nil)
+	check("write symlink", err)
+	check("delete symlink", k.DeleteAsset("map/owner", "link.txt", "h"))
+	_, _, err = k.ReadAsset("map/owner", "linkdir/secret.txt")
+	check("read through linked dir", err)
+
+	// An unreadable file: the OS error names the absolute path, the tool error must not.
+	bad := filepath.Join(owner, "bad.csv")
+	if err := os.WriteFile(bad, []byte("x"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	if f, openErr := os.Open(bad); openErr == nil {
+		_ = f.Close() // running as root: permissions do not apply
+	} else {
+		_, _, err = k.ReadAsset("map/owner", "bad.csv")
+		check("read unreadable", err)
+		_, err = k.ListAssets("map/owner")
+		check("list unreadable", err)
+	}
+}
+
+// #2191: a missing asset is reported as an asset, not as a missing concept.
+func TestReadMissingAssetSaysAssetMissing(t *testing.T) {
+	t.Parallel()
+	k := expandedAssetKB(t)
+	for name, op := range map[string]func() error{
+		"read":   func() error { _, _, err := k.ReadAsset("map/owner", "nope.csv"); return err },
+		"delete": func() error { return k.DeleteAsset("map/owner", "nope.csv", "h") },
+	} {
+		err := op()
+		if !errors.Is(err, okf.ErrNotFound) {
+			t.Fatalf("%s: want ErrNotFound, got %v", name, err)
+		}
+		if !strings.Contains(err.Error(), "asset not found") || strings.Contains(err.Error(), "concept not found") {
+			t.Fatalf("%s: message must say the asset is missing: %v", name, err)
+		}
 	}
 }

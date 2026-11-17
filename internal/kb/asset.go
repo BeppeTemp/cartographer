@@ -110,7 +110,7 @@ func (kb *KB) resolveAsset(id okf.ConceptID, assetPath string, writeMode bool) (
 			break
 		}
 		if statErr != nil {
-			return "", "", fmt.Errorf("asset path %s: %w", assetPath, statErr)
+			return "", "", fmt.Errorf("asset path %s: %w", assetPath, scrubPathError(statErr))
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
 			return "", "", fmt.Errorf("%w: asset path contains symlink %s", okf.ErrInvalidPath, assetPath)
@@ -143,15 +143,32 @@ func validateAssetRelativePath(assetPath string, rejectMarkdown bool) (string, [
 	return clean, parts, nil
 }
 
+// assetNotFoundError says the asset is missing, not the concept; it still
+// matches okf.ErrNotFound for callers that map it to a not-found status.
+type assetNotFoundError struct{ rel string }
+
+func (e assetNotFoundError) Error() string        { return "asset not found: " + e.rel }
+func (e assetNotFoundError) Is(target error) bool { return target == okf.ErrNotFound }
+
+// scrubPathError drops the server's absolute path from an OS error: a tool
+// error reaches the agent and must name only the KB-relative path.
+func scrubPathError(err error) error {
+	var pe *fs.PathError
+	if errors.As(err, &pe) {
+		return fmt.Errorf("%s: %w", pe.Op, pe.Err)
+	}
+	return err
+}
+
 // checkAssetFile requires a regular file; enforceCap also refuses one above
 // AssetMaxFileSize (reads), which a delete must not do.
 func checkAssetFile(abs, rel string, enforceCap bool) (os.FileInfo, error) {
 	info, err := os.Lstat(abs)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("%w: %s", okf.ErrNotFound, rel)
+			return nil, assetNotFoundError{rel: rel}
 		}
-		return nil, err
+		return nil, scrubPathError(err)
 	}
 	if !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("%w: asset %s is not a regular file", okf.ErrInvalidPath, rel)
@@ -174,7 +191,7 @@ func (kb *KB) ReadAsset(id okf.ConceptID, assetPath string) ([]byte, AssetEntry,
 	}
 	data, err := os.ReadFile(abs)
 	if err != nil {
-		return nil, AssetEntry{}, fmt.Errorf("ReadAsset %s: %w", assetPath, err)
+		return nil, AssetEntry{}, fmt.Errorf("ReadAsset %s: %w", assetPath, scrubPathError(err))
 	}
 	return data, AssetEntry{Path: filepath.ToSlash(assetPath), Size: info.Size(), SHA256: assetHash(data), Executable: execbit.IsExecutable(info.Mode())}, nil
 }
@@ -192,7 +209,7 @@ func (kb *KB) WriteAsset(id okf.ConceptID, assetPath string, data []byte, ifMatc
 	info, statErr := os.Lstat(abs)
 	exists := statErr == nil
 	if statErr != nil && !os.IsNotExist(statErr) {
-		return AssetEntry{}, fmt.Errorf("WriteAsset %s: %w", assetPath, statErr)
+		return AssetEntry{}, fmt.Errorf("WriteAsset %s: %w", assetPath, scrubPathError(statErr))
 	}
 	if exists && !info.Mode().IsRegular() {
 		return AssetEntry{}, fmt.Errorf("%w: asset %s is not a regular file", okf.ErrInvalidPath, assetPath)
@@ -200,7 +217,7 @@ func (kb *KB) WriteAsset(id okf.ConceptID, assetPath string, data []byte, ifMatc
 	if exists {
 		current, readErr := assetFileHash(abs)
 		if readErr != nil {
-			return AssetEntry{}, fmt.Errorf("WriteAsset %s: %w", assetPath, readErr)
+			return AssetEntry{}, fmt.Errorf("WriteAsset %s: %w", assetPath, scrubPathError(readErr))
 		}
 		if ifMatch == "" {
 			return AssetEntry{}, fmt.Errorf("already_exists: %s already exists (sha256 %s) — pass if_match to overwrite", assetPath, current)
@@ -226,7 +243,7 @@ func (kb *KB) WriteAsset(id okf.ConceptID, assetPath string, data []byte, ifMatc
 		}
 	}
 	if err := os.Chmod(abs, mode); err != nil {
-		return AssetEntry{}, fmt.Errorf("WriteAsset %s: chmod: %w", assetPath, err)
+		return AssetEntry{}, fmt.Errorf("WriteAsset %s: chmod: %w", assetPath, scrubPathError(err))
 	}
 	return AssetEntry{Path: filepath.ToSlash(assetPath), Size: int64(len(data)), SHA256: assetHash(data), Executable: execbit.IsExecutable(mode)}, nil
 }
@@ -245,7 +262,7 @@ func (kb *KB) ListAssets(id okf.ConceptID) ([]AssetEntry, error) {
 	var entries []AssetEntry
 	err = filepath.WalkDir(conceptAbs, func(abs string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
-			return walkErr
+			return scrubPathError(walkErr)
 		}
 		if abs == conceptAbs {
 			return nil
@@ -256,18 +273,21 @@ func (kb *KB) ListAssets(id okf.ConceptID) ([]AssetEntry, error) {
 			}
 			return nil
 		}
+		// A symlink (WalkDir never follows it) or any other non-regular file
+		// is not an asset: skipped, so one of them cannot fail the listing
+		// nor leak its target (#2191). Reading it directly stays refused.
 		if d.Type()&os.ModeSymlink != 0 {
-			return fmt.Errorf("%w: asset path contains symlink %s", okf.ErrInvalidPath, abs)
+			return nil
 		}
 		if d.IsDir() {
 			return nil
 		}
 		if !d.Type().IsRegular() {
-			return fmt.Errorf("%w: asset %s is not a regular file", okf.ErrInvalidPath, abs)
+			return nil
 		}
 		rel, err := filepath.Rel(conceptAbs, abs)
 		if err != nil {
-			return err
+			return scrubPathError(err)
 		}
 		rel, _, err = validateAssetRelativePath(rel, false)
 		if err != nil {
@@ -278,11 +298,11 @@ func (kb *KB) ListAssets(id okf.ConceptID) ([]AssetEntry, error) {
 		}
 		info, err := d.Info()
 		if err != nil {
-			return err
+			return scrubPathError(err)
 		}
 		sum, err := assetFileHash(abs)
 		if err != nil {
-			return err
+			return scrubPathError(err)
 		}
 		entries = append(entries, AssetEntry{Path: filepath.ToSlash(rel), Size: info.Size(), SHA256: sum, Executable: execbit.IsExecutable(info.Mode()), Oversized: info.Size() > AssetMaxFileSize})
 		return nil
@@ -309,13 +329,13 @@ func (kb *KB) DeleteAsset(id okf.ConceptID, assetPath, ifMatch string) error {
 	}
 	sum, err := assetFileHash(abs)
 	if err != nil {
-		return fmt.Errorf("DeleteAsset %s: %w", assetPath, err)
+		return fmt.Errorf("DeleteAsset %s: %w", assetPath, scrubPathError(err))
 	}
 	if ifMatch != sum {
 		return fmt.Errorf("%w: %s content-hash mismatch; current sha256 %s", okf.ErrStaleWrite, assetPath, sum)
 	}
 	if err := os.Remove(abs); err != nil {
-		return fmt.Errorf("DeleteAsset %s: %w", assetPath, err)
+		return fmt.Errorf("DeleteAsset %s: %w", assetPath, scrubPathError(err))
 	}
 	conceptDir, err := kb.ResolvePath(string(id))
 	if err != nil {
@@ -330,7 +350,7 @@ func (kb *KB) DeleteAsset(id okf.ConceptID, assetPath, ifMatch string) error {
 			if readErr == nil && len(entries) > 0 {
 				break
 			}
-			return fmt.Errorf("DeleteAsset %s: prune: %w", assetPath, err)
+			return fmt.Errorf("DeleteAsset %s: prune: %w", assetPath, scrubPathError(err))
 		}
 	}
 	return nil
