@@ -328,6 +328,25 @@ func (c lifecycleCtx) updateOne(name string) int {
 	case clientSideProblem(p) != "":
 		return fail("%s", clientSideProblem(p))
 	}
+	if p.Digest == e.Approved {
+		// The source yields the approved tree: a stored copy that is missing or
+		// no longer verifies is put back (the remedy of `modified` and `not fetched`).
+		if _, err := c.store.Open(name, e.Approved, pluginOpts()); errors.Is(err, core.ErrNotFetched) || errors.Is(err, core.ErrModified) {
+			if code := c.locked(func(cfg *clientconfig.Config) int {
+				if err := c.store.Put(name, files, p.Digest, pluginOpts()); err != nil {
+					return pluginFail(1, "%s", escapeControl(err.Error()))
+				}
+				return -1
+			}); code >= 0 {
+				return code
+			}
+			fmt.Fprintf(c.out, "%s %s: the stored tree was fetched again\n", name, p.Manifest.Version)
+			c.emit(pluginResult{Name: name, Changed: true, Message: "stored tree restored"})
+			if p.Digest == e.Installed {
+				return 0
+			}
+		}
+	}
 	if p.Digest == e.Approved && p.Digest == e.Installed {
 		fmt.Fprintf(c.out, "%s %s is up to date\n", name, e.Version)
 		c.emit(pluginResult{Name: name, Message: "up to date"})

@@ -168,7 +168,7 @@ func runPluginCommand(name string, args []string) (code int, handled bool) {
 		if st != core.StatusPending {
 			why = string(st)
 		}
-		return pluginFail(2, "plugin %s is installed but %s: run \"cartographer plugin show %s\"", escapeControl(name), why, escapeControl(name)), true
+		return pluginFail(2, "plugin %s is installed but %s: %s", escapeControl(name), why, escapeControl(stateRemedy(name, st))), true
 	}
 	prog, err := pluginProgram(*p)
 	if err != nil {
