@@ -220,6 +220,13 @@ func frontmatterFindings(in conceptInput) []Finding {
 		}
 	}
 
+	// --- contradiction_status (#2187) ---
+	if parsed != nil {
+		if msg := contradictionStatusProblem(parsed, in.Contract); msg != "" {
+			out = append(out, newFinding("contradiction_status", Finding{Path: in.RelPath, Message: msg}))
+		}
+	}
+
 	// --- machine_path (D75 WP6 / D124) ---
 	// A verbatim external document is not the KB's writing (#1195, D1195).
 	if all := disallowedMachinePaths(in.Body); len(all) > 0 && !externalOrigin(parsed) {

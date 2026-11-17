@@ -363,3 +363,39 @@ func TestFacetSprawlEvidenceCountsFoldedVariants(t *testing.T) {
 		t.Errorf("message = %q", f.Message)
 	}
 }
+
+// #2187: a Contradiction or gap is closed by resolution_status (open,
+// resolved, wontfix); a made-up value or a `status: done` beside an open one is flagged.
+func TestContradictionStatus(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "c/_map.md", "---\ntype: Map\ntitle: C\n---\n")
+	page := func(rel, extra string) {
+		writeFile(t, k.DataRoot(), rel, "---\ntype: Contradiction\ntitle: T\ncontradiction_kind: open_question\n"+extra+"---\n# T\n")
+	}
+	page("c/ok-open.md", "resolution_status: open\n")
+	page("c/ok-none.md", "")
+	page("c/ok-resolved.md", "resolution_status: resolved\nstatus: done\n")
+	page("c/ok-wontfix.md", "resolution_status: wontfix\n")
+	page("c/bad-done.md", "resolution_status: done\n")
+	page("c/bad-case.md", "resolution_status: Resolved\n")
+	page("c/bad-status.md", "resolution_status: open\nstatus: done\n")
+	page("c/bad-status-only.md", "status: resolved\n")
+	f, _ := Run(k, "", false)
+	for rel, want := range map[string]bool{"c/ok-open.md": false, "c/ok-none.md": false, "c/ok-resolved.md": false, "c/ok-wontfix.md": false,
+		"c/bad-done.md": true, "c/bad-case.md": true, "c/bad-status.md": true, "c/bad-status-only.md": true} {
+		if got := hasCheck(f, rel, "contradiction_status"); got != want {
+			t.Errorf("%s: contradiction_status = %v, want %v", rel, got, want)
+		}
+	}
+	if got := CheckConcept(k, "c/w", "---\ntype: Contradiction\ntitle: T\nresolution_status: done\n---\n# T\n"); !func() bool {
+		for _, x := range got {
+			if x.Check == "contradiction_status" {
+				return true
+			}
+		}
+		return false
+	}() {
+		t.Errorf("the write path must report it: %+v", got)
+	}
+}

@@ -422,6 +422,7 @@ projections of it. This catalogue is generated from it (a test fails when it dri
 | `stringified_list` | concept | yes | `listify_field` | yes | yes |
 | `stale_claim` | concept | - | - | - | yes |
 | `status_semantics` | concept | yes | - | - | yes |
+| `contradiction_status` | concept | yes | - | - | yes |
 | `machine_path` | concept | yes | - | - | yes |
 | `potential_secret` | concept | yes | - | - | yes |
 | `mangled_placeholder` | concept | yes | - | - | yes |
@@ -969,10 +970,16 @@ validate a nested per-type grammar.
   `missing_context` (the KB lacks information it should have) or `open_question`
   (a question raised and not yet answered) records something *unknown* rather
   than two claims that disagree. It has the same lifecycle (`resolution_status:
-  open` → `resolved`, closed with `conflict_resolve`), but it never blocks
+  open` → `resolved` or `wontfix`: the only vocabulary, #2187), but it never blocks
   `commit_gate` or `gate_check`, whatever its `involves`, and `involves` is
   optional (a question may concern a page that does not exist yet). `kb_status`
   counts open gaps apart from open contradictions (`open_gaps`).
+  Close a Contradiction or a gap with `concept_patch` setting `resolution_status: resolved`
+  (or `wontfix`) and a `resolution`, and `resolution_date`; the advanced `conflict_resolve`
+  does the same but is not in `tools/list` (callable by name). `status` does not close it,
+  and any `resolution_status` other than the exact `open` counts as closed, so the lint check
+  `contradiction_status` flags a value outside `open`, `resolved`, `wontfix` and a closing
+  `status` (`done`, `resolved`…) beside an open one.
   The Surveyor's synthesis task (D1263) writes its hypotheses this way: `provenance`
   lists the concepts the hypothesis rests on, `involves` the ones it is about, and three
   optional keys that the server does not interpret mark it: `origin: synthesis`,
