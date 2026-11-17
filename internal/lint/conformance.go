@@ -175,6 +175,8 @@ type conceptInput struct {
 	// Catalog is the KB's templates (D352); nil unless the page's map sets a
 	// template key, so a map without them reads no template.
 	Catalog kb.TemplateCatalog
+	// History says whether the page has git history; nil when unknown.
+	History func() bool
 }
 
 // frontmatterFindings computes the checks that depend only on one concept's
@@ -427,7 +429,7 @@ func CheckConcept(k *kb.KB, id okf.ConceptID, content string) []Finding {
 	if hasFM {
 		parsed, _ = okf.ParseFrontmatter(fmRaw)
 	}
-	in := conceptInput{RelPath: okf.IDToPath(id), Body: body, FrontmatterRaw: fmRaw, Parsed: parsed}
+	in := conceptInput{RelPath: okf.IDToPath(id), Body: body, FrontmatterRaw: fmRaw, Parsed: parsed, History: pageHistory(k, id)}
 	in.Registry, _ = loadRegistryLint(k)
 	if parts := strings.Split(string(id), "/"); len(parts) > 1 {
 		if contract, err := k.ReadMapContract(parts[0]); err == nil {

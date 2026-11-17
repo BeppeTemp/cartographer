@@ -317,7 +317,7 @@ func TestWriteGate_StashPopFailureRollsBack(t *testing.T) {
 	s := gateSeed(t, k, map[string]string{"ops/p": draftPage})
 	head := gitOut(t, k, "rev-parse", "HEAD")
 	orig := gateStashPop
-	gateStashPop = func(string) error { return errors.New("injected") }
+	gateStashPop = func(string, ...string) error { return errors.New("injected") }
 	defer func() { gateStashPop = orig }()
 	text, isErr := callJSON(t, s, adminCtx, "concept_move", `{"source_id":"ops/p","target_id":"arch/p"}`)
 	if !isErr || !strings.Contains(text, "write_gate: could not restore the write, nothing was written") {
@@ -480,5 +480,70 @@ func TestWriteGate_WaitUndatedRefused(t *testing.T) {
 	dated := gateWrite("ops/waiting", "W", "# W\n", true, `,"status":"draft","waiting_on":"vendor","review_after":"2999-01-01"`)
 	if text, isErr = callJSON(t, s, adminCtx, "concept_batch", gateBatch(dated)); isErr {
 		t.Fatalf("a dated wait was refused: %s", text)
+	}
+}
+
+// repoObjects is what a refused write must leave unchanged (#2186): the loose
+// object count and every unreachable object.
+func repoObjects(t *testing.T, k *kb.KB) string {
+	t.Helper()
+	count := gitOut(t, k, "count-objects", "-v")
+	fsck := gitOut(t, k, "fsck", "--unreachable", "--no-reflogs")
+	return count + "\n--\n" + fsck
+}
+
+// A refused write creates no git object: no stash commit, no blob of the text
+// it refused (the value that looked like a credential included), and the
+// rollback leaves the tree clean (#2186).
+func TestWriteGate_RefusedWriteLeavesNoObject(t *testing.T) {
+	k := gateKB(t)
+	s := gateSeed(t, k, map[string]string{"ops/p": draftPage})
+	secret := "ghp_" + "aB3dE5fG7hJ9kL1mN3pQ5rS7tU9vW1xY3zA5"
+	cases := map[string]string{
+		"avoidable finding":             `{"id":"ops/q","frontmatter":{"type":"Note","title":"Q","status":"bogus"},"body":"# Q\nbody"}`,
+		"potential_secret":              `{"id":"ops/q","frontmatter":{"type":"Note","title":"Q"},"body":"# Q\ntoken ` + secret + `"}`,
+		"secret on a page with history": `{"id":"ops/p","frontmatter":{"type":"Note","title":"P","status":"draft"},"body":"# P\ntoken ` + secret + `"}`,
+	}
+	for name, args := range cases {
+		before := repoObjects(t, k)
+		head := gitOut(t, k, "rev-parse", "HEAD")
+		text, isErr := callJSON(t, s, adminCtx, "concept_write", args)
+		if !isErr || !strings.Contains(text, "write_gate: refused") {
+			t.Fatalf("%s: got %q (error=%v)", name, text, isErr)
+		}
+		if strings.Contains(text, secret) {
+			t.Fatalf("%s: the refusal echoes the value", name)
+		}
+		gateClean(t, k)
+		if after := repoObjects(t, k); after != before {
+			t.Fatalf("%s: the refused write left objects behind:\nbefore:\n%s\nafter:\n%s", name, before, after)
+		}
+		if gitOut(t, k, "rev-parse", "HEAD") != head || strings.TrimSpace(gitOut(t, k, "stash", "list")) != "" {
+			t.Fatalf("%s: HEAD moved or a stash is left", name)
+		}
+		if ents, _ := filepath.Glob(filepath.Join(k.Root, ".git", "cartographer-quarantine-*")); len(ents) != 0 {
+			t.Fatalf("%s: quarantine left behind: %v", name, ents)
+		}
+		hasHistory := strings.Contains(text, "git history")
+		if strings.Contains(text, "ever committed") || hasHistory != (name == "secret on a page with history") && strings.Contains(text, "potential secret") {
+			t.Fatalf("%s: history wording wrong (history clause=%v): %q", name, hasHistory, text)
+		}
+	}
+}
+
+// A write the gate lets through still commits its blobs into the real store.
+func TestWriteGate_PassingWriteCommitsIntoTheRealStore(t *testing.T) {
+	k := gateKB(t)
+	s := gateSeed(t, k, map[string]string{"ops/p": draftPage})
+	text, isErr := callJSON(t, s, adminCtx, "concept_write", `{"index_entry":true,"id":"ops/ok","frontmatter":{"type":"Note","title":"Ok","status":"draft"},"body":"# Ok\nfine [p](p.md)"}`)
+	if isErr {
+		t.Fatalf("refused: %s", text)
+	}
+	gateClean(t, k)
+	if out := gitOut(t, k, "fsck", "--full", "--strict"); strings.Contains(out, "missing") || strings.Contains(out, "error") {
+		t.Fatalf("fsck:\n%s", out)
+	}
+	if got := gitOut(t, k, "show", "HEAD:data/ops/ok.md"); !strings.Contains(got, "# Ok") {
+		t.Fatalf("committed page: %q", got)
 	}
 }

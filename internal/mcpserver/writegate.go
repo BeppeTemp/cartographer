@@ -73,6 +73,10 @@ func gatePrecheck(k *kb.KB) bool {
 	return true
 }
 
+// gateMessage is a finding's message as the gate compares it: without the
+// history clause of a potential_secret, which differs for a page and its move.
+func gateMessage(m string) string { return strings.TrimSuffix(m, lint.SecretHistoryClause) }
+
 type gateKey struct{ path, check, message string }
 
 // judgeWrite is the gate proper. It runs after the handler, the generated
@@ -84,7 +88,23 @@ type gateKey struct{ path, check, message string }
 // caller scoped to some maps is not blocked by, and learns nothing of, what
 // its write does to the rest (the same rule the read tools follow).
 func judgeWrite(k *kb.KB, toolName string, view *callerView) *ToolResult {
-	changes, err := gitx.StagedChanges(k.Root)
+	// Everything the gate stages or stashes goes into a quarantine object
+	// directory that is deleted on return: a refused write leaves no object in
+	// the repository, not even the blob of the refused text (#2186). Passing, the
+	// index goes back to HEAD (its entries name quarantined blobs) and the commit
+	// stages the write again into the real store.
+	q, err := gitx.NewQuarantine(k.Root)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cartographer: write_gate skipped (%s): %v\n", toolName, err)
+		return nil
+	}
+	defer func() {
+		if err := gitx.ResetIndex(k.Root, q.Env...); err != nil {
+			fmt.Fprintf(os.Stderr, "cartographer: write_gate: resetting the index failed (%s): %v\n", toolName, err)
+		}
+		q.Close()
+	}()
+	changes, err := gitx.StagedChangesEnv(k.Root, q.Env)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cartographer: write_gate skipped (%s): %v\n", toolName, err)
 		return nil
@@ -148,21 +168,21 @@ func judgeWrite(k *kb.KB, toolName string, view *callerView) *ToolResult {
 
 	// Baseline: the same concepts at HEAD. Only paid when the write left
 	// something to judge.
-	if err := gitx.StashPushAllEnv(k.Root, kb.ServerGitEnv()...); err != nil {
+	if err := gitx.StashPushAllEnv(k.Root, append(kb.ServerGitEnv(), q.Env...)...); err != nil {
 		fmt.Fprintf(os.Stderr, "cartographer: write_gate skipped (%s): %v\n", toolName, err)
 		return nil
 	}
 	base := avoidableFindings(writeLintFindings(k, baseIDs, nil))
-	if err := gateStashPop(k.Root); err != nil {
+	if err := gateStashPop(k.Root, q.Env...); err != nil {
 		fmt.Fprintf(os.Stderr, "cartographer: write_gate: restoring the write failed (%s): %v\n", toolName, err)
-		_ = gitx.StashDrop(k.Root)
+		_ = gitx.StashDrop(k.Root, q.Env...)
 		discard(k, toolName)
 		res := errorResult("write_gate: could not restore the write, nothing was written")
 		return &res
 	}
 	pre := map[gateKey]bool{}
 	for _, f := range base {
-		pre[gateKey{f.Path, f.Check, f.Message}] = true
+		pre[gateKey{f.Path, f.Check, gateMessage(f.Message)}] = true
 	}
 	oldPath := map[string]string{} // finding path of a renamed concept -> its old path
 	for newID, oldID := range renamedFrom {
@@ -180,12 +200,12 @@ func judgeWrite(k *kb.KB, toolName string, view *callerView) *ToolResult {
 		if op, ok := oldPath[p]; ok {
 			p = op
 		}
-		if pre[gateKey{p, f.Check, f.Message}] {
+		if pre[gateKey{p, f.Check, gateMessage(f.Message)}] {
 			continue
 		}
 		// A finding that names the moved concept (a map's index_incomplete)
 		// is the same finding under its old id.
-		msg := f.Message
+		msg := gateMessage(f.Message)
 		for newID, oldID := range renamedFrom {
 			msg = strings.ReplaceAll(msg, newID, oldID)
 			// A fix hint spells the page by file name ("write ../topic.md"):
