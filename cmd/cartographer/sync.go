@@ -61,8 +61,9 @@ func cmdSync(args []string) int {
 	if *reportTo != "" {
 		return reportOnly(dir, *reportTo)
 	}
+	migratedBackup := ""
 	if !*dryRun {
-		realignClientConfig(dir)
+		migratedBackup = realignClientConfig(dir)
 	}
 	// The lock comes before the load: the config saved at the end of the sync
 	// must be the one read after every other writer finished (D172). A dry run
@@ -97,7 +98,7 @@ func cmdSync(args []string) int {
 
 	res, err := runSync(dir, cfg, syncOptions{DryRun: *dryRun, NoHeal: *noHeal, Clients: clients, RepairService: true, Locked: locked, Unlock: unlock})
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Error:", err)
+		fmt.Fprintln(os.Stderr, "Error:", syncErrorText(err, dir, migratedBackup))
 		// The exit stays 2, but the skipped workspaces are not lost with it.
 		if len(res.Unreadable) > 0 {
 			fmt.Fprintf(os.Stderr, "sync skipped unreadable workspaces: %s\n", escapeControl(strings.Join(res.Unreadable, ", ")))
@@ -119,6 +120,23 @@ func cmdSync(args []string) int {
 		return code
 	}
 	return 0
+}
+
+// noConfigModifiedNote is what a failed runSync says about the machine's
+// configuration: true of the run itself, which writes nothing before its
+// manifests are in hand (D172).
+const noConfigModifiedNote = "no configuration was modified"
+
+// syncErrorText is a failed sync's message for cmdSync. The note above is about
+// runSync; when the command migrated .cartographer.yaml to the current format
+// just before it (#2221), the note says so and names the backup instead of
+// claiming the file is untouched.
+func syncErrorText(err error, dir, migratedBackup string) string {
+	msg := err.Error()
+	if migratedBackup == "" {
+		return msg
+	}
+	return strings.ReplaceAll(msg, noConfigModifiedNote, fmt.Sprintf("the sync modified nothing; %s was migrated to the current format before it ran, the original is kept as %s", clientconfig.Path(dir), migratedBackup))
 }
 
 // unreadableWorkspaces lists, sorted, each bound workspace whose directory

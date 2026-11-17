@@ -34,6 +34,8 @@ func saveRepairFns(t *testing.T) {
 	origSame := repairSameBinaryFn
 	origSwitch := repairSwitchBinaryFn
 	origTaskOwner := repairTaskOwnerFn
+	origTaskDACL := repairTaskDACLFn
+	repairTaskDACLFn = func() (bool, error) { return false, nil }
 	origCheck, origDef := repairCheckBinaryFn, repairDefinitionPathFn
 	origTray := repairEnsureTrayFn
 	// Never the real tray: on a Mac it would register a LaunchAgent.
@@ -50,6 +52,7 @@ func saveRepairFns(t *testing.T) {
 		repairSameBinaryFn = origSame
 		repairSwitchBinaryFn = origSwitch
 		repairTaskOwnerFn = origTaskOwner
+		repairTaskDACLFn = origTaskDACL
 		version = origVersion
 		repairEffectiveConfigFn = origEffective
 		repairServiceStatusFn = origStatus
@@ -1133,5 +1136,42 @@ func TestEnsureServiceCurrent_DeniedProbeReplacesNothing(t *testing.T) {
 	err := ensureServiceCurrent("/cfg.yaml", "127.0.0.1:39273", "")
 	if err == nil || !strings.Contains(err.Error(), "denied by the OS") {
 		t.Errorf("err = %v, want the denied message", err)
+	}
+}
+
+// #2221: at the same version the live descriptor of the task is repaired in
+// place; a refusal is a warning that names the remedy, never a failure.
+func TestUpgradeRepair_RepairsTheLiveTaskDescriptor(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		fixed   bool
+		err     error
+		wantOut string
+		wantErr string
+	}{
+		{name: "repaired", fixed: true, wantOut: "access repaired"},
+		{name: "refused", err: errors.New("access denied"), wantErr: "service install"},
+		{name: "already right"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			saveRepairFns(t)
+			calls := 0
+			repairTaskDACLFn = func() (bool, error) { calls++; return tc.fixed, tc.err }
+			repairEffectiveConfigFn = func(string) (string, error) { return "/cfg.yaml", nil }
+			repairServiceStatusFn = func(string) (service.Status, error) { return service.Status{Installed: true}, nil }
+			var code int
+			out := withStdout(t, func() {
+				errOut := withStderr(t, func() { code = cmdUpgradeRepair(nil) })
+				if !strings.Contains(errOut, tc.wantErr) {
+					t.Errorf("stderr %q lacks %q", errOut, tc.wantErr)
+				}
+			})
+			if calls != 1 || code != exitRepairOK || !strings.Contains(out, tc.wantOut) {
+				t.Errorf("calls=%d exit=%d out=%q", calls, code, out)
+			}
+			if strings.Contains(out, "nothing running was stopped") {
+				t.Errorf("stdout claims nothing was stopped: %q", out)
+			}
+		})
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"path"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/gitx/gitxtest"
@@ -88,4 +89,16 @@ func ProjectOwnedPaths(provider configurator.Provider) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// CaptureLockWaitNoticeForTest makes a lock wait say so after `after` and
+// collects what it printed, instead of writing to stderr.
+func CaptureLockWaitNoticeForTest(t *testing.T, after time.Duration) *[]string {
+	t.Helper()
+	origAfter, origNotice := clientLockNoticeAfter, lockWaitNotice
+	var got []string
+	clientLockNoticeAfter = after
+	lockWaitNotice = func(msg string) { got = append(got, msg) }
+	t.Cleanup(func() { clientLockNoticeAfter, lockWaitNotice = origAfter, origNotice })
+	return &got
 }
