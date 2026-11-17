@@ -1411,7 +1411,14 @@ func (m *Manager) Status(configPath string) (Status, error) {
 	var st Status
 	st.ConfigPath = configPath
 	if configPath == "" {
-		p, err := ConfigPath()
+		// The config the installed definition passes, as the tray discovers it
+		// (#2179): a service installed with another --config serves that one, and
+		// the default server.yaml would report the wrong port. A definition that
+		// cannot be read falls back to the standard path.
+		p, err := m.EffectiveConfigPath("")
+		if err != nil {
+			p, err = ConfigPath()
+		}
 		if err != nil {
 			return st, fmt.Errorf("service: resolve config path: %w", err)
 		}

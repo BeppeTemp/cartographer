@@ -409,6 +409,16 @@ func (m *Manager) installWindows(binPath, configPath string, env ...EnvVar) erro
 	// grant the user (#2142): Register -Force keeps the descriptor of the task it
 	// overwrites, so the old task is deleted first.
 	repair := windowsElevated() && m.serveTaskOwnerDiffers(sid)
+	// A refused install leaves the previous task and process as they were
+	// (#2179): the address is checked before the old server is stopped or the
+	// task registered over. A server of ours already Running on that very
+	// address is not a foreign listener, and its stop frees the address.
+	addr := configHTTPAddr(configPath)
+	if addr != "" && !(m.windowsTaskRunning(windowsServeTaskName) && addr == m.serveHTTPAddr()) {
+		if err := busyAddressError(addr, listenerAt(addr)); err != nil {
+			return fmt.Errorf("%w (nothing was changed: the installed task and server are as they were; free the address and run `cartographer service install` again)", err)
+		}
+	}
 	// A running server of the definition being replaced is stopped first,
 	// gracefully, as `service stop` does: once the scheduler holds the new
 	// registration the old process belongs to no task, and nothing could stop it
@@ -446,17 +456,40 @@ func (m *Manager) installWindows(binPath, configPath string, env ...EnvVar) erro
 		}
 		return err
 	}
-	addr := configHTTPAddr(configPath)
+	// The previous definition is put back when anything after the registration
+	// fails (#2179): the new one would otherwise run at the next start, on a
+	// port that was just refused.
+	rollback := func(cause error) error {
+		if rerr != nil {
+			return cause
+		}
+		if bytes.Equal(installed, def) {
+			if wasRunning {
+				_ = m.startWindowsTask(windowsServeTaskName)
+			}
+			return cause
+		}
+		if err := m.restoreServeTask(taskPath, installed, logPath); err != nil {
+			return fmt.Errorf("%w; the previous definition could not be registered again (%v): run `%s` again", cause, err, taskRemedy(windowsServeTaskName))
+		}
+		if wasRunning {
+			_ = m.startWindowsTask(windowsServeTaskName)
+		}
+		return fmt.Errorf("%w (the previous task definition is registered again)", cause)
+	}
 	m.stopServeForReinstall(addr)
 	// The start would report success and the process die on bind (#2092):
 	// whatever answers the address now is not the task's. A task still Running
 	// after the stop is ours, left for the start to report.
 	if addr != "" && !m.windowsTaskRunning(windowsServeTaskName) {
 		if err := busyAddressError(addr, listenerAt(addr)); err != nil {
-			return fmt.Errorf("%w (the task is registered: run `cartographer service start` once the address is free)", err)
+			return rollback(err)
 		}
 	}
-	return m.startWindowsTask(windowsServeTaskName)
+	if err := m.startWindowsTask(windowsServeTaskName); err != nil {
+		return rollback(err)
+	}
+	return nil
 }
 
 // restoreServeTask registers the serve task again after a descriptor repair
@@ -496,9 +529,14 @@ func (m *Manager) serveTaskOwnerDiffers(sid string) bool {
 	if registered, err := m.windowsTaskPresence(windowsServeTaskName); err == nil && !registered {
 		return false
 	}
-	script := fmt.Sprintf("$sd = New-Object System.Security.AccessControl.RawSecurityDescriptor((Get-ScheduledTask %s).SecurityDescriptor); "+
+	// The live DACL, from the Task Scheduler service: the cmdlet's
+	// SecurityDescriptor is the one of the definition XML, and reads as granted
+	// while the task's own descriptor is not (#2179). 4 is
+	// DACL_SECURITY_INFORMATION.
+	script := fmt.Sprintf("$t = (New-Object -ComObject Schedule.Service); $t.Connect(); "+
+		"$sd = New-Object System.Security.AccessControl.RawSecurityDescriptor($t.GetFolder(%s).GetTask(%s).GetSecurityDescriptor(4)); "+
 		"foreach ($a in $sd.DiscretionaryAcl) { if ($a.SecurityIdentifier.Value -eq %s -and $a.AceQualifier -eq 'AccessAllowed' -and (($a.AccessMask -band 0x1F01FF) -eq 0x1F01FF)) { exit 0 } }; exit %d",
-		taskSelector(windowsServeTaskName), psQuote(sid), taskOwnerDiffersExit)
+		psQuote(strings.TrimSuffix(windowsTaskPathArg(), `\`)), psQuote(windowsServeTaskName), psQuote(sid), taskOwnerDiffersExit)
 	_, err := m.powershell(script)
 	if err == nil {
 		return false
