@@ -596,24 +596,26 @@ func (k *KB) SyncOut() error {
 		// protection both end with "pre-receive hook declined", so testing the
 		// protected wording first sent the operator to unprotect a branch that
 		// was never the problem (D1063).
-		if gitx.IsIdentityRejection(pushErr.Error()) {
-			err := k.identityRejection(remote, branch, pushErr.Error())
+		// Classified on the whole redacted output: the error's own text is bounded.
+		raw := gitx.RemoteText(pushErr)
+		if gitx.IsIdentityRejection(raw) {
+			err := k.identityRejection(remote, branch, raw)
 			k.setGitStatus("failed", err, attempt)
 			return err
 		}
-		if gitx.IsProtectedBranchRejection(pushErr.Error()) {
+		if gitx.IsProtectedBranchRejection(raw) {
 			// A bare decline (no reason of the remote's own, only the generic
 			// "pre-receive hook declined") is an identity refusal when the local
 			// evidence is conclusive: fallback identities ahead, none configured
 			// (D1063). It is worded as inferred. Any decline that carries a
 			// reason of its own (#2151: "rejected by policy: protected") stays
 			// a protected branch, quoting it.
-			if idents, fallback := k.localIdentities(remote, branch); fallback && !k.hasConfiguredIdentity() && gitx.IsBareHookDecline(pushErr.Error()) {
-				err := &ErrIdentityRejected{Branch: branch, Git: pushErr.Error(), Identities: idents, Inferred: true}
+			if idents, fallback := k.localIdentities(remote, branch); fallback && !k.hasConfiguredIdentity() && gitx.IsBareHookDecline(raw) {
+				err := &ErrIdentityRejected{Branch: branch, Git: raw, Identities: idents, Inferred: true}
 				k.setGitStatus("failed", err, attempt)
 				return err
 			}
-			err := &ErrProtectedBranch{Branch: branch, Git: pushErr.Error()}
+			err := &ErrProtectedBranch{Branch: branch, Git: raw}
 			k.setGitStatus("failed", err, attempt)
 			return err
 		}
@@ -624,8 +626,8 @@ func (k *KB) SyncOut() error {
 		// remote's own line when it gave one.
 		// After the two above on purpose: their hook wording is also a
 		// "[remote rejected]".
-		if remedy, permanent := gitx.PermanentPushRejection(pushErr.Error()); permanent {
-			err := &ErrPushRefused{Branch: branch, Remedy: remedy, Git: pushErr.Error()}
+		if remedy, permanent := gitx.PermanentPushRejection(raw); permanent {
+			err := &ErrPushRefused{Branch: branch, Remedy: remedy, Git: raw}
 			k.setGitStatus("failed", err, attempt)
 			return err
 		}
@@ -641,7 +643,7 @@ func (k *KB) SyncOut() error {
 
 		// Determine whether the failure is a non-fast-forward rejection.
 		// git push prints "[rejected]" and/or "non-fast-forward" in such cases.
-		errMsg := pushErr.Error()
+		errMsg := raw
 		isRejected := strings.Contains(errMsg, "non-fast-forward") ||
 			strings.Contains(errMsg, "[rejected]") ||
 			strings.Contains(errMsg, "Updates were rejected")
@@ -782,6 +784,9 @@ type ErrProtectedBranch struct {
 	Git string
 }
 
+// RemoteText: see ErrPushRefused.RemoteText.
+func (e *ErrProtectedBranch) RemoteText() string { return e.Error() + "\n" + e.Git }
+
 func (e *ErrProtectedBranch) Error() string {
 	return fmt.Sprintf("the remote refused the push to branch %q: it is protected, or a server-side hook declined it. "+
 		"Cartographer pushes to the branch directly and never opens a pull request: unprotect the branch, or set `branch` in settings.yaml "+
@@ -800,6 +805,10 @@ type ErrPushRefused struct {
 	// Git is what git printed, kept for the operator.
 	Git string
 }
+
+// RemoteText is the text a refusal is classified on: its message and the whole
+// output it quotes (gitx.RemoteText).
+func (e *ErrPushRefused) RemoteText() string { return e.Error() + "\n" + e.Git }
 
 func (e *ErrPushRefused) Error() string {
 	return fmt.Sprintf("the push to branch %q cannot succeed by retrying and is not retried: %s. The change is committed and safe in the local clone. Git said: %s",
@@ -831,6 +840,9 @@ type ErrIdentityRejected struct {
 func inferredLead(branch string) string {
 	return fmt.Sprintf("the remote gave no reason for declining the push to branch %q (only the generic \"hook declined\"); the unpushed commits carry the server's fallback identity and none is configured, so an author or committer rule is the likely cause, but a protected branch or another hook would give the same output.", branch)
 }
+
+// RemoteText: see ErrPushRefused.RemoteText.
+func (e *ErrIdentityRejected) RemoteText() string { return e.Error() + "\n" + e.Git }
 
 func (e *ErrIdentityRejected) Error() string {
 	var b strings.Builder
@@ -932,19 +944,9 @@ func (k *KB) localIdentities(remote, branch string) (idents []string, fallback b
 	return idents, fallback
 }
 
-// firstLines keeps the first n non-empty lines of git's output, on one line.
-func firstLines(out string, n int) string {
-	var kept []string
-	for _, l := range strings.Split(out, "\n") {
-		if l = strings.TrimSpace(l); l != "" {
-			kept = append(kept, l)
-			if len(kept) == n {
-				break
-			}
-		}
-	}
-	return strings.Join(kept, " | ")
-}
+// firstLines keeps the first n non-empty lines of git's output, on one line,
+// stripped of control characters and bounded (gitx.BoundRemoteLines).
+func firstLines(out string, n int) string { return gitx.BoundRemoteLines(out, n) }
 
 // HasRemote reports whether the KB has a configured origin remote.
 func (k *KB) HasRemote() (string, bool) { return k.hasRemote() }

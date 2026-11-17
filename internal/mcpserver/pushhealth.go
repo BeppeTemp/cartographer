@@ -75,5 +75,5 @@ func pushHealthFor(k *kb.KB, now time.Time) *KBPush {
 	if !ok {
 		return nil
 	}
-	return &KBPush{State: lag.State, UnpushedCommits: lag.Unpushed, Remedy: kb.Remedy(lag.Error)}
+	return &KBPush{State: lag.State, UnpushedCommits: lag.Unpushed, Remedy: lag.Remedy}
 }

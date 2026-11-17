@@ -320,6 +320,9 @@ func scrubRepoOutput(dir, text string) string {
 // scrubWriter forwards what git writes to w with the remote redacted. Output
 // is cut into lines at "\n" or "\r" (git's progress rewrites its line with
 // "\r"), so a URL is never split across two writes; Flush emits the tail.
+// maxScrubBuffer bounds the unterminated tail scrubWriter holds.
+const maxScrubBuffer = 64 << 10
+
 type scrubWriter struct {
 	w      io.Writer
 	remote string
@@ -328,23 +331,39 @@ type scrubWriter struct {
 
 func (s *scrubWriter) Write(p []byte) (int, error) {
 	s.buf = append(s.buf, p...)
+	// A line that never ends is not held whole: past the bound it is cut here.
+	if len(s.buf) > maxScrubBuffer && bytes.IndexAny(s.buf, "\r\n") < 0 {
+		line := string(s.buf)
+		s.buf = nil
+		if err := s.emit(line + "\n"); err != nil {
+			return len(p), err
+		}
+	}
 	for {
 		i := bytes.IndexAny(s.buf, "\r\n")
 		if i < 0 {
 			return len(p), nil
 		}
 		line := s.buf[:i+1]
-		if _, err := io.WriteString(s.w, RedactRemoteText(string(line), s.remote)); err != nil {
+		s.buf = s.buf[i+1:]
+		if err := s.emit(string(line)); err != nil {
 			return len(p), err
 		}
-		s.buf = s.buf[i+1:]
 	}
+}
+
+// emit writes one line redacted, then sanitized and cut like a quoted line:
+// what a remote prints live reaches the terminal as it does an error.
+func (s *scrubWriter) emit(line string) error {
+	body, term := sanitizeLine(RedactRemoteText(line, s.remote))
+	_, err := io.WriteString(s.w, body+term)
+	return err
 }
 
 // Flush writes the unterminated tail.
 func (s *scrubWriter) Flush() {
 	if len(s.buf) > 0 {
-		_, _ = io.WriteString(s.w, RedactRemoteText(string(s.buf), s.remote))
+		_ = s.emit(string(s.buf))
 		s.buf = nil
 	}
 }

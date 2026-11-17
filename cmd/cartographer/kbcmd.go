@@ -518,10 +518,17 @@ func attachOrigin(path, remote, kbName, readme, authorName, authorEmail string, 
 			fmt.Fprintf(os.Stderr, "Hint: the KB has no commit to push — git could not make the initial commit (often: committer identity unknown). Commit it, which also shows why it failed: git -C %s commit -m %q\n", hintQuote(runtime.GOOS, path), "init: KB initialized")
 			return originResult{code: 1, branch: branch}
 		}
-		writePushRefusalHints(os.Stderr, err.Error(), remote, authorName, authorEmail, fallbackIdentity)
+		writePushRefusalHintsFor(os.Stderr, err, remote, authorName, authorEmail, fallbackIdentity)
 		return originResult{code: 1, branch: branch}
 	}
 	return originResult{branch: branch, adopted: adopted, replacedReadme: replaced, orphan: orphan, configPath: configPath}
+}
+
+// writePushRefusalHintsFor is writePushRefusalHints on err's whole redacted
+// output (gitx.RemoteText): err's own text is bounded, and a refusal phrase
+// past the bound must still pick its specific hint.
+func writePushRefusalHintsFor(w io.Writer, err error, remote, authorName, authorEmail string, fallbackIdentity bool) {
+	writePushRefusalHints(w, gitx.RemoteText(err), remote, authorName, authorEmail, fallbackIdentity)
 }
 
 // writePushRefusalHints names the likely cause of a refused first push the way

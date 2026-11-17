@@ -25,6 +25,8 @@ type PushLag struct {
 	// full: the caller picks the wording for its reader (statusError) and
 	// reduces it with Remedy.
 	Error, ErrorNeutral string
+	// Remedy is Remedy of the failure, decided on the whole output of git.
+	Remedy string
 }
 
 // PushLagFrom decides whether s is worth showing: the state is "failed", or
@@ -41,7 +43,7 @@ func PushLagFrom(s GitStatus, oldest time.Time, hasOldest bool, now time.Time, t
 	if !failed && !aged {
 		return PushLag{}, false
 	}
-	return PushLag{State: s.State, Unpushed: n, Error: s.LastError, ErrorNeutral: s.LastErrorNeutral}, true
+	return PushLag{State: s.State, Unpushed: n, Error: s.LastError, ErrorNeutral: s.LastErrorNeutral, Remedy: s.LastRemedy}, true
 }
 
 // PushLag reads the KB's push state against the remote-tracking ref (no

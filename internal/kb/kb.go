@@ -270,10 +270,13 @@ type GitStatus struct {
 	// server's operator, when the error offers one (ErrIdentityRejected, D1101);
 	// "" otherwise. Never serialised. TRAP: LastError itself is compared by
 	// prefix (clearDivergedStatus, gitsync.go), so it always stays the full text.
-	LastErrorNeutral string     `json:"-"`
-	LastAttemptAt    *time.Time `json:"last_attempt_at,omitempty"`
-	HeadSHA          string     `json:"head_sha,omitempty"`
-	UnpushedCommits  *int       `json:"unpushed_commits"`
+	LastErrorNeutral string `json:"-"`
+	// LastRemedy is Remedy decided from the whole output of the failed push, not
+	// from the bounded LastError. Never serialised.
+	LastRemedy      string     `json:"-"`
+	LastAttemptAt   *time.Time `json:"last_attempt_at,omitempty"`
+	HeadSHA         string     `json:"head_sha,omitempty"`
+	UnpushedCommits *int       `json:"unpushed_commits"`
 	// BehindCommits is how far HEAD is behind the remote-tracking ref as of
 	// the last fetch (no network on read); nil when unknown.
 	BehindCommits *int `json:"behind_commits"`
@@ -305,6 +308,7 @@ func (k *KB) setGitStatus(state string, err error, attempts int) {
 	s := GitStatus{State: state, LastAttemptAt: &now, Attempts: attempts}
 	if err != nil {
 		s.LastError = err.Error()
+		s.LastRemedy = Remedy(gitx.RemoteText(err))
 		var neutral interface{ NeutralText() string }
 		if errors.As(err, &neutral) {
 			s.LastErrorNeutral = neutral.NeutralText()

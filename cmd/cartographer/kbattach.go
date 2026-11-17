@@ -118,7 +118,7 @@ func runKBAttach(name, dataDir, configPath, remote string, out, errOut io.Writer
 	refs, err := gitx.LsRemote(root, "origin", env...)
 	if err != nil {
 		fmt.Fprintln(errOut, "Error:", err)
-		writePushRefusalHints(errOut, err.Error(), remote, "", "", false)
+		writePushRefusalHintsFor(errOut, err, remote, "", "", false)
 		return 1
 	}
 	if refs.HasRefs {
@@ -134,7 +134,7 @@ func runKBAttach(name, dataDir, configPath, remote string, out, errOut io.Writer
 		}
 		if err := gitx.FetchNoTags(root, "origin", env...); err != nil {
 			fmt.Fprintln(errOut, "Error:", err)
-			writePushRefusalHints(errOut, err.Error(), remote, "", "", false)
+			writePushRefusalHintsFor(errOut, err, remote, "", "", false)
 			return 1
 		}
 		ok, err := gitx.IsAncestor(root, "origin/"+branch, "HEAD", env...)
@@ -152,7 +152,7 @@ func runKBAttach(name, dataDir, configPath, remote string, out, errOut io.Writer
 	if err := gitx.PushSetUpstream(root, "origin", branch, env...); err != nil {
 		fmt.Fprintln(errOut, "Error:", err)
 		authorName, authorEmail, fallback := resolveOperatorIdentity(root)
-		writePushRefusalHints(errOut, err.Error(), remote, authorName, authorEmail, fallback)
+		writePushRefusalHintsFor(errOut, err, remote, authorName, authorEmail, fallback)
 		fmt.Fprintf(errOut, "Hint: the KB was left as it was, without an origin. If the commits carry an author the remote refuses, re-author them first: cartographer kb reauthor %s\n", name)
 		return 1
 	}

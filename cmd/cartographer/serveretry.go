@@ -78,7 +78,7 @@ type cloneRetry struct {
 // known failure, else a pointer to the log. The error text itself is never
 // shown: it names the clone's destination, a path of the server.
 func skipReason(err error) string {
-	if remedy := gitx.RemoteRemedy(err.Error()); remedy != "" {
+	if remedy := gitx.RemoteRemedy(gitx.RemoteText(err)); remedy != "" {
 		return "the clone failed: " + remedy
 	}
 	return "the clone failed: the remote did not answer or is not a KB (the server log has the cause)"
