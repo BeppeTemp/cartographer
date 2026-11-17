@@ -888,8 +888,11 @@ func TestGitWrap_AsyncPush_CommitIsSyncPushIsDeferred(t *testing.T) {
 		t.Fatalf("remote already has %s commit(s) (baseline %s) — push should have been deferred, not inline", count, baseline)
 	}
 
-	// Force it: FlushPush makes the deferred push happen now.
-	if err := k.FlushPush(5 * time.Second); err != nil {
+	// Force it: FlushPush makes the deferred push happen now. The timeout is
+	// only a hang guard (FlushPush returns when the push is done): a loaded
+	// Windows host takes seconds per git command (#2212: commit 2.6s, push
+	// 3s, the old 5s bound expired), so it is generous.
+	if err := k.FlushPush(60 * time.Second); err != nil {
 		t.Fatalf("FlushPush: %v", err)
 	}
 	if count := remoteCommitCount(t, bare, branch); count == baseline {
