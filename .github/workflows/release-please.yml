@@ -95,7 +95,7 @@ jobs:
         run: |
           set -euo pipefail
           v=$(jq -r '.["."]' .release-please-manifest.json)
-          go run ./internal/changelog/gen -file CHANGELOG.md -section "$v" -split 60000 -out "$RUNNER_TEMP/notes"
+          go run ./internal/changelog/gen -file CHANGELOG.md -section "$v" -compact -split 60000 -out "$RUNNER_TEMP/notes"
       # The token goes on `origin` for the push only, and comes off it again.
       - if: steps.regen.outputs.committed == 'true'
         env:
@@ -139,7 +139,7 @@ jobs:
               gh api -X PATCH "repos/$repo/issues/comments/$id" -F body="@$notes/part-$i.md" > /dev/null
             fi
           done
-          # Parts past the last one, and a second comment of one part, go.
+          # Parts past the last one (all of them once the compact notes fit the body), and a second comment of one part, go.
           jq -r --argjson n "$n" --slurp '[.[] | select(.part > $n)] + (group_by(.part) | map(.[1:][]) ) | map(.id) | unique | .[]' "$RUNNER_TEMP/comments.jsonl" | while read -r id; do
             gh api -X DELETE "repos/$repo/issues/comments/$id" > /dev/null
           done
