@@ -115,7 +115,7 @@ func withholdLocalPaths(p syncProjection) bool {
 
 // linkedWorktrees lists a bound folder's linked git worktrees; a variable so a
 // test can make the listing fail.
-var linkedWorktrees = gitx.LinkedWorktrees
+var linkedWorktrees = func(dir string) ([]string, error) { return clientconfig.LinkedWorktrees(dir) }
 
 // projectionsFor resolves every projection a provider currently has.
 //

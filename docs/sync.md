@@ -725,7 +725,7 @@ that `git worktree remove` deleted is an error for that provider's `sync` until
 `worktrees: true`; a rebind without the flag turns it off) makes `sync` list `git worktree list --porcelain -z`
 of the bound folder (`-C`, `gitx.Env()`; git 2.36 or newer; a path with a control character is ignored) and project the same artifacts into each other working tree of the repository (the linked worktrees, and the main checkout when the bound folder is itself a linked one), as the
 bound folder itself: the same KBs, untracked and excluded (one `info/exclude` block per worktree), under a
-lock key of its own. `status` lists them as `worktree of <repo>`. A worktree that `git worktree remove` deleted
+lock key of its own. `status` lists them as `worktree of <repo>`, and `workspace resolve` and the stdio bridge resolve a folder under one of them (wherever `git worktree add` put it, also outside the bound folder) to the same binding, through the same listing (#2196); a listing that fails resolves it as unbound. A worktree that `git worktree remove` deleted
 is not an error and not reported: the next `sync` drops its record without a word (the files went with the
 directory). Only a record written for a worktree of a `--worktrees` binding (`worktree: true` in its lock entry) is dropped
 that way; any other undeclared workspace whose directory is missing (an unmounted volume, a moved clone) takes the ordinary

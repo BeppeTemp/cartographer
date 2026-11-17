@@ -345,13 +345,20 @@ func (c *Config) ResolveWorkspace(provider, dir string) (WorkspaceBinding, bool,
 		return WorkspaceBinding{}, false, err
 	}
 
-	best := -1
+	best, bestLen := -1, 0
 	for i, w := range list {
-		if !pathWithin(target, w.Path) {
+		root := ""
+		switch {
+		case pathWithin(target, w.Path):
+			root = w.Path
+		case w.Worktrees && !w.Derived:
+			root = linkedWorktreeRoot(w.Path, target)
+		}
+		if root == "" {
 			continue
 		}
-		if best < 0 || len(w.Path) > len(list[best].Path) {
-			best = i
+		if best < 0 || len(root) > bestLen {
+			best, bestLen = i, len(root)
 		}
 	}
 	if best < 0 {
@@ -370,6 +377,30 @@ func (c *Config) ResolveWorkspace(provider, dir string) (WorkspaceBinding, bool,
 	}
 	w.KBs = append([]string(nil), w.KBs...)
 	return w, true, nil
+}
+
+// LinkedWorktrees lists a bound folder's linked git worktrees: the expansion of
+// a `--worktrees` binding, shared by the sync projection, `workspace status`
+// and the resolution below. A variable so tests can replace it.
+var LinkedWorktrees = gitx.LinkedWorktrees
+
+// linkedWorktreeRoot returns the linked worktree of the `--worktrees` binding
+// at bound that contains target (canonical), or "". A listing that fails
+// matches nothing: the directory then resolves as unbound, never as bound.
+func linkedWorktreeRoot(bound, target string) string {
+	wts, err := LinkedWorktrees(bound)
+	if err != nil {
+		return ""
+	}
+	for _, wt := range wts {
+		if c, err := CanonicalWorkspacePath(wt); err == nil {
+			wt = c
+		}
+		if pathWithin(target, wt) {
+			return wt
+		}
+	}
+	return ""
 }
 
 // GrantAccessHint is what an operator does about a bound directory the process
