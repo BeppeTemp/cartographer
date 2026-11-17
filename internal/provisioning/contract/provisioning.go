@@ -604,7 +604,7 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 		// server, single-file like agents. No mcp/ folder → zero artifacts
 		// (backward compat). Parse+validation here (parseMCPServerSpec): a
 		// malformed file, or one with a headers/env value that looks like a
-		// literal secret, fails BuildManifest, not Apply (WP2). An unsigned MCP
+		// literal secret, is left out of the manifest with an issue (#2219). An unsigned MCP
 		// descriptor needs its own hash-bound approval, signed or not (D906). A
 		// D114 signature remains independently verifiable.
 		mcpDir := filepath.Join(kbRoot, "mcp")
@@ -633,7 +633,10 @@ func BuildManifest(bundleFS fs.FS, kbRoots map[string]string, opts BuildOptions)
 				}
 				if mcpSize == 0 { // an over-cap descriptor is never parsed; sync_pull leaves it out
 					if _, specErr := ParseMCPServerSpec(name, data); specErr != nil {
-						return Manifest{}, fmt.Errorf("provisioning: %w", specErr)
+						// One bad descriptor must not fail the whole KB's pull (#2219):
+						// it is left out with an issue naming it, the rest is served.
+						issues = append(issues, fmt.Sprintf("KB %q: mcp %q left out: %v", kbName, name, specErr))
+						continue
 					}
 				}
 				hash, hashErr := ContentHashFile(mcpPath)
