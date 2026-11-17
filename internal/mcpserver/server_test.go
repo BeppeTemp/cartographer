@@ -5951,7 +5951,10 @@ func TestServer_Lint_ZeroFindingsIsJSON(t *testing.T) {
 	k := setupTestKB(t)
 	s := New("test")
 	RegisterKBTools(s, k, Deps{})
-	tr := callTool(t, s, "lint", `{"scope":"no-such-scope"}`)
+	if err := os.MkdirAll(filepath.Join(k.DataRoot(), "empty-scope"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tr := callTool(t, s, "lint", `{"scope":"empty-scope"}`)
 	var out struct {
 		Count    int              `json:"count"`
 		Findings []map[string]any `json:"findings"`

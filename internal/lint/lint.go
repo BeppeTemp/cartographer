@@ -975,6 +975,10 @@ func ledgerEntryOf(lg *kb.LinkGraph, id okf.ConceptID) bool {
 	return ok && kb.IsSourceType(lg.Facets[i].Type)
 }
 
+// orphanMessage is what a page nothing links to reads: a link INTO the page is
+// the fix (an outgoing link does not count), made in the same write (#2239).
+const orphanMessage = "no incoming links: no other page links to it, and its own outgoing links do not count — add a link to it from an existing page (the map's index page or a page of the same type) in the same concept_batch"
+
 // orphanFinding is the orphan check for one concept (shared with ScopedCheck,
 // D312). in and out are the link graph's edges; present says whether a link
 // target is an existing concept; isRetired is the concept's status, already
@@ -1013,7 +1017,7 @@ func orphanFinding(id okf.ConceptID, relPath string, isRetired, ledgerEntry bool
 	case !atArchiveTop:
 		return newFinding("orphan", Finding{
 			Path:    relPath,
-			Message: "no incoming links",
+			Message: orphanMessage,
 		}), true
 	case outgoing == 0 && ledgerEntry:
 		// A Source registered in its journal is a leaf by nature: it records a

@@ -2395,3 +2395,41 @@ func TestScaffoldMap_ReservedNameSameRefusal(t *testing.T) {
 		}
 	}
 }
+
+// #2239: an unknown scope is refused without a server path; the strict-ontology
+// message says "map" for a map.
+func TestValidate_UnknownScopeNamesNoPath(t *testing.T) {
+	t.Parallel()
+	k := newTestKB(t)
+	for _, scope := range []string{"nosuchmap", `""`} {
+		_, err := k.Validate(scope)
+		if !errors.Is(err, ErrUnknownScope) {
+			t.Fatalf("scope %q: %v", scope, err)
+		}
+		if strings.Contains(err.Error(), k.Root) || !strings.Contains(err.Error(), "map_list") {
+			t.Errorf("scope %q: %q", scope, err)
+		}
+	}
+	if err := k.CheckScope(""); err != nil {
+		t.Errorf("empty scope: %v", err)
+	}
+}
+
+func TestValidate_StrictMessageSaysMapNotArchive(t *testing.T) {
+	t.Parallel()
+	k := newTestKB(t)
+	if err := k.CreateMap("ops", "Ops", "map", []string{"Runbook"}); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(k.DataRoot(), "ops", "x.md")
+	if err := os.WriteFile(p, []byte("---\ntype: Note\ntitle: T\n---\nx\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	errs, err := k.Validate("ops")
+	if err != nil || len(errs) == 0 {
+		t.Fatalf("%v %v", errs, err)
+	}
+	if !strings.Contains(errs[0].Message, "not allowed in map ops") || strings.Contains(errs[0].Message, "archive") {
+		t.Errorf("%q", errs[0].Message)
+	}
+}
