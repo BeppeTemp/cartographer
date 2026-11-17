@@ -219,7 +219,7 @@ func unmappedFolderFindings(k *kb.KB, archives []string, concepts map[okf.Concep
 	}
 	var out []Finding
 	for _, name := range archives {
-		if !withConcepts[name] || !scopeMatches(name) {
+		if !withConcepts[name] || !scopeMatches(name) || slices.Contains(okf.ReservedMapNames, name) {
 			continue
 		}
 		if _, err := k.ReadRaw(name + "/_map.md"); err == nil {
