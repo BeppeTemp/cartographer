@@ -26,6 +26,22 @@ type GateBlocker struct {
 // Contradiction concept for lifecycle and tooling, but it never blocks a write.
 var GapKinds = map[string]bool{"missing_context": true, "open_question": true}
 
+// ResolutionStatuses is the vocabulary of a Contradiction's resolution_status
+// (#2187): open, or one of the two closed outcomes. Only "open" (exact) blocks
+// or counts as open work; any other value closes the page, so a value outside
+// this list closes it silently and is flagged by lint (contradiction_status).
+var ResolutionStatuses = []string{"open", "resolved", "wontfix"}
+
+// IsResolutionStatus reports whether s is in ResolutionStatuses.
+func IsResolutionStatus(s string) bool {
+	for _, v := range ResolutionStatuses {
+		if s == v {
+			return true
+		}
+	}
+	return false
+}
+
 // IsGapKind reports whether kind is one of the reserved gap kinds.
 func IsGapKind(kind string) bool { return GapKinds[kind] }
 
