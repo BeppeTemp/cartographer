@@ -108,7 +108,7 @@ func printServerLines(w, errw io.Writer, s statusSnapshot) {
 			fmt.Fprintln(errw, "  cause:", s.Error.Cause)
 		}
 	}
-	if s.State == "version_skew" {
+	if s.State == "version_skew" || s.BuildSkew {
 		if s.BuildSkew {
 			fmt.Fprintf(w, "build skew: the local service runs another build of %s than this binary\n", s.Server)
 		} else {

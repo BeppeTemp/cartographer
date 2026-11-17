@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/buildid"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/defaults"
@@ -33,6 +34,8 @@ const (
 // scheduler or a live /health endpoint.
 var (
 	serviceRestartFn = func() error { return service.NewManager().Restart() }
+	// serviceVerifyFn waits for /health after a plain restart (#2177).
+	serviceVerifyFn  = func(opts service.ReplaceOptions) error { return service.NewManager().VerifyServing(opts) }
 	serviceReplaceFn = func(opts service.ReplaceOptions) error { return service.NewManager().Replace(opts) }
 )
 
@@ -381,6 +384,12 @@ func cmdServiceRestart(args []string) int {
 			fmt.Fprintln(os.Stderr, "Error:", err)
 			return exitStatusError
 		}
+		// `restarted` is a claim about the process, not about the command: the job
+		// can be registered and still fail to spawn (#2177).
+		if err := serviceVerifyFn(service.ReplaceOptions{ConfigPath: *configFlag, ExpectedVersion: version}); err != nil {
+			fmt.Fprintln(os.Stderr, "Error: service restarted, but it is not serving:", err)
+			return exitStatusError
+		}
 		fmt.Println("service restarted")
 		return exitStatusRunning
 	}
@@ -412,6 +421,8 @@ func cmdServiceStatus(args []string) int {
 	}
 
 	s := statusSnapshot{Schema: statusSchema, Client: version, State: "running", Service: newServiceSnapshot(st), ServerURL: clientServerURL()}
+	skewed, served := serviceBuildSkew(st)
+	s.BuildSkew = skewed
 	if !st.Installed {
 		s.State = "not_installed"
 	} else if !st.Running {
@@ -421,6 +432,9 @@ func cmdServiceStatus(args []string) int {
 		_ = json.NewEncoder(os.Stdout).Encode(s)
 	} else {
 		printServiceStatus(os.Stdout, st, s.ServerURL)
+		if skewed {
+			fmt.Printf("build skew: the local service runs another build of %s than this binary — run: cartographer upgrade-repair\n", served)
+		}
 	}
 
 	if !st.Installed {
@@ -430,6 +444,21 @@ func cmdServiceStatus(args []string) int {
 		return exitStatusStopped
 	}
 	return exitStatusRunning
+}
+
+// serviceBuildSkew reports whether the running local service answers /health
+// with this binary's version but another build of it (#2177), and that version.
+// Not judged when nothing answers, on a dev build, or when either side reports
+// no build (buildid.Same).
+func serviceBuildSkew(st service.Status) (bool, string) {
+	if !st.Installed || !st.HealthChecked || !st.Healthy || version == "" || version == "dev" {
+		return false, ""
+	}
+	hs, err := repairProbeHealthFn(st.HTTPAddr, repairHealthProbeTimeout)
+	if err != nil || hs.Status != "ok" || hs.Version != version || buildid.Same(hs.Build, buildid.Self()) {
+		return false, ""
+	}
+	return true, hs.Version
 }
 
 // printServiceStatus renders the human view of the local native service.

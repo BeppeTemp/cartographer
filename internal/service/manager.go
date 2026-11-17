@@ -1171,6 +1171,97 @@ func (m *Manager) Replace(opts ReplaceOptions) error {
 		return fmt.Errorf("service: graceful restart: %w", err)
 	}
 
+	err = m.waitServing(cfg.HTTP, configPath, opts, before)
+	if err == nil || goos != "darwin" {
+		return err
+	}
+	// A malformed answer is a verdict, not a stalled start.
+	var protoErr *healthProtocolError
+	if errors.As(err, &protoErr) {
+		return err
+	}
+	// The in-place signal did not bring the new binary up. launchd keeps a
+	// launch constraint recorded for the binary the job was registered with, so
+	// a replaced binary can fail to spawn (EX_CONFIG) however often the job is
+	// restarted: only a bootout + bootstrap refreshes it (#2177).
+	noticef("note: the in-place restart did not bring %s up on the expected build; re-registering the launchd job (bootout + bootstrap)", healthURL(cfg.HTTP))
+	if rerr := m.reregisterLaunchd(); rerr != nil {
+		return fmt.Errorf("%w; re-registering the launchd job failed: %v%s", err, rerr, m.launchdStateSuffix())
+	}
+	if err2 := m.waitServing(cfg.HTTP, configPath, opts, before); err2 != nil {
+		return fmt.Errorf("%w (after re-registering the launchd job)%s", err2, m.launchdStateSuffix())
+	}
+	noticef("note: the service came up after re-registering the launchd job")
+	return nil
+}
+
+// VerifyServing blocks until /health answers ok for opts.ExpectedVersion (and
+// build), after a restart the caller already made: it signals nothing. A
+// service configured without an HTTP address has nothing to verify. On darwin
+// the error carries the job's launchctl state (#2177).
+func (m *Manager) VerifyServing(opts ReplaceOptions) error {
+	configPath, err := m.EffectiveConfigPath(opts.ConfigPath)
+	if err != nil {
+		return err
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		return fmt.Errorf("service: load config %s: %w", configPath, err)
+	}
+	if cfg.HTTP == "" {
+		return nil
+	}
+	if err := m.waitServing(cfg.HTTP, configPath, opts, HealthStatus{}); err != nil {
+		return fmt.Errorf("%w%s", err, m.launchdStateSuffix())
+	}
+	return nil
+}
+
+// reregisterLaunchd is what `service install` does to the job, without
+// touching its definition: unload it, wait until it is gone, bootstrap it.
+func (m *Manager) reregisterLaunchd() error {
+	plistPath, err := LaunchdPlistPath()
+	if err != nil {
+		return fmt.Errorf("service: resolve plist path: %w", err)
+	}
+	if err := m.bootoutAndWait(launchdLabel, plistPath); err != nil {
+		return err
+	}
+	uid := os.Getuid()
+	// Stop disables the job; a bootstrap of a disabled job is refused.
+	m.run("launchctl", "enable", fmt.Sprintf("gui/%d/%s", uid, launchdLabel))
+	if _, err := m.run("launchctl", "bootstrap", fmt.Sprintf("gui/%d", uid), plistPath); err != nil {
+		return fmt.Errorf("service: launchctl bootstrap: %w", err)
+	}
+	return nil
+}
+
+// launchdStateSuffix renders the lines of `launchctl print` that say why a job
+// does not run (its state, last exit code and job state), as a suffix for an
+// error; empty off darwin or when nothing can be read.
+func (m *Manager) launchdStateSuffix() string {
+	if goos != "darwin" {
+		return ""
+	}
+	out, _ := m.run("launchctl", "print", fmt.Sprintf("gui/%d/%s", os.Getuid(), launchdLabel))
+	var parts []string
+	for _, line := range strings.Split(out, "\n") {
+		l := strings.TrimSpace(line)
+		for _, k := range []string{"state = ", "last exit code = ", "job state = "} {
+			if strings.HasPrefix(l, k) && !strings.HasPrefix(line, "\t\t") {
+				parts = append(parts, l)
+			}
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "; launchctl print: " + strings.Join(parts, ", ")
+}
+
+// waitServing polls /health until it serves opts' version and build from a
+// process other than before's, or the timeout passes.
+func (m *Manager) waitServing(httpAddr, configPath string, opts ReplaceOptions, before HealthStatus) error {
 	timeout := opts.Timeout
 	if timeout <= 0 {
 		timeout = DefaultReplaceTimeout
@@ -1180,13 +1271,13 @@ func (m *Manager) Replace(opts ReplaceOptions) error {
 		interval = DefaultReplacePollInterval
 	}
 
-	endpoint := healthURL(cfg.HTTP)
+	endpoint := healthURL(httpAddr)
 	deadline := time.Now().Add(timeout)
 	var lastStatus, lastVersion, lastBuild string
 	var lastErr error
 	var sameProcess, bootstrapping bool
 	for {
-		hs, err := ProbeHealth(cfg.HTTP, healthTimeout)
+		hs, err := ProbeHealth(httpAddr, healthTimeout)
 		if err != nil {
 			var protoErr *healthProtocolError
 			if errors.As(err, &protoErr) {

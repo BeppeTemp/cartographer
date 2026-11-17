@@ -2208,3 +2208,137 @@ func TestServesBuild_DevAndEmptyVersionsIgnoreTheBuild(t *testing.T) {
 		t.Error("a release version with another build must not be current")
 	}
 }
+
+// launchdFallbackStub is a fake launchctl for #2177: `kill` does nothing (the
+// job is in "spawn failed"), and a bootstrap after a bootout makes the health
+// server answer from then on. print reports the failing state until then.
+type launchdFallbackStub struct {
+	stubRunner
+	bootstrapped bool
+	onBoot       func()
+	bootFail     bool
+}
+
+func (s *launchdFallbackStub) run(name string, args ...string) (string, error) {
+	out, err := s.stubRunner.run(name, args...)
+	if name == "launchctl" && len(args) > 0 {
+		switch args[0] {
+		case "bootstrap":
+			if s.bootFail {
+				return "", errNotLoaded
+			}
+			s.bootstrapped = true
+			if s.onBoot != nil {
+				s.onBoot()
+			}
+		case "print":
+			if err == nil && !s.bootstrapped {
+				return "gui/501/x = {\n\tstate = spawn scheduled\n\tlast exit code = 78: EX_CONFIG\n\tjob state = spawn failed\n\tevent triggers = {\n\t\tstate = waiting\n\t}\n}", nil
+			}
+		}
+	}
+	return out, err
+}
+
+func TestReplace_DarwinReregistersTheJobWhenTheRestartDoesNotServe(t *testing.T) {
+	home := withTestHome(t, "darwin")
+	var up int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.LoadInt32(&up) == 0 {
+			fmt.Fprint(w, `{"status":"ok","version":"v1.0.0","started_at":"t0"}`)
+			return
+		}
+		fmt.Fprint(w, `{"status":"ok","version":"v1.2.3","started_at":"t1"}`)
+	}))
+	defer srv.Close()
+	configPath := writeReplaceConfig(t, home, serverAddr(srv))
+	var notes []string
+	oldNotice := noticef
+	noticef = func(f string, a ...any) { notes = append(notes, fmt.Sprintf(f, a...)) }
+	t.Cleanup(func() { noticef = oldNotice })
+
+	stub := &launchdFallbackStub{onBoot: func() { atomic.StoreInt32(&up, 1) }}
+	m := &Manager{run: stub.run}
+	if err := m.Replace(ReplaceOptions{ConfigPath: configPath, ExpectedVersion: "v1.2.3", Timeout: 100 * time.Millisecond, PollInterval: 10 * time.Millisecond}); err != nil {
+		t.Fatalf("Replace: %v", err)
+	}
+	var kill, boot, bootstrap int
+	for _, c := range stub.calls {
+		if len(c) < 2 || c[0] != "launchctl" {
+			continue
+		}
+		switch c[1] {
+		case "kill":
+			kill++
+		case "bootout":
+			boot++
+		case "bootstrap":
+			bootstrap++
+		}
+	}
+	if kill != 1 || boot != 1 || bootstrap != 1 {
+		t.Errorf("kill=%d bootout=%d bootstrap=%d, want one of each (%v)", kill, boot, bootstrap, stub.calls)
+	}
+	if !strings.Contains(strings.Join(notes, "\n"), "re-registering") {
+		t.Errorf("notices = %q, want the path taken to be reported", notes)
+	}
+}
+
+func TestReplace_DarwinFallbackFailureNamesTheLaunchctlState(t *testing.T) {
+	home := withTestHome(t, "darwin")
+	srv := newHealthServer(t, healthOK("v1.0.0"))
+	configPath := writeReplaceConfig(t, home, serverAddr(srv.Server))
+	oldNotice := noticef
+	noticef = func(string, ...any) {}
+	t.Cleanup(func() { noticef = oldNotice })
+
+	stub := &launchdFallbackStub{bootFail: true}
+	m := &Manager{run: stub.run}
+	err := m.Replace(ReplaceOptions{ConfigPath: configPath, ExpectedVersion: "v1.2.3", Timeout: 50 * time.Millisecond, PollInterval: 10 * time.Millisecond})
+	if err == nil {
+		t.Fatal("Replace reported success for a service that never came up")
+	}
+	for _, want := range []string{"re-registering the launchd job failed", "spawn failed", "EX_CONFIG"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error = %v, want %q", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "state = waiting") {
+		t.Errorf("error = %v, must not quote the nested event trigger state", err)
+	}
+}
+
+func TestReplace_LinuxDoesNotReregister(t *testing.T) {
+	home := withTestHome(t, "linux")
+	srv := newHealthServer(t, healthOK("v1.0.0"))
+	configPath := writeReplaceConfig(t, home, serverAddr(srv.Server))
+	m, stub := newTestManager()
+	if err := m.Replace(ReplaceOptions{ConfigPath: configPath, ExpectedVersion: "v1.2.3", Timeout: 50 * time.Millisecond, PollInterval: 10 * time.Millisecond}); err == nil {
+		t.Fatal("want a timeout")
+	}
+	for _, c := range stub.calls {
+		if c[0] == "launchctl" {
+			t.Errorf("unexpected launchctl call %v", c)
+		}
+	}
+}
+
+func TestVerifyServing(t *testing.T) {
+	home := withTestHome(t, "darwin")
+	srv := newHealthServer(t, healthOK("v1.0.0"))
+	configPath := writeReplaceConfig(t, home, serverAddr(srv.Server))
+	stub := &launchdFallbackStub{}
+	m := &Manager{run: stub.run}
+	err := m.VerifyServing(ReplaceOptions{ConfigPath: configPath, ExpectedVersion: "v1.2.3", Timeout: 50 * time.Millisecond, PollInterval: 10 * time.Millisecond})
+	if err == nil || !strings.Contains(err.Error(), "spawn failed") {
+		t.Fatalf("VerifyServing = %v, want a timeout naming the launchctl state", err)
+	}
+	for _, c := range stub.calls {
+		if len(c) > 1 && (c[1] == "bootout" || c[1] == "kill" || c[1] == "kickstart") {
+			t.Errorf("VerifyServing must signal nothing, got %v", c)
+		}
+	}
+	if err := m.VerifyServing(ReplaceOptions{ConfigPath: configPath, ExpectedVersion: "v1.0.0", Timeout: time.Second, PollInterval: 10 * time.Millisecond}); err != nil {
+		t.Errorf("VerifyServing on a serving version: %v", err)
+	}
+}

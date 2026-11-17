@@ -27,6 +27,7 @@ func TestCmdStatus_VersionReport(t *testing.T) {
 		serverVersion    string
 		serverBuild      string
 		serviceInstalled bool
+		drift            bool
 		want             []string
 		dontWant         []string
 	}{
@@ -69,6 +70,16 @@ func TestCmdStatus_VersionReport(t *testing.T) {
 				"local service may still run the old binary — run: cartographer upgrade-repair",
 			},
 			dontWant: []string{"version skew:"},
+		},
+		{
+			name:             "build skew shows in drift too",
+			serverURL:        "http://127.0.0.1:39273/mcp",
+			clientVersion:    "v1.2.3",
+			serverVersion:    "v1.2.3",
+			serverBuild:      "vcs:rebuilt-elsewhere",
+			serviceInstalled: true,
+			drift:            true,
+			want:             []string{"build skew: the local service runs another build of v1.2.3 than this binary", "drift"},
 		},
 		{
 			name:             "same version and build",
@@ -117,6 +128,9 @@ func TestCmdStatus_VersionReport(t *testing.T) {
 			// same manifest it serves rather than hardcoding a matching pair.
 			served := contract.Manifest{Revision: "rev1"}
 			appliedRev := provisioning.FilterForProvider(served, configurator.ProviderClaudeCode).Revision
+			if tc.drift {
+				appliedRev = "stale-" + appliedRev
+			}
 			if err := provisioning.WriteLockFile(lockFilePath(home), provisioning.LockFile{Providers: map[string]provisioning.Lock{
 				"claude": {Provider: "claude", AppliedRevision: appliedRev},
 			}}); err != nil {
@@ -137,8 +151,12 @@ func TestCmdStatus_VersionReport(t *testing.T) {
 			})
 
 			out := withStdout(t, func() {
-				if code := cmdStatus(nil); code != 0 {
-					t.Errorf("cmdStatus = %d, want 0", code)
+				wantCode := 0
+				if tc.drift {
+					wantCode = 1
+				}
+				if code := cmdStatus(nil); code != wantCode {
+					t.Errorf("cmdStatus = %d, want %d", code, wantCode)
 				}
 			})
 			for _, want := range tc.want {
