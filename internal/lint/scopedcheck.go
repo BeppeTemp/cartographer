@@ -2,6 +2,8 @@ package lint
 
 import (
 	"errors"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 
@@ -133,6 +135,7 @@ func ScopedCheck(k *kb.KB, ids []okf.ConceptID) []Finding {
 	curated := map[string][]okf.ConceptID{}
 	present := func(t okf.ConceptID) bool { _, ok := links.Exists[t]; return ok }
 
+	written := map[string]bool{} // top-level folders of the pages written
 	for _, id := range inputs {
 		node, inGraph := lg.Index[id]
 		if _, ok := links.Exists[id]; !ok || !inGraph {
@@ -217,11 +220,25 @@ func ScopedCheck(k *kb.KB, ids []okf.ConceptID) []Finding {
 		}
 
 		parts := strings.Split(string(id), "/")
+		if len(parts) >= 2 {
+			written[parts[0]] = true
+		}
 		switch {
 		case len(parts) == 2:
 			curated[parts[0]] = append(curated[parts[0]], id)
 		case len(parts) > 2:
 			curated[parts[0]+"/"+parts[1]] = append(curated[parts[0]+"/"+parts[1]], id)
+		}
+	}
+
+	// A write into a folder that is not a declared Map, in a KB that declares
+	// some, is a typo until proven otherwise (#2185). A KB with no Map at all
+	// is a legacy one and is left alone.
+	if len(written) > 0 && len(declaredMaps(k, archives)) > 0 {
+		for _, name := range slices.Sorted(maps.Keys(written)) {
+			if !hasMapDescriptor(k, name) {
+				findings = append(findings, unmappedFolderFinding(k, name, archives))
+			}
 		}
 	}
 

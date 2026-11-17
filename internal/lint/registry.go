@@ -180,7 +180,7 @@ var registry = []CheckSpec{
 	{Name: "oversized_asset", Level: LevelMap, AvoidableAtWrite: true, Category: CategoryMaps},
 	{Name: "orphan_asset", Level: LevelMap, Category: CategoryMaps},
 	// The data/ tree (D357). unmapped_folder is on a folder, not a page.
-	{Name: "unmapped_folder", Level: LevelMap, FixKinds: []string{FixScaffoldMap}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryMaps},
+	{Name: "unmapped_folder", Level: LevelMap, OnWrite: true, FixKinds: []string{FixScaffoldMap}, AutoRepairSafe: true, AvoidableAtWrite: true, Category: CategoryMaps},
 	{Name: "stray_file", Level: LevelMap, Judgement: true, AvoidableAtWrite: true, Category: CategoryMaps},
 
 	// KB-root artifacts (D316).

@@ -2,6 +2,7 @@ package kb
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
@@ -63,6 +64,18 @@ func (kb *KB) contradictionFiles() ([]string, error) {
 // and checks if their "involves" list intersects with changedIDs.
 // Returns Pass=true if no blocking contradictions found.
 func (kb *KB) CommitGate(changedIDs []okf.ConceptID) (*GateResult, error) {
+	return kb.commitGate(changedIDs, false, "")
+}
+
+// CommitGateKB is CommitGate over the whole KB (#2185): every open, non-gap
+// contradiction blocks, whatever it involves, so the whole-KB gate applies the
+// rule the changed_ids one does. A non-empty scope keeps the contradictions
+// whose own path is under that prefix.
+func (kb *KB) CommitGateKB(scope string) (*GateResult, error) {
+	return kb.commitGate(nil, true, scope)
+}
+
+func (kb *KB) commitGate(changedIDs []okf.ConceptID, whole bool, scope string) (*GateResult, error) {
 	changedSet := make(map[string]bool, len(changedIDs))
 	for _, id := range changedIDs {
 		changedSet[string(id)] = true
@@ -76,6 +89,9 @@ func (kb *KB) CommitGate(changedIDs []okf.ConceptID) (*GateResult, error) {
 	result := &GateResult{Pass: true}
 
 	for _, rel := range files {
+		if whole && scope != "" && !strings.HasPrefix(rel, strings.TrimSuffix(scope, "/")) {
+			continue
+		}
 		content, err := kb.ReadRaw(rel)
 		if err != nil {
 			continue
@@ -111,7 +127,7 @@ func (kb *KB) CommitGate(changedIDs []okf.ConceptID) (*GateResult, error) {
 
 		// Collect the involves list.
 		invVal, ok := parsed.Get("involves")
-		if !ok {
+		if !ok && !whole {
 			continue
 		}
 		var involvesIDs []string
@@ -123,11 +139,13 @@ func (kb *KB) CommitGate(changedIDs []okf.ConceptID) (*GateResult, error) {
 				involvesIDs = []string{v}
 			}
 		default:
-			continue
+			if !whole {
+				continue
+			}
 		}
 
 		// Check intersection with changedIDs.
-		intersects := false
+		intersects := whole
 		for _, inv := range involvesIDs {
 			if changedSet[inv] {
 				intersects = true

@@ -10,6 +10,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
+	"github.com/BeppeTemp/cartographer/internal/settingschema"
 )
 
 // The drift audit's checks (D357): shapes a KB drifts into that nothing
@@ -227,13 +228,76 @@ func unmappedFolderFindings(k *kb.KB, archives []string, concepts map[okf.Concep
 		if _, err := k.ReadRaw(name + "/_archive.md"); err == nil {
 			continue // legacy_archive_descriptor owns it
 		}
-		out = append(out, newFinding("unmapped_folder", Finding{
-			Path:    name,
-			Message: fmt.Sprintf("folder %q holds concepts but has no _map.md: map_list shows it with no title or kind and no contract applies — fix: scaffold the descriptor", name),
-			Fix:     &Fix{Kind: FixScaffoldMap, Field: name, To: HumanizeName(name)},
-		}))
+		out = append(out, unmappedFolderFinding(k, name, archives))
 	}
 	return out
+}
+
+// declaredMaps returns the top-level folders that carry a descriptor
+// (_map.md, or the legacy _archive.md), sorted. A KB with none is a legacy one
+// and declares no Maps: no folder is then judged against them.
+func declaredMaps(k *kb.KB, archives []string) []string {
+	var out []string
+	for _, name := range archives {
+		if hasMapDescriptor(k, name) {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func hasMapDescriptor(k *kb.KB, name string) bool {
+	if _, err := k.ReadRaw(name + "/_map.md"); err == nil {
+		return true
+	}
+	_, err := k.ReadRaw(name + "/_archive.md")
+	return err == nil
+}
+
+// closestMaps returns up to three of the declared maps nearest to name by
+// edit distance (ties by name): the likely intent behind a typo.
+func closestMaps(name string, declared []string) []string {
+	type cand struct {
+		name string
+		d    int
+	}
+	cs := make([]cand, 0, len(declared))
+	for _, m := range declared {
+		cs = append(cs, cand{m, settingschema.EditDistance(name, m)})
+	}
+	sort.SliceStable(cs, func(i, j int) bool {
+		if cs[i].d != cs[j].d {
+			return cs[i].d < cs[j].d
+		}
+		return cs[i].name < cs[j].name
+	})
+	if len(cs) > 3 {
+		cs = cs[:3]
+	}
+	out := make([]string, len(cs))
+	for i, c := range cs {
+		out[i] = c.name
+	}
+	return out
+}
+
+// unmappedFolderFinding is the unmapped_folder finding of folder name. The
+// message names the closest declared Maps when the KB declares any, and
+// map_create as the way to declare a new one (#2185): the whole-KB lint and the
+// write gate report the same finding, so a refused write and a later lint read
+// alike.
+func unmappedFolderFinding(k *kb.KB, name string, archives []string) Finding {
+	msg := fmt.Sprintf("folder %q holds concepts but is not a declared Map (no _map.md): map_list shows it with no title or kind and no contract applies", name)
+	if declared := declaredMaps(k, archives); len(declared) > 0 {
+		msg += fmt.Sprintf("; closest declared maps: %s — write under one of them, or declare this one with map_create first", strings.Join(closestMaps(name, declared), ", "))
+	}
+	msg += " — fix: scaffold the descriptor"
+	return newFinding("unmapped_folder", Finding{
+		Path:    name,
+		Message: msg,
+		Fix:     &Fix{Kind: FixScaffoldMap, Field: name, To: HumanizeName(name)},
+	})
 }
 
 // strayFileFindings reports the non-Markdown files in data/ that are not an

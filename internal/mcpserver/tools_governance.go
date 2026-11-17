@@ -404,11 +404,39 @@ func dropMirroredValidation(findings []lint.Finding, valErrs []kb.ValidationErro
 	return kept
 }
 
+// gateBlockedByPerSource caps the entries gate_check names per source: enough
+// to act on, and no source hides another (a long lint list must not push the
+// open contradiction out).
+const gateBlockedByPerSource = 2
+
+// gateBlockedBy names the findings that make gate_check fail (#2185), in the
+// order the gate checks them: validation errors, lint findings, contradictions.
+func gateBlockedBy(valErrs []kb.ValidationError, lintFindings []lint.Finding, blockers []kb.GateBlocker) []map[string]string {
+	out := []map[string]string{}
+	n := map[string]int{}
+	add := func(e map[string]string) {
+		if n[e["source"]] < gateBlockedByPerSource {
+			n[e["source"]]++
+			out = append(out, e)
+		}
+	}
+	for _, e := range valErrs {
+		add(map[string]string{"source": "validation_errors", "path": e.Path, "message": e.Message})
+	}
+	for _, f := range lintFindings {
+		add(map[string]string{"source": "lint_findings", "check": f.Check, "path": f.Path, "message": f.Message})
+	}
+	for _, b := range blockers {
+		add(map[string]string{"source": "gate_blockers", "path": b.ConceptPath, "message": "open contradiction (" + b.Kind + "): resolve it with conflict_resolve"})
+	}
+	return out
+}
+
 func toolGateCheck(k *kb.KB) Tool {
 	return Tool{
 		Name:        "gate_check",
 		ReadOnly:    true,
-		Description: "Local gate: validate + lint + commit_gate. Use at session end over the IDs you wrote, or before fast-forwarding to main. changed_ids alone lints just those (no whole-KB structure checks); empty changed_ids: whole KB, no commit gate; scope: a path prefix. pass needs zero lint findings in the scope, no validation error and a passing commit gate: a finding is a problem to fix.",
+		Description: "Local gate: validate + lint + commit_gate. Use at session end over the IDs you wrote, or before fast-forwarding to main. changed_ids alone lints just those (no whole-KB structure checks); empty changed_ids: whole KB; scope: a path prefix. pass needs zero lint findings in the scope, no validation error and a passing commit gate: a finding is a problem to fix.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["changed_ids"],
@@ -508,16 +536,20 @@ func toolGateCheck(k *kb.KB) Tool {
 			// 3. Commit gate. It checks the contradictions that involve the
 			// changed concepts, so with none there is nothing to check: an empty
 			// changed_ids is the whole-KB session-end gate (D318).
-			gate := &kb.GateResult{Pass: true}
+			// With none (the whole-KB or scope gate) every open contradiction
+			// in the scope blocks, the same rule (#2185).
+			var gate *kb.GateResult
+			var gateErr error
 			if len(ids) > 0 {
-				var err error
-				gate, err = k.CommitGate(ids)
-				if err != nil {
-					return errorResult(fmt.Sprintf("gate_check: commit_gate: %v", err)), nil
-				}
-				if !gate.Pass {
-					pass = false
-				}
+				gate, gateErr = k.CommitGate(ids)
+			} else {
+				gate, gateErr = k.CommitGateKB(params.Scope)
+			}
+			if gateErr != nil {
+				return errorResult(fmt.Sprintf("gate_check: commit_gate: %v", gateErr)), nil
+			}
+			if !gate.Pass {
+				pass = false
 			}
 
 			type valErrJSON struct {
@@ -551,6 +583,9 @@ func toolGateCheck(k *kb.KB) Tool {
 				"gate_blockers":     blockers,
 				"lint_count":        lintTotal,
 				"counts_by_check":   countsByCheck,
+			}
+			if !pass {
+				result["blocked_by"] = gateBlockedBy(valErrs, lintFindings, gate.Blockers)
 			}
 			return jsonResult(result), nil
 		},

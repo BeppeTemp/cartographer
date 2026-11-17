@@ -137,6 +137,11 @@ func judgeWrite(k *kb.KB, toolName string, view *callerView) *ToolResult {
 			return f.Check == "template_missing" || (f.Check == "index_incomplete" && strings.Contains(f.Message, "missing or unreadable"))
 		})
 	}
+	if toolName == "concept_move" {
+		// A move into a name no Map holds yet is a rename (the services
+		// namespace migration): the folder is left to lint and the doctor.
+		post = slices.DeleteFunc(post, func(f lint.Finding) bool { return f.Check == "unmapped_folder" })
+	}
 	if len(post) == 0 {
 		return nil
 	}
