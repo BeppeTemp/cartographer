@@ -440,7 +440,7 @@ func gateBlockedBy(valErrs []kb.ValidationError, lintFindings []lint.Finding, bl
 		add(map[string]string{"source": "lint_findings", "check": f.Check, "path": f.Path, "message": f.Message})
 	}
 	for _, b := range blockers {
-		add(map[string]string{"source": "gate_blockers", "path": b.ConceptPath, "message": "open contradiction (" + b.Kind + "): resolve it with conflict_resolve"})
+		add(map[string]string{"source": "gate_blockers", "path": b.ConceptPath, "message": "open contradiction (" + b.Kind + "): close it with `concept_patch` setting `resolution_status` to `resolved` or `wontfix`"})
 	}
 	return out
 }
