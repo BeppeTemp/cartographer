@@ -538,3 +538,49 @@ func hookRegistrationExpected(provider configurator.Provider, hookDir string) bo
 	_, skip := hookEventWarning("", provider, spec.Event)
 	return !skip
 }
+
+// LockAfterPartialPrune is lock without the files a refused prune did remove
+// (removed). An artifact directory left partly standing gets its
+// MaterializedHash recomputed over the files that remain: they were verified
+// before the pass and are untouched, so the retry must not read the files sync
+// itself removed as a change (#2218). Nothing is rebased when no file of the
+// artifact was removed, or none remains.
+func LockAfterPartialPrune(lock Lock, removed []ManagedFile, provider configurator.Provider, baseDir string) Lock {
+	gone := make(map[string]bool, len(removed))
+	touched := map[string]bool{}
+	for _, mf := range removed {
+		gone[mf.Kind+"\x00"+mf.Name+"\x00"+filepath.ToSlash(mf.Path)] = true
+		touched[mf.Kind+"\x00"+mf.Name] = true
+	}
+	left := make([]ManagedFile, 0, len(lock.Managed))
+	for _, mf := range lock.Managed {
+		if !gone[mf.Kind+"\x00"+mf.Name+"\x00"+filepath.ToSlash(mf.Path)] {
+			left = append(left, mf)
+		}
+	}
+	rebased := map[string]string{}
+	for _, mf := range left {
+		key := mf.Kind + "\x00" + mf.Name
+		if !touched[key] || (mf.Kind != "skill" && mf.Kind != "hook") || mf.MaterializedHash == "" {
+			continue
+		}
+		if _, done := rebased[key]; done {
+			continue
+		}
+		rebased[key] = ""
+		destRel, full, ok := managedDest(mf, provider, baseDir, lock.ScopeOf())
+		if !ok {
+			continue
+		}
+		if h, err := contentHashDirManaged(mf, full, ownedPaths(left, mf, destRel)); err == nil {
+			rebased[key] = h
+		}
+	}
+	for i, mf := range left {
+		if h := rebased[mf.Kind+"\x00"+mf.Name]; h != "" {
+			left[i].MaterializedHash = h
+		}
+	}
+	lock.Managed = left
+	return lock
+}

@@ -443,7 +443,7 @@ func pruneProviderWorkspaces(lockFile *provisioning.LockFile, cfg *clientconfig.
 		keep := lockFile.CoOwnedPaths(key)
 		managed := provisioning.WithoutCoOwned(lock.Managed, keep)
 
-		toPrune, kept := verifiedPrunable(managed, lock, provider, base)
+		toPrune, kept, _ := verifiedPrunable(managed, lock, provider, base)
 
 		pruned, err := provisioning.PruneManaged(toPrune, base, dryRun)
 		var pruneRefused *provisioning.PruneRefusedError
@@ -540,7 +540,10 @@ func untrustedSection(cfg *clientconfig.Config, key provisioning.Projection, loc
 // prune may remove and the reasons the others stay. Fail closed: a file is
 // removed only when it is gone, or still hashes to what the sync wrote; a path
 // outside the repository, modified or unverifiable content stays.
-func verifiedPrunable(managed []provisioning.ManagedFile, lock provisioning.Lock, provider, base string) (toPrune []provisioning.ManagedFile, kept []string) {
+// unverifiable is true when a file could not be read at all (an unreadable
+// folder: chmod 000, a TCC denial): a caller that retries later keeps the
+// entry instead of dropping it (#2218).
+func verifiedPrunable(managed []provisioning.ManagedFile, lock provisioning.Lock, provider, base string) (toPrune []provisioning.ManagedFile, kept []string, unverifiable bool) {
 	inside := make([]provisioning.ManagedFile, 0, len(managed))
 	for _, mf := range managed {
 		if filepath.IsAbs(mf.Path) || !filepath.IsLocal(mf.Path) {
@@ -559,6 +562,9 @@ func verifiedPrunable(managed []provisioning.ManagedFile, lock provisioning.Lock
 		case provisioning.DriftMissing, provisioning.DriftUnregistered, provisioning.DriftUnrunnable, provisioning.DriftForeign:
 		default:
 			modified[f.Kind+"\x00"+f.Name] = filepath.ToSlash(f.Path)
+			if f.Reason == provisioning.DriftError {
+				unverifiable = true
+			}
 			why[f.Kind+"\x00"+f.Name] = f.Reason
 		}
 	}
@@ -579,5 +585,5 @@ func verifiedPrunable(managed []provisioning.ManagedFile, lock provisioning.Lock
 		}
 		toPrune = append(toPrune, mf)
 	}
-	return toPrune, kept
+	return toPrune, kept, unverifiable
 }

@@ -366,3 +366,123 @@ func TestPruneOrphanProjections_PermissionDeniedIsRefusal(t *testing.T) {
 		t.Errorf("denied = %v, stderr %q", den, errb.String())
 	}
 }
+
+// A refused prune of a multi-file artifact keeps the files not yet removed in
+// the lock and does not read the ones it removed as a change: once the
+// permission allows, the retry removes the rest and the projection leaves
+// the lock (#2218).
+func TestPruneOrphanProjectionsRetriesPartiallyRemovedArtifact(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("a read-only directory does not deny the owner on Windows or as root")
+	}
+	ws := t.TempDir()
+	skill := filepath.Join(ws, ".claude", "skills", "a")
+	if err := os.MkdirAll(filepath.Join(skill, "lib"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for rel, body := range map[string]string{"SKILL.md": "---\nname: a\n---\nbody\n", "lib/x.md": "x\n"} {
+		if err := os.WriteFile(filepath.Join(skill, filepath.FromSlash(rel)), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h, err := provisioning.ContentHashDirOSForKind(skill, "skill")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lf := &provisioning.LockFile{}
+	key := provisioning.Projection{Provider: "claude", Workspace: ws}
+	lf.SetProjection(key, provisioning.Lock{BaseDir: ws, Managed: []provisioning.ManagedFile{
+		{Path: ".claude/skills/a/SKILL.md", Kind: "skill", Name: "a", ContentHash: h, MaterializedHash: h},
+		{Path: ".claude/skills/a/lib/x.md", Kind: "skill", Name: "a", ContentHash: h, MaterializedHash: h},
+	}})
+	// SKILL.md cannot go (its parent is read-only), lib/x.md can.
+	if err := os.Chmod(skill, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(skill, 0o755) })
+
+	declared := []syncProjection{{Provider: "claude", Workspace: "/elsewhere", Scope: contract.ScopeProject}}
+	run := func() (string, []string) {
+		var out, errb bytes.Buffer
+		var den []string
+		if _, err := pruneOrphanProjections(syncStreams{Out: &out, Err: &errb}, lf, declared, nil, t.TempDir(), &den); err != nil {
+			t.Fatal(err)
+		}
+		return errb.String(), den
+	}
+	if _, den := run(); len(den) != 1 {
+		t.Fatalf("first run: denied = %v", den)
+	}
+	if _, err := os.Stat(filepath.Join(skill, "lib", "x.md")); !os.IsNotExist(err) {
+		t.Fatalf("lib/x.md should have been removed: %v", err)
+	}
+	if got := lf.ForProjection(key).Managed; len(got) != 1 || got[0].Path != ".claude/skills/a/SKILL.md" {
+		t.Fatalf("lock after the first run = %+v", got)
+	}
+	stderr, den := run()
+	if strings.Contains(stderr, "changed since sync") || len(den) != 1 || !containsKey(lf, key) {
+		t.Fatalf("second run: stderr %q, denied %v, kept %v", stderr, den, containsKey(lf, key))
+	}
+	if err := os.Chmod(skill, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if stderr, den = run(); len(den) != 0 || containsKey(lf, key) {
+		t.Fatalf("third run: stderr %q, denied %v, kept %v", stderr, den, containsKey(lf, key))
+	}
+	if _, err := os.Stat(filepath.Join(skill, "SKILL.md")); !os.IsNotExist(err) {
+		t.Errorf("SKILL.md was not removed on the retry: %v", err)
+	}
+}
+
+// An unreadable unbound workspace (chmod 000, a TCC denial) cannot be
+// verified: the projection stays in the lock, the run exits 3 and the next one
+// retries, instead of dropping the entry and orphaning the files (#2218).
+func TestPruneOrphanProjectionsKeepsAnUnreadableWorkspace(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("chmod 000 does not deny the owner on Windows or as root")
+	}
+	ws := t.TempDir()
+	skill := filepath.Join(ws, ".claude", "skills", "a")
+	if err := os.MkdirAll(skill, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skill, "SKILL.md"), []byte("---\nname: a\n---\nbody\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h, err := provisioning.ContentHashDirOSForKind(skill, "skill")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lf := &provisioning.LockFile{}
+	key := provisioning.Projection{Provider: "claude", Workspace: ws}
+	lf.SetProjection(key, provisioning.Lock{BaseDir: ws, Managed: []provisioning.ManagedFile{
+		{Path: ".claude/skills/a/SKILL.md", Kind: "skill", Name: "a", ContentHash: h, MaterializedHash: h},
+	}})
+	if err := os.Chmod(ws, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(ws, 0o755) })
+
+	declared := []syncProjection{{Provider: "claude", Workspace: "/elsewhere", Scope: contract.ScopeProject}}
+	var out, errb bytes.Buffer
+	var den []string
+	if _, err := pruneOrphanProjections(syncStreams{Out: &out, Err: &errb}, lf, declared, nil, t.TempDir(), &den); err != nil {
+		t.Fatal(err)
+	}
+	if !containsKey(lf, key) || len(den) != 1 {
+		t.Fatalf("kept %v, denied %v, stderr %q", containsKey(lf, key), den, errb.String())
+	}
+	if err := os.Chmod(ws, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	den = nil
+	if _, err := pruneOrphanProjections(syncStreams{Out: &out, Err: &errb}, lf, declared, nil, t.TempDir(), &den); err != nil {
+		t.Fatal(err)
+	}
+	if containsKey(lf, key) || len(den) != 0 {
+		t.Errorf("retry: kept %v, denied %v", containsKey(lf, key), den)
+	}
+	if _, err := os.Stat(filepath.Join(skill, "SKILL.md")); !os.IsNotExist(err) {
+		t.Errorf("SKILL.md not removed on the retry: %v", err)
+	}
+}
