@@ -141,10 +141,15 @@ func unreadableWorkspaces(projections []syncProjection) []string {
 // syncUnreadableExit is exitPartiallyConnected when the run skipped a bound
 // workspace it cannot read, 0 otherwise (#2135, same contract as D2118).
 func syncUnreadableExit(w io.Writer, res syncResult) int {
-	if len(res.Unreadable) == 0 {
+	if len(res.Unreadable) == 0 && len(res.PruneDenied) == 0 {
 		return 0
 	}
-	fmt.Fprintf(w, "Error: sync skipped unreadable workspaces: %s\n", escapeControl(strings.Join(res.Unreadable, ", ")))
+	if len(res.Unreadable) > 0 {
+		fmt.Fprintf(w, "Error: sync skipped unreadable workspaces: %s\n", escapeControl(strings.Join(res.Unreadable, ", ")))
+	}
+	if len(res.PruneDenied) > 0 {
+		fmt.Fprintf(w, "Error: sync could not remove files of unbound workspaces (permission denied; retried next run): %s\n", escapeControl(strings.Join(res.PruneDenied, ", ")))
+	}
 	return exitPartiallyConnected
 }
 
@@ -240,6 +245,9 @@ type syncResult struct {
 	// directory cannot be listed (#2135), sorted: every other projection was
 	// applied, and the sync exits 3.
 	Unreadable []string
+	// PruneDenied are the workspaces whose orphaned projection could not be
+	// pruned for lack of permission (#2178); the lock keeps it for a retry.
+	PruneDenied []string
 }
 
 // runSync is the single in-process sync implementation: reconcile the
@@ -519,7 +527,8 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	if !opts.DryRun && len(cfg.Plugins) > 0 {
 		lockedBefore = lockedKeys(dir)
 	}
-	results, err := materializeForProviders(manifests, projections, dir, facts.Version, opts.DryRun, opts.NoHeal, portabilityOptions{SearchRoots: cfg.ScanRoots(), Paths: cfg.Paths, Streams: opts.Streams, HeldPlugins: heldPlugins(cfg), MCPTokenEnv: tokenEnvName(cfg)}, kbOrderForProviders(cfg, targets), approvals)
+	var pruneDenied []string
+	results, err := materializeForProviders(manifests, projections, dir, facts.Version, opts.DryRun, opts.NoHeal, portabilityOptions{PruneDenied: &pruneDenied, SearchRoots: cfg.ScanRoots(), Paths: cfg.Paths, Streams: opts.Streams, HeldPlugins: heldPlugins(cfg), MCPTokenEnv: tokenEnvName(cfg)}, kbOrderForProviders(cfg, targets), approvals)
 	if err != nil {
 		return syncResult{}, err
 	}
@@ -564,9 +573,9 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		}
 	}
 	if len(pullFailures) > 0 || len(providerFailures) > 0 {
-		return syncResult{Revision: commonRevision(results, targets), Applied: results, Refused: refused, Unreadable: unreadable}, partialSyncError{Failures: pullFailures, Skipped: skipped, Providers: providerFailures}
+		return syncResult{Revision: commonRevision(results, targets), Applied: results, Refused: refused, Unreadable: unreadable, PruneDenied: slices.Sorted(slices.Values(pruneDenied))}, partialSyncError{Failures: pullFailures, Skipped: skipped, Providers: providerFailures}
 	}
-	return syncResult{Revision: commonRevision(results, targets), Applied: results, Refused: refused, Unreadable: unreadable}, nil
+	return syncResult{Revision: commonRevision(results, targets), Applied: results, Refused: refused, Unreadable: unreadable, PruneDenied: slices.Sorted(slices.Values(pruneDenied))}, nil
 }
 
 // partialSyncError reports a sync that went ahead without some KBs (#350):

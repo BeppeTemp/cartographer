@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -128,7 +129,7 @@ func TestPruneOrphanWorktrees(t *testing.T) {
 
 	var out, errb bytes.Buffer
 	lf := mk()
-	if _, err := pruneOrphanProjections(syncStreams{Out: &out, Err: &errb}, lf, declared, nil, t.TempDir()); err != nil {
+	if _, err := pruneOrphanProjections(syncStreams{Out: &out, Err: &errb}, lf, declared, nil, t.TempDir(), nil); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(out.String(), gone) || strings.Contains(errb.String(), gone) {
@@ -144,7 +145,7 @@ func TestPruneOrphanWorktrees(t *testing.T) {
 	out.Reset()
 	lf = mk()
 	declared[0].WorktreesUnlisted = true
-	pruned, err := pruneOrphanProjections(syncStreams{Out: &out, Err: &errb}, lf, declared, nil, t.TempDir())
+	pruned, err := pruneOrphanProjections(syncStreams{Out: &out, Err: &errb}, lf, declared, nil, t.TempDir(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +214,7 @@ func TestPruneOrphanMissingDirOnlyDropsWorktrees(t *testing.T) {
 	lf.SetProjection(key(other), provisioning.Lock{})
 	declared := []syncProjection{{Provider: "claude", Workspace: "/elsewhere", Scope: contract.ScopeProject}}
 	var out, errb bytes.Buffer
-	if _, err := pruneOrphanProjections(syncStreams{Out: &out, Err: &errb}, lf, declared, nil, t.TempDir()); err != nil {
+	if _, err := pruneOrphanProjections(syncStreams{Out: &out, Err: &errb}, lf, declared, nil, t.TempDir(), nil); err != nil {
 		t.Fatal(err)
 	}
 	if containsKey(lf, key(wt)) || strings.Contains(out.String()+errb.String(), wt) {
@@ -258,7 +259,7 @@ func TestWorktreesRealListingFailurePrunesNothing(t *testing.T) {
 	lf := &provisioning.LockFile{}
 	lf.SetProjection(k, provisioning.Lock{Worktree: true, Managed: []provisioning.ManagedFile{{Kind: "agent", Name: "a", Path: ".claude/agents/a.md"}}})
 	var out, errb bytes.Buffer
-	if _, err := pruneOrphanProjections(syncStreams{Out: &out, Err: &errb}, lf, ps, nil, t.TempDir()); err != nil {
+	if _, err := pruneOrphanProjections(syncStreams{Out: &out, Err: &errb}, lf, ps, nil, t.TempDir(), nil); err != nil {
 		t.Fatal(err)
 	}
 	if !containsKey(lf, k) {
@@ -296,7 +297,7 @@ func TestPruneOrphanProjectionsRemovesOnlyVerifiedFiles(t *testing.T) {
 	}})
 	declared := []syncProjection{{Provider: "claude", Workspace: "/elsewhere", Scope: contract.ScopeProject}}
 	var out, errb bytes.Buffer
-	if _, err := pruneOrphanProjections(syncStreams{Out: &out, Err: &errb}, lf, declared, nil, t.TempDir()); err != nil {
+	if _, err := pruneOrphanProjections(syncStreams{Out: &out, Err: &errb}, lf, declared, nil, t.TempDir(), nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(skillDir, "SKILL.md")); !os.IsNotExist(err) {
@@ -310,5 +311,58 @@ func TestPruneOrphanProjectionsRemovesOnlyVerifiedFiles(t *testing.T) {
 	}
 	if !strings.Contains(errb.String(), "could not be verified") {
 		t.Errorf("the kept file is not reported: %q", errb.String())
+	}
+}
+
+// A prune that fails with a permission error (#2178) is a per-projection
+// refusal: warning, the lock keeps the entry, the other projection is pruned
+// and the workspace is reported for the exit code.
+func TestPruneOrphanProjections_PermissionDeniedIsRefusal(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("needs POSIX directory permissions and a non-root user")
+	}
+	denied, ok := t.TempDir(), t.TempDir()
+	for _, w := range []string{denied, ok} {
+		dir := filepath.Join(w, ".claude", "skills", "a")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: a\n---\nbody\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ro := filepath.Join(denied, ".claude", "skills", "a")
+	if err := os.Chmod(ro, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(ro, 0o755) })
+
+	lf := &provisioning.LockFile{}
+	for _, w := range []string{denied, ok} {
+		// The entry passes the hash verification of the orphan prune, so the
+		// removal itself is what fails (EPERM), not the verification.
+		h, err := provisioning.ContentHashDirOSForKind(filepath.Join(w, ".claude", "skills", "a"), "skill")
+		if err != nil {
+			t.Fatal(err)
+		}
+		lf.SetProjection(provisioning.Projection{Provider: "claude", Workspace: w}, provisioning.Lock{
+			BaseDir: w,
+			Managed: []provisioning.ManagedFile{{Path: ".claude/skills/a/SKILL.md", Kind: "skill", Name: "a", ContentHash: h, MaterializedHash: h}},
+		})
+	}
+	declared := []syncProjection{{Provider: "claude", Workspace: "/elsewhere", Scope: contract.ScopeProject}}
+	var out, errb bytes.Buffer
+	var den []string
+	if _, err := pruneOrphanProjections(syncStreams{Out: &out, Err: &errb}, lf, declared, nil, t.TempDir(), &den); err != nil {
+		t.Fatalf("a permission error aborted the run: %v", err)
+	}
+	if !containsKey(lf, provisioning.Projection{Provider: "claude", Workspace: denied}) {
+		t.Error("the denied projection left the lockfile: the next run cannot retry")
+	}
+	if containsKey(lf, provisioning.Projection{Provider: "claude", Workspace: ok}) {
+		t.Error("the other projection was not pruned")
+	}
+	if len(den) != 1 || den[0] != denied || !strings.Contains(errb.String(), "not pruned") {
+		t.Errorf("denied = %v, stderr %q", den, errb.String())
 	}
 }
