@@ -752,6 +752,16 @@ cartographer audit verify --log /var/lib/cartographer/audit.jsonl [--public-key 
 cartographer audit export --log /var/lib/cartographer/audit.jsonl --out report.json
 ```
 
+Exit codes of `verify` (and `export`): `0` verified; `1` chain broken, unreadable or a
+signature wrong; `2` bad usage; `3` the chain is intact but holds attempts with no
+completion (the server stopped during a write). The `3` output lists each record (time,
+tool, request ID, event id) and is not tampering. The next server start closes every such
+attempt of the active segment with a signed completion, outcome `interrupted`
+(same request, tool, KB and principal), appended at the end of the log: the chain stays
+append-only, later verifications exit `0`, and `verify` reports them as `interrupted: N` so
+the gap stays visible. Only the holder of the writer lock does it; an attempt in a rotated
+segment is not closed. `export` refuses an incomplete chain too (exit `3`).
+
 `verify` exits non-zero on a broken chain; `export` refuses to write a report
 for a chain it cannot verify, so an exported document is never
 authoritative-looking without being authoritative. Without `--public-key` the

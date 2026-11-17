@@ -25,6 +25,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -47,6 +48,9 @@ const (
 	OutcomeCancelled        = "cancelled"
 	OutcomeAuditUnavailable = "audit_unavailable"
 	OutcomeUnknownTool      = "unknown_tool"
+	// OutcomeInterrupted closes an attempt the server never completed: it
+	// stopped during the call. Only Open writes it, at the next start.
+	OutcomeInterrupted = "interrupted"
 )
 
 // Entry is both the legacy (pre-D119) schema and the versioned D119 audit
@@ -436,7 +440,65 @@ func open(path string, kp *KeyPair, opts Options) (*Log, error) {
 	} else if len(idx.Segments) > 0 {
 		l.lastHash = idx.Segments[len(idx.Segments)-1].LastHash
 	}
+	// Only the writer-lock holder may append: no other process can be in the
+	// middle of a call on this log, so every attempt still open is a crash.
+	if lock != nil {
+		if err := l.closeInterruptedLocked(entries); err != nil {
+			releaseWriter(lock)
+			return nil, err
+		}
+	}
 	return l, nil
+}
+
+// openAttempts returns the v2 attempts of es with no completion after them, in
+// log order.
+func openAttempts(es []Entry) []Entry {
+	var out []Entry
+	idx := map[string]int{}
+	for _, e := range es {
+		if e.Version != VersionV2 {
+			continue
+		}
+		switch e.Phase {
+		case PhaseAttempt:
+			idx[e.RequestID] = len(out)
+			out = append(out, e)
+		case PhaseCompletion:
+			if i, ok := idx[e.RequestID]; ok {
+				out[i].RequestID = "" // closed
+				delete(idx, e.RequestID)
+			}
+		}
+	}
+	kept := out[:0]
+	for _, e := range out {
+		if e.RequestID != "" {
+			kept = append(kept, e)
+		}
+	}
+	return kept
+}
+
+// closeInterruptedLocked appends, for each attempt of the active segment that
+// never got a completion, a signed completion with outcome "interrupted"
+// (D2210). The chain stays append-only: the gap
+// is not erased, it is closed by a record that says when and why. An attempt in
+// a rotated segment is not closed here: the segment is sealed.
+func (l *Log) closeInterruptedLocked(active []Entry) error {
+	for _, a := range openAttempts(active) {
+		c := Entry{
+			Version: VersionV2, ID: newID(), Timestamp: time.Now().UTC(),
+			Phase: PhaseCompletion, RequestID: a.RequestID, PrincipalID: a.PrincipalID,
+			PrincipalKind: a.PrincipalKind, Via: a.Via, Transport: a.Transport, KB: a.KB,
+			Tool: a.Tool, ExternalTool: a.ExternalTool, ReadOnly: a.ReadOnly,
+			Outcome: OutcomeInterrupted,
+		}
+		if err := l.appendNoRotateLocked(&c); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // legacyHash reproduces the pre-D119 (version 0) hash formula exactly, so
@@ -500,7 +562,7 @@ func validPhase(v string) bool { return v == PhaseAttempt || v == PhaseCompletio
 func validOutcome(v string) bool {
 	switch v {
 	case OutcomeSuccess, OutcomeApplicationErr, OutcomeInternalErr, OutcomeUnauthenticated,
-		OutcomeUnauthorized, OutcomeCancelled, OutcomeAuditUnavailable, OutcomeUnknownTool:
+		OutcomeUnauthorized, OutcomeCancelled, OutcomeAuditUnavailable, OutcomeUnknownTool, OutcomeInterrupted:
 		return true
 	}
 	return false
@@ -549,6 +611,13 @@ func (l *Log) appendLocked(e *Entry) error {
 	if err := l.rotateLocked(); err != nil {
 		return l.failedLocked(err)
 	}
+	return l.appendNoRotateLocked(e)
+}
+
+// appendNoRotateLocked is appendLocked without the rotation step. Open uses it
+// to close interrupted attempts: it must not seal a segment (or re-sign the
+// index) before anything has verified what it found on disk.
+func (l *Log) appendNoRotateLocked(e *Entry) error {
 
 	e.Timestamp = e.Timestamp.UTC()
 	e.PrevHash = l.lastHash
@@ -1080,11 +1149,36 @@ func tailEntries(path string, n int, keep func(Entry) bool) ([]Entry, error) {
 type Summary struct {
 	Valid          int // entries whose hash chain (and signature, if checked) validated
 	Unsigned       int // entries with no Sig field
-	Incomplete     int // v2 attempt phases with no matching completion
+	Incomplete     int // v2 attempt phases with no matching completion (an error: see IncompleteError)
+	Interrupted    int // attempts closed at a later start with outcome "interrupted": a crash, acknowledged
 	Retained       int // rotated segments whose file was present and verified
 	CheckpointOnly int // rotated segments known only via the checkpoint index (file deleted by retention)
 	Corrupt        int // entries/segments that failed validation
 	Events         []Entry
+}
+
+// IncompleteError is the outcome of a verification whose chain is intact but
+// holds attempts that never completed: the server stopped during a write, and
+// no later start closed them. It is not corruption; `audit verify` exits 3.
+type IncompleteError struct {
+	Attempts []Entry
+}
+
+// maxListedAttempts bounds how many records the message names.
+const maxListedAttempts = 10
+
+func (e *IncompleteError) Error() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "audit: %d incomplete attempt(s): the chain is intact, but the server stopped during a write, so these calls have no completion", len(e.Attempts))
+	for i, a := range e.Attempts {
+		if i == maxListedAttempts {
+			fmt.Fprintf(&b, "\n  ... and %d more", len(e.Attempts)-i)
+			break
+		}
+		fmt.Fprintf(&b, "\n  %s  %s  request %s  id %s", a.Timestamp.UTC().Format(time.RFC3339), a.Tool, a.RequestID, a.ID)
+	}
+	b.WriteString("\nStarting the server again closes them with a signed \"interrupted\" completion; the gap stays in the log.")
+	return b.String()
 }
 
 // validV2Outcome mirrors the phase-aware rule enforced at append time: an
@@ -1232,7 +1326,7 @@ func VerifyAudit(path, configuredArchive string, public ed25519.PublicKey, opts 
 
 	sum := Summary{Retained: retained, CheckpointOnly: checkpointOnly}
 	ids := map[string]bool{}
-	attempts := map[string]bool{}
+	attempts := map[string]Entry{}
 	prev := "genesis"
 	signing := false
 	sawSig := false
@@ -1264,13 +1358,16 @@ func VerifyAudit(path, configuredArchive string, public ed25519.PublicKey, opts 
 			}
 			ids[e.ID] = true
 			if e.Phase == PhaseAttempt {
-				if attempts[e.RequestID] {
+				if _, dup := attempts[e.RequestID]; dup {
 					sum.Corrupt++
 					return sum, fmt.Errorf("audit: duplicate attempt at entry %d", i)
 				}
-				attempts[e.RequestID] = true
-			} else if attempts[e.RequestID] {
+				attempts[e.RequestID] = e
+			} else if _, ok := attempts[e.RequestID]; ok {
 				delete(attempts, e.RequestID)
+				if e.Outcome == OutcomeInterrupted {
+					sum.Interrupted++
+				}
 			} else if i >= activeStart || checkpointOnly == 0 {
 				// A completion with no matching attempt is only tolerated
 				// when it might legitimately belong to a checkpoint-only
@@ -1304,7 +1401,17 @@ func VerifyAudit(path, configuredArchive string, public ed25519.PublicKey, opts 
 	}
 	sum.Incomplete = len(attempts)
 	if sum.Incomplete > 0 {
-		return sum, fmt.Errorf("audit: %d attempt(s) without completion", sum.Incomplete)
+		open := make([]Entry, 0, len(attempts))
+		for _, a := range attempts {
+			open = append(open, a)
+		}
+		sort.Slice(open, func(i, j int) bool {
+			if !open[i].Timestamp.Equal(open[j].Timestamp) {
+				return open[i].Timestamp.Before(open[j].Timestamp)
+			}
+			return open[i].ID < open[j].ID
+		})
+		return sum, &IncompleteError{Attempts: open}
 	}
 	// Only with a key: without one the caller asked for the chain alone and
 	// the unsigned count tells the story. With a key, a log in which nothing

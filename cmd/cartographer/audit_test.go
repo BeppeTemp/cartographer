@@ -82,3 +82,31 @@ func TestAuditExportToAClosedStdoutFails(t *testing.T) {
 		t.Errorf("exit = %d, want 1", code)
 	}
 }
+
+// A chain whose server stopped during a call is intact, not corrupt: verify
+// exits 3 (not 1) and names the attempt; once a start has closed it, verify is
+// clean (exit 0) and counts it as interrupted (#2193).
+func TestRunAuditVerifyIncompleteAttemptHasItsOwnExit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.jsonl")
+	l, err := audit.OpenWithOptions(path, audit.Options{SingleWriter: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.AppendEvent(audit.Entry{RequestID: "r", Phase: audit.PhaseAttempt, Tool: "concept_write"}); err != nil {
+		t.Fatal(err)
+	}
+	_ = l.Close() // the crash: no completion
+	f := auditFlags{log: path}
+	if _, code := runAuditVerify(f); code != exitAuditIncomplete {
+		t.Fatalf("exit = %d, want %d", code, exitAuditIncomplete)
+	}
+	l, err = audit.OpenWithOptions(path, audit.Options{SingleWriter: true}) // the next start
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = l.Close()
+	sum, code := runAuditVerify(f)
+	if code != 0 || sum.Interrupted != 1 || sum.Incomplete != 0 {
+		t.Errorf("after the next start: exit %d, %+v; want 0 with one interrupted", code, sum)
+	}
+}
