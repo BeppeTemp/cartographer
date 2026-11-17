@@ -29,6 +29,10 @@ import (
 // test can make it fail.
 var gateStashPop = gitx.StashPop
 
+// gateAfterStage runs once the gate has staged the write, a variable only so a
+// test can take a foreign index.lock at that point, deterministically (#2222).
+var gateAfterStage = func(*kb.KB) {}
+
 // gatedTool says whether a wrapped tool goes through the gate: the concept
 // writers by name prefix (so concept_archive and later concept_* tools need no
 // list to edit), supersede and source_register (#1297). kb_repair,
@@ -110,25 +114,22 @@ func gateCount(f lint.Finding) int {
 func judgeWrite(k *kb.KB, toolName string, view *callerView) *ToolResult {
 	// Everything the gate stages or stashes goes into a quarantine object
 	// directory that is deleted on return: a refused write leaves no object in
-	// the repository, not even the blob of the refused text (#2186). Passing, the
-	// index goes back to HEAD (its entries name quarantined blobs) and the commit
-	// stages the write again into the real store.
+	// the repository, not even the blob of the refused text (#2186). The quarantine
+	// has a private index (its entries name quarantined blobs), so the real index
+	// is never written here and a foreign index.lock cannot strand it (#2222); the
+	// commit stages the write again into the real store.
 	q, err := gitx.NewQuarantine(k.Root)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cartographer: write_gate skipped (%s): %v\n", toolName, err)
 		return nil
 	}
-	defer func() {
-		if err := gitx.ResetIndex(k.Root, q.Env...); err != nil {
-			fmt.Fprintf(os.Stderr, "cartographer: write_gate: resetting the index failed (%s): %v\n", toolName, err)
-		}
-		q.Close()
-	}()
+	defer q.Close()
 	changes, err := gitx.StagedChangesEnv(k.Root, q.Env)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "cartographer: write_gate skipped (%s): %v\n", toolName, err)
 		return nil
 	}
+	gateAfterStage(k)
 	var written, gone, baseIDs []string
 	renamedFrom := map[string]string{} // new concept id -> old concept id
 	addBase := func(id string) { baseIDs = append(baseIDs, id) }
@@ -351,7 +352,7 @@ func titleAndType(content string) (title, typ string, ok bool) {
 // discard returns the tree to HEAD; a failure is logged, the refusal still goes
 // out (the caller holds the KB lock and checked the tree was clean).
 func discard(k *kb.KB, toolName string) {
-	if err := gitx.DiscardChanges(k.Root); err != nil {
+	if err := k.DiscardUncommitted(); err != nil { // falls back past a foreign index.lock (#2190)
 		fmt.Fprintf(os.Stderr, "cartographer: write_gate: rollback failed (%s): %v\n", toolName, err)
 	}
 }
