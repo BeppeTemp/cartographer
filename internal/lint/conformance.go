@@ -516,6 +516,11 @@ func valueContractFindings(mapName string, contract kb.MapContract, fms map[okf.
 				dominant = t
 			}
 		}
+		// #2226: the server writes this field with its own vocabulary; a
+		// contract built from the values seen now would refuse its next write.
+		if _, owned := kb.ServerOwnedValues(dominant, field); owned {
+			continue
+		}
 		typed := dominant != "" && float64(types[dominant])/float64(len(carriers)) >= valueContractTypedShare
 		if _, declared := contract.FieldValues[field]; declared {
 			continue
