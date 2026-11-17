@@ -149,8 +149,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      # The release notes are the CHANGELOG.md section of the tag, already grouped
-      # by area: release-please's own notes file is ungrouped, and past the PR body
+      # The release notes are the CHANGELOG.md section of the tag, grouped
+      # by area and compacted (one bullet per commit, plain references, as the release PR shows them): release-please's own notes file is ungrouped, and past the PR body
       # limit its placeholder has nothing to group (#1819). The next three steps run
       # the tag's own code (`go run`) and hold no secret and no credential (D1020);
       # only the last one holds GH_TOKEN, and runs `gh` only.
@@ -167,7 +167,7 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          go run ./internal/changelog/gen -file CHANGELOG.md -section "${TAG#v}" > "$RUNNER_TEMP/release-notes.md"
+          go run ./internal/changelog/gen -file CHANGELOG.md -section "${TAG#v}" -compact > "$RUNNER_TEMP/release-notes.md"
           # GitHub rejects a release body over 125000 characters: fail here, the release stays a draft.
           n=$(wc -m < "$RUNNER_TEMP/release-notes.md")
           if [ "$n" -gt 125000 ]; then

@@ -162,7 +162,28 @@ jobs:
           # Must match the pre-release rule of preview.yml (vX.Y.Z-<suffix>).
           tag="v${version}-rc.$(date -u +%Y%m%d)"
           gh workflow run preview.yml -f tag="$tag"
-          gh pr comment "$PR" --body "Release candidate \`$tag\` is building (preview.yml): images \`ghcr.io/beppetemp/cartographer:$tag\` (server) and \`ghcr.io/beppetemp/cartographer-surveyor:$tag\` (Surveyor) on a deployment, pre-release binaries https://github.com/$GH_REPO/releases/tag/$tag for a native service and client (\`CARTOGRAPHER_INSTALL_TAG=$tag\`). The freeze is open until the release or a \`discard\`. Try it, then add the \`rc-ok\` label and run \`release-train\` with \`action: release\`: it merges this PR only with the label."
+          # One comment for every candidate of the PR, edited in place: the marker finds it,
+          # the tags of the earlier candidates are read back from its own lines.
+          cur=$(gh api --paginate "repos/$GH_REPO/issues/$PR/comments" \
+            --jq '.[] | select(.user.login == "github-actions[bot]") | select(.body | startswith("<!-- release-candidate -->")) | {id, body}' | head -n 1)
+          id=""
+          earlier=""
+          if [ -n "$cur" ]; then
+            id=$(printf '%s' "$cur" | jq -r '.id')
+            prev=$(printf '%s' "$cur" | jq -r '.body')
+            last=$(printf '%s\n' "$prev" | sed -n 's/^Latest: `\([^`]*\)`.*/\1/p')
+            list=$(printf '%s\n' "$prev" | sed -n 's/^Earlier: //p' | grep -o '`[^`]*`' | tr -d '`' || true)
+            earlier=$(printf '%s\n%s\n' "$last" "$list" | grep -v -x -e '' -e "$tag" | awk '!s[$0]++' | sed 's/.*/`&`/' | paste -sd, - | sed 's/,/, /g')
+          fi
+          body="<!-- release-candidate -->"$'\n'"Latest: \`$tag\` is building (preview.yml): images \`ghcr.io/beppetemp/cartographer:$tag\` (server) and \`ghcr.io/beppetemp/cartographer-surveyor:$tag\` (Surveyor) on a deployment, pre-release binaries https://github.com/$GH_REPO/releases/tag/$tag for a native service and client (\`CARTOGRAPHER_INSTALL_TAG=$tag\`). The freeze is open until the release or a \`discard\`. Try it, then add the \`rc-ok\` label and run \`release-train\` with \`action: release\`: it merges this PR only with the label."
+          if [ -n "$earlier" ]; then
+            body="$body"$'\n'"Earlier: $earlier"
+          fi
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$GH_REPO/issues/comments/$id" -f body="$body" > /dev/null
+          else
+            gh pr comment "$PR" --body "$body"
+          fi
 
       # Every condition below is a reason to skip the release, never to fail it.
       - name: Check the release may leave

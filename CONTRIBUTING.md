@@ -325,11 +325,15 @@ dispatched by hand with one of three actions.
   as a draft: `release.yml` publishes it only after the binaries and the versioned images exist, then pushes the
   Homebrew cask and moves `:latest`, so no client is told of a version it cannot install (D1350).
   The release page shows the grouped `CHANGELOG.md` section of the tag, set by that same step.
-  The release PR shows the same grouped section whatever its length: the body holds the first
-  part (`gen -split`, at most 60000 characters, in release-please's own header and footer so it
-  can still parse the body on merge) and the rest goes into comments marked
-  `<!-- release-notes-part:N -->`, which `release-pr` keeps in step with `CHANGELOG.md`
-  (release-please replaces a body over GitHub's 65536 characters with a link).
+  The release page and the release PR show the same compact notes, built from that section
+  (`gen -compact`): one bullet per commit (a commit release-please lists several times is
+  one bullet), short SHAs and `#N` as plain text that GitHub links itself, breaking changes
+  first and then each area's Features and Bug Fixes; `CHANGELOG.md` keeps the full links.
+  The PR body holds them in release-please's own header and footer so it can still parse the
+  body on merge. Notes over 60000 characters (`gen -split`) go in comments marked
+  `<!-- release-notes-part:N -->` after the first part, which `release-pr` keeps in step and
+  deletes once the notes fit (release-please replaces a body over GitHub's 65536 characters
+  with a link).
 - **Freeze, opened by the candidate.** It is open from the moment a candidate tag
   `vX.Y.Z-rc.<YYYYMMDD>` with `X.Y.Z` greater than the latest stable release exists, until
   that version is released (`release.yml` deletes its candidates) or the candidate is
@@ -345,7 +349,7 @@ dispatched by hand with one of three actions.
   blocked commit on `main` since the oldest candidate of the pending version skips the
   release. A PR the freeze blocks waits until the release.
 - **The release candidate.** `action: rc` builds the candidate
-  `v<next>-rc.<YYYYMMDD>` (`preview.yml`) and comments the tag on the release PR. It is a
+  `v<next>-rc.<YYYYMMDD>` (`preview.yml`) and comments the tag on the release PR: one comment, edited for each new candidate (the latest tag, the earlier ones in a short list). It is a
   server image, a Surveyor image **and** a GitHub pre-release with the binaries (the same archives and
   `sha256sums.txt` as a stable release). Both images are started and smoked before anything
   is published (tools, non-root user, a KB served over HTTP with a write that commits for the server;

@@ -5,6 +5,7 @@
 //	gen -stdin               read a changelog or release PR body, write the grouped text
 //	gen -check-body          read a PR body, report each wrapped conventional line, exit 1
 //	gen -file CHANGELOG.md -section 0.28.0   print that version's section (the release notes)
+//	gen -file CHANGELOG.md -section 0.28.0 -compact   the compact notes (one bullet per commit, plain references): the release PR body and the release page
 //	gen -file CHANGELOG.md -section 0.28.0 -split 60000 -out dir   write it as part-1.md, part-2.md, ... and body.md (part 1 framed as release-please writes a release PR body)
 //	                                          none over 60000 characters (the release PR body and comments)
 package main
@@ -24,11 +25,16 @@ func main() {
 	stdin := flag.Bool("stdin", false, "regroup stdin to stdout")
 	check := flag.Bool("check-body", false, "check a PR body on stdin for wrapped conventional lines")
 	section := flag.String("section", "", "with -file: print the section of this version instead of regrouping")
+	compact := flag.Bool("compact", false, "with -section: one bullet per commit, references as plain text (the release PR and the release notes)")
 	split := flag.Int("split", 0, "with -section: cut the notes into parts of at most this many characters")
 	out := flag.String("out", "", "with -split: directory that receives part-1.md, part-2.md, ...")
 	flag.Parse()
 	if (*split != 0) != (*out != "") || *split != 0 && *section == "" {
 		fmt.Fprintln(os.Stderr, "usage: gen -file <changelog> -section <version> -split <limit> -out <dir>")
+		os.Exit(2)
+	}
+	if *compact && *section == "" {
+		fmt.Fprintln(os.Stderr, "usage: gen -file <changelog> -section <version> -compact")
 		os.Exit(2)
 	}
 	if *section != "" {
@@ -40,6 +46,9 @@ func main() {
 		if err == nil {
 			var text string
 			if text, err = changelog.Section(string(in), *section); err == nil {
+				if *compact {
+					text = changelog.Compact(text)
+				}
 				if *split == 0 {
 					fmt.Print(text)
 					return
