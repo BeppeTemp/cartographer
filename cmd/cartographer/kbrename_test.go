@@ -46,7 +46,7 @@ func TestPlanKBRename_Refusals(t *testing.T) {
 		old, newer string
 		wantErr    string
 	}{
-		{"missing source", "absent", "other", "not an OKF KB"},
+		{"missing source", "absent", "other", "no KB named \"absent\""},
 		{"destination exists", "wiki", "taken", "already exists"},
 		{"invalid new name", "wiki", "bad/name", "invalid KB name"},
 		{"same name", "wiki", "wiki", "already called that"},

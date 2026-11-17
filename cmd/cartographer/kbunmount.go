@@ -139,8 +139,7 @@ func cmdKBUnmount(args []string) int {
 		fmt.Printf("the remote stays the source of truth: `cartographer kb clone %s %s` brings it back\n", gitx.RedactRemoteURL(plan.Origin), name)
 	}
 	fmt.Println("other machines' client configs are not reached: their stale URLs are served without this KB until they run `cartographer sync`.")
-	printPostUnmountGuidanceFn(*configFlag, *restartFlag)
-	return 0
+	return printPostUnmountGuidanceFn(*configFlag, *restartFlag)
 }
 
 // planKBUnmount validates the unmount and collects what it affects, writing
@@ -176,6 +175,9 @@ func planKBUnmount(name, dataDir, configPath string, deleteClone bool) (*unmount
 		}
 	}
 	if _, err := os.Stat(filepath.Join(p.KBPath, "data", "index.md")); err != nil {
+		if _, derr := os.Stat(p.KBPath); os.IsNotExist(derr) {
+			return nil, noLocalKBError(name, dataDir)
+		}
 		return nil, fmt.Errorf("%s is not an OKF KB (no data/index.md): nothing to unmount", p.KBPath)
 	}
 	aliases, err := readAliases(dataDir, p.ConfigPath)
@@ -419,17 +421,22 @@ var printPostUnmountGuidanceFn = printPostUnmountGuidance
 
 // printPostUnmountGuidance is printPostCreateGuidance worded for an unmount:
 // the running server still serves the KB until it restarts.
-func printPostUnmountGuidance(configPath string, restart bool) {
+func printPostUnmountGuidance(configPath string, restart bool) int {
 	base := serverBaseURL(configPath)
 	if restart {
-		if restartLocalService(base, configPath) {
+		ok, failed := restartLocalService(base, configPath)
+		if failed {
+			return restartFailedExit
+		}
+		if ok {
 			fmt.Println("On connected client machines, run: cartographer sync")
 		}
-		return
+		return 0
 	}
 	if _, err := fetchHealth(base); err != nil {
-		return
+		return 0
 	}
 	fmt.Println("The running service still serves the KB until it restarts: cartographer service restart")
 	fmt.Println("On connected client machines, run: cartographer sync")
+	return 0
 }

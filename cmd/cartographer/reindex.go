@@ -50,7 +50,15 @@ func cmdReindex(args []string) int {
 
 	token := resolveToken(cfg)
 	if health, err := client.New(cfg.ServerURL, token).WithInsecureHTTP(cfg.InsecureHTTPAllowed()).Health(probeTimeout); err == nil {
-		targets, err := resolveKBTargets(health, selected)
+		var targets []kbTarget
+		var err error
+		if *kbFlag != "" {
+			targets, err = resolveTypedKBTargets(health, selected, cfg.ServerURL)
+		} else if names := multiKBNames(health); len(selected) == 0 && len(names) > 1 {
+			err = fmt.Errorf("the server at %s mounts %d KBs (%s): pass --kb <kb> to name the one to reindex", cfg.ServerURL, len(names), mountedList(names))
+		} else {
+			targets, err = resolveKBTargets(health, selected)
+		}
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "reindex:", err)
 			return 1
@@ -166,4 +174,16 @@ func localReindexTargets(only string) ([]reindexTarget, error) {
 		targets = append(targets, byName[name])
 	}
 	return targets, nil
+}
+
+// multiKBNames is the KB names /health lists, nil when it lists none.
+func multiKBNames(health *client.Health) []string {
+	if health == nil || health.KBs == nil {
+		return nil
+	}
+	names := make([]string, 0, len(*health.KBs))
+	for _, kb := range *health.KBs {
+		names = append(names, kb.Name)
+	}
+	return names
 }

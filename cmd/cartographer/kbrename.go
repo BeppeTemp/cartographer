@@ -169,8 +169,7 @@ func cmdKBRename(args []string) int {
 		fmt.Printf("rewrote %d client binding(s) in this machine's .cartographer.yaml\n", len(plan.Bindings))
 	}
 	fmt.Println("every connected client realigns its MCP entries on its next `cartographer sync`.")
-	printPostCreateGuidanceFn(*configFlag, *restartFlag)
-	return 0
+	return printPostCreateGuidanceFn(*configFlag, *restartFlag)
 }
 
 // planKBRename validates the rename and collects what it affects, writing
@@ -196,6 +195,11 @@ func planKBRename(old, newName, dataDir, configPath string) (*renamePlan, error)
 		DataDir:    dataDir,
 	}
 	if _, err := os.Stat(filepath.Join(p.OldPath, "data", "index.md")); err != nil {
+		if os.IsNotExist(err) {
+			if _, derr := os.Stat(p.OldPath); os.IsNotExist(derr) {
+				return nil, noLocalKBError(old, dataDir)
+			}
+		}
 		return nil, fmt.Errorf("%s is not an OKF KB (no data/index.md): nothing to rename", p.OldPath)
 	}
 	if _, err := os.Stat(p.NewPath); err == nil {

@@ -53,6 +53,12 @@ const (
 // which a unit test for the scaffold itself has no business doing.
 var printPostCreateGuidanceFn = printPostCreateGuidance
 
+// restartFailedExit is the exit code of a `--restart` whose restart failed: the
+// KB was created, cloned, renamed or unmounted, but the step the operator asked
+// for did not happen, which is "a step failed" (1) in the exit table of
+// docs/configurator.md.
+const restartFailedExit = 1
+
 // cmdKB dispatches `cartographer kb <subcommand>`.
 func cmdKB(args []string) int {
 	if len(args) == 1 && isHelpArg(args[0]) {
@@ -311,8 +317,7 @@ func cmdKBCreate(args []string) int {
 		printNoRemoteWarning(path)
 	}
 
-	printPostCreateGuidanceFn(*configFlag, *restartFlag)
-	return 0
+	return printPostCreateGuidanceFn(*configFlag, *restartFlag)
 }
 
 // operatorIdentity is the author of a commit a command makes directly in a
@@ -883,16 +888,14 @@ func cmdKBClone(args []string) int {
 			fmt.Printf("note: the KB's own settings.yaml names branch %s; the server override wins, and the KB's setting is not read here\n", teamBranch)
 		}
 		warnIfCannotPush(name, path, configPath, dataDir)
-		printPostCreateGuidanceFn(*configFlag, *restartFlag)
-		return 0
+		return printPostCreateGuidanceFn(*configFlag, *restartFlag)
 	}
 
 	cloned = true
 	fmt.Printf("KB %q mounted at %s\n", name, path)
 	cfgPath, _ := serverConfigFile(*configFlag)
 	warnIfCannotPush(name, path, cfgPath, dataDir)
-	printPostCreateGuidanceFn(*configFlag, *restartFlag)
-	return 0
+	return printPostCreateGuidanceFn(*configFlag, *restartFlag)
 }
 
 // hasKBLayout reports whether ref of the clone at path holds data/index.md,
@@ -1342,8 +1345,9 @@ var (
 // at the flag, with no restart and no message, though the KB stays unmounted
 // until a manual one. Installed, the service is restarted anyway; not installed,
 // there is nothing to restart and the operator is told so. ok is false when the
-// caller should not go on to print the "run sync" guidance.
-func restartLocalService(base, configPath string) (ok bool) {
+// caller should not go on to print the "run sync" guidance; failed is true when
+// the restart itself errored, which the command turns into a non-zero exit.
+func restartLocalService(base, configPath string) (ok, failed bool) {
 	startedAt := ""
 	if before, err := fetchHealth(base); err == nil {
 		startedAt = before.StartedAt
@@ -1351,20 +1355,20 @@ func restartLocalService(base, configPath string) (ok bool) {
 	} else {
 		if !serviceInstalledFn(configPath) {
 			fmt.Fprintf(os.Stderr, "Warning: --restart: nothing answers at %s and the service is not installed, so nothing was restarted. Start your server, or install the service (cartographer service install).\n", base)
-			return false
+			return false, false
 		}
 		fmt.Printf("The service does not answer normally (%v): restarting it anyway, as --restart asks...\n", err)
 	}
 	if err := restartServiceFn(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error: restart failed:", err)
-		return false
+		return false, true
 	}
 	if waitHealthy(base, startedAt) {
 		fmt.Println("service healthy")
 	} else {
 		fmt.Fprintf(os.Stderr, "Warning: service did not report healthy within %s\n", restartWaitTimeout)
 	}
-	return true
+	return true, false
 }
 
 // printPostCreateGuidance is WP2's post-create half: if a local server
@@ -1375,22 +1379,30 @@ func restartLocalService(base, configPath string) (ok bool) {
 // Without --restart and with no server answering, stay silent: there is
 // nothing running to restart, and the user is presumably still mid-setup (e.g.
 // using the KB with `serve --kb <path>` directly, no service involved).
-func printPostCreateGuidance(configPath string, restart bool) {
+//
+// It returns the exit code the command ends with: restartFailedExit when
+// --restart was asked and the restart failed, else 0.
+func printPostCreateGuidance(configPath string, restart bool) int {
 	base := serverBaseURL(configPath)
 	if restart {
-		if !restartLocalService(base, configPath) {
-			return
+		ok, failed := restartLocalService(base, configPath)
+		if failed {
+			return restartFailedExit
+		}
+		if !ok {
+			return 0
 		}
 		fmt.Println("On connected client machines, run: cartographer sync")
 		fmt.Println(openSessionsLine)
-		return
+		return 0
 	}
 	if _, err := fetchHealth(base); err != nil {
-		return
+		return 0
 	}
 	fmt.Println("Restart the service to mount it: cartographer service restart")
 	fmt.Println("On connected client machines, run: cartographer sync")
 	fmt.Println(openSessionsLine)
+	return 0
 }
 
 // openSessionsLine tells the operator that agent sessions already open keep
