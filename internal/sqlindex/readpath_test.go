@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func openAt(t *testing.T, path string) *Index {
@@ -47,8 +48,8 @@ func TestSearchFTSSnippetsOnlyForFinalHits(t *testing.T) {
 	}
 }
 
-// The two-phase search returns the same excerpt the single query did.
-func TestSearchFTSSnippetEqualsInlineSnippet(t *testing.T) {
+// The excerpt is cut around the first match and bounded.
+func TestSearchFTSSnippetAroundTheMatch(t *testing.T) {
 	ix := openAt(t, filepath.Join(t.TempDir(), "e.db"))
 	for i := 0; i < 20; i++ {
 		mustUpsert(t, ix, fmt.Sprintf("n/%02d", i), fmt.Sprintf("---\ntype: Note\ntitle: T%d\n---\nlead %d. %s the needle appears.\n", i, i, strings.Repeat("lorem ipsum ", 30+i)))
@@ -58,14 +59,44 @@ func TestSearchFTSSnippetEqualsInlineSnippet(t *testing.T) {
 		t.Fatalf("hits = %d %v", len(hits), err)
 	}
 	for _, h := range hits {
-		var body, assets string
-		if err := ix.db.QueryRow(`SELECT `+ftsSnippet+`, `+ftsAssetSnippet+` FROM concepts_fts WHERE concepts_fts MATCH ? AND id = ?`,
-			ftsSnippetTokens, ftsSnippetTokens, "needle", h.ID).Scan(&body, &assets); err != nil {
-			t.Fatal(err)
+		if !strings.Contains(h.Snippet, "needle") || len([]rune(h.Snippet)) > ftsSnippetTokens+2 {
+			t.Errorf("%s: snippet %q", h.ID, h.Snippet)
 		}
-		if want := pickSnippet(body, assets); h.Snippet != want || want == "" {
-			t.Errorf("%s: snippet %q, want %q", h.ID, h.Snippet, want)
+	}
+}
+
+// #2189: a body at the size limit answers in bounded time, whatever it holds:
+// one repeated character (snippet() never returned) or ordinary words.
+func TestSearchFTSLargeBodyIsBounded(t *testing.T) {
+	ix := openAt(t, filepath.Join(t.TempDir(), "big.db"))
+	words := strings.Repeat("lorem ipsum dolor needle sit amet ", 30000)[:900000]
+	mustUpsert(t, ix, "big/x", "---\ntype: Note\n---\n"+strings.Repeat("x", 1<<20)+"\n")
+	mustUpsert(t, ix, "big/w", "---\ntype: Note\n---\n"+words+"\n")
+	for _, q := range []string{"xxxx", "needle"} {
+		var hits []Hit
+		var err error
+		withinBound(t, q, func() { hits, err = ix.SearchFTS(q, "", 5) })
+		if err != nil || len(hits) != 1 || hits[0].Snippet == "" {
+			t.Fatalf("%q: %+v %v", q, hits, err)
 		}
+	}
+	withinBound(t, "BestSection", func() {
+		if _, _, _, err := ix.BestSection("big/w", "needle"); err != nil {
+			t.Error(err)
+		}
+	})
+}
+
+// withinBound fails the test when fn has not returned in a few seconds; the
+// old code never returned, so the test must not wait for it.
+func withinBound(t *testing.T, what string, fn func()) {
+	t.Helper()
+	done := make(chan struct{})
+	go func() { defer close(done); fn() }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("%s: no answer in 5s", what)
 	}
 }
 

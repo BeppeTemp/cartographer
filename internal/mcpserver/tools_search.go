@@ -170,8 +170,14 @@ func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *s
 			hits, expandedTo, archivedFallback = ah, ex, true
 		}
 	}
-	sections := newSectionResolver(k, rec, deps, mode, params.Query, expandedTo)
+	if err := ctx.Err(); err != nil {
+		return ToolResult{}, err
+	}
+	sections := newSectionResolver(ctx, k, rec, deps, mode, params.Query, expandedTo)
 	for i := range hits {
+		if err := ctx.Err(); err != nil {
+			return ToolResult{}, err
+		}
 		f := k.ConceptFacets(okf.ConceptID(hits[i].ID))
 		hits[i].Archived = f.Status == kb.StatusArchived
 		hits[i].Bytes = f.Bytes
@@ -219,6 +225,9 @@ func handleSearch(ctx requestContext, k *kb.KB, rec *searchReconciler, misses *s
 	if len(expandedTo) > 0 {
 		result["expanded_to"] = expandedTo
 	}
+	if err := ctx.Err(); err != nil {
+		return ToolResult{}, err
+	}
 	if !archivedFallback {
 		if block := relatedBlock(ctx, k, hits, relatedLimit(params.Related)); len(block) > 0 {
 			result["related"] = block
@@ -259,6 +268,7 @@ const (
 // it, and a hidden concept, already filtered out of the hits, is never looked
 // up (D1207).
 type sectionResolver struct {
+	ctx   requestContext
 	k     *kb.KB
 	rec   *searchReconciler
 	deps  Deps
@@ -273,9 +283,9 @@ type readWholeSpec struct {
 	types   map[string]bool
 }
 
-func newSectionResolver(k *kb.KB, rec *searchReconciler, deps Deps, mode, query string, expandedTo []string) *sectionResolver {
+func newSectionResolver(ctx requestContext, k *kb.KB, rec *searchReconciler, deps Deps, mode, query string, expandedTo []string) *sectionResolver {
 	return &sectionResolver{
-		k: k, rec: rec, deps: deps,
+		ctx: ctx, k: k, rec: rec, deps: deps,
 		fts:   mode == "keyword_fts5" && deps.SQLIndex != nil,
 		query: strings.Join(append([]string{query}, expandedTo...), " "),
 		whole: map[string]readWholeSpec{},
@@ -319,7 +329,7 @@ func (r *sectionResolver) annotate(h *searchHit, typ string) {
 	found := false
 	if r.fts {
 		var err error
-		heading, snippet, found, err = r.deps.SQLIndex.BestSection(h.ID, r.query)
+		heading, snippet, found, err = r.deps.SQLIndex.WithContext(r.ctx).BestSection(h.ID, r.query)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "cartographer: search section: %v\n", err)
 			found = false
@@ -572,11 +582,17 @@ func keywordHitsPass(ctx requestContext, k *kb.KB, rec *searchReconciler, deps D
 	useMem := deps.SQLIndex == nil
 	if !useMem {
 		// Prefer SQLite FTS5, fall back to the in-memory index when FTS5 fails.
-		find := deps.SQLIndex.SearchFTSFiltered
+		// The view stops with the request: a client that went away takes the
+		// work with it (#2189).
+		ix := deps.SQLIndex.WithContext(ctx)
+		find := ix.SearchFTSFiltered
 		if !snippets {
-			find = deps.SQLIndex.SearchFTSIDs
+			find = ix.SearchFTSIDs
 		}
 		sqlHits, err := find(query, scope, window, pick)
+		if ctx.Err() != nil {
+			return nil, mode // cancelled: no fallback to the in-memory index
+		}
 		if err != nil {
 			useMem = true
 		} else {
@@ -588,7 +604,7 @@ func keywordHitsPass(ctx requestContext, k *kb.KB, rec *searchReconciler, deps D
 			}
 		}
 	}
-	if useMem {
+	if useMem && ctx.Err() == nil {
 		for _, h := range live.searchFiltered(query, scope, window, pick) {
 			kwHits = append(kwHits, searchHit{ID: h.ID, Score: h.Score, Partial: h.Partial})
 		}
@@ -614,6 +630,9 @@ func keywordHitsPass(ctx requestContext, k *kb.KB, rec *searchReconciler, deps D
 		kwHits = kwHits[:limit]
 	}
 	for i := range kwHits {
+		if ctx.Err() != nil {
+			break
+		}
 		kwHits[i].Title = live.title(kwHits[i].ID)
 		if kwHits[i].Snippet == "" {
 			kwHits[i].Snippet = live.snippet(kwHits[i].ID, query, snippetMaxChars)
