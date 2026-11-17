@@ -1215,7 +1215,8 @@ func ev(l *Log) error {
 // are attempts with no completion, which is the only finding tolerated.
 func verifyChain(path, archive string, pub ed25519.PublicKey) (Summary, error) {
 	sum, err := VerifyAudit(path, archive, pub, VerifyOptions{})
-	if err != nil && strings.Contains(err.Error(), "without completion") && sum.Corrupt == 0 {
+	var inc *IncompleteError
+	if errors.As(err, &inc) && sum.Corrupt == 0 {
 		return sum, nil
 	}
 	return sum, err
@@ -1548,7 +1549,8 @@ func TestOpenDoesNotTruncateWhenTheArchivedSegmentDiffers(t *testing.T) {
 	before, _ := os.ReadFile(path)
 	reopen(t, path, archive, nil, true).Close()
 	after, _ := os.ReadFile(path)
-	if len(before) == 0 || string(before) != string(after) {
+	// Open may close the dangling attempt (an append); it must not truncate.
+	if len(before) == 0 || !strings.HasPrefix(string(after), string(before)) {
 		t.Fatal("the active log was truncated against a segment that does not match it")
 	}
 }
@@ -1734,5 +1736,102 @@ func TestVerifyAuditNamesTheCheckpointConditionThatFailed(t *testing.T) {
 				t.Fatalf("error = %q, want prefix %q and %q", err, prefix, tc.want)
 			}
 		})
+	}
+}
+
+// verify on a log with an unclosed attempt reports it as an IncompleteError
+// naming the record and the cause, and counts no corruption (#2193).
+func TestVerifyReportsIncompleteAttemptsClearly(t *testing.T) {
+	l, path := tempLog(t)
+	if _, err := l.AppendEvent(Entry{RequestID: "req-9", Phase: PhaseAttempt, Tool: "concept_write"}); err != nil {
+		t.Fatal(err)
+	}
+	sum, err := verifyLog(path, nil)
+	var inc *IncompleteError
+	if !errors.As(err, &inc) || len(inc.Attempts) != 1 {
+		t.Fatalf("err = %v, want one IncompleteError attempt", err)
+	}
+	for _, want := range []string{"req-9", "concept_write", "server stopped during a write", "interrupted"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("message lacks %q:\n%v", want, err)
+		}
+	}
+	if sum.Corrupt != 0 || sum.Incomplete != 1 {
+		t.Errorf("summary = %+v", sum)
+	}
+}
+
+// A crash leaves attempts open; the next single-writer open closes each with a
+// signed "interrupted" completion, so verify is clean and the gap stays visible.
+func TestOpenClosesInterruptedAttempts(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "audit.jsonl")
+	kp, err := GenerateKeyPair()
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := Options{SingleWriter: true}
+	l, err := OpenWithKeyAndOptions(path, kp, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := appendOne(l, "concept_read"); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range []string{"a", "b"} {
+		if _, err := l.AppendEvent(Entry{RequestID: r, Phase: PhaseAttempt, Tool: "concept_write", KB: "kb-a"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	l.Close() // the crash
+	if _, err := verifyLog(path, kp.Public); err == nil {
+		t.Fatal("verify must report the open attempts before the restart")
+	}
+	l, err = OpenWithKeyAndOptions(path, kp, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := appendOne(l, "concept_read"); err != nil { // the chain continues
+		t.Fatal(err)
+	}
+	l.Close()
+	sum, err := verifyLog(path, kp.Public)
+	if err != nil || sum.Interrupted != 2 || sum.Incomplete != 0 || sum.Unsigned != 0 {
+		t.Fatalf("verify = %+v, %v; want clean with 2 interrupted, all signed", sum, err)
+	}
+	var closed []Entry
+	for _, e := range sum.Events {
+		if e.Outcome == OutcomeInterrupted {
+			closed = append(closed, e)
+		}
+	}
+	if len(closed) != 2 || closed[0].RequestID != "a" || closed[0].KB != "kb-a" || closed[0].Tool != "concept_write" {
+		t.Errorf("closing records = %+v", closed)
+	}
+	// A third start finds nothing left to close.
+	l, err = OpenWithKeyAndOptions(path, kp, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.Close()
+	if sum2, err := verifyLog(path, kp.Public); err != nil || sum2.Valid != sum.Valid {
+		t.Errorf("a clean restart appended: %+v, %v", sum2, err)
+	}
+}
+
+// Without the writer lock (a reader, the CLI) Open never appends.
+func TestOpenWithoutWriterLockDoesNotCloseAttempts(t *testing.T) {
+	l, path := tempLog(t)
+	if _, err := l.AppendEvent(Entry{RequestID: "x", Phase: PhaseAttempt, Tool: "t"}); err != nil {
+		t.Fatal(err)
+	}
+	l.Close()
+	if l, err := OpenWithOptions(path, Options{}); err != nil {
+		t.Fatal(err)
+	} else {
+		l.Close()
+	}
+	if _, err := verifyLog(path, nil); err == nil {
+		t.Fatal("an open without the writer lock must not close attempts")
 	}
 }

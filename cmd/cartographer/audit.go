@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -53,6 +54,9 @@ func printAuditUsage(w *os.File) {
 	fmt.Fprintln(w, "                       checkpoint, first signed entry or --signed-since)")
 	fmt.Fprintln(w, "  --signed-since <t>   RFC3339 time from which every entry must be signed (needs --public-key)")
 	fmt.Fprintln(w, "  --out <path>         export only: output file (default stdout)")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Exit codes: 0 verified; 1 chain broken or unreadable; 2 bad usage; 3 chain intact but")
+	fmt.Fprintln(w, "attempts never completed (the server stopped during a write; the next start closes them).")
 }
 
 // auditFlags are shared by both subcommands so an operator does not have to
@@ -92,6 +96,10 @@ func resolvePublicKey(hexKey string) (ed25519.PublicKey, error) {
 	return ed25519.PublicKey(raw), nil
 }
 
+// exitAuditIncomplete is the exit code of verify and export on a chain that is
+// intact but holds attempts with no completion (docs/transport-auth.md).
+const exitAuditIncomplete = 3
+
 func cmdAuditVerify(args []string) int {
 	fs := flag.NewFlagSet("audit verify", flag.ExitOnError)
 	var f auditFlags
@@ -99,18 +107,23 @@ func cmdAuditVerify(args []string) int {
 	fs.Parse(args)
 
 	summary, code := runAuditVerify(f)
-	if code != 0 {
+	if code != 0 && code != exitAuditIncomplete {
 		return code
 	}
 
 	fmt.Printf("valid:           %d\n", summary.Valid)
 	fmt.Printf("unsigned:        %d\n", summary.Unsigned)
 	fmt.Printf("incomplete:      %d\n", summary.Incomplete)
+	fmt.Printf("interrupted:     %d (closed at a later start)\n", summary.Interrupted)
 	fmt.Printf("segments:        %d retained, %d checkpoint-only\n", summary.Retained, summary.CheckpointOnly)
 	fmt.Printf("corrupt:         %d\n", summary.Corrupt)
 	if summary.Corrupt > 0 {
 		fmt.Fprintln(os.Stderr, "audit: chain verification FAILED")
 		return 1
+	}
+	if code == exitAuditIncomplete {
+		fmt.Println("audit: chain verified, with incomplete attempts")
+		return code
 	}
 	fmt.Println("audit: chain verified")
 	return 0
@@ -189,6 +202,13 @@ func runAuditVerify(f auditFlags) (audit.Summary, int) {
 		opts.SignedSince = t
 	}
 	summary, err := audit.VerifyAudit(f.log, f.archive, pub, opts)
+	var incomplete *audit.IncompleteError
+	if errors.As(err, &incomplete) {
+		// An intact chain with attempts that never completed: a crash, not
+		// tampering. Its own exit code lets a script tell the two apart.
+		fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+		return summary, exitAuditIncomplete
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		return audit.Summary{}, 1
