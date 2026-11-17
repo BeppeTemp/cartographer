@@ -649,7 +649,22 @@ func checkServerURLTarget(serverURL string, facts serverFacts) error {
 	if p := u.Path; strings.HasSuffix(p, "/mcp") || strings.HasSuffix(p, "/mcp/routed") {
 		return nil
 	}
-	return fmt.Errorf("--server-url %s is not an MCP endpoint of the server (its path %q does not end in /mcp, with no trailing slash): %s; use http(s)://<host>/mcp", serverURL, u.Path, mounted)
+	return fmt.Errorf("--server-url %s is not an MCP endpoint of the server (its path %q does not end in /mcp, with no trailing slash): %s; use %s", serverURL, u.Path, mounted, suggestServerURL(u))
+}
+
+// suggestServerURL is the URL to use instead of u: the same one without a
+// trailing slash when that names an endpoint (/mcp/kb-a/ -> /mcp/kb-a), else
+// the generic form.
+func suggestServerURL(u *url.URL) string {
+	if strings.HasSuffix(u.Path, "/") {
+		c := *u
+		c.Path = strings.TrimRight(u.Path, "/")
+		c.RawPath = ""
+		if strings.HasSuffix(c.Path, "/mcp") || strings.Contains(c.Path, "/mcp/") {
+			return c.String()
+		}
+	}
+	return "http(s)://<host>/mcp"
 }
 
 // tokenSourceName says where the token that was sent came from.
@@ -1052,6 +1067,11 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 	if err := client.CheckServerURL(opts.ServerURL, opts.insecureHTTPAllowed()); err != nil {
 		return connectResult{}, err
 	}
+	// The KB is chosen with --kb or /mcp/<kb>: a kb parameter in the URL would
+	// meet the one every request adds and the server answers 400 (#2217).
+	if u, perr := url.Parse(opts.ServerURL); perr == nil && u.Query().Has("kb") {
+		return connectResult{}, fmt.Errorf("--server-url %s carries a kb query parameter: drop it and choose the KB with --kb <name>, or use http(s)://<host>/mcp/<name>; nothing was written", u.Redacted())
+	}
 	// Literal 127.0.0.1 for a WSL server: [::1] is not forwarded to the distro.
 	if err := refuseIPv6LoopbackForWsl(opts.ServerURL); err != nil {
 		return connectResult{}, err
@@ -1099,6 +1119,14 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 	if healthErr == nil {
 		if err := checkServerURLTarget(opts.ServerURL, facts); err != nil {
 			return connectResult{}, err
+		}
+		// A server with auth answers /health to any token and lists its KBs only
+		// to a valid one: --kb all has no name to pull a manifest for, so the
+		// credential is tried on its own (#2217).
+		if opts.Auth && !facts.Listed && len(opts.KBs) == 1 && opts.KBs[0] == kbSelectionAll {
+			if perr := probeCredential(opts.ServerURL, opts.Token, opts.insecureHTTPAllowed()); isRejectedCredential(perr) {
+				return connectResult{}, rejectedTokenError(opts.Auth, opts.Token, perr)
+			}
 		}
 	}
 
@@ -1245,8 +1273,8 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 		if opts.DryRun || err == nil {
 			return err
 		}
-		return fmt.Errorf("%w\nconnect stopped part-way: %s is saved in %s, and the MCP entries of %s may be written in part; fix the cause and run `cartographer connect %s` again to finish (`cartographer disconnect %s` undoes it)",
-			err, clientconfig.FileName, opts.Dir, strings.Join(opts.Providers, ", "), strings.Join(opts.Providers, " "), strings.Join(opts.Providers, " "))
+		return fmt.Errorf("%w\nconnect stopped part-way: %s is saved in %s, and the MCP entries of %s may be written in part; fix the cause and run `cartographer connect --agents %s` again to finish (`cartographer disconnect --agents %[5]s` undoes it)",
+			err, clientconfig.FileName, opts.Dir, strings.Join(opts.Providers, ", "), strings.Join(opts.Providers, ","))
 	}
 
 	if err := persist(true); err != nil {
