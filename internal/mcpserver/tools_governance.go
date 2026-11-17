@@ -174,8 +174,8 @@ func toolLint(k *kb.KB) Tool {
 				return errorResult("lint: 'digest' must be one of by_map, paths, compact"), nil
 			}
 
-			// check is a view filter: a name no check carries yields zero
-			// matches instead of an error, which tells the caller it is empty.
+			// A name no check carries is an error naming the valid ones: an empty
+			// result would read as "that check found nothing".
 			var checks []string
 			if len(params.Check) > 0 && string(params.Check) != "null" {
 				var one string
@@ -183,6 +183,19 @@ func toolLint(k *kb.KB) Tool {
 					checks = []string{one}
 				} else if err := json.Unmarshal(params.Check, &checks); err != nil {
 					return errorResult("lint: 'check' must be a string or an array of strings"), nil
+				}
+			}
+
+			for _, c := range checks {
+				if _, ok := lint.Spec(c); !ok {
+					var names []string
+					for _, sp := range lint.Checks() {
+						if sp.Category != "" {
+							names = append(names, sp.Name)
+						}
+					}
+					sort.Strings(names)
+					return errorResult(fmt.Sprintf("lint: unknown check %q: valid checks are %s", c, strings.Join(names, ", "))), nil
 				}
 			}
 

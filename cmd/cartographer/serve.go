@@ -463,7 +463,9 @@ func bootstrapKBs(cfg *config.Config, phase func(string)) kbBootstrap {
 			if n, e, ok := localIdentFn(m.Path); ok {
 				k.SetDefaultIdentity(n, e)
 				log.Printf("KB %q commits as %s <%s>, the git identity of the user running the server", m.Name, n, e)
-			} else {
+			} else if _, remote := k.HasRemote(); remote {
+				// Only a KB with a remote refuses a write for the missing identity
+				// (IdentityRefusal): for one without, the warning would be false.
 				log.Printf("warning: KB %q has no git identity: %s", m.Name, kb.IdentityMissingMessage)
 			}
 		}

@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"fmt"
 	"os"
+	"slices"
 	"sort"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
@@ -16,6 +17,9 @@ import (
 type repairedOut struct {
 	Check string `json:"check"`
 	Count int    `json:"count"`
+	// Fields names what the fixes touched ("stato -> status"), when a fix
+	// works on a field.
+	Fields []string `json:"fields,omitempty"`
 }
 
 // repairOnWriteChecks are the fixes a write applies to what it wrote (D349),
@@ -79,6 +83,8 @@ func repairWritten(k *kb.KB, written, gone []string, view *callerView) (findings
 	}
 	sort.Strings(ids)
 	counts := map[string]int{}
+	fields := map[string][]string{}
+	var statusRenamed []string
 	for _, id := range ids {
 		// The stage-1 applier (D355): the concept is repaired to a fixpoint
 		// and written once, so a chain (rename, split, normalise) is one write.
@@ -97,15 +103,36 @@ func repairWritten(k *kb.KB, written, gone []string, view *callerView) (findings
 		for c, n := range out.Changed {
 			counts[c] += n
 		}
+		for c, fs := range out.Fields {
+			for _, f := range fs {
+				if !slices.Contains(fields[c], f) {
+					fields[c] = append(fields[c], f)
+				}
+			}
+		}
+		if out.StatusRenamed {
+			statusRenamed = append(statusRenamed, id)
+		}
 	}
 	if len(hashes) == 0 {
 		return findingsOrNil(view.filter(found)), nil, nil
 	}
 	for c, n := range counts {
-		repaired = append(repaired, repairedOut{Check: c, Count: n})
+		sort.Strings(fields[c])
+		repaired = append(repaired, repairedOut{Check: c, Count: n, Fields: fields[c]})
 	}
 	sort.Slice(repaired, func(i, j int) bool { return repaired[i].Check < repaired[j].Check })
-	return findingsOrNil(view.filter(writeLintFindings(k, written, gone))), repaired, hashes
+	after := writeLintFindings(k, written, gone)
+	// A rename onto "status" carries the old field's value over unchanged: when
+	// it is outside the status vocabulary, that is a finding, not silence.
+	for _, id := range statusRenamed {
+		if data, err := k.ReadConcept(okf.ConceptID(id)); err == nil {
+			if f, bad := lint.StatusOutsideVocabulary(k, okf.ConceptID(id), data.Content); bad {
+				after = append(after, f)
+			}
+		}
+	}
+	return findingsOrNil(view.filter(after)), repaired, hashes
 }
 
 // applyRepairResult adds what repairWritten did to a single-concept write

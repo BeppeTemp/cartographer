@@ -126,3 +126,10 @@ func replaceAtBoundary(text, root string) string {
 	b.WriteString(text)
 	return b.String()
 }
+
+// ifMatchHowTo says where the hash a write needs comes from, so a refusal for a
+// missing 'if_match' tells the agent what to pass, not only what is absent.
+const ifMatchHowTo = "pass the content_hash of the page as concept_read returned it, or of the write that created it (artifact_read returns sha256 for an artifact)"
+
+// ifMatchRequiredMsg is the refusal of a write that carries no 'if_match'.
+const ifMatchRequiredMsg = "'if_match' is required: " + ifMatchHowTo

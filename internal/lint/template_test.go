@@ -146,6 +146,8 @@ func TestTemplateChecks(t *testing.T) {
 	}
 	if m := tplFinding(f, "infra/missing.md", "template_missing"); m == nil || m.Fix != nil {
 		t.Errorf("two candidates must not be fixed: %+v", m)
+	} else if !strings.Contains(m.Message, `set "shape" to a template slug`) || !strings.Contains(m.Message, `"type"`) {
+		t.Errorf("template_missing does not say the two fixes: %q", m.Message)
 	}
 }
 

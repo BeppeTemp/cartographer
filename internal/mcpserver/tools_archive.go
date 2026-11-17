@@ -53,7 +53,7 @@ func toolConceptArchive(k *kb.KB) Tool {
 				return errorResult("'id' is required"), nil
 			}
 			if params.IfMatch == "" {
-				return errorResult("'if_match' is required"), nil
+				return errorResult(ifMatchRequiredMsg), nil
 			}
 			to := params.To
 			if to == "" {
