@@ -1097,7 +1097,7 @@ sits in the overflow (^) menu until the user pins it to the taskbar.
 
 A server that reports KBs with a failed or stale push adds `N KBs not pushed` to the tooltip and a `Commits not pushed` row (busy tone) to the menu: the count only, the KB names and remedies are in `cartographer status`.
 
-Before the first probe the tooltip reads `checking…`, not `stopped`. An address where a program answers that is not a Cartographer server (a 200 without the `version` of its `/health`, a body that is not JSON, any other status) is Stopped, never Running: the tooltip reads `another program answers on <addr>` and the header badge `Port in use` (#1998). The tray reads the local server's `/health` every `--interval` (default 5 s, minimum 1 s), taking the
+Before the first probe the tooltip reads `checking…`, not `stopped`. An address where a program answers that is not a Cartographer server (a 200 without the `version` of its `/health`, a body that is not JSON, any other status) is Stopped, never Running: the tooltip reads `another program answers on <addr>` and the header badge `Port in use` (#1998). The tray reads the local server's `/health` every `--interval` (default 5 s, minimum 1 s; each probe waits up to 5 s), taking the
 address from the installed service definition on every tick (`--config` overrides the config path used
 only to read that address and the Atlas URL; Restart service calls the manager without it). A tick reads the definition file's presence and the config and probes `/health` once: it runs no scheduler command (`launchctl`, `systemctl`, PowerShell). For the
 Agents rows it also runs what `cartographer status` runs, off the poll loop: it reads Compass
@@ -1118,7 +1118,7 @@ connected"; the badges come from typed fields of the `status` snapshot (`no_acce
 the UI thread, disabled while in flight and when no service is installed), Open Log, Quit (the tray
 only; Meridian keeps running). On macOS the information rows are drawn in the label colour with the
 states coloured (the brand's accent for Running and In sync, orange, red, blue for an update; fixed sRGB values per appearance in `internal/tray/tone.go`, each at least 4.5:1 against the light and the dark menu, pinned by a test) and the
-actions have ⌘O, ⌘R, ⌘L, ⌘Q while the menu is open; Windows shows the same rows as plain text. `--log-file` appends the tray's own log there, as for `serve`. Either mouse button on the icon opens the menu on both platforms (a double-click has no action). A second tray exits silently with status 0: Windows by a named mutex, macOS by an `flock` on `~/Library/Application Support/cartographer/tray.lock`. A `Status` error that repeats is logged once, again when the message changes or after a success.
+actions have ⌘O, ⌘R, ⌘L, ⌘Q while the menu is open; Windows shows the same rows as plain text. `--log-file` appends the tray's own log there, as for `serve`. Either mouse button on the icon opens the menu on both platforms (a double-click has no action). A second tray exits silently with status 0: Windows by a named mutex, macOS by an `flock` on `~/Library/Application Support/cartographer/tray.lock`. A `Status` error that repeats is logged once, again when the message changes or after a success. A Running server whose probe times out or is lost stays Running until three probes in a row fail (a busy server answers `/health` late, #2236); a refused connection, a restart in flight and every other failure show Stopped at once.
 
 ### `cartographer import`
 
