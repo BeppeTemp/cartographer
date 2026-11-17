@@ -1501,6 +1501,7 @@ func repairMany(k *kb.KB, checks []string, scope string, dryRun bool, limit int)
 // (autoRepairReasonFor), so repair_revert and the Atlas recognise it.
 func kbRepairTool(s *Server, k *kb.KB) Tool {
 	t := gitWrap(k, toolKBRepair(k))
+	t.WritesNothing = repairDryRun
 	h := t.Handler
 	t.Handler = func(ctx requestContext, args json.RawMessage) (ToolResult, error) {
 		res, err := h(ctx, stampAutoRepairReason(args))
@@ -1517,6 +1518,16 @@ func kbRepairTool(s *Server, k *kb.KB) Tool {
 		return res, err
 	}
 	return t
+}
+
+// repairDryRun says whether a kb_repair call is a dry run (the default): it
+// writes nothing, so the write veto does not judge it. A body that does not
+// parse is left to the handler, which refuses it.
+func repairDryRun(args json.RawMessage) bool {
+	var p struct {
+		DryRun *bool `json:"dry_run"`
+	}
+	return json.Unmarshal(args, &p) == nil && (p.DryRun == nil || *p.DryRun)
 }
 
 // isAutoCheck says whether the check argument is the string "auto" (alone: a

@@ -14,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/audit"
@@ -358,4 +359,58 @@ func dirWith(t *testing.T, names ...string) string {
 		}
 	}
 	return dir
+}
+
+// The veto judges calls that write: a dry run of kb_repair (the default) and
+// secret_resolve write nothing, so neither reaches a hook, a denying one or one
+// that is down under fail_closed (#2192). The same tools with a write do.
+func TestWriteVeto_JudgesOnlyCallsThatWrite(t *testing.T) {
+	t.Parallel()
+	for name, h := range map[string]*vetoHarness{
+		"deny":        vetoServer(t, answer(`{"version":1,"decision":"deny","reason":"frozen"}`), nil),
+		"unavailable": vetoServer(t, nil, nil),
+	} {
+		ctx := auth.ContextWithPrincipal(context.Background(), botPrincipal)
+		for _, c := range []struct{ tool, args string }{
+			{"kb_repair", `{"check":"*"}`},
+			{"kb_repair", `{"check":"*","dry_run":true}`},
+			{"secret_resolve", `{"concept_id":"anchor"}`},
+		} {
+			res := h.s.callTool(ctx, c.tool, json.RawMessage(c.args))
+			if txt := resultText(res); strings.Contains(txt, "denied_by_hook") || strings.Contains(txt, "hook_unavailable") {
+				t.Errorf("%s: %s %s was judged: %q", name, c.tool, c.args, txt)
+			}
+		}
+		if n := h.hits.Load(); n != 0 {
+			t.Errorf("%s: hook called %d times for calls that write nothing", name, n)
+		}
+		res := h.s.callTool(ctx, "kb_repair", json.RawMessage(`{"check":"*","dry_run":false}`))
+		if txt := resultText(res); !res.IsError || (!strings.Contains(txt, "denied_by_hook") && !strings.Contains(txt, "hook_unavailable")) {
+			t.Errorf("%s: kb_repair with dry_run false was not judged: %q", name, txt)
+		}
+	}
+}
+
+// callWrites derives "writes" from the tool metadata the dispatcher already
+// keeps: the tools that commit. Every tool that needs write access and is not
+// one of them is named here, so a new one is a decision, not an accident.
+func TestCallWrites_FollowsWhatCommits(t *testing.T) {
+	t.Parallel()
+	k := setupTestKB(t)
+	s := New("test")
+	RegisterKBTools(s, k, Deps{BundleFS: fstest.MapFS{}})
+	notJudged := map[string]bool{"commit_gate": true, "reindex": true, "secret_resolve": true, "contradiction_report": true}
+	for name, tool := range s.Tools() {
+		if !ToolRequiresWrite(name) {
+			continue
+		}
+		if got := callWrites(&tool, json.RawMessage(`{"dry_run":false}`)); got == notJudged[name] {
+			t.Errorf("%s: callWrites = %v", name, got)
+		}
+	}
+	for _, name := range []string{"concept_transfer", "artifact_move", "git_conflict_resolve", "concept_write"} {
+		if tool, ok := s.Tools()[name]; ok && !callWrites(&tool, json.RawMessage(`{}`)) {
+			t.Errorf("%s must be judged", name)
+		}
+	}
 }

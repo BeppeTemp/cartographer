@@ -1175,6 +1175,7 @@ func toolConflictsList(k *kb.KB) Tool {
 // and must not trigger the SyncIn/SyncOut wrapper (which would re-hit the conflict).
 func toolGitConflictResolve(k *kb.KB) Tool {
 	return Tool{
+		OwnsCommit:  true, // commits through kb.FinalizeConflicts: the write veto judges it
 		Name:        "git_conflict_resolve",
 		Description: "Resolves a git conflict. strategy: ours (local), theirs (remote), edit (reconciled body), union (log.md, index.md). Once every open conflict (conflicts_list) is resolved, Cartographer merges, commits, pushes and clears the degraded markers.",
 		InputSchema: json.RawMessage(`{

@@ -149,12 +149,20 @@ func parseAnswer(data []byte) (Answer, error) {
 
 // SanitizeReason keeps the printable characters of a hook's deny reason and cuts
 // it at MaxReasonLen: it is shown to a caller, so it carries no control
-// character, newline or unbounded text.
+// character, newline or unbounded text. A control character becomes a space.
 func SanitizeReason(s string) string {
 	var b strings.Builder
 	n := 0
 	for _, r := range s {
 		if !unicode.IsPrint(r) {
+			// A control character (a newline, a tab) separates words: it
+			// becomes one space, not nothing. A run collapses to one.
+			if unicode.IsControl(r) && n > 0 && !strings.HasSuffix(b.String(), " ") {
+				if n++; n > MaxReasonLen {
+					break
+				}
+				b.WriteRune(' ')
+			}
 			continue
 		}
 		if n++; n > MaxReasonLen {
