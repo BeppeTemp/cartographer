@@ -328,7 +328,7 @@ dispatched by hand with one of three actions.
   The release page and the release PR show the same compact notes, built from that section
   (`gen -compact`): one bullet per commit (a commit release-please lists several times is
   one bullet), short SHAs and `#N` as plain text that GitHub links itself, breaking changes
-  first and then each area's Features and Bug Fixes; `CHANGELOG.md` keeps the full links.
+  first and then each area's Features, Bug Fixes and Performance Improvements; `CHANGELOG.md` keeps the full links.
   The PR body holds them in release-please's own header and footer so it can still parse the
   body on merge. Notes over 60000 characters (`gen -split`) go in comments marked
   `<!-- release-notes-part:N -->` after the first part, which `release-pr` keeps in step and
