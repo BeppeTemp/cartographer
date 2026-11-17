@@ -327,6 +327,7 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 			refused = append(refused, err)
 			continue
 		}
+		noteOpenCodeJSONC(r, fullPath)
 		if dryRun {
 			for _, l := range safewrite.FollowedLinks(absoluteBaseDir, fullPath) {
 				note := fmt.Sprintf("would write through symlink %q -> %q", l.Path, l.Target)
@@ -346,6 +347,13 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 		// instead of parsing/re-serializing the user's hand-curated config.toml
 		// (D58) — see EmitResult.Content's doc comment.
 		if filepath.Ext(fullPath) == ".toml" {
+			// A file that is not TOML is refused as the JSON ones are: Codex
+			// cannot read it, and a block appended to it would hide that (#2195).
+			if raw, err := os.ReadFile(fullPath); err == nil {
+				if synErr := CheckTOMLSyntax(string(raw)); synErr != nil {
+					return written, fmt.Errorf("existing file %s is not valid TOML: %w — fix or delete it manually", fullPath, synErr)
+				}
+			}
 			// A corrupted block is refused before the reconcile steps below edit
 			// the file around it: blocktext.Write would refuse it anyway (#1502).
 			if err := blocktext.CheckFile(fullPath, codexMCPBlockBegin, codexMCPBlockEnd); err != nil {
@@ -445,6 +453,24 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 	return written, errors.Join(refused...)
 }
 
+// noteOpenCodeJSONC adds a warning when r is about to create OpenCode's
+// opencode.json next to an existing opencode.jsonc (#2195). OpenCode reads both
+// and merges them, so this is a working setup; the user is told once, when the
+// file is created, which of the two holds Cartographer's entry. The .jsonc is
+// never read or written: the layout editor (jsonorder) has no comments.
+func noteOpenCodeJSONC(r *EmitResult, fullPath string) {
+	if r.Provider != ProviderOpenCode || filepath.Ext(fullPath) != ".json" {
+		return
+	}
+	if _, err := os.Lstat(fullPath); err == nil {
+		return
+	}
+	if _, err := os.Lstat(fullPath + "c"); err != nil {
+		return
+	}
+	r.Warnings = append(r.Warnings, "OpenCode reads both opencode.jsonc and the opencode.json Cartographer manages; keep the Cartographer entry in opencode.json")
+}
+
 // noteEmitted records every server name r wrote as owned by Cartographer in the
 // created-files ledger (see NoteOwner).
 func noteEmitted(baseDir string, r *EmitResult, created bool) error {
@@ -519,7 +545,7 @@ func removeLegacyOpenCodeEntry(name, baseDir string, dryRun bool) (bool, error) 
 	if isEmptyProviderShell(root) {
 		return true, safewrite.Remove(baseDir, legacyPath)
 	}
-	out, err := json.MarshalIndent(root, "", "  ")
+	out, err := marshalJSONIndent(root)
 	if err != nil {
 		return false, err
 	}
@@ -740,7 +766,7 @@ func removeLegacyCodexJSON(name, baseDir string, dryRun bool) (bool, error) {
 		return true, safewrite.Remove(baseDir, legacyPath)
 	}
 	root["mcpServers"] = servers
-	out, err := json.MarshalIndent(root, "", "  ")
+	out, err := marshalJSONIndent(root)
 	if err != nil {
 		return false, err
 	}
@@ -852,7 +878,7 @@ func emitClaudeCodeServer(name string, spec ServerSpec, _ EmitOptions) (*EmitRes
 			name: entry,
 		},
 	}
-	content, err := json.MarshalIndent(root, "", "  ")
+	content, err := marshalJSONIndent(root)
 	if err != nil {
 		return nil, err
 	}
@@ -891,7 +917,7 @@ func emitCopilotServer(name string, spec ServerSpec, _ EmitOptions) (*EmitResult
 	}
 	entry["tools"] = []string{"*"}
 
-	content, err := json.MarshalIndent(map[string]any{"mcpServers": map[string]any{name: entry}}, "", "  ")
+	content, err := marshalJSONIndent(map[string]any{"mcpServers": map[string]any{name: entry}})
 	if err != nil {
 		return nil, err
 	}
@@ -1089,7 +1115,7 @@ func emitKiroServer(name string, spec ServerSpec, _ EmitOptions) (*EmitResult, e
 			name: entry,
 		},
 	}
-	content, err := json.MarshalIndent(root, "", "  ")
+	content, err := marshalJSONIndent(root)
 	if err != nil {
 		return nil, err
 	}
@@ -1183,7 +1209,7 @@ func emitOpenCodeServer(name string, spec ServerSpec, opts EmitOptions) (*EmitRe
 	} else {
 		root["mcp"] = map[string]any{"servers": map[string]any{name: entry}}
 	}
-	content, err := json.MarshalIndent(root, "", "  ")
+	content, err := marshalJSONIndent(root)
 	if err != nil {
 		return nil, err
 	}
@@ -1224,7 +1250,7 @@ func emitAntigravityServer(name string, spec ServerSpec, _ EmitOptions) (*EmitRe
 			name: entry,
 		},
 	}
-	content, err := json.MarshalIndent(root, "", "  ")
+	content, err := marshalJSONIndent(root)
 	if err != nil {
 		return nil, err
 	}

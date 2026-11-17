@@ -28,7 +28,6 @@ package configurator
 //     (internal/provisioning/contract/mcpspec.go).
 
 import (
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -82,7 +81,7 @@ func emitCrushServer(name string, spec ServerSpec, _ EmitOptions) (*EmitResult, 
 			name: entry,
 		},
 	}
-	content, err := json.MarshalIndent(root, "", "  ")
+	content, err := marshalJSONIndent(root)
 	if err != nil {
 		return nil, err
 	}
