@@ -757,3 +757,21 @@ func TestLint_HookSecretRefIsNotBroken(t *testing.T) {
 		t.Fatalf("want no secret_ref_broken, got %v", got)
 	}
 }
+
+// #2223: a secret_refs entry that is not NAME=file#pointer, or a scalar, is a
+// finding that names the expected form.
+func TestLint_SecretRefsMalformed(t *testing.T) {
+	t.Parallel()
+	for i, refs := range []string{"[NOEQUALS]", "[A=secrets/x.sops.yaml]", `["=secrets/x.sops.yaml#/a"]`, `[""]`, "A=secrets/x.sops.yaml#/a", "[A=secrets/x.sops.yaml#]"} {
+		k := tempKB(t)
+		writeFile(t, k.Root, "data/ops/refs.md", "---\ntype: Service\ntitle: R\nsecret_refs: "+refs+"\n---\n# R\n")
+		findings, err := Run(k, "", false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := findingsOf(findings, "secret_ref_broken")
+		if len(got) != 1 || !strings.Contains(got[0].Message, "NAME=secrets/file.sops.yaml#/json-pointer") {
+			t.Fatalf("case %d %s: got %v", i, refs, got)
+		}
+	}
+}

@@ -236,7 +236,8 @@ func ScopedCheck(k *kb.KB, ids []okf.ConceptID) []Finding {
 	// is a legacy one and is left alone.
 	if len(written) > 0 && len(declaredMaps(k, archives)) > 0 {
 		for _, name := range slices.Sorted(maps.Keys(written)) {
-			if !hasMapDescriptor(k, name) {
+			// A reserved namespace is the server's own, never a Map (#2223).
+			if !hasMapDescriptor(k, name) && !slices.Contains(okf.ReservedMapNames, name) {
 				findings = append(findings, unmappedFolderFinding(k, name, archives))
 			}
 		}

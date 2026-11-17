@@ -119,3 +119,35 @@ func TestWriteGate_ServerNamedFoldersNeverCreatedUndeclared(t *testing.T) {
 		}
 	}
 }
+
+// #2223: services/ is the server's reserved namespace, never a Map (map_create
+// refuses it), so a Service written there in a KB that declares Maps is not an
+// unmapped folder.
+func TestWriteGate_ServicesNamespaceIsNotAnUnmappedFolder(t *testing.T) {
+	t.Parallel()
+	k := gateKB(t) // declares "arch" and "ops"
+	s := gateSeed(t, k, nil)
+	if text, isErr := callJSON(t, s, adminCtx, "concept_batch",
+		`{"operations":[{"op":"write","id":"services/web","frontmatter":{"type":"Service","title":"Web"},"body":"# Web\n"},{"op":"write","id":"ops/uses-web","frontmatter":{"type":"Note","title":"Uses web"},"body":"Runs [[services/web]].\n","index_entry":true}]}`); isErr {
+		t.Fatalf("a Service under services/ was refused: %s", text)
+	}
+}
+
+// #2223: a malformed secret_refs declaration is refused with the expected form.
+func TestWriteGate_MalformedSecretRefsRefused(t *testing.T) {
+	t.Parallel()
+	k := gateKB(t)
+	s := gateSeed(t, k, nil)
+	head := gitOut(t, k, "rev-parse", "HEAD")
+	for _, refs := range []string{
+		`["NOEQUALS"]`, `["A=secrets/x.sops.yaml"]`, `["=secrets/x.sops.yaml#/a"]`,
+		`[""]`, `"A=secrets/x.sops.yaml#/a"`, `["A=secrets/x.sops.yaml#"]`,
+	} {
+		text, isErr := callJSON(t, s, adminCtx, "concept_write",
+			`{"id":"ops/svc","frontmatter":{"type":"Service","title":"Svc","secret_refs":`+refs+`},"body":"# Svc\n"}`)
+		refusedCleanly(t, k, head, text, isErr, "secret_ref_broken")
+		if !strings.Contains(text, "NAME=secrets/file.sops.yaml#/json-pointer") {
+			t.Fatalf("%s: refusal does not show the expected form: %s", refs, text)
+		}
+	}
+}
