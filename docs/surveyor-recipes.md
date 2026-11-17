@@ -235,7 +235,7 @@ one row per entry (change, key, revision, content bytes, title; at most 50, then
 Warnings go to stderr as `warning:` lines, among them `no_ingest_plan` when no `IngestPlan` lists the Source.
 For a system recipe the header adds `check:` (the identity label) and `state:` (`no stored state`, `trusted, N
 groups`, or `untrusted (reason)`, in which case the diff is against an empty state, as the poll's baseline rebuild
-would be); the rows are the changed groups in key order (revision computed by the Surveyor), `counts` adds `unchanged`,
+would be, except that the poll seeds a group that already has a unit with its newest unit's revision: it is `modified`, not `added`, and untouched if the revision did not move; the test does not read units); the rows are the changed groups in key order (revision computed by the Surveyor), `counts` adds `unchanged`,
 `--cursor` is ignored (a warning says so), `--show <key>` prints the group's `## Change` and `## Observed` sections as
 they would travel in its unit, and `next_cursor` is the digest of the state the poll would store if it handled every
 group, so it changes with the observation time.

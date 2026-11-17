@@ -453,6 +453,31 @@ func TestSystemPollAnUntrustedStateIsRebuiltWithoutTokens(t *testing.T) {
 	}
 }
 
+// #2188: a rebuilt state is seeded from the units, so a group with a unit is
+// modified (not added) when its revision moved, and untouched when it did not.
+func TestSystemPollRebuiltStateSeedsFromTheUnits(t *testing.T) {
+	s := newSysEnv(t)
+	s.list("namespace/a", "line1\nline2", "namespace/b", "same")
+	s.mustPoll()
+	s.k.assets["sources/feed/"+system.StateFile] = "garbage\n"
+	s.list("namespace/a", "line1\nCHANGED", "namespace/b", "same", "namespace/c", "new")
+	res := s.mustPoll()
+	if !strings.Contains(res.Summary, "state=rebuilt") || !strings.Contains(res.Summary, "added=1 modified=1") || !strings.Contains(res.Summary, "unchanged=1") {
+		t.Fatalf("summary: %s", res.Summary)
+	}
+	if len(s.unitsOf("namespace/b")) != 1 || len(s.unitsOf("namespace/a")) != 2 {
+		t.Errorf("units a=%v b=%v", s.unitsOf("namespace/a"), s.unitsOf("namespace/b"))
+	}
+	if got := strings.Join(s.stateKeys(), ","); got != "namespace/a,namespace/b,namespace/c" {
+		t.Errorf("state = %s", got)
+	}
+	for _, id := range s.unitsOf("namespace/a") {
+		if s.k.pages[id].fm["status"] == "open" && s.k.pages[id].fm["observed_change"] != "modified" {
+			t.Errorf("open unit of a = %v", s.k.pages[id].fm)
+		}
+	}
+}
+
 func TestSystemPollSkippedSourceIsNotPolledAndFencesSurviveBackticks(t *testing.T) {
 	s := newSysEnv(t)
 	s.src().fm["ingest_status"] = "skipped"
