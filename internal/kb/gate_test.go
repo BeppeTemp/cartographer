@@ -142,3 +142,24 @@ func TestCommitGate_GapKindsDoNotBlock(t *testing.T) {
 		t.Fatalf("want 2 blockers, got pass=%v %v", result.Pass, result.Blockers)
 	}
 }
+
+// #2185: the whole-KB gate blocks on every open non-gap contradiction, whatever
+// it involves; a scope keeps those under its prefix.
+func TestCommitGateKB_BlocksOnEveryOpenContradiction(t *testing.T) {
+	t.Parallel()
+	k := newTestKB(t)
+	writeTestFile(t, k.DataRoot(), "conflicts/c1.md", "---\ntype: Contradiction\nresolution_status: open\ninvolves: [arch/concept-a]\ncontradiction_kind: conflict\n---\nBody.\n")
+	writeTestFile(t, k.DataRoot(), "conflicts/c2.md", "---\ntype: Contradiction\nresolution_status: open\ncontradiction_kind: open_question\n---\nA gap.\n")
+	writeTestFile(t, k.DataRoot(), "other/c3.md", "---\ntype: Contradiction\nresolution_status: resolved\ninvolves: [arch/concept-a]\n---\nDone.\n")
+
+	r, err := k.CommitGateKB("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Pass || len(r.Blockers) != 1 || r.Blockers[0].ConceptPath != "conflicts/c1.md" {
+		t.Fatalf("whole KB: %+v", r)
+	}
+	if r, _ = k.CommitGateKB("other"); !r.Pass {
+		t.Fatalf("scope other has no open contradiction: %+v", r)
+	}
+}

@@ -3,6 +3,8 @@ package lint
 import (
 	"strings"
 	"testing"
+
+	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
 // D357: the drift audit's checks and fixes.
@@ -245,5 +247,26 @@ func TestUnknownTypeSkipsNothingElse(t *testing.T) {
 	}
 	if got := findingsOf(f, "value_case_variant"); len(got) != 1 || got[0].Path != "free/a.md" {
 		t.Fatalf("value_case_variant must still run on the page: %+v", got)
+	}
+}
+
+// #2185: a page written into a folder that is not a declared Map is an
+// unmapped_folder at write time, naming the closest declared Maps, only when
+// the KB declares at least one Map.
+func TestScopedCheck_UnmappedFolderOnWrite(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "ops/_map.md", "---\ntype: Map\nkind: map\ntitle: Ops\n---\n# Ops\n")
+	writeFile(t, k.DataRoot(), "ops/a.md", "---\ntype: Note\ntitle: A\n---\n# A\n")
+	writeFile(t, k.DataRoot(), "opz/b.md", "---\ntype: Note\ntitle: B\n---\n# B\n")
+	f := findingsOf(ScopedCheck(k, []okf.ConceptID{"opz/b", "ops/a"}), "unmapped_folder")
+	if len(f) != 1 || f[0].Path != "opz" || !strings.Contains(f[0].Message, "closest declared maps: ops") || !strings.Contains(f[0].Message, "map_create") {
+		t.Fatalf("findings: %+v", f)
+	}
+
+	legacy := tempKB(t)
+	writeFile(t, legacy.DataRoot(), "opz/b.md", "---\ntype: Note\ntitle: B\n---\n# B\n")
+	if f := findingsOf(ScopedCheck(legacy, []okf.ConceptID{"opz/b"}), "unmapped_folder"); len(f) != 0 {
+		t.Fatalf("a KB with no declared Map is unjudged: %+v", f)
 	}
 }
