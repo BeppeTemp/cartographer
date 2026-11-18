@@ -572,7 +572,7 @@ materialization to a loopback URL only adds a hint on stderr suggesting
 prints the absolute paths of generated MCP configs and reminds the user to restart the selected
 agent sessions to load the MCP tools (a `cli` provider is told to restart to load the skills and instructions, a `none` provider gets no line).
 
-`connect` also installs the status icon (`cartographer tray`) on macOS and Windows, after the sync timer: a tray already installed is left running as it is (a `connect` never restarts it; `upgrade-repair` refreshes it), a remembered opt-out installs nothing, and a failure (a session with no GUI such as ssh) is a warning that names `cartographer service tray install`, never a different exit code. A dry run prints `[dry-run] would install the status icon`. `reconnect` and `setup` go through the same step (the `setup` plan lists `status icon  install`); `sync` never installs it.
+`connect` also installs the status icon (`cartographer tray`) on macOS and Windows, after the sync timer: a tray already installed is left running as it is (a `connect` never restarts it; `upgrade-repair` refreshes it), a remembered opt-out installs nothing, and a failure (a session with no GUI such as ssh) is a warning that names `cartographer service tray install`, never a different exit code. A dry run prints `[dry-run] would install the status icon`. `reconnect` and `setup` go through the same step (the `setup` plan lists `status icon  install (with the agents' connect)`, and its result states `status icon installed` or `status icon not installed: <reason>` with `cartographer service tray install` as the fix: no agent connected, an opt-out, a binary that is not a stable install path, or no GUI session); `sync` never installs it.
 
 ### `cartographer disconnect [provider|all]`
 
@@ -1086,7 +1086,7 @@ and §Upgrades, schema migration, and repo growth.
 A status icon for the local server or, on a machine with no local service, for the server the client is connected to, in its own process (not part of `serve`, so it stays visible
 when the server is down and can restart it). Windows (notification area) and macOS (menu bar) only;
 on Linux it prints an error and exits 2. `cartographer service install` registers it to start at logon
-(next section); a hand-typed `cartographer tray` works too. On Windows 11 a new notification-area icon
+(next section). A hand-typed `cartographer tray` works too, but it lasts as long as its terminal (it does not detach itself): on a terminal it prints one stderr line saying so and naming `cartographer service tray install` (no line from the LaunchAgent or the task, which have no terminal or pass `--log-file`; `tray -h` says the same). On Windows 11 a new notification-area icon
 sits in the overflow (^) menu until the user pins it to the taskbar.
 
 **Log and delivery.** The tray log gets one line per change of state or version (`tray: state running version "1.2.3"`, no path or token). On macOS the poll keeps only the newest snapshot and wakes the main thread through the GCD main queue; the main thread also takes it when the app finishes launching and when the menu opens, and logs `tray: menu shows state <state>` when a state reaches the menu, so a menu stuck on its placeholder shows as a missing line ([#2183](https://github.com/BeppeTemp/cartographer/issues/2183)).

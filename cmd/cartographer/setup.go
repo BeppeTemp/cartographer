@@ -431,7 +431,7 @@ func renderSetupPlan(w io.Writer, p setupPlan, f setupFacts) {
 		}
 	}
 	if traySupported() && !f.TrayOptOut && !trayInstalledFn() {
-		line("status icon  install")
+		line("status icon  install (with the agents' connect)")
 	}
 	line("verify       the server reports ready")
 }
@@ -993,6 +993,7 @@ func runSetupPlan(p setupPlan) int {
 		return 1
 	}
 	fmt.Println("server ready")
+	printSetupTray(skipAgents)
 
 	if partial || len(connectNotWired) > 0 {
 		fmt.Fprintf(os.Stderr, "Setup finished, but not every agent is wired: %s. Replace the symlink named in the warnings above with a regular file or directory, or list it under providers.<provider>.allow_symlinks with `cartographer client symlinks <provider> --add <link>`, then rerun `cartographer setup` (finished steps are skipped).\n", cmp.Or(strings.Join(connectNotWired, "; "), "see the connect output above"))
@@ -1018,6 +1019,36 @@ func runSetupPlan(p setupPlan) int {
 	fmt.Println("  Restart your agent sessions now: the MCP tools and skills load at session start,")
 	fmt.Println("  so a session that was already open does not see them.")
 	return 0
+}
+
+// setupTrayOutcome says whether the status icon exists once setup is done, and
+// when it does not, why and the command that installs it: setup installs it
+// only through its connect step, which skips it for several reasons that are
+// otherwise a stderr warning. "" on a platform with no tray.
+func setupTrayOutcome(noAgent bool) string {
+	if !traySupported() {
+		return ""
+	}
+	const fix = "; install it with `cartographer service tray install` from the desktop session"
+	if trayInstalledFn() {
+		return "status icon installed (remove it with `cartographer service tray uninstall`)"
+	}
+	switch {
+	case trayOptedOut():
+		return "status icon not installed: it was opted out (--no-tray)" + fix
+	case noAgent:
+		return "status icon not installed: no agent is connected yet" + fix
+	}
+	if err := trayStableBinaryFn(); err != nil {
+		return fmt.Sprintf("status icon not installed: %v%s", err, fix)
+	}
+	return "status icon not installed: no agent was connected, or the desktop session refused it (see the warnings above)" + fix
+}
+
+func printSetupTray(noAgent bool) {
+	if msg := setupTrayOutcome(noAgent); msg != "" {
+		fmt.Println(msg)
+	}
 }
 
 // setupAuthMismatch returns why the agent step would fail with a 401, or "".
