@@ -348,3 +348,68 @@ func TestLogTransitionOnePerChange(t *testing.T) {
 		t.Fatalf("got %d lines, want 3 (stopped, running v1, running v2): %q", len(lines), lines)
 	}
 }
+
+func TestTrayTerminalHint(t *testing.T) {
+	old := trayAttachedFn
+	defer func() { trayAttachedFn = old }()
+	trayAttachedFn = func() bool { return true }
+	h := trayTerminalHint("")
+	if !strings.Contains(h, "service tray install") || !strings.Contains(h, "terminal") {
+		t.Errorf("hint on a terminal = %q", h)
+	}
+	if got := trayTerminalHint("tray.log"); got != "" {
+		t.Errorf("a tray with --log-file (the Scheduled Task) printed %q", got)
+	}
+	trayAttachedFn = func() bool { return false } // launchd: no terminal
+	if got := trayTerminalHint(""); got != "" {
+		t.Errorf("a tray with no terminal printed %q", got)
+	}
+}
+
+func TestTrayAttachedFnFollowsTerminals(t *testing.T) {
+	old := isTerminal
+	defer func() { isTerminal = old }()
+	isTerminal = func(uintptr) bool { return true }
+	if !trayAttachedFn() {
+		t.Error("stdin and stderr terminals: want attached")
+	}
+	isTerminal = func(fd uintptr) bool { return fd != os.Stdin.Fd() }
+	if trayAttachedFn() {
+		t.Error("stdin not a terminal (launchd): want detached")
+	}
+}
+
+func TestTrayHelpNamesServiceTrayInstall(t *testing.T) {
+	out := withStdout(t, func() { cmdTray([]string{"-h"}) })
+	if !strings.Contains(out, "lasts as long as its terminal") || !strings.Contains(out, "service tray install") {
+		t.Errorf("tray -h = %q", out)
+	}
+}
+
+func TestSetupTrayOutcome(t *testing.T) {
+	savedGOOS, savedInst, savedStable := trayGOOS, trayInstalledFn, trayStableBinaryFn
+	defer func() { trayGOOS, trayInstalledFn, trayStableBinaryFn = savedGOOS, savedInst, savedStable }()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("APPDATA", t.TempDir())
+	trayGOOS = "darwin"
+	trayInstalledFn = func() bool { return false }
+	trayStableBinaryFn = func() error { return nil }
+
+	if got := setupTrayOutcome(true); !strings.Contains(got, "not installed") || !strings.Contains(got, "no agent") || !strings.Contains(got, "service tray install") {
+		t.Errorf("no agent: %q", got)
+	}
+	trayStableBinaryFn = func() error { return errors.New("/tmp/x is a temporary path") }
+	if got := setupTrayOutcome(false); !strings.Contains(got, "not installed") || !strings.Contains(got, "temporary path") || !strings.Contains(got, "service tray install") {
+		t.Errorf("unstable binary: %q", got)
+	}
+	trayInstalledFn = func() bool { return true }
+	if got := setupTrayOutcome(false); !strings.Contains(got, "status icon installed") {
+		t.Errorf("installed: %q", got)
+	}
+	trayGOOS = "linux"
+	if got := setupTrayOutcome(false); got != "" {
+		t.Errorf("linux: %q", got)
+	}
+}

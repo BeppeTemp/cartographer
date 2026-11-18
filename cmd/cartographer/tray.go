@@ -22,6 +22,25 @@ import (
 // an unsupported one without cross-compiling.
 var trayGOOS = runtime.GOOS
 
+const (
+	trayHandRunNote = "A tray run by hand lasts as long as its terminal; to keep it, run `cartographer service tray install` from the desktop session."
+	trayHandRunHint = "tray: running in this terminal, so it ends when the terminal closes; to keep it, run `cartographer service tray install` from the desktop session"
+)
+
+// trayAttachedFn reports a hand-run tray: stdin and stderr are both a terminal.
+// A var so a test forces it; launchd gives the tray /dev/null and no console.
+var trayAttachedFn = func() bool {
+	return isTerminal(os.Stdin.Fd()) && isTerminal(os.Stderr.Fd())
+}
+
+// trayTerminalHint is the one stderr line of a hand-run tray, "" otherwise.
+func trayTerminalHint(logFile string) string {
+	if logFile == "" && trayAttachedFn() {
+		return trayHandRunHint
+	}
+	return ""
+}
+
 // cmdTray runs the status icon: a separate process from `serve` (D1482), so it
 // stays visible, shown stopped, when the server is down and can restart it. It reads
 // /health and acts only through service.Manager and the OS "open".
@@ -33,6 +52,7 @@ func cmdTray(args []string) int {
 	// Help is a success on every platform, so it comes before the platform check.
 	if hasHelpFlag(args) {
 		fmt.Fprintln(os.Stdout, "usage: cartographer tray [--log-file <path>] [--interval <duration>] [--config <path>]   (Windows and macOS only)")
+		fmt.Fprintln(os.Stdout, trayHandRunNote)
 		fs.SetOutput(os.Stdout)
 		fs.PrintDefaults()
 		return 0
@@ -58,6 +78,12 @@ func cmdTray(args []string) int {
 		return 0
 	}
 
+	// Before the log is redirected: the line goes to the terminal that holds the
+	// tray. The LaunchAgent has no terminal and the Scheduled Task passes
+	// --log-file, so neither prints it.
+	if h := trayTerminalHint(*logFile); h != "" {
+		fmt.Fprintln(os.Stderr, h)
+	}
 	if *logFile != "" {
 		f, err := redirectServerLog(*logFile)
 		if err != nil {

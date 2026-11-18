@@ -132,6 +132,8 @@ codex debug prompt-input
 Expected output: a `cartographer:kb:*` section. If it is absent while `status` reports the
 instructions installed, report it: a provider precedence rule Cartographer does not model yet.
 
+On macOS and Windows the status icon comes with the connect step; `setup` ends with a line saying `status icon installed` or `status icon not installed: <reason>`. In the second case run `cartographer service tray install` from the desktop session. A hand-run `cartographer tray` ends with its terminal.
+
 `setup` (through `connect`) provisioned the bundled skills, including `cartographer-ops` and `cartographer-docs`. Use the first for ongoing
 operations, diagnosis, upgrades, and synchronization after installation; the second answers any question about how
 Cartographer works (`cartographer docs`). From there the bundled
