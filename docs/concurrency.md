@@ -43,6 +43,14 @@ wait leaves the files, and the KB remembers those paths with a fingerprint of th
 the next write discards each one still unchanged (`KB.DiscardLeftovers`, before the "external changes"
 commit) and logs a line, so a write answered "not saved" never reaches HEAD without the gate (#2241); a path
 edited since is a genuine external edit and is committed as such. A restart forgets the remembered paths.
+While a remembered path is still held by the lock, nothing sweeps it in (#2254): `KB.CommitOpAs` (every commit
+site: writes, external changes, repair, moves) discards the leftovers first and refuses with
+`ErrLeftoversPending` while any remain, `gitWrap` refuses a write before its handler runs (a failure on that
+tree would go unrecorded), and the "external changes" commit is skipped. A retried discard that fails again
+records its paths too. `concept_transfer` and `artifact_move` refuse the same way, and so do the two other
+commits of the whole tree (`FinalizeConflicts`, the reserved-file auto-resolve). Writes are refused until the lock
+is gone, as a commit failing on the lock is; a record whose restore fails with no lock held (a symlink) is dropped
+with a log line, since it would never clear (a file held open on Windows is kept: it heals on its own).
 The next write after the lock is gone succeeds. On a tree that was not provably clean the changes stay uncommitted and the error says so.
 
 `concept_transfer` (D760) and `artifact_move` (D782) are the two writes that hold **two** KB locks, and with

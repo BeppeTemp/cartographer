@@ -80,6 +80,12 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 				return nil
 			}
 			commitExternalChanges(k, orig.Name)
+			// A failure on a tree that still holds the files of an earlier failed
+			// write would go unrecorded and the commit would sweep them in (#2254).
+			if k.LeftoversPending() {
+				res = errorResult(leftoversRefusal(orig.Name))
+				return nil
+			}
 			// Only a tree that is verifiably at HEAD here may be restored to it
 			// if the handler fails: otherwise the diff would hold unsaved work
 			// of someone else (an open conflict, a failed pre-commit).
@@ -313,6 +319,9 @@ func commitExternalChanges(k *kb.KB, tool string) {
 	// What an earlier write answered "not saved" could not take back (a foreign
 	// index.lock, #2241) goes first: it is no external change.
 	k.DiscardLeftovers()
+	if k.LeftoversPending() {
+		return // still held: no commit may sweep them in (#2254)
+	}
 	if conflicts, err := k.ListConflicts(); err == nil && len(conflicts) > 0 {
 		return
 	}
@@ -757,4 +766,10 @@ func callerConflictMessage(ctx requestContext, k *kb.KB, n int, reserved, other 
 		return "git conflict detected; the conflicting files are outside what this caller can see (" + fmt.Sprint(hidden) + " file(s)), the operator resolves them"
 	}
 	return conflictMessage(n, reserved, other) + note
+}
+
+// leftoversRefusal is the answer of a write refused while files of an earlier
+// failed write are still held by a foreign index.lock (#2254).
+func leftoversRefusal(tool string) string {
+	return tool + ": not saved, " + kb.ErrLeftoversPending.Error() + "; remove the lock file when no git runs in the clone, then retry"
 }
