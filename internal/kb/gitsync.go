@@ -1,12 +1,15 @@
 package kb
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -1040,15 +1043,104 @@ func (k *KB) TreeClean() bool {
 // checked TreeClean before the write it undoes (gitWrap, D1549): on a tree that
 // held someone's unsaved work this would destroy it. Known window: an outside
 // edit written while the handler runs is discarded with the handler's residue.
+//
+// A foreign index.lock refuses the reset: the restore is retried for up to
+// gitx.IndexLockWait while the lock may clear, rewriting the files from HEAD's
+// blobs when the index holds nothing staged (#2190). When the lock outlasts the
+// wait, the paths are remembered and the next write discards them first
+// (DiscardLeftovers, #2241), so they are never swept in as external changes.
 func (k *KB) DiscardUncommitted() error {
 	err := gitx.DiscardChanges(k.Root)
-	// A lock that is not ours refuses the reset too. The write that failed on it
-	// never staged anything, so the index is still HEAD's and the files go back
-	// without it (#2190).
-	if err != nil && gitx.HasIndexLock(k.Root) != "" && gitx.RestoreWithoutIndex(k.Root) == nil {
+	if err == nil {
 		return nil
 	}
+	afterDiscardAttempt()
+	if gitx.HasIndexLock(k.Root) == "" {
+		// The lock may have cleared between the refused attempt and this look
+		// (a slow git, as on Windows): that is a lock that cleared within the
+		// wait, so the discard is tried again before the error stands.
+		if gitx.DiscardChanges(k.Root) == nil {
+			return nil
+		}
+		return err
+	}
+	// Taken before the first attempt: a restore may remove the files that tell
+	// what the call left.
+	dirty, _ := gitx.DirtyPaths(k.Root)
+	prints := make(map[string]string, len(dirty))
+	for _, p := range dirty {
+		prints[p] = k.fingerprint(p)
+	}
+	deadline := time.Now().Add(gitx.IndexLockWait)
+	for {
+		if gitx.RestoreWithoutIndex(k.Root) == nil {
+			return nil
+		}
+		if gitx.HasIndexLock(k.Root) == "" {
+			if derr := gitx.DiscardChanges(k.Root); derr == nil {
+				return nil
+			}
+		}
+		if !time.Now().Before(deadline) {
+			break
+		}
+		time.Sleep(gitx.IndexLockPoll)
+	}
+	if len(prints) > 0 {
+		if k.leftovers == nil {
+			k.leftovers = map[string]string{}
+		}
+		for p, f := range prints {
+			k.leftovers[p] = f
+		}
+		fmt.Fprintf(os.Stderr, "cartographer: %d file(s) of a failed write could not be restored (index.lock held); the next write discards them\n", len(prints))
+	}
 	return err
+}
+
+// afterDiscardAttempt runs between a refused discard and the look at the lock,
+// a variable only so a test can clear the lock in that window.
+var afterDiscardAttempt = func() {}
+
+// DiscardLeftovers discards, before a write begins, the files an earlier failed
+// write left behind under a foreign index.lock (#2241): each path whose content
+// is still what that call left goes back to HEAD, so the "external changes"
+// commit never records a write that was answered "not saved". A path edited
+// since is a genuine external edit and stays. The caller holds the git lock. A
+// lock still held keeps the paths for the next write.
+func (k *KB) DiscardLeftovers() {
+	if len(k.leftovers) == 0 {
+		return
+	}
+	var paths []string
+	for p, f := range k.leftovers {
+		if k.fingerprint(p) == f {
+			paths = append(paths, p)
+		} else {
+			delete(k.leftovers, p)
+		}
+	}
+	if len(paths) == 0 {
+		return
+	}
+	sort.Strings(paths)
+	if err := gitx.RestorePaths(k.Root, paths); err != nil {
+		fmt.Fprintf(os.Stderr, "cartographer: could not discard %d file(s) of an earlier failed write: %v\n", len(paths), err)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "cartographer: discarded %d file(s) left by an earlier failed write\n", len(paths))
+	k.leftovers = nil
+}
+
+// fingerprint is a digest of the file at the KB-relative slash path p, "-" when
+// it is absent or unreadable.
+func (k *KB) fingerprint(p string) string {
+	b, err := os.ReadFile(filepath.Join(k.Root, filepath.FromSlash(p)))
+	if err != nil {
+		return "-"
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
 }
 
 // CommitPaths creates one commit containing changes to paths only, by

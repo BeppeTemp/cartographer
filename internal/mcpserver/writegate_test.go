@@ -8,8 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
+	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
@@ -649,5 +651,79 @@ func TestWriteGate_ForeignIndexLockLeavesNoDanglingIndex(t *testing.T) {
 	}
 	if text, isErr := callJSON(t, s, adminCtx, "concept_write", `{"id":"ops/r","frontmatter":{"type":"Note","title":"R"},"body":"See [P](p.md).","index_entry":true}`); isErr {
 		t.Fatalf("the next write failed: %s", text)
+	}
+}
+
+// takeLockAfterStage makes a foreign index.lock appear once the commit has
+// staged the write (the window of #2241) and releases it after hold.
+func takeLockAfterStage(t *testing.T, k *kb.KB, hold time.Duration) {
+	t.Helper()
+	lock := filepath.Join(k.Root, ".git", "index.lock")
+	armed := true
+	gitx.AfterStage = func(string) {
+		if !armed {
+			return
+		}
+		armed = false
+		if err := os.WriteFile(lock, nil, 0o644); err != nil {
+			t.Error(err)
+			return
+		}
+		go func() {
+			time.Sleep(hold)
+			os.Remove(lock)
+		}()
+	}
+	oldWait, oldPoll := gitx.IndexLockWait, gitx.IndexLockPoll
+	t.Cleanup(func() {
+		gitx.AfterStage = nil
+		gitx.IndexLockWait, gitx.IndexLockPoll = oldWait, oldPoll
+		os.Remove(lock)
+	})
+	gitx.IndexLockPoll = 10 * time.Millisecond
+}
+
+// A write whose commit fails on a foreign index.lock that clears within the
+// wait leaves nothing on disk (#2241).
+func TestFailedCommit_LockClearedWithinTheWaitRestoresTheTree(t *testing.T) {
+	k := gateKB(t)
+	s := gateSeed(t, k, map[string]string{"ops/p": draftPage})
+	takeLockAfterStage(t, k, 200*time.Millisecond)
+	gitx.IndexLockWait = 3 * time.Second
+	text, isErr := callJSON(t, s, adminCtx, "concept_write", `{"id":"ops/q","frontmatter":{"type":"Note","title":"Q"},"body":"See [P](p.md).","index_entry":true}`)
+	if !isErr || !strings.Contains(text, "not saved") {
+		t.Fatalf("want a not-saved error, got %q", text)
+	}
+	if st := strings.TrimSpace(gitOut(t, k, "status", "--porcelain")); st != "" {
+		t.Fatalf("the failed write left files: %s", st)
+	}
+}
+
+// A lock that outlasts the wait leaves the files, but the next write discards
+// them instead of committing them as external changes (#2241).
+func TestFailedCommit_LockHeldPastTheWaitIsDiscardedByTheNextWrite(t *testing.T) {
+	k := gateKB(t)
+	s := gateSeed(t, k, map[string]string{"ops/p": draftPage})
+	takeLockAfterStage(t, k, 400*time.Millisecond)
+	gitx.IndexLockWait = 50 * time.Millisecond
+	text, isErr := callJSON(t, s, adminCtx, "concept_write", `{"id":"ops/q","frontmatter":{"type":"Note","title":"Q"},"body":"See [P](p.md).","index_entry":true}`)
+	if !isErr || !strings.Contains(text, "not saved") {
+		t.Fatalf("want a not-saved error, got %q", text)
+	}
+	time.Sleep(600 * time.Millisecond) // the lock is gone
+	if text, isErr := callJSON(t, s, adminCtx, "concept_write", `{"id":"ops/r","frontmatter":{"type":"Note","title":"R"},"body":"See [P](p.md).","index_entry":true}`); isErr {
+		t.Fatalf("the next write failed: %s", text)
+	}
+	for _, rev := range strings.Fields(gitOut(t, k, "rev-list", "HEAD")) {
+		files := gitOut(t, k, "show", "--name-only", "--format=", rev)
+		if strings.Contains(files, "ops/q.md") {
+			t.Fatalf("the refused page reached HEAD in %s:\n%s", rev, files)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(k.Root, "data", "ops", "q.md")); err == nil {
+		t.Fatal("the refused page is still on disk")
+	}
+	if _, err := os.Stat(filepath.Join(k.Root, "data", "ops", "r.md")); err != nil {
+		t.Fatalf("the next write's own page is missing: %v\n%s", err, gitOut(t, k, "ls-files"))
 	}
 }

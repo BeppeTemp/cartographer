@@ -37,8 +37,13 @@ If the pre-commit of external changes failed, or a conflict is open, the tree is
 nothing is discarded. A handler whose work succeeded and whose commit failed fails the call too (#2190), never
 a success without a commit: on a tree that was clean before the call it is restored to HEAD (when a foreign
 `index.lock` refuses the reset, `gitx.RestoreWithoutIndex` rewrites the files from HEAD's blobs without the
-index), and the error holds git's own text, which names the lock file and the remedy. The next write after the
-lock is gone succeeds. On a tree that was not provably clean the changes stay uncommitted and the error says so.
+index), and the error holds git's own text, which names the lock file and the remedy. The restore waits
+for the lock to clear for up to `gitx.IndexLockWait` (3 s), then resets as usual; a lock that outlasts the
+wait leaves the files, and the KB remembers those paths with a fingerprint of their content (in memory):
+the next write discards each one still unchanged (`KB.DiscardLeftovers`, before the "external changes"
+commit) and logs a line, so a write answered "not saved" never reaches HEAD without the gate (#2241); a path
+edited since is a genuine external edit and is committed as such. A restart forgets the remembered paths.
+The next write after the lock is gone succeeds. On a tree that was not provably clean the changes stay uncommitted and the error says so.
 
 `concept_transfer` (D760) and `artifact_move` (D782) are the two writes that hold **two** KB locks, and with
 `git_conflict_resolve` (one KB: it takes the KB lock itself and finalizes merge, commit and push of the

@@ -208,3 +208,69 @@ func RestoreWithoutIndex(dir string) error {
 	}
 	return nil
 }
+
+// AfterStage runs in Commit once the changes are staged and before git commit
+// takes the index lock: a seam for the tests that need a foreign lock to appear
+// in that window (#2241). Nil in production.
+var AfterStage func(dir string)
+
+// IndexLockWait is how long a restore after a failed commit waits for a foreign
+// index.lock to clear before giving up (#2241); IndexLockPoll is the pause
+// between two attempts. Variables so a test shortens them.
+var (
+	IndexLockWait = 3 * time.Second
+	IndexLockPoll = 50 * time.Millisecond
+)
+
+// DirtyPaths lists the paths git status reports in dir (staged, modified,
+// deleted or untracked, renames split in two), slash-separated.
+func DirtyPaths(dir string) ([]string, error) {
+	out, err := runGit(dir, "status", "--porcelain", "-z", "--untracked-files=all", "--no-renames")
+	if err != nil {
+		return nil, fmt.Errorf("git status: %w", err)
+	}
+	var paths []string
+	for _, e := range strings.Split(out, "\x00") {
+		if len(e) >= 4 {
+			paths = append(paths, e[3:])
+		}
+	}
+	return paths, nil
+}
+
+// RestorePaths puts exactly paths back to HEAD: unstaged, then rewritten from
+// HEAD when HEAD holds them, removed when it does not. It needs the index lock
+// free (the unstaging writes the index) and fails otherwise, touching nothing.
+func RestorePaths(dir string, paths []string) error {
+	if len(paths) == 0 {
+		return nil
+	}
+	if lock := HasIndexLock(dir); lock != "" {
+		return fmt.Errorf("%s is held", lock)
+	}
+	args := append([]string{"--literal-pathspecs", "reset", "-q", "HEAD", "--"}, paths...)
+	if out, err := runGit(dir, args...); err != nil {
+		return fmt.Errorf("git reset: %w: %s", err, out)
+	}
+	for _, p := range paths {
+		abs := filepath.Join(dir, filepath.FromSlash(p))
+		if fi, err := os.Lstat(abs); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%s is a symlink", p)
+		}
+		if _, err := runGit(dir, "cat-file", "-e", "HEAD:"+p); err == nil {
+			if out, err := runGit(dir, append(noEOL, "--literal-pathspecs", "checkout", "HEAD", "--", p)...); err != nil {
+				return fmt.Errorf("git checkout %s: %w: %s", p, err, out)
+			}
+			continue
+		}
+		if err := os.Remove(abs); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		for d := filepath.Dir(abs); d != dir && strings.HasPrefix(d, dir); d = filepath.Dir(d) {
+			if os.Remove(d) != nil {
+				break
+			}
+		}
+	}
+	return nil
+}
