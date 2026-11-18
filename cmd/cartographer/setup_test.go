@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/service"
 )
@@ -761,5 +762,31 @@ func TestRunSetup_ConnectExitThreeIsNotSetUp(t *testing.T) {
 	}
 	if strings.Contains(out, "Cartographer is set up.") {
 		t.Errorf("output = %q, announces success", out)
+	}
+}
+
+// The opt-outs live in the machine file: a fresh machine can carry them with no
+// .cartographer.yaml, and the plan must still honour them.
+func TestGatherSetupFacts_ReadsOptOutsWithoutClientConfig(t *testing.T) {
+	stubSetup(t, setupFacts{})
+	dir, err := clientconfig.TargetDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(clientconfig.MachinePath(dir), []byte(`{"tray_opt_out": true, "sync_timer_opt_out": true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(clientconfig.Path(dir)); err == nil {
+		t.Fatal("the client config must not exist")
+	}
+	f, _ := gatherSetupFacts(setupOptions{NoRemote: true})
+	if !f.TrayOptOut || !f.TimerOptOut {
+		t.Errorf("facts = tray %v timer %v, want both opted out", f.TrayOptOut, f.TimerOptOut)
+	}
+	if !trayOptedOut() {
+		t.Error("trayOptedOut ignores the machine file when there is no client config")
 	}
 }

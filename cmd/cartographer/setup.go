@@ -535,7 +535,13 @@ func gatherSetupFacts(o setupOptions) (setupFacts, error) {
 		return f, nil
 	}
 	if dir, err := clientconfig.TargetDir(); err == nil {
-		if cfg, err := clientconfig.Load(dir); err == nil {
+		cfg, loadErr := clientconfig.Load(dir)
+		if errors.Is(loadErr, os.ErrNotExist) {
+			// The opt-outs live in the machine file, which a fresh machine may have
+			// without a client config.
+			f.TimerOptOut, f.TrayOptOut = clientconfig.MachineOptOuts(dir)
+		}
+		if loadErr == nil {
 			f.ClientURL = cfg.ServerURL
 			f.TimerOptOut = cfg.SyncTimerOptOut
 			f.TrayOptOut = cfg.TrayOptOut
@@ -911,6 +917,13 @@ func runSetupPlan(p setupPlan) int {
 	var waiting []string // this run's plugins still waiting for an approval
 	if len(p.Plugins) > 0 || p.AgentsAfterPlugins || p.Redetect {
 		fmt.Println("==> plugins")
+		// The plugins step writes the client config; a run whose agents step is
+		// skipped never reaches connect's --server-url, so the file would keep the
+		// standard port.
+		if err := seedSetupServerURL(p.ServerURL); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return 1
+		}
 		var thisRun []string
 		if code := preparePlugins(pluginPrep{Sources: p.Plugins, Approve: p.ApprovePlugins, Ask: p.AskPlugins, Names: &thisRun}); code != 0 {
 			fmt.Fprintln(os.Stderr, "Setup stopped at the plugins step: fix the cause above, then rerun `cartographer setup`: finished steps are skipped.")
@@ -1021,6 +1034,30 @@ func runSetupPlan(p setupPlan) int {
 	return 0
 }
 
+// seedSetupServerURL writes the client config with url as server.url when no
+// config file exists yet, so it names the port the service listens on whatever
+// the later steps do. "" or an existing file: nothing to do.
+func seedSetupServerURL(url string) error {
+	if url == "" {
+		return nil
+	}
+	dir, err := clientconfig.TargetDir()
+	if err != nil {
+		return err
+	}
+	release, err := lockClient(dir)
+	if err != nil {
+		return err
+	}
+	defer release()
+	if _, err := clientconfig.Load(dir); !errors.Is(err, os.ErrNotExist) {
+		return nil // a file exists (or cannot be read: the plugins step says so)
+	}
+	cfg := clientconfig.Default()
+	cfg.ServerURL = url
+	return clientconfig.Save(dir, cfg)
+}
+
 // setupTrayOutcome says whether the status icon exists once setup is done, and
 // when it does not, why and the command that installs it: setup installs it
 // only through its connect step, which skips it for several reasons that are
@@ -1040,7 +1077,8 @@ func setupTrayOutcome(noAgent bool) string {
 		return "status icon not installed: no agent is connected yet" + fix
 	}
 	if err := trayStableBinaryFn(); err != nil {
-		return fmt.Sprintf("status icon not installed: %v%s", err, fix)
+		// Not `fix`: run from this binary the command fails for the same reason.
+		return fmt.Sprintf("status icon not installed: %s; run `cartographer service tray install` from a stable install of cartographer (Homebrew or the installer)", strings.TrimPrefix(err.Error(), "service: "))
 	}
 	return "status icon not installed: no agent was connected, or the desktop session refused it (see the warnings above)" + fix
 }

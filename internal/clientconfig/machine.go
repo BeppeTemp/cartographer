@@ -93,6 +93,18 @@ func (c *Config) loadMachine(dir string, legacy *legacyCaches, state stateFile, 
 	}
 }
 
+// MachineOptOuts reads the sync-timer and tray opt-outs of the machine file in
+// dir, whether or not a .cartographer.yaml exists: they belong to the machine,
+// and a fresh one can carry them. False, false when the file is absent or
+// unreadable.
+func MachineOptOuts(dir string) (syncTimer, tray bool) {
+	m, exists, err := readMachine(dir)
+	if err != nil || !exists {
+		return false, false
+	}
+	return m.SyncTimerOptOut, m.TrayOptOut
+}
+
 // writeMachineChanged writes the machine file when it differs from what is on
 // disk, and says whether it did. A machine with nothing to record gets no file.
 // The first write of a migration keeps the old homes as .bak-pre-machine copies
