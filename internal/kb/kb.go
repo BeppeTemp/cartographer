@@ -3125,12 +3125,18 @@ func (kb *KB) Validate(scope string) ([]ValidationError, error) {
 		scope = "."
 	}
 
+	// The same scope forms lint takes: a trailing slash or backslashes are
+	// normalized, a concept id names its own file (#2255).
+	scope = strings.TrimSuffix(strings.ReplaceAll(scope, "\\", "/"), "/")
+	if scope == "" {
+		scope = "."
+	}
 	if err := kb.CheckScope(scope); err != nil {
 		return nil, err
 	}
 	files, err := kb.listMDFiles(scope)
 	if err != nil {
-		return nil, fmt.Errorf("Validate: list files: %w", err)
+		return nil, fmt.Errorf("Validate: list files of scope %q: %w", scope, stripPath(err))
 	}
 
 	// Archive metadata cache: name → frontmatter (nil if not found or unreadable).
@@ -3145,7 +3151,7 @@ func (kb *KB) Validate(scope string) ([]ValidationError, error) {
 		if base == "index.md" || base == "log.md" {
 			content, err := kb.ReadRaw(rel)
 			if err != nil {
-				return nil, fmt.Errorf("Validate: read %s: %w", rel, err)
+				return nil, fmt.Errorf("Validate: read %s: %w", rel, stripPath(err))
 			}
 			if strings.TrimSpace(content) == "" {
 				errs = append(errs, ValidationError{Path: rel, Message: "empty file"})
@@ -3158,7 +3164,7 @@ func (kb *KB) Validate(scope string) ([]ValidationError, error) {
 		if base == "_map.md" || base == "_archive.md" {
 			content, err := kb.ReadRaw(rel)
 			if err != nil {
-				return nil, fmt.Errorf("Validate: read %s: %w", rel, err)
+				return nil, fmt.Errorf("Validate: read %s: %w", rel, stripPath(err))
 			}
 			fmRaw, _, ok := okf.SplitFrontmatter(content)
 			if !ok {
@@ -3183,7 +3189,7 @@ func (kb *KB) Validate(scope string) ([]ValidationError, error) {
 		// Normal concept: verify frontmatter and required type field.
 		content, err := kb.ReadRaw(rel)
 		if err != nil {
-			return nil, fmt.Errorf("Validate: read %s: %w", rel, err)
+			return nil, fmt.Errorf("Validate: read %s: %w", rel, stripPath(err))
 		}
 
 		fmRaw, _, ok := okf.SplitFrontmatter(content)
@@ -3285,14 +3291,33 @@ func (kb *KB) listMDFiles(relDir string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A concept id names a file, not a folder: the scope is that one file.
+	if _, err := os.Stat(absDir); err != nil {
+		if fi, err := os.Stat(absDir + ".md"); err == nil && !fi.IsDir() {
+			return []string{filepath.ToSlash(relDir) + ".md"}, nil
+		}
+	}
+	// services/ lives at the KB root, so its paths are relative to Root: a path
+	// relative to DataRoot would climb out with "../" and not resolve back.
+	base := kb.baseFor(relDir)
 	var files []string
 	err = walkVisibleDirs(absDir, func(p string, d fs.DirEntry) {
 		if !d.IsDir() && strings.HasSuffix(p, ".md") {
-			rel, _ := filepath.Rel(kb.DataRoot(), p)
+			rel, _ := filepath.Rel(base, p)
 			files = append(files, filepath.ToSlash(rel))
 		}
 	})
 	return files, err
+}
+
+// stripPath drops the filesystem path an *fs.PathError carries, so an error
+// that reaches a tool caller names no server path (#2255).
+func stripPath(err error) error {
+	var pe *fs.PathError
+	if errors.As(err, &pe) {
+		return fmt.Errorf("%s: %w", pe.Op, pe.Err)
+	}
+	return err
 }
 
 // TemplateTexts returns the bodies of the KB's templates/*.md, in name
