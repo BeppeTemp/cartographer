@@ -323,3 +323,24 @@ func TestTestKBsCacheDirIsPrivate(t *testing.T) {
 		t.Error("scripts/dev.sh still names a cache directory in /tmp")
 	}
 }
+
+// attest-build-provenance with push-to-registry reads docker's credentials, not
+// helm's registry config: a job that attests without a docker/login-action
+// before it fails at release time with "No credentials found" (#2272).
+func TestAttestPushToRegistryLogsInFirst(t *testing.T) {
+	for name, wf := range loadWorkflows(t) {
+		for job, j := range wf.Jobs {
+			loggedIn := false
+			for _, s := range j.Steps {
+				switch {
+				case strings.HasPrefix(s.Uses, "docker/login-action@"):
+					loggedIn = true
+				case strings.HasPrefix(s.Uses, "actions/attest-build-provenance@"):
+					if push, _ := s.With["push-to-registry"].(bool); push && !loggedIn {
+						t.Errorf("%s: job %q attests with push-to-registry but has no docker/login-action step before it (#2272)", name, job)
+					}
+				}
+			}
+		}
+	}
+}
