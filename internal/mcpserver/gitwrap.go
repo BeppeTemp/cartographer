@@ -310,6 +310,9 @@ const externalChangesSubject = "external changes"
 // failure is logged and never fails the write. A clean tree or a
 // non-repository make it a no-op (CommitOpAs).
 func commitExternalChanges(k *kb.KB, tool string) {
+	// What an earlier write answered "not saved" could not take back (a foreign
+	// index.lock, #2241) goes first: it is no external change.
+	k.DiscardLeftovers()
 	if conflicts, err := k.ListConflicts(); err == nil && len(conflicts) > 0 {
 		return
 	}

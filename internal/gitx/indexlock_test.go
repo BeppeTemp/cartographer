@@ -512,3 +512,66 @@ func TestRestoreWithoutIndex_RestoresTheTreeUnderALock(t *testing.T) {
 		t.Fatalf("the deleted file did not come back: %v", err)
 	}
 }
+
+// RestorePaths takes exactly the given paths back to HEAD, staged ones
+// included, and leaves another dirty path alone; a held lock makes it refuse
+// without touching anything (#2241).
+func TestRestorePaths_RestoresOnlyTheGivenPathsAndNeedsTheLockFree(t *testing.T) {
+	dir := repoWithCommit(t)
+	write := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("a.md", "changed\n")
+	write("new.md", "n\n")
+	write("other.md", "keep\n")
+	if _, err := runGit(dir, "add", "a.md", "new.md"); err != nil {
+		t.Fatal(err)
+	}
+	paths, err := DirtyPaths(dir)
+	if err != nil || len(paths) != 3 {
+		t.Fatalf("DirtyPaths = %v, %v", paths, err)
+	}
+	lock := filepath.Join(dir, ".git", "index.lock")
+	write(filepath.Join(".git", "index.lock"), "")
+	if err := RestorePaths(dir, []string{"a.md", "new.md"}); err == nil {
+		t.Fatal("RestorePaths ran under a held lock")
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "a.md")); string(b) != "changed\n" {
+		t.Fatalf("a refused restore touched a.md: %q", b)
+	}
+	os.Remove(lock)
+	if err := RestorePaths(dir, []string{"a.md", "new.md"}); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "a.md")); string(b) != "a\n" {
+		t.Fatalf("a.md = %q, want HEAD's content", b)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "new.md")); !os.IsNotExist(err) {
+		t.Fatalf("new.md is still there (%v)", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "other.md")); err != nil {
+		t.Fatalf("other.md was touched: %v", err)
+	}
+	if out, _ := runGit(dir, "status", "--porcelain"); strings.TrimSpace(out) != "?? other.md" {
+		t.Fatalf("status = %q", out)
+	}
+}
+
+// A restore gives back HEAD's bytes under core.autocrlf=true, the Git for
+// Windows default, as the stash round trip does (noEOL): the KB's files are LF.
+func TestRestorePaths_KeepsLFUnderAutocrlf(t *testing.T) {
+	dir := repoWithCommit(t)
+	mustGit(t, dir, "config", "core.autocrlf", "true")
+	if err := os.WriteFile(filepath.Join(dir, "a.md"), []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := RestorePaths(dir, []string{"a.md"}); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "a.md")); string(b) != "a\n" {
+		t.Fatalf("a.md = %q, want HEAD's bytes", b)
+	}
+}

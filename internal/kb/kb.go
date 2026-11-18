@@ -163,6 +163,11 @@ type KB struct {
 
 	mu sync.Mutex // serialises git operations (see gitsync.go)
 
+	// leftovers are the files a failed write could not take back (#2241), by
+	// path, with a fingerprint of what the failed call left there; guarded by
+	// the git lock.
+	leftovers map[string]string
+
 	// procLockHeld is set while this KB holds the advisory lock file
 	// (lockfile.go), so WithGitLock does not wait on a lock its own process
 	// already holds: `cartographer import` takes it for the whole run and

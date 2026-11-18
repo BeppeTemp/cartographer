@@ -544,6 +544,9 @@ func Commit(dir, message, authorName, authorEmail string, env ...string) error {
 	if err := stageAll(dir, env); err != nil {
 		return err
 	}
+	if AfterStage != nil {
+		AfterStage(dir)
+	}
 	return commit(dir, message, authorName, authorEmail, env...)
 }
 
