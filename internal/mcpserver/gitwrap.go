@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -216,7 +218,25 @@ func commitFailureResult(k *kb.KB, tool string, commitErr error, cleanBefore boo
 	if note != discardedNote {
 		k.SetGitStatus("failed", fmt.Errorf("commit: %w", commitErr))
 	}
-	return errorResult(fmt.Sprintf("%s: not saved, the commit failed: %v; %s", tool, commitErr, note))
+	return errorResult(fmt.Sprintf("%s: not saved, the commit failed: %s; %s", tool, hideKBRoot(k, commitErr.Error()), note))
+}
+
+// hideKBRoot replaces the KB's absolute root in text a remote caller will read
+// with "<kb>" (#2262): git's errors name the lock file by its full path, which
+// is a server path. The server log keeps the full text. The root is matched as
+// given, slash-normalised and symlink-resolved, longest first.
+func hideKBRoot(k *kb.KB, text string) string {
+	roots := []string{k.Root, filepath.ToSlash(k.Root)}
+	if r, err := filepath.EvalSymlinks(k.Root); err == nil {
+		roots = append(roots, r, filepath.ToSlash(r))
+	}
+	sort.Slice(roots, func(i, j int) bool { return len(roots[i]) > len(roots[j]) })
+	for _, r := range roots {
+		if r != "" && r != "." && r != string(filepath.Separator) {
+			text = strings.ReplaceAll(text, r, "<kb>")
+		}
+	}
+	return text
 }
 
 // discardedNote ends the error of a write gitWrap rolled back.
