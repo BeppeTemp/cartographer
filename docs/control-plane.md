@@ -324,7 +324,7 @@ Parameter details not repeated in the schema:
 - **`gate_check` / `lint`**: a finding is a problem (D947), so there is no severity to filter on; `pass` needs zero findings in the scope (D186, D947) and
   `count` is always the unfiltered total. `scope_neighbors` also lints
   the 1-hop graph neighbours of the concepts in scope. With `changed_ids` and no `scope`, `gate_check` lints only those concepts (`lint_scope: changed_ids`, D312; without the write-time `repeated_fact`, D351); an empty `changed_ids` is the whole-KB gate.
-  `lint`, `validate` and `gate_check` refuse a `scope` that names no map, folder or concept (`unknown scope "x"; use a map name (map_list) or an id prefix`, no server path, #2239).
+  `lint`, `validate` and `gate_check` refuse a `scope` that names no map, folder or concept (`unknown scope "x"; use a map name (map_list) or an id prefix`, no server path, #2239) and accept the same forms: a map, a folder (also the root-level `services`), a concept id, a trailing slash (#2255).
 - **`snapshot`**: appends a log entry and, in a git repository, a git commit.
 - **`concept_move`** across maps appends the plain entry `- [title](path)` under `## Moved here` in the destination's curated index, with no suffix (D720), and removes the source's entry when the moved concept is that line's only link (D160); every curated index is maintained (D907), a `generated` one is Meridian's.
 - **Ingest units** are claimed with `work_list` and `concept_patch` (`if_match`, `stale_write:` as above), with no tool of their own: the protocol is in `data-plane.md` §Extended concept types (Ingest plan and units).
