@@ -118,3 +118,28 @@ func TestMachinePath_MessageSaysHowToExpressRemote(t *testing.T) {
 	}
 	t.Fatal("no machine_path finding")
 }
+
+func TestMachinePath_HomeSegmentInsideRelativePath(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{"relative path with home segment", "see inventories/home/group_vars/x.yml here", false},
+		{"relative path with Users segment", "see a/Users/b here", false},
+		{"dotted prefix", "see ./home/user/x", false},
+		{"bare home path", "see /home/user/x here", true},
+		{"backtick", "see `/home/user/x`", true},
+		{"parenthesis tilde", "see (~/notes)", true},
+		{"assignment", "path=/Users/user/x", true},
+		{"body start", "/home/user/x is it", true},
+		{"after colon", "dir:/home/user/x", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := len(disallowedMachinePaths(tc.body)) > 0; got != tc.want {
+				t.Fatalf("flagged=%v want %v for %q", got, tc.want, tc.body)
+			}
+		})
+	}
+}
