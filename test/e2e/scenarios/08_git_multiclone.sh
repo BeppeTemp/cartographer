@@ -20,6 +20,8 @@ E2E_DIR="$(cd "${SCENARIO_DIR}/.." && pwd)"
 source "${E2E_DIR}/lib/assert.sh"
 # shellcheck source=../lib/kb.sh
 source "${E2E_DIR}/lib/kb.sh"
+# shellcheck source=../lib/server.sh
+source "${E2E_DIR}/lib/server.sh"
 
 SCENARIO_NAME="08_git_multiclone"
 echo "=== Scenario ${SCENARIO_NAME} ==="
@@ -40,8 +42,9 @@ mkdir -p "$DIR"
 BARE="${DIR}/remote.git"
 KBA="${DIR}/kbA"
 KBB="${DIR}/kbB"
-PORT_A="${E2E_HTTP_PORT}"
-PORT_B="$((E2E_HTTP_PORT + 1))"
+# Each instance gets a port free when it binds (e2e_serve), not E2E_HTTP_PORT + n (#2275).
+PORT_A=""
+PORT_B=""
 
 PID_A=""
 PID_B=""
@@ -50,21 +53,6 @@ cleanup() {
     [[ -n "$PID_B" ]] && kill "$PID_B" 2>/dev/null
 }
 trap cleanup EXIT
-
-wait_health() {
-    local port="$1" elapsed=0
-    while [[ $elapsed -lt 20 ]]; do
-        # Past bootstrap too (D348): /health answers while the KB is still
-        # being mounted, and /mcp is 503 until then.
-        local body
-        body=$(curl -sf "http://127.0.0.1:${port}/health" 2>/dev/null) || body=""
-        if grep -q -- '"started_at"' <<<"$body" && ! grep -q -- '"bootstrapping"' <<<"$body"; then
-            return 0
-        fi
-        sleep 1; elapsed=$((elapsed + 1))
-    done
-    return 1
-}
 
 mcp() {
     local port="$1" kb="$2" payload="$3"
@@ -82,9 +70,8 @@ kb_bootstrap "$KBA"
 
 # Start instance A on KBA (made a KB by kb_bootstrap above: serve never creates one).
 CARTOGRAPHER_AUTH=false K_SERVICE=e2e \
-    "$BIN" serve --config "$IDENT_CFG" --kb "$KBA" --http "127.0.0.1:${PORT_A}" >"${DIR}/srvA.log" 2>&1 &
-PID_A=$!
-wait_health "$PORT_A" || { echo "[ERROR] server A not responding"; exit 1; }
+    e2e_serve "${DIR}/srvA.log" --config "$IDENT_CFG" --kb "$KBA" || { echo "[ERROR] server A not responding"; exit 1; }
+PID_A="$E2E_SERVE_PID"; PORT_A="$E2E_SERVE_PORT"
 
 # Connect KBA to the bare repo and initial push (operator operation, direct git).
 BRANCH="$(git -C "$KBA" branch --show-current)"
@@ -95,9 +82,8 @@ git -C "$KBA" push -u origin "$BRANCH" >/dev/null 2>&1
 echo "[08] clone B from remote + start instance B"
 git clone "$BARE" "$KBB" >/dev/null 2>&1
 CARTOGRAPHER_AUTH=false K_SERVICE=e2e \
-    "$BIN" serve --config "$IDENT_CFG" --kb "$KBB" --http "127.0.0.1:${PORT_B}" >"${DIR}/srvB.log" 2>&1 &
-PID_B=$!
-wait_health "$PORT_B" || { echo "[ERROR] server B not responding"; exit 1; }
+    e2e_serve "${DIR}/srvB.log" --config "$IDENT_CFG" --kb "$KBB" || { echo "[ERROR] server B not responding"; exit 1; }
+PID_B="$E2E_SERVE_PID"; PORT_B="$E2E_SERVE_PORT"
 
 # --- A writes a concept (autocommit + push to the bare repo) ---
 echo "[08] write on instance A"
