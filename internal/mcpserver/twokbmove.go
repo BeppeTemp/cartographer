@@ -115,6 +115,9 @@ func (m *twoKBMove) runLocked(ctx context.Context) ToolResult {
 	}
 	for _, k := range []*kb.KB{src, dst} {
 		commitExternalChanges(k, tool)
+		if k.LeftoversPending() {
+			return errorResult(leftoversRefusal(tool))
+		}
 		k.RefreshSettings() // as gitWrap does: an in-place settings.yaml edit applies (D746)
 		// DiscardChanges below resets the whole tree: it is safe only when the
 		// tree held nothing of anyone's before this call.

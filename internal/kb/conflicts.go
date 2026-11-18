@@ -256,6 +256,9 @@ func (k *KB) FinalizeConflicts() ([]string, error) {
 	if remoteSHA == "" {
 		return nil, fmt.Errorf("FinalizeConflicts: missing remote SHA")
 	}
+	if err := k.guardLeftovers(); err != nil {
+		return nil, fmt.Errorf("FinalizeConflicts: %w", err)
+	}
 
 	// Clean the working tree: the degraded markers are uncommitted and would block the
 	// merge. Stash them away (never popped on success — the resolution supersedes them).

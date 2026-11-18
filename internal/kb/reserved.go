@@ -279,6 +279,9 @@ func (k *KB) autoResolveReserved(rce *gitx.RebaseConflictError) error {
 	if rce.RemoteSHA == "" || rce.LocalSHA == "" {
 		return fmt.Errorf("missing local or remote SHA")
 	}
+	if err := k.guardLeftovers(); err != nil {
+		return err
+	}
 	if status, _ := gitx.Status(k.Root); strings.TrimSpace(status) != "" {
 		return fmt.Errorf("working tree is not clean")
 	}

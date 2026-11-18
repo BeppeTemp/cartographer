@@ -967,6 +967,10 @@ func (k *KB) RemoteInfo() (url string, ok bool) {
 	return gitx.RedactRemoteURL(strings.TrimSpace(raw)), true
 }
 
+// ErrLeftoversPending is the refusal of a commit while files of an earlier
+// failed write are still held by a foreign index.lock (#2254).
+var ErrLeftoversPending = errors.New("files of an earlier failed write are still held by a foreign index.lock; nothing was committed")
+
 // CommitOpAs creates a git commit if the KB root is a git repository and the
 // working tree is dirty (every write is a commit, whatever the configuration,
 // D903). It is a no-op in every other case.
@@ -996,6 +1000,13 @@ func (k *KB) CommitOpAs(message, authorName, authorEmail string) (sha string, er
 	}
 	if !isRepo {
 		return "", nil
+	}
+	// Files of an earlier failed write that a foreign index.lock still holds
+	// must never be swept into a commit (#2254): discard them first, refuse
+	// while any remain. The other sites that commit the whole tree (conflict
+	// finalization, reserved-file auto-resolve) call the same guard.
+	if err := k.guardLeftovers(); err != nil {
+		return "", err
 	}
 	status, err := gitx.Status(k.Root)
 	if err != nil {
@@ -1055,21 +1066,24 @@ func (k *KB) DiscardUncommitted() error {
 		return nil
 	}
 	afterDiscardAttempt()
-	if gitx.HasIndexLock(k.Root) == "" {
-		// The lock may have cleared between the refused attempt and this look
-		// (a slow git, as on Windows): that is a lock that cleared within the
-		// wait, so the discard is tried again before the error stands.
-		if gitx.DiscardChanges(k.Root) == nil {
-			return nil
-		}
-		return err
-	}
-	// Taken before the first attempt: a restore may remove the files that tell
+	// Taken before any further attempt: a restore may remove the files that tell
 	// what the call left.
 	dirty, _ := gitx.DirtyPaths(k.Root)
 	prints := make(map[string]string, len(dirty))
 	for _, p := range dirty {
 		prints[p] = k.fingerprint(p)
+	}
+	if gitx.HasIndexLock(k.Root) == "" {
+		// The lock may have cleared between the refused attempt and this look
+		// (a slow git, as on Windows): that is a lock that cleared within the
+		// wait, so the discard is tried again before the error stands.
+		beforeDiscardRetry()
+		if gitx.DiscardChanges(k.Root) == nil {
+			return nil
+		}
+		// Still refused: the files stay, so they are recorded (#2254).
+		k.recordLeftovers(prints)
+		return err
 	}
 	deadline := time.Now().Add(gitx.IndexLockWait)
 	for {
@@ -1086,17 +1100,42 @@ func (k *KB) DiscardUncommitted() error {
 		}
 		time.Sleep(gitx.IndexLockPoll)
 	}
-	if len(prints) > 0 {
-		if k.leftovers == nil {
-			k.leftovers = map[string]string{}
-		}
-		for p, f := range prints {
-			k.leftovers[p] = f
-		}
-		fmt.Fprintf(os.Stderr, "cartographer: %d file(s) of a failed write could not be restored (index.lock held); the next write discards them\n", len(prints))
-	}
+	k.recordLeftovers(prints)
 	return err
 }
+
+// beforeDiscardRetry runs before the retried discard, a variable only so a test
+// can plant a lock in that window.
+var beforeDiscardRetry = func() {}
+
+// recordLeftovers remembers the files a failed write could not take back.
+func (k *KB) recordLeftovers(prints map[string]string) {
+	if len(prints) == 0 {
+		return
+	}
+	if k.leftovers == nil {
+		k.leftovers = map[string]string{}
+	}
+	for p, f := range prints {
+		k.leftovers[p] = f
+	}
+	fmt.Fprintf(os.Stderr, "cartographer: %d file(s) of a failed write could not be restored (index.lock held); the next write discards them\n", len(prints))
+}
+
+// guardLeftovers discards the leftovers of earlier failed writes and refuses
+// with ErrLeftoversPending while any remain: the guard of every site that
+// commits with git add -A (#2254). The caller holds the git lock.
+func (k *KB) guardLeftovers() error {
+	k.DiscardLeftovers()
+	if k.LeftoversPending() {
+		return ErrLeftoversPending
+	}
+	return nil
+}
+
+// LeftoversPending reports whether files of an earlier failed write are still
+// recorded and could not be discarded yet (#2254). The caller holds the git lock.
+func (k *KB) LeftoversPending() bool { return len(k.leftovers) > 0 }
 
 // afterDiscardAttempt runs between a refused discard and the look at the lock,
 // a variable only so a test can clear the lock in that window.
@@ -1124,7 +1163,20 @@ func (k *KB) DiscardLeftovers() {
 		return
 	}
 	sort.Strings(paths)
-	if err := gitx.RestorePaths(k.Root, paths); err != nil {
+	err := gitx.RestorePaths(k.Root, paths)
+	if err != nil && gitx.HasIndexLock(k.Root) == "" && !restoreMayHeal(err) {
+		// The lock may have cleared just after the refusal: one more try.
+		err = gitx.RestorePaths(k.Root, paths)
+		if err != nil && gitx.HasIndexLock(k.Root) == "" && !restoreMayHeal(err) {
+			// Not the lock (a symlink, say): no later attempt would differ, and a
+			// record that never clears would refuse every write. The files are
+			// plain dirty files from now on (#2254).
+			fmt.Fprintf(os.Stderr, "cartographer: dropped the record of %d file(s) of an earlier failed write, they cannot be restored: %v\n", len(paths), err)
+			k.leftovers = nil
+			return
+		}
+	}
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "cartographer: could not discard %d file(s) of an earlier failed write: %v\n", len(paths), err)
 		return
 	}
