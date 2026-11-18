@@ -128,3 +128,32 @@ func TestGitWrap_CommitFailureFailsTheCallAndRestoresTheTree(t *testing.T) {
 		t.Fatal("the residue of the failed write was committed as external changes")
 	}
 }
+
+// #2265: a foreign HEAD.lock makes the discard report an error although the
+// write's files are already gone; the answer must say nothing is left, not that
+// the changes stay uncommitted.
+func TestGitWrap_HeadLockDiscardErrorOnCleanTreeSaysNothingIsLeft(t *testing.T) {
+	t.Parallel()
+	k, _ := setupGitKB(t)
+	lock := filepath.Join(k.Root, ".git", "HEAD.lock")
+	if err := os.WriteFile(lock, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res := writeWrappedTool(t, k, "test_write", nil)
+	text := ""
+	if len(res.Content) > 0 {
+		text = res.Content[0].Text
+	}
+	if !res.IsError || res.CommitSHA != "" {
+		t.Fatalf("answered %+v, want an error", res)
+	}
+	if strings.Contains(text, "left uncommitted") || !strings.Contains(text, discardedNote) {
+		t.Fatalf("error %q must say nothing is left", text)
+	}
+	if !k.TreeClean() {
+		t.Fatal("tree is not clean: the premise of the test is gone")
+	}
+	if k.LeftoversPending() {
+		t.Fatal("a clean tree still has leftovers recorded")
+	}
+}

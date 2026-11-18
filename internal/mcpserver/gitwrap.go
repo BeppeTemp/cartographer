@@ -210,7 +210,7 @@ func commitFailureResult(k *kb.KB, tool string, commitErr error, cleanBefore boo
 	if cleanBefore {
 		if err := k.DiscardUncommitted(); err != nil {
 			fmt.Fprintf(os.Stderr, "cartographer: rollback of %s after a failed commit failed: %v\n", tool, err)
-			note = "the changes could not be restored and are left uncommitted in the working tree"
+			note = leftNote(k)
 		} else {
 			note = discardedNote
 		}
@@ -219,6 +219,21 @@ func commitFailureResult(k *kb.KB, tool string, commitErr error, cleanBefore boo
 		k.SetGitStatus("failed", fmt.Errorf("commit: %w", commitErr))
 	}
 	return errorResult(fmt.Sprintf("%s: not saved, the commit failed: %s; %s", tool, hideKBRoot(k, commitErr.Error()), note))
+}
+
+// leftNote words the answer of a failed restore from the tree as it is (#2265):
+// git can refuse the reset (a foreign HEAD.lock) after the files are already
+// gone, and then nothing is left. Files that are left are named KB-relative.
+func leftNote(k *kb.KB) string {
+	if k.TreeClean() {
+		k.DiscardLeftovers() // a record of files that are no longer there
+		return discardedNote
+	}
+	note := "the changes could not be restored and are left uncommitted in the working tree"
+	if paths, err := gitx.DirtyPaths(k.Root); err == nil && len(paths) > 0 {
+		note += " (" + strings.Join(paths, ", ") + ")"
+	}
+	return note
 }
 
 // hideKBRoot replaces the KB's absolute root in text a remote caller will read
