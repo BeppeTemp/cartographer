@@ -9,12 +9,12 @@
 # Not part of `make gate`, `make e2e` or an ordinary PR: CI runs it on the
 # release PR, on a PR that touches test/forge/ and on workflow_dispatch (job
 # `forge`); by hand, run it from the repository root. FORGE_KEEP=1 leaves the
-# container up. Pinned images (forgejo by its major tag, gitlab by full version), never
+# container up. Pinned images (forgejo by its major tag from its own registry, gitlab by full version), never
 # `latest`; bump them here.
 set -euo pipefail
 
 FORGE=${1:-}
-FORGEJO_IMAGE=${FORGEJO_IMAGE:-codeberg.org/forgejo/forgejo:15}
+FORGEJO_IMAGE=${FORGEJO_IMAGE:-data.forgejo.org/forgejo/forgejo:15}
 GITLAB_IMAGE=${GITLAB_IMAGE:-gitlab/gitlab-ce:18.11.12-ce.0}
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -150,6 +150,12 @@ start_gitlab() {
   protect_main() { # nobody pushes to main
     api DELETE "/projects/$PID/protected_branches/main" >/dev/null
     api POST "/projects/$PID/protected_branches?name=main&push_access_level=0&merge_access_level=40" >/dev/null
+    # GitLab applies the rule after the API answers: a write right after can
+    # still go through. Wait, bounded, until the API reports nobody may push.
+    wait_for "the protection of main" 60 main_is_locked
+  }
+  main_is_locked() { # wait_for ignores the status of a failed read
+    [ "$(api GET "/projects/$PID/protected_branches/main" | json "d['push_access_levels'][0]['access_level']")" = 0 ]
   }
   SSH_REMOTE=""
   # The membership rule is a push rule, a Premium feature: CE answers 404/403.
