@@ -1059,6 +1059,11 @@ func disallowedMachinePaths(body string) []string {
 		if withinAnySpan(span, urlSpans) || withinAnySpan(span, remoteSpans) {
 			continue
 		}
+		// A home segment inside a longer path (inventories/home/x, a/Users/b)
+		// is a relative path, not a home-anchored one.
+		if span[0] > 0 && isPathByte(body[span[0]-1]) {
+			continue
+		}
 		// Prose punctuation after a path is not part of it.
 		candidate := strings.TrimRight(body[span[0]:span[1]], ",;:.)")
 		if candidate == "" || matchesAllowedPrefix(candidate) || seen[candidate] {
@@ -1068,6 +1073,13 @@ func disallowedMachinePaths(body string) []string {
 		out = append(out, candidate)
 	}
 	return out
+}
+
+// isPathByte reports whether c can continue a path: a candidate preceded by
+// one starts mid-path, not at a home anchor.
+func isPathByte(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' ||
+		c == '.' || c == '_' || c == '-' || c == '/' || c == '\\'
 }
 
 // withinAnySpan reports whether span (a [start, end) match position) is
