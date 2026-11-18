@@ -306,9 +306,13 @@ func TestRenderSetupPlan_StatusIconLine(t *testing.T) {
 
 func TestEnsureClientTray_UnstableBinaryIsNotALoginItem(t *testing.T) {
 	_, c := stubTrayState(t, false)
-	trayStableBinaryFn = func() error { return errors.New("/tmp/go-build/x is a go-build artifact") }
+	trayStableBinaryFn = func() error { return errors.New("service: /tmp/go-build/x is a go-build artifact") }
 	opts := connectOptions{Providers: []string{"claude"}}
 	errOut := withStderr(t, func() { ensureClientTray(opts, connectResult{}) })
+	// One wording with setup's last line: no internal prefix, the stable installs named.
+	if strings.Contains(errOut, "service: ") || !strings.Contains(errOut, "(Homebrew or the installer)") {
+		t.Fatalf("warning = %q", errOut)
+	}
 	if c.installs != 0 || !strings.Contains(errOut, "go-build artifact") || !strings.Contains(errOut, "cartographer service tray install") {
 		t.Fatalf("installs=%d stderr=%q", c.installs, errOut)
 	}

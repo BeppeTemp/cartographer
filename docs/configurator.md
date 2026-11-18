@@ -169,7 +169,7 @@ decides every step **before** running any:
   `connect` does not reset what they have); the plan names what each agent receives. When Compass has no
   URL yet setup passes `--server-url` for the local service's own address (a service installed with
   `--http` on another port included); a loopback client URL on a different port than the service is a
-  plan-time refusal (exit 2, nothing changed).
+  plan-time refusal (exit 2, nothing changed). The plugins step writes the client config with that address as `server.url` when no config file exists yet (`seedSetupServerURL`), even when the agents step is skipped.
 - **Service backend (D1682).** The plan line names how Meridian is kept: `systemd`, `launchd` and
   the Scheduled Task say "starts at login, no admin rights"; `cron` says "starts at boot, checked every
   5 minutes". A server already answering a well-formed `/health` on the configured address (the default
@@ -572,7 +572,7 @@ materialization to a loopback URL only adds a hint on stderr suggesting
 prints the absolute paths of generated MCP configs and reminds the user to restart the selected
 agent sessions to load the MCP tools (a `cli` provider is told to restart to load the skills and instructions, a `none` provider gets no line).
 
-`connect` also installs the status icon (`cartographer tray`) on macOS and Windows, after the sync timer: a tray already installed is left running as it is (a `connect` never restarts it; `upgrade-repair` refreshes it), a remembered opt-out installs nothing, and a failure (a session with no GUI such as ssh) is a warning that names `cartographer service tray install`, never a different exit code. A dry run prints `[dry-run] would install the status icon`. `reconnect` and `setup` go through the same step (the `setup` plan lists `status icon  install (with the agents' connect)`, and its result states `status icon installed` or `status icon not installed: <reason>` with `cartographer service tray install` as the fix: no agent connected, an opt-out, a binary that is not a stable install path, or no GUI session); `sync` never installs it.
+`connect` also installs the status icon (`cartographer tray`) on macOS and Windows, after the sync timer: a tray already installed is left running as it is (a `connect` never restarts it; `upgrade-repair` refreshes it), a remembered opt-out installs nothing, and a failure (a session with no GUI such as ssh) is a warning that names `cartographer service tray install`, never a different exit code. A dry run prints `[dry-run] would install the status icon`. `reconnect` and `setup` go through the same step (the `setup` plan lists `status icon  install (with the agents' connect)`, and its result states `status icon installed` or `status icon not installed: <reason>` with `cartographer service tray install` as the fix for no agent connected, an opt-out or no GUI session; for a binary that is not a stable install path the line says to run it from a stable install of cartographer (Homebrew or the installer), as the `connect` warning does, since from this binary it fails the same way); `sync` never installs it.
 
 ### `cartographer disconnect [provider|all]`
 
