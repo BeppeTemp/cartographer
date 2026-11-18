@@ -51,7 +51,7 @@ records its paths too. `concept_transfer` and `artifact_move` refuse the same wa
 commits of the whole tree (`FinalizeConflicts`, the reserved-file auto-resolve). Writes are refused until the lock
 is gone, as a commit failing on the lock is; a record whose restore fails with no lock held (a symlink) is dropped
 with a log line, since it would never clear (a file held open on Windows is kept: it heals on its own).
-The next write after the lock is gone succeeds. On a tree that was not provably clean the changes stay uncommitted and the error says so.
+The next write after the lock is gone succeeds. On a tree that was not provably clean the changes stay uncommitted and the error says so. When the restore itself fails (e.g. a foreign `HEAD.lock`), the answer is worded from the tree as it is (`leftNote`): a clean tree gets the "back at its last commit" note and the leftovers record is dropped; files left are named KB-relative.
 
 `concept_transfer` (D760) and `artifact_move` (D782) are the two writes that hold **two** KB locks, and with
 `git_conflict_resolve` (one KB: it takes the KB lock itself and finalizes merge, commit and push of the

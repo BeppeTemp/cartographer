@@ -1078,7 +1078,7 @@ func setupTrayOutcome(noAgent bool) string {
 	}
 	if err := trayStableBinaryFn(); err != nil {
 		// Not `fix`: run from this binary the command fails for the same reason.
-		return fmt.Sprintf("status icon not installed: %s; run `cartographer service tray install` from a stable install of cartographer (Homebrew or the installer)", strings.TrimPrefix(err.Error(), "service: "))
+		return "status icon not installed: " + unstableTrayText(err)
 	}
 	return "status icon not installed: no agent was connected, or the desktop session refused it (see the warnings above)" + fix
 }

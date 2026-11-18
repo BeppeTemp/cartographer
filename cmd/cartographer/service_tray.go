@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/service"
@@ -95,6 +96,13 @@ func allSkipped(providers []string, skipped map[string][]string) bool {
 	return true
 }
 
+// unstableTrayText words a refused tray binary (CheckStableBinary) for the
+// connect warning and setup's last line alike: the reason without the internal
+// `service: ` prefix, and the remedy, which cannot be run from this binary.
+func unstableTrayText(err error) string {
+	return strings.TrimPrefix(err.Error(), "service: ") + "; run `cartographer service tray install` from a stable install of cartographer (Homebrew or the installer)"
+}
+
 // ensureClientTray is the tray half of `connect`: on by default on macOS and
 // Windows, --no-tray is remembered. An installed tray is left alone, running
 // as it is: InstallTray would stop and restart it, and upgrade-repair is what
@@ -112,7 +120,7 @@ func ensureClientTray(opts connectOptions, res connectResult) {
 		return
 	}
 	if err := trayStableBinaryFn(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: the status icon was not installed: %v; run `cartographer service tray install` from a stable install of cartographer\n", err)
+		fmt.Fprintf(os.Stderr, "Warning: the status icon was not installed: %s\n", unstableTrayText(err))
 		return
 	}
 	if err := trayInstallFn(); err != nil {
