@@ -400,9 +400,12 @@ func TestSetupTrayOutcome(t *testing.T) {
 	if got := setupTrayOutcome(true); !strings.Contains(got, "not installed") || !strings.Contains(got, "no agent") || !strings.Contains(got, "service tray install") {
 		t.Errorf("no agent: %q", got)
 	}
-	trayStableBinaryFn = func() error { return errors.New("/tmp/x is a temporary path") }
+	trayStableBinaryFn = func() error { return errors.New("service: /tmp/x is a temporary path") }
 	if got := setupTrayOutcome(false); !strings.Contains(got, "not installed") || !strings.Contains(got, "temporary path") || !strings.Contains(got, "service tray install") {
 		t.Errorf("unstable binary: %q", got)
+	}
+	if got := setupTrayOutcome(false); strings.Contains(got, "service: ") || strings.Contains(got, "from the desktop session") || !strings.Contains(got, "stable install") {
+		t.Errorf("unstable binary remedy: %q", got)
 	}
 	trayInstalledFn = func() bool { return true }
 	if got := setupTrayOutcome(false); !strings.Contains(got, "status icon installed") {

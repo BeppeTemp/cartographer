@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -35,6 +36,10 @@ func trayOptedOut() bool {
 		return false
 	}
 	cfg, err := clientconfig.Load(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		_, tray := clientconfig.MachineOptOuts(dir)
+		return tray
+	}
 	return err == nil && cfg.TrayOptOut
 }
 

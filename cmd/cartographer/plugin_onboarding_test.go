@@ -12,6 +12,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/execbit"
 	"github.com/BeppeTemp/cartographer/internal/plugin/core"
+	"github.com/BeppeTemp/cartographer/internal/service"
 )
 
 func prep(t *testing.T, o pluginPrep) (code int, out, errOut string) {
@@ -340,6 +341,35 @@ func TestRunSetupPluginPendingBlocksNothing(t *testing.T) {
 	if strings.Contains(out, "Restart your agent sessions") || strings.Contains(out, "Cartographer is set up.") ||
 		!strings.Contains(out, "no agent is connected yet") || !strings.Contains(out, "cartographer plugin approve team-forks") || !strings.Contains(out, "cartographer setup") {
 		t.Errorf("the closing message:\n%s", out)
+	}
+}
+
+// The plugins step writes the client config, and with the agents step skipped
+// connect never seeds server.url: it must name the port the service listens on,
+// or the next setup refuses a "mismatch" it caused itself.
+func TestRunSetupPluginPendingSeedsTheServicePort(t *testing.T) {
+	stubSetup(t, setupFacts{Service: service.Status{Installed: true, Running: true, HTTPAddr: "127.0.0.1:39373"}})
+	home := pluginFixture(t)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	freshProcess(t, home)
+	setupDetected = func() []string { return nil }
+	var code int
+	withStdout(t, func() {
+		code = runSetup(setupOptions{NoRemote: true, Name: "kb-a", Plugins: []string{providerPlugin(t, "team-forks")}}, false, true, false, noPrompt())
+	})
+	if code != 0 {
+		t.Fatalf("runSetup = %d", code)
+	}
+	dir, err := clientconfig.TargetDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "http://127.0.0.1:39373/mcp"; cfg.ServerURL != want {
+		t.Errorf("server.url = %q, want %q", cfg.ServerURL, want)
 	}
 }
 
