@@ -99,6 +99,19 @@ func TestGitWrap_CommitFailureFailsTheCallAndRestoresTheTree(t *testing.T) {
 	if !strings.Contains(text, "index.lock") || !strings.Contains(text, "remove that file") {
 		t.Fatalf("error %q must name the lock file and the remedy", text)
 	}
+	// #2262: the caller never sees the server's path of the clone.
+	roots := []string{k.Root, filepath.ToSlash(k.Root)}
+	if r, err := filepath.EvalSymlinks(k.Root); err == nil {
+		roots = append(roots, r)
+	}
+	for _, root := range roots {
+		if strings.Contains(text, root) {
+			t.Fatalf("error %q names the KB root %q", text, root)
+		}
+	}
+	if !strings.Contains(text, "<kb>") {
+		t.Fatalf("error %q should show the root as <kb>", text)
+	}
 	if _, err := os.Stat(filepath.Join(k.Root, "data", "wrapped.md")); !os.IsNotExist(err) {
 		t.Fatalf("the written file is still on disk (stat err %v)", err)
 	}
