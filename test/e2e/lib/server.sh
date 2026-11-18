@@ -10,6 +10,79 @@
 # services on either the conventional HTTP port or Cartographer's local default.
 E2E_HTTP_PORT="${E2E_HTTP_PORT:-47821}"
 
+# e2e_port_busy <port>
+#   0 when something already listens on 127.0.0.1:<port>.
+e2e_port_busy() {
+    (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null
+}
+
+# e2e_free_port [port-to-avoid...]
+#   Prints a loopback port nobody listens on right now. Call it right before the
+#   bind: a port fixed or derived at the top of a scenario can be taken by the
+#   time the server binds it (a leftover server, a neighbour, #2275). The window
+#   that remains is closed by e2e_serve, which retries on a refused bind.
+e2e_free_port() {
+    local tries=0 port other skip
+    while [[ $tries -lt 200 ]]; do
+        port=$((20000 + (RANDOM * 32768 + RANDOM) % 40000))
+        tries=$((tries + 1))
+        skip=false
+        for other in "$@"; do [[ "$other" == "$port" ]] && skip=true; done
+        $skip && continue
+        e2e_port_busy "$port" || { echo "$port"; return 0; }
+    done
+    echo "[ERROR] e2e_free_port: no free port after ${tries} tries" >&2
+    return 1
+}
+
+# e2e_wait_health <port> <pid> [timeout_sec]
+#   0 when cartographer's /health answers (past bootstrap, D348); 2 when the
+#   process <pid> exited first (no point in waiting); 1 on timeout.
+e2e_wait_health() {
+    local port="$1" pid="$2" timeout="${3:-20}" elapsed=0 body
+    while [[ $elapsed -lt $timeout ]]; do
+        kill -0 "$pid" 2>/dev/null || return 2
+        body=$(curl -sf "http://127.0.0.1:${port}/health" 2>/dev/null) || body=""
+        if grep -q -- '"started_at"' <<<"$body" && ! grep -q -- '"bootstrapping"' <<<"$body"; then
+            return 0
+        fi
+        sleep 1; elapsed=$((elapsed + 1))
+    done
+    return 1
+}
+
+# e2e_serve <log> <serve args without --http...>
+#   Starts "$BIN serve <args> --http 127.0.0.1:<free port>" in the background on a
+#   port free right now, and waits for /health. A refused bind ("address already
+#   in use") is retried on a new port, up to 5 times. Sets E2E_SERVE_PID and
+#   E2E_SERVE_PORT. On failure it names the port it tried and shows the log tail,
+#   and returns 1. The caller's environment (CARTOGRAPHER_AUTH=...) reaches the server.
+e2e_serve() {
+    local log="$1"; shift
+    local attempt=0 port avoid="" rc
+    E2E_SERVE_PID=""; E2E_SERVE_PORT=""
+    while [[ $attempt -lt 5 ]]; do
+        attempt=$((attempt + 1))
+        # shellcheck disable=SC2086
+        port="$(e2e_free_port $avoid)" || return 1
+        "$BIN" serve "$@" --http "127.0.0.1:${port}" >"$log" 2>&1 &
+        E2E_SERVE_PID=$!
+        E2E_SERVE_PORT="$port"
+        e2e_wait_health "$port" "$E2E_SERVE_PID"; rc=$?
+        [[ $rc -eq 0 ]] && return 0
+        if [[ $rc -eq 2 ]] && grep -qi -e 'address already in use' -e 'cannot listen' "$log"; then
+            echo "[e2e] 127.0.0.1:${port} was taken at bind (attempt ${attempt}), retrying on a new port" >&2
+            avoid="$avoid $port"
+            continue
+        fi
+        break
+    done
+    echo "[ERROR] server did not come up on 127.0.0.1:${E2E_SERVE_PORT} (attempt ${attempt}); log ${log}:" >&2
+    tail -n 20 "$log" >&2 || true
+    kill "$E2E_SERVE_PID" 2>/dev/null || true
+    return 1
+}
+
 # File where the server process PID is saved.
 _SERVER_PID_FILE=""
 
@@ -33,6 +106,15 @@ server_start() {
 
     local auth="${E2E_AUTH:-false}"
     local tokens="${E2E_TOKENS:-}"
+
+    # A port taken since run.sh chose it (a leftover server, a neighbour): move
+    # to a free one, which the scenario reads back from E2E_HTTP_PORT (#2275).
+    if e2e_port_busy "$E2E_HTTP_PORT"; then
+        local busy="$E2E_HTTP_PORT"
+        E2E_HTTP_PORT="$(e2e_free_port)" || return 1
+        export E2E_HTTP_PORT
+        echo "[server] 127.0.0.1:${busy} is in use, using ${E2E_HTTP_PORT}" >&2
+    fi
 
 	# Loopback: a server with auth off refuses any other address (D906). The KBs
 	# are made before the start: serve never creates one.
@@ -92,7 +174,8 @@ server_wait_health() {
         elapsed=$((elapsed + 1))
     done
 
-    echo "[ERROR] server_wait_health: timeout after ${timeout}s" >&2
+    echo "[ERROR] server_wait_health: no answer on 127.0.0.1:${E2E_HTTP_PORT} after ${timeout}s" >&2
+    tail -n 20 "${E2E_TMP_DIR:-/tmp}/cartographer_e2e.log" >&2 2>/dev/null || true
     return 1
 }
 
