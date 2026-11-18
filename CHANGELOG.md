@@ -8,6 +8,13 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.29.1](https://github.com/BeppeTemp/cartographer/compare/v0.29.0...v0.29.1) (2026-11-18)
+
+
+### Bug Fixes
+
+* **ci:** the chart job logs in to ghcr.io before attesting the chart ([5b05de6](https://github.com/BeppeTemp/cartographer/commit/5b05de6b87347a1d919746e8b222bade55948686)), closes [#2272](https://github.com/BeppeTemp/cartographer/issues/2272)
+
 ## [0.29.0](https://github.com/BeppeTemp/cartographer/compare/v0.28.0...v0.29.0) (2026-11-18)
 
 
