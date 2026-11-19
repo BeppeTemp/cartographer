@@ -118,6 +118,7 @@ type Runner struct {
 	replica   string
 	last      LastRun
 	runSeq    int
+	started   map[int]map[string]bool // entry -> kb -> its Start ran in this process
 }
 
 // NewRunner builds the runner of a loaded config: one Instance per tasks entry.
@@ -317,6 +318,7 @@ kbs:
 	for _, kb := range due {
 		consecutive := 0
 		broken := map[int]bool{} // entries whose Next failed on this KB
+		r.startKB(kb)
 		for {
 			if ctx.Err() != nil {
 				break kbs
@@ -430,6 +432,26 @@ kbs:
 		return ExitRuntime
 	}
 	return ExitOK
+}
+
+// startKB gives each instance that wants it its once-per-process start on kb.
+func (r *Runner) startKB(kb string) {
+	for i, inst := range r.instances {
+		st, ok := inst.(Starter)
+		if !ok || r.started[i][kb] {
+			continue
+		}
+		if r.started == nil {
+			r.started = map[int]map[string]bool{}
+		}
+		if r.started[i] == nil {
+			r.started[i] = map[string]bool{}
+		}
+		r.started[i][kb] = true
+		t := r.cfg.Tasks[i]
+		prof, _ := r.cfg.Profile(t.Profile)
+		st.Start(Runtime{KB: kb, Perimeter: r.cfg.Name, Replica: r.replica, Profile: prof, Tools: r.opt.Callers(kb)})
+	}
 }
 
 // fatalErr is an error that must end the process: a bad or revoked token (401)

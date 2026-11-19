@@ -245,3 +245,19 @@ func TestRepairWritesAClosingEntryOnlyWhenItDidSomething(t *testing.T) {
 		t.Errorf("a repair that applied wrote %d entries: %q", l.count(), l.last())
 	}
 }
+
+func TestRepairSummaryNamesTheRepairsPerKindOrSaysNone(t *testing.T) {
+	now := time.Now()
+	for _, tc := range []struct{ answer, want string }{
+		{`{"applied_total":0,"checks":[]}`, "auto-repair: nothing to repair"},
+		{`{"applied_total":5,"checks":[{"check":"broken_link","applied":3,"skipped":1},{"check":"missing_title","applied":0,"skipped":2},{"check":"stringified_list","applied":2}]}`,
+			"auto-repair: 5 fixes in one commit (broken_link 3, stringified_list 2)"},
+		{`{"applied_total":2}`, "auto-repair: 2 fixes in one commit"},
+	} {
+		tools := &repairTools{out: client.ToolOutput{Text: tc.answer}}
+		res, err := newRepair(&now).Run(context.Background(), &WorkItem{Key: "repair"}, Runtime{KB: "kb-a", Tools: tools})
+		if err != nil || res.Summary != tc.want {
+			t.Errorf("%s: summary %q err %v, want %q", tc.answer, res.Summary, err, tc.want)
+		}
+	}
+}

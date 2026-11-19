@@ -271,6 +271,12 @@ type Binder interface {
 	Bind(cfg *Config, profile Profile)
 }
 
+// Starter is implemented by an Instance that has something to do once per KB when
+// this process first works it, before any Next. rt has no model and no grant.
+type Starter interface {
+	Start(rt Runtime)
+}
+
 // Instance is a kind built for one tasks[] entry. The runner owns the registry,
 // the order and the loop; the kind owns what a task is.
 type Instance interface {

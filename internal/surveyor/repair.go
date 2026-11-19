@@ -84,15 +84,28 @@ func (r *repairInstance) Run(_ context.Context, _ *WorkItem, rt Runtime) (Result
 	}
 	var answer struct {
 		AppliedTotal int `json:"applied_total"`
+		Checks       []struct {
+			Check   string `json:"check"`
+			Applied int    `json:"applied"`
+		} `json:"checks"`
 	}
 	if err := client.DecodeResult(out.Text, &answer); err != nil {
 		return Result{}, fmt.Errorf("kb_repair auto: %w", err)
 	}
 	r.rest(rt.KB, r.interval)
-	res := Result{Units: answer.AppliedTotal}
+	res := Result{Units: answer.AppliedTotal, Summary: "auto-repair: nothing to repair"}
 	if answer.AppliedTotal > 0 {
 		res.Commits = 1
+		var kinds []string
+		for _, c := range answer.Checks {
+			if c.Applied > 0 {
+				kinds = append(kinds, fmt.Sprintf("%s %d", c.Check, c.Applied))
+			}
+		}
 		res.Summary = fmt.Sprintf("auto-repair: %d fixes in one commit", answer.AppliedTotal)
+		if len(kinds) > 0 {
+			res.Summary += " (" + strings.Join(kinds, ", ") + ")"
+		}
 	}
 	return res, nil
 }
