@@ -1101,14 +1101,20 @@ func mountedKBNames(baseURL string) (map[string]bool, error) {
 	return names, nil
 }
 
+// isConnRefused reports a refused connection: no process listens at the
+// address. Any answer (an HTTP status, a 401) or a timeout is not one.
+func isConnRefused(err error) bool {
+	// Windows reports a refusal as WSAECONNREFUSED (10061), which is not
+	// syscall.ECONNREFUSED there; the number is harmless on the other systems.
+	const wsaConnRefused = syscall.Errno(10061)
+	return errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, wsaConnRefused)
+}
+
 // mountErrorLine says why the MOUNTED column is missing. A refused connection
 // is the normal "no server" state, so it reads as that and names the command
 // that starts one; any other failure keeps its own text.
 func mountErrorLine(err error) string {
-	// Windows reports a refusal as WSAECONNREFUSED (10061), which is not
-	// syscall.ECONNREFUSED there; the number is harmless on the other systems.
-	const wsaConnRefused = syscall.Errno(10061)
-	if errors.Is(err, syscall.ECONNREFUSED) || errors.Is(err, wsaConnRefused) {
+	if isConnRefused(err) {
 		return "the server is not running, so MOUNTED is not shown: start it with `cartographer service start`"
 	}
 	return fmt.Sprintf("the server could not be asked which of these are mounted: %v", err)

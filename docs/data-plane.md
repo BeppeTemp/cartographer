@@ -682,7 +682,7 @@ A page names the template it follows in the frontmatter field `shape` (a templat
 | `templates: [slug, ...]` | the shapes the map accepts (templates are a KB-wide library: several maps may share one, one map may hold several for one `type`) |
 | `default_template: <slug>` | the one a page of the template's `type` follows when it names none; must be in `templates` (else `contract_malformed`) |
 
-Declaring `templates` or `default_template` is what makes a map strict (the removed keys are listed in §Maps and Journals).
+Declaring `templates` or `default_template` is what makes a map strict (the removed keys are listed in §Maps and Journals). `map_create` and `map_update` accept a slug whose `templates/<slug>.md` does not exist yet and say so in `warnings` (#2278); until it is written the map's pages report `template_missing`.
 
 A page's template resolves in this order: its `shape` when it names an existing template; else the map's `default_template` when the page's `type` is that template's type; else `templates/<lowercased type>.md`; else none. An unresolvable `shape` falls back to the last two for the section checks, so a typo does not hide missing sections.
 
