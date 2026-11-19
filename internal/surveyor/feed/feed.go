@@ -231,6 +231,10 @@ func patch(id, ifMatch string, now time.Time, set map[string]any) map[string]any
 	return map[string]any{"id": id, "if_match": ifMatch, "frontmatter": fm}
 }
 
+// ErrorLine is the feed_error value Fail writes for code and detail, so a caller
+// can tell that the Source already says the same thing.
+func ErrorLine(code, detail string) string { return errorLine(code, detail) }
+
 func errorLine(code, detail string) string {
 	detail = strings.Map(func(r rune) rune {
 		if r < 0x20 || r == 0x7f {

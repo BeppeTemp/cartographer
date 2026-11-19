@@ -127,6 +127,7 @@ type ingestInstance struct {
 	skipped  map[string]time.Time // kb + "\x00" + unit ID -> until
 	skips    map[string]int       // reason -> count, reported by the next Run
 	maxSpent int                  // tokens of the dearest completed unit
+	swept    map[string]bool      // kb -> its orphaned claims were released by this process
 }
 
 // Bind implements Binder: the tier of the task's profile and the fetch scope.
@@ -605,9 +606,14 @@ func idList(ids []string) string {
 // this replica) and returns false when it is not, or when the hash went stale:
 // someone else touched it, so it is left alone.
 func (in *ingestInstance) patchOwn(rt Runtime, id string, fm map[string]any, note, reason string) bool {
+	return in.patchClaim(rt, id, rt.Replica, fm, note, reason)
+}
+
+// patchClaim is patchOwn for the claim of any replica named by owner.
+func (in *ingestInstance) patchClaim(rt Runtime, id, owner string, fm map[string]any, note, reason string) bool {
 	for try := 0; try < 2; try++ {
 		u, err := readConcept(rt.Tools, id)
-		if err != nil || str(u.Frontmatter, "status") != "in-progress" || str(u.Frontmatter, "claimed_by") != rt.Replica {
+		if err != nil || str(u.Frontmatter, "status") != "in-progress" || str(u.Frontmatter, "claimed_by") != owner {
 			return false
 		}
 		args := map[string]any{"id": id, "if_match": u.ContentHash, "reason": reason, "frontmatter": fm,
@@ -669,7 +675,97 @@ func (in *ingestInstance) release(rt Runtime, id, why string, written []string) 
 			fm["status"] = "blocked"
 		}
 	}
+	if fm["status"] == "open" {
+		// A newer unit of the same group was written while this one was claimed (the
+		// poll leaves a claimed unit alone): the released unit leaves the queue
+		// with a pointer instead of going back to it beside its successor.
+		if newer := in.newerUnit(rt, id); newer != "" {
+			fm["status"], fm["superseded_by"] = "skipped", newer
+			note += fmt.Sprintf(" Superseded by %s, a newer unit of the same observed group.", newer)
+		}
+	}
 	in.patchOwn(rt, id, fm, note, "release unit "+id)
+}
+
+// newerUnit is the newest not-skipped unit of the same observed_group and Source
+// that is newer than id (observed_at, then ID, as the poll orders them), or "".
+// A unit with no observed_group (a document or feed unit) has none.
+func (in *ingestInstance) newerUnit(rt Runtime, id string) string {
+	u, err := readConcept(rt.Tools, id)
+	if err != nil {
+		return ""
+	}
+	group, source, at := str(u.Frontmatter, "observed_group"), str(u.Frontmatter, "source"), str(u.Frontmatter, "observed_at")
+	if group == "" || source == "" {
+		return ""
+	}
+	l, err := conceptList(rt.Tools, map[string]any{"where": []string{"type=IngestUnit", "source=" + source, "observed_group=" + group},
+		"fields": []string{"status", "observed_at"}})
+	if err != nil {
+		return ""
+	}
+	best, bestAt := "", at
+	for _, r := range l.Results {
+		fl := plainFields(r.Fields)
+		rat := str(fl, "observed_at")
+		if r.ID == id || str(fl, "status") == "skipped" || rat < at || (rat == at && r.ID < id) {
+			continue
+		}
+		if best == "" || rat > bestAt || (rat == bestAt && r.ID > best) {
+			best, bestAt = r.ID, rat
+		}
+	}
+	return best
+}
+
+// Start implements Starter: it releases, once per KB per process, the claims whose claimed_by
+// names this perimeter under another replica id: the id is random per process,
+// so the perimeter is the identity and such a claim was left by an earlier
+// process of this Surveyor, which no longer works on it. A claim of another
+// perimeter is never touched. It spares the unit the wait for its day-granular
+// lease (ingestLeaseDays).
+func (in *ingestInstance) Start(rt Runtime) {
+	kb := rt.KB
+	in.mu.Lock()
+	done := in.swept[kb]
+	in.mu.Unlock()
+	if done {
+		return
+	}
+	l, err := conceptList(rt.Tools, map[string]any{"where": []string{"type=IngestUnit", "status=in-progress"}, "fields": []string{"claimed_by"}})
+	if err != nil {
+		return // not marked: the next run of this process tries again
+	}
+	in.mu.Lock()
+	if in.swept == nil {
+		in.swept = map[string]bool{}
+	}
+	in.swept[kb] = true
+	in.mu.Unlock()
+	for _, r := range l.Results {
+		by := str(plainFields(r.Fields), "claimed_by")
+		if by == rt.Replica || !ownsPerimeter(by, rt.Perimeter) {
+			continue
+		}
+		note := fmt.Sprintf("> Surveyor note (%s, %s): released: the claim of %s, an earlier process of this perimeter, or a concurrent replica of it, was orphaned. Pages written so far: unknown.", in.now().UTC().Format(time.RFC3339), rt.Replica, by)
+		fm := map[string]any{"status": "open"}
+		if newer := in.newerUnit(rt, r.ID); newer != "" {
+			fm["status"], fm["superseded_by"] = "skipped", newer
+			note += " Superseded by " + newer + ", a newer unit of the same observed group."
+		}
+		in.patchClaim(rt, r.ID, by, fm, note, "release orphaned claim of unit "+r.ID)
+	}
+}
+
+// ownsPerimeter reports whether claimedBy is a replica id of the perimeter: the
+// perimeter, a hyphen and the 12 hex digits the runner appends. A perimeter whose
+// name continues with another word ("docs-eu" for "docs") does not match.
+func ownsPerimeter(claimedBy, perimeter string) bool {
+	rest, ok := strings.CutPrefix(claimedBy, perimeter+"-")
+	if !ok || len(rest) != 12 {
+		return false
+	}
+	return strings.Trim(rest, "0123456789abcdef") == "" // hex.EncodeToString writes lowercase
 }
 
 // finish marks the unit done, then closes its Source when no unit of it is left.

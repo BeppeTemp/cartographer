@@ -76,14 +76,31 @@ type surveyorEnv struct {
 	// the perimeter in ?kbs= (#2088): each KB's caller then names it as a tool
 	// argument instead of ?kb=.
 	routed bool
+	// author is who the writes are by (surveyorAuthor), set once the runner's
+	// replica id is known; empty before that.
+	author string
+}
+
+// surveyorAuthor is the Cartographer-Author of a Surveyor's writes, in the form
+// the Atlas reads as a Surveyor's (web/src/lib/activity.ts isSurveyorAuthor and
+// touchedByRun): surveyor/<perimeter>/<replica>. Without it the server falls
+// back to the token's name and the Atlas attributes nothing. The email is a
+// fixed address that cannot receive mail (RFC 2606), valid for the server's
+// check whatever the perimeter is called.
+func surveyorAuthor(perimeter, replica string) string {
+	return "surveyor/" + perimeter + "/" + replica + " <surveyor@surveyor.invalid>"
 }
 
 // kbClient is the client of one KB of the perimeter.
 func (e *surveyorEnv) kbClient(kb string) *client.MCPClient {
-	if e.routed {
-		return e.client.WithRoutedKB(kb)
+	c := e.client
+	if e.author != "" {
+		c = c.WithAuthor(e.author)
 	}
-	return e.client.WithKB(kb)
+	if e.routed {
+		return c.WithRoutedKB(kb)
+	}
+	return c.WithKB(kb)
 }
 
 // routedPerimeterURL is the URL a Surveyor uses on a routed server (D-new
@@ -145,6 +162,7 @@ var surveyorRunFn = func(ctx context.Context, env *surveyorEnv, once bool) int {
 		return surveyorExitStart
 	}
 	beater.Surveyor = r.Replica()
+	env.author = surveyorAuthor(env.cfg.Name, r.Replica())
 	if env.settings != nil {
 		env.settings.Surveyor = r.Replica()
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -161,7 +162,7 @@ func gitWrap(k *kb.KB, t Tool) Tool {
 			return nil
 		})
 		total := time.Since(start)
-		fmt.Fprintln(os.Stderr, formatTiming(commitMessage(orig.Name, args), syncInDur, handlerDur, commitDur, pushDur, pushAsync, total))
+		log.Print(formatTiming(commitMessage(orig.Name, args), syncInDur, handlerDur, commitDur, pushDur, pushAsync, total))
 		return res, handlerErr
 	}
 	return t
@@ -571,7 +572,7 @@ func startReadRefresh(k *kb.KB, op string) {
 		})
 		if fetchRan {
 			d := time.Since(start)
-			fmt.Fprintln(os.Stderr, formatTiming(op+" (background sync)", d, 0, 0, 0, false, d))
+			log.Print(formatTiming(op+" (background sync)", d, 0, 0, 0, false, d))
 		}
 	}()
 }

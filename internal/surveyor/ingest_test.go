@@ -3,6 +3,7 @@ package surveyor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -150,11 +151,47 @@ func (k *ikb) CallTool(name string, args any) (client.ToolOutput, error) {
 		}
 		return client.ToolOutput{Text: k.gate}, nil
 	case "concept_list":
-		var rs []map[string]any
-		for pid, p := range k.pages {
-			if p.fm["type"] == "IngestUnit" && p.fm["source"] == strings.TrimPrefix(fmt.Sprint(a["where"].([]string)[1]), "source=") {
-				rs = append(rs, map[string]any{"id": pid, "status": p.fm["status"]})
+		var where []string
+		switch w := a["where"].(type) {
+		case []string:
+			where = w
+		case []any:
+			for _, x := range w {
+				where = append(where, fmt.Sprint(x))
 			}
+		}
+		var ids []string
+		for pid, p := range k.pages {
+			ok := true
+			for _, w := range where {
+				if key, val, found := strings.Cut(w, "="); found && fmt.Sprint(p.fm[key]) != val {
+					ok = false
+				}
+			}
+			if ok {
+				ids = append(ids, pid)
+			}
+		}
+		sort.Strings(ids)
+		var rs []map[string]any
+		for _, pid := range ids {
+			p := k.pages[pid]
+			f := map[string]any{}
+			switch fl := a["fields"].(type) {
+			case []string:
+				for _, key := range fl {
+					if v, ok := p.fm[key]; ok {
+						f[key] = v
+					}
+				}
+			case []any:
+				for _, key := range fl {
+					if v, ok := p.fm[fmt.Sprint(key)]; ok {
+						f[fmt.Sprint(key)] = v
+					}
+				}
+			}
+			rs = append(rs, map[string]any{"id": pid, "status": p.fm["status"], "fields": f, "content_hash": fmt.Sprint(p.ver)})
 		}
 		return jtext(map[string]any{"count": len(rs), "results": rs}), nil
 	}
@@ -659,5 +696,109 @@ func TestEmptyReleasesCountsOnlyTheSurveyorsTrailingNotes(t *testing.T) {
 		if got := emptyReleases(body); got != want {
 			t.Errorf("emptyReleases(%q) = %d, want %d", body, got, want)
 		}
+	}
+}
+
+func claimedKB(by map[string]string) *ikb {
+	k := newIKB()
+	k.src("s/doc", map[string]any{"locator": "https://example.com/a"})
+	for id, who := range by {
+		k.unit(id, "s/doc", "in-progress", "any", map[string]any{"claimed_by": who, "claimed_at": "2031-02-03T11:00:00Z", "review_after": "2031-02-05"})
+	}
+	return k
+}
+
+// The replica id is random per process and the perimeter is the identity: a
+// claim of this perimeter under another id is an earlier process's and is
+// released at start; another perimeter's, and the live replica's own, stay.
+func TestStartReleasesTheOrphanedClaimsOfItsOwnPerimeterOnly(t *testing.T) {
+	k := claimedKB(map[string]string{
+		"u/old":       "docs-aaaaaaaaaaaa",
+		"u/mine":      "docs-bbbbbbbbbbbb",
+		"u/other":     "wiki-cccccccccccc",
+		"u/longer":    "docs-eu-dddddddddddd", // perimeter docs-eu, not docs
+		"u/notmine":   "docs-extra",
+		"u/lowercase": "docs-AAAAAAAAAAAA",
+	})
+	in := newInst(t, TierSmall)
+	rt := Runtime{KB: "kb-a", Perimeter: "docs", Replica: "docs-bbbbbbbbbbbb", Tools: k}
+	in.Start(rt)
+	if k.status("u/old") != "open" || k.pages["u/old"].fm["claimed_by"] != nil || !strings.Contains(k.pages["u/old"].body, "orphaned") ||
+		!strings.Contains(k.pages["u/old"].body, "docs-aaaaaaaaaaaa") {
+		t.Errorf("orphan = %v\n%s", k.pages["u/old"].fm, k.pages["u/old"].body)
+	}
+	for _, id := range []string{"u/mine", "u/other", "u/longer", "u/notmine", "u/lowercase"} {
+		if k.status(id) != "in-progress" {
+			t.Errorf("%s was released: %v", id, k.pages[id].fm)
+		}
+	}
+	// Once per KB per process.
+	k.pages["u/mine"].fm["claimed_by"] = "docs-eeeeeeeeeeee"
+	in.Start(rt)
+	if k.status("u/mine") != "in-progress" {
+		t.Error("the sweep ran twice for one KB")
+	}
+}
+
+// An orphan whose group has a newer unit leaves the queue instead of reopening.
+func TestStartSupersedesAnOrphanWithANewerUnitOfItsGroup(t *testing.T) {
+	k := claimedKB(map[string]string{"u/old": "docs-aaaaaaaaaaaa"})
+	k.pages["u/old"].fm["observed_group"], k.pages["u/old"].fm["observed_at"] = "ns/a", "2031-02-01T00:00:00Z"
+	k.unit("u/new", "s/doc", "open", "any", map[string]any{"observed_group": "ns/a", "observed_at": "2031-02-02T00:00:00Z"})
+	newInst(t, TierSmall).Start(Runtime{KB: "kb-a", Perimeter: "docs", Replica: "docs-bbbbbbbbbbbb", Tools: k})
+	if k.status("u/old") != "skipped" || k.pages["u/old"].fm["superseded_by"] != "u/new" {
+		t.Errorf("orphan = %v", k.pages["u/old"].fm)
+	}
+}
+
+func TestRunnerStartsEachKBOncePerProcessBeforeItsFirstTask(t *testing.T) {
+	k := claimedKB(map[string]string{"u/old": "night-aaaaaaaaaaaa"})
+	now := time.Date(2031, 2, 3, 12, 0, 0, 0, time.UTC)
+	cfg := &Config{Name: "night", KBs: []string{"kb-a"}, PollSeconds: 60, Window: &Window{Start: 0, End: 1439, Location: time.UTC},
+		Models: []Profile{{Name: "cloud", Tier: TierSmall, DailyTokens: 1_000_000, RunTokens: 100_000}},
+		Tasks:  []TaskSpec{{Kind: "ingest", Profile: "cloud", Line: 1}}}
+	log := &sharedLog{}
+	both := callerFunc(func(name string, args any) (client.ToolOutput, error) {
+		if name == "log_tail" || name == "log_append" {
+			return log.CallTool(name, args)
+		}
+		return k.CallTool(name, args)
+	})
+	r, err := NewRunner(cfg, DefaultKinds(), RunnerOptions{Callers: func(string) ToolCaller { return both }, Now: func() time.Time { return now },
+		Models: map[string]Model{"cloud": &smodel{}}, Logf: func(string, ...any) {}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Run(context.Background(), true)
+	if !strings.Contains(k.pages["u/old"].body, "orphaned") {
+		t.Errorf("the orphaned claim was not released at start:\n%s", k.pages["u/old"].body)
+	}
+}
+
+type failingListKB struct {
+	*ikb
+	fail bool
+}
+
+func (f *failingListKB) CallTool(name string, args any) (client.ToolOutput, error) {
+	if name == "concept_list" && f.fail {
+		return client.ToolOutput{}, errors.New("transient")
+	}
+	return f.ikb.CallTool(name, args)
+}
+
+// A sweep whose listing failed is tried again, not marked done.
+func TestStartRetriesAfterAFailedListing(t *testing.T) {
+	k := &failingListKB{ikb: claimedKB(map[string]string{"u/old": "docs-aaaaaaaaaaaa"}), fail: true}
+	in := newInst(t, TierSmall)
+	rt := Runtime{KB: "kb-a", Perimeter: "docs", Replica: "docs-bbbbbbbbbbbb", Tools: k}
+	in.Start(rt)
+	if k.status("u/old") != "in-progress" {
+		t.Fatal("released through a failing list")
+	}
+	k.fail = false
+	in.Start(rt)
+	if k.status("u/old") != "open" {
+		t.Errorf("the sweep did not rerun: %v", k.pages["u/old"].fm)
 	}
 }

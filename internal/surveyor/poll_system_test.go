@@ -143,12 +143,12 @@ func TestSystemPollFirstPollCreatesAUnitPerGroupAndASecondIsANoOp(t *testing.T) 
 	if s.verbs() != "check,list" || !strings.Contains(res.Summary, "identity=dev-viewer") || !strings.Contains(res.Summary, "added=2") {
 		t.Errorf("modes %s, summary %s", s.verbs(), res.Summary)
 	}
-	// The second poll with no change: nothing is created or written but feed_checked_at.
+	// The second poll with no change writes nothing at all: no unit, no state, not even the lease.
 	batches, writes, expands := s.k.calls["concept_batch"], s.k.calls["asset_write"], s.k.calls["concept_expand"]
 	patches := s.k.calls["concept_patch"]
 	res = s.mustPoll()
 	if res.Units != 0 || len(s.model.reqs) != 2 || s.k.calls["concept_batch"] != batches || s.k.calls["asset_write"] != writes ||
-		s.k.calls["concept_expand"] != expands || s.k.calls["concept_patch"] != patches+2 { // the lease and the advance
+		s.k.calls["concept_expand"] != expands || s.k.calls["concept_patch"] != patches {
 		t.Fatalf("second poll: %+v (%s); calls %v", res, res.Summary, s.k.calls)
 	}
 	if s.feed()["feed_cursor"] != sha(s.stateFile()) || s.verbs() != "check,list,check,list" {
@@ -685,5 +685,110 @@ func TestSystemPollCursorPatchStopsWhenTheLeaseWasTaken(t *testing.T) {
 	res := s.mustPoll()
 	if !strings.Contains(res.Summary, "lease_lost") || s.feed()["feed_cursor"] != before {
 		t.Fatalf("summary %q cursor %v", res.Summary, s.feed()["feed_cursor"])
+	}
+}
+
+func TestSystemQuietPollWritesNothingAndKeepsItsScheduleInMemory(t *testing.T) {
+	s := newSysEnv(t)
+	s.list("namespace/a", "one")
+	s.mustPoll()
+	checkedAt := s.feed()["feed_checked_at"]
+	hash := s.k.pages["sources/feed"].ver
+	s.mustPoll() // unchanged: no commit
+	if s.feed()["feed_checked_at"] != checkedAt || s.k.pages["sources/feed"].ver != hash {
+		t.Errorf("a poll that found nothing wrote the Source: %v", s.feed())
+	}
+	// Not due again within the interval, though feed_checked_at is old: the quiet poll was in memory.
+	if it, _ := s.in.Next(context.Background(), "kb-a", s.k); it != nil {
+		t.Error("a feed polled a moment ago is due again")
+	}
+	// After the interval, and when the system changed, the poll writes as before.
+	s.list("namespace/a", "two")
+	s.mustPoll()
+	if s.feed()["feed_checked_at"] == checkedAt || len(s.unitsOf("namespace/a")) != 2 {
+		t.Errorf("a changed poll did not write: %v", s.feed())
+	}
+}
+
+func TestSystemSkippedPollWithTheSameErrorWritesNothing(t *testing.T) {
+	s := newSysEnv(t)
+	s.list("namespace/a", "one")
+	s.mustPoll()
+	s.check(`nonsense`)
+	s.mustPoll()
+	first, _ := s.feed()["feed_error"].(string)
+	patches, hash := s.k.calls["concept_patch"], s.k.pages["sources/feed"].ver
+	res := s.mustPoll()
+	if !strings.Contains(res.Summary, "skipped") || s.k.calls["concept_patch"] != patches || s.k.pages["sources/feed"].ver != hash || s.feed()["feed_error"] != first {
+		t.Fatalf("a repeated failure wrote the Source: %s, patches %d -> %d", res.Summary, patches, s.k.calls["concept_patch"])
+	}
+	// A different failure is written.
+	s.check(`{"check":{"ok":false,"detail":"token expired"}}`)
+	s.mustPoll()
+	if got, _ := s.feed()["feed_error"].(string); got == first {
+		t.Errorf("a new failure was not written: %q", got)
+	}
+}
+
+func TestSystemPollModifiedTwiceLeavesOneOpenUnitAndCountsTheSupersede(t *testing.T) {
+	s := newSysEnv(t)
+	s.list("namespace/a", "v1")
+	s.mustPoll()
+	s.list("namespace/a", "v2")
+	s.mustPoll()
+	s.list("namespace/a", "v3")
+	res := s.mustPoll()
+	open := 0
+	for _, id := range s.unitsOf("namespace/a") {
+		if s.k.pages[id].fm["status"] == "open" {
+			open++
+		}
+	}
+	if open != 1 || len(s.unitsOf("namespace/a")) != 3 || !strings.Contains(res.Summary, "superseded=1") {
+		t.Errorf("%d open units of 3, summary %s", open, res.Summary)
+	}
+}
+
+// A unit claimed by a live replica is left alone by the poll; when it is
+// released, the newer unit of the group wins and it leaves the queue.
+func TestSystemPollLeavesAClaimedUnitAloneAndItsReleaseSupersedesIt(t *testing.T) {
+	s := newSysEnv(t)
+	s.list("namespace/a", "v1")
+	s.mustPoll()
+	first := s.unitsOf("namespace/a")[0]
+	s.k.pages[first].fm["status"], s.k.pages[first].fm["claimed_by"] = "in-progress", "docs-0123456789ab"
+	s.list("namespace/a", "v2")
+	res := s.mustPoll()
+	if s.k.pages[first].fm["status"] != "in-progress" || !strings.Contains(res.Summary, "superseded=0") {
+		t.Fatalf("the claimed unit was touched: %v (%s)", s.k.pages[first].fm, res.Summary)
+	}
+	in := newSysInst(t)
+	in.release(Runtime{KB: "kb-a", Perimeter: "docs", Replica: "docs-0123456789ab", Tools: s.k}, first, "cut by budget", nil)
+	fm := s.k.pages[first].fm
+	var second string
+	for _, id := range s.unitsOf("namespace/a") {
+		if id != first {
+			second = id
+		}
+	}
+	if fm["status"] != "skipped" || fm["superseded_by"] != second || fm["claimed_by"] != nil {
+		t.Errorf("released unit = %v, want skipped by %s", fm, second)
+	}
+	if s.k.pages[second].fm["status"] != "open" {
+		t.Errorf("the newest unit = %v", s.k.pages[second].fm)
+	}
+}
+
+// Two KBs of a perimeter may hold a Source of the same id: a quiet poll on one
+// does not delay the other.
+func TestQuietPollScheduleIsPerKB(t *testing.T) {
+	s := newSysEnv(t)
+	s.in.noteChecked("kb-a", "sources/feed", s.clock.Add(25*time.Hour))
+	s.clock = s.clock.Add(25 * time.Hour)
+	if it, _ := s.in.Next(context.Background(), "kb-a", s.k); it != nil {
+		t.Error("kb-a was quiet a moment ago")
+	}
+	if it, _ := s.in.Next(context.Background(), "kb-b", s.k); it == nil {
+		t.Error("a quiet poll on kb-a delayed the feed of kb-b")
 	}
 }

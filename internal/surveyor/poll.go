@@ -9,6 +9,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
@@ -97,6 +98,33 @@ type pollInstance struct {
 	// connector is the connector a document Source of each recipe names: git for
 	// git-docs, the recipe's own for an exec recipe.
 	connector map[string]string
+
+	// checked is when a system poll last found nothing to write: feed_checked_at is
+	// not moved for it (a commit per interval for nothing), so the schedule is
+	// kept here, in memory like the ingest skip set; a restart polls once more.
+	mu      sync.Mutex
+	checked map[string]time.Time
+}
+
+// noteChecked records a poll of the feed that wrote nothing; the key is the KB
+// too, since two KBs of a perimeter may hold a Source of the same id.
+func (in *pollInstance) noteChecked(kb, id string, at time.Time) {
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	if in.checked == nil {
+		in.checked = map[string]time.Time{}
+	}
+	in.checked[kb+"\x00"+id] = at
+}
+
+// checkedAt is the later of the Source's feed_checked_at and the last quiet poll.
+func (in *pollInstance) checkedAt(kb, id string, written time.Time) time.Time {
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	if t := in.checked[kb+"\x00"+id]; t.After(written) {
+		return t
+	}
+	return written
 }
 
 // NewRecipeRegistry is the one builder of the recipe registry from a loaded
@@ -220,7 +248,7 @@ func strList(v any) []string {
 // Next offers the due feed checked longest ago. The runner's tried set is the
 // "attempted in this run" set: a feed is due again only after feed_checked_at
 // (which the lease and a failure both move) plus its interval.
-func (in *pollInstance) Next(_ context.Context, _ string, tools ToolCaller) (*WorkItem, error) {
+func (in *pollInstance) Next(_ context.Context, kb string, tools ToolCaller) (*WorkItem, error) {
 	if in.regErr != nil {
 		return nil, in.regErr
 	}
@@ -239,6 +267,7 @@ func (in *pollInstance) Next(_ context.Context, _ string, tools ToolCaller) (*Wo
 		for _, r := range l.Results {
 			ent := feed.Entry{ID: r.ID, Fields: plainFields(r.Fields), ContentHash: r.ContentHash}
 			f, perr := feed.Parse(ent, in.def, in.min)
+			f.CheckedAt = in.checkedAt(kb, r.ID, f.CheckedAt)
 			due := perr == nil && f.Due(now)
 			if perr != nil {
 				// A feed that does not parse is recorded as bad_field, at most once
@@ -247,6 +276,7 @@ func (in *pollInstance) Next(_ context.Context, _ string, tools ToolCaller) (*Wo
 				if s, ok := ent.Fields[feed.KeyCheckedAt].(string); ok {
 					f.CheckedAt, _ = time.Parse(time.RFC3339, s)
 				}
+				f.CheckedAt = in.checkedAt(kb, r.ID, f.CheckedAt)
 				f.Interval = in.def
 				due = f.Due(now)
 			}
@@ -292,6 +322,23 @@ func (in *pollInstance) Run(ctx context.Context, item *WorkItem, rt Runtime) (Re
 	return r.res, err
 }
 
+// lease writes the lease; lost is true when another replica holds the feed (the
+// run is then over, with nothing written).
+func (r *pollRun) lease() (lost bool, err error) {
+	args, err := r.f.Lease(r.now)
+	if err != nil {
+		return false, err
+	}
+	if r.hash, err = r.patch(args, "poll "+r.f.ID); err != nil {
+		if errors.Is(err, feed.ErrLeaseLost) {
+			r.code = "lease_lost"
+			return true, nil
+		}
+		return false, err
+	}
+	return false, nil
+}
+
 func (r *pollRun) patch(args map[string]any, reason string) (string, error) {
 	args["reason"] = reason
 	text, err := callOK(r.rt.Tools, "concept_patch", args)
@@ -312,11 +359,17 @@ func (r *pollRun) fail(code, detail string) error {
 	for _, k := range sortedKeys(r.in.secret) {
 		detail = connector.RedactEnv(detail, map[string]string{k: r.in.secret[k]})
 	}
+	r.code = code
+	if cur, rerr := readConcept(r.rt.Tools, r.f.ID); rerr == nil && str(cur.Frontmatter, feed.KeyError) == feed.ErrorLine(code, detail) {
+		// The Source already says this: a repeated failure writes nothing, and
+		// the schedule moves in memory so it is not retried in a tight loop.
+		r.in.noteChecked(r.rt.KB, r.f.ID, r.now)
+		return nil
+	}
 	args, err := r.f.Fail(r.hash, code, detail, r.now)
 	if err != nil {
 		return err
 	}
-	r.code = code
 	if _, err := r.patch(args, "poll "+r.f.ID); err != nil && !errors.Is(err, feed.ErrLeaseLost) {
 		return err
 	}
@@ -341,17 +394,13 @@ func (r *pollRun) run(ctx context.Context, pi pollItem) error {
 	if pf != nil {
 		return r.fail(pf.Code, pf.Detail)
 	}
-	// 2. Lease: the loser of the compare-and-swap skips the feed silently.
-	args, err := f.Lease(r.now)
-	if err != nil {
-		return err
-	}
-	if r.hash, err = r.patch(args, reason); err != nil {
-		if errors.Is(err, feed.ErrLeaseLost) {
-			r.code = "lease_lost"
-			return nil
+	// 2. Lease: the loser of the compare-and-swap skips the feed silently. A
+	// system takes it later, once the observation says there is something to
+	// write: a poll that finds nothing leaves the Source untouched.
+	if !pi.system {
+		if lost, err := r.lease(); lost || err != nil {
+			return err
 		}
-		return err
 	}
 	// 3. Plan and unit map.
 	plans, err := conceptList(tools, map[string]any{"where": []string{"type=IngestPlan", "sources=" + f.ID}, "fields": []string{"status", "maps"}})
@@ -452,7 +501,7 @@ func (r *pollRun) run(ctx context.Context, pi pollItem) error {
 		}
 	}
 	// 7. Advance, only after every entry is handled (the cursor is opaque).
-	args, err = f.Advance(r.hash, listing.NextCursor, in.now())
+	args, err := f.Advance(r.hash, listing.NextCursor, in.now())
 	if err != nil {
 		return err
 	}

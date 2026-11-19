@@ -198,6 +198,14 @@ func (r *pollRun) runSystem(ctx context.Context, rec recipe.Recipe, planID strin
 	if !ok {
 		return r.fail(codeRecipeShape, fmt.Sprintf("recipe %q does not list a system", f.Recipe))
 	}
+	// The lease comes after the observation, so a replica that lost the Source to
+	// another since it was listed learns it here, before a listing it would waste.
+	if cur, rerr := readConcept(tools, f.ID); rerr != nil {
+		return rerr
+	} else if cur.ContentHash != f.ContentHash {
+		r.code = "lease_lost"
+		return nil
+	}
 	store := &system.Store{Call: r.systemCall, Source: f.ID}
 	obs, pf, refused, err := observeSystem(ctx, sr, systemRequest(f), store, f.Cursor)
 	in.checks.recordSystem(f.Recipe, pf, refused, err, in.now())
@@ -218,6 +226,19 @@ func (r *pollRun) runSystem(ctx context.Context, rec recipe.Recipe, planID strin
 			l.State = seed
 			changes, _ = system.Plan(l.State, obs.Groups)
 		}
+	}
+	// Nothing changed and the Source carries no error to clear: the poll writes
+	// nothing, not even the lease or feed_checked_at (a commit per interval for no
+	// news); the schedule is kept in memory.
+	if len(changes.Ordered()) == 0 && l.Trusted {
+		if cur, rerr := readConcept(tools, f.ID); rerr == nil && str(cur.Frontmatter, feed.KeyError) == "" {
+			r.in.noteChecked(r.rt.KB, f.ID, r.now)
+			r.summary = r.systemSummary(identity, changes, nil, l)
+			return nil
+		}
+	}
+	if lost, err := r.lease(); lost || err != nil {
+		return err
 	}
 	// 7. Each changed group, in key order, isolated from the others.
 	plan, _ := readConcept(tools, planID)
@@ -296,16 +317,23 @@ func (r *pollRun) runSystem(ctx context.Context, rec recipe.Recipe, planID strin
 		}
 		return err
 	}
-	r.summary = fmt.Sprintf("poll %s: identity=%s, groups added=%d modified=%d removed=%d unchanged=%d, units created=%d reused=%d superseded=%d, groups failed=%d, already handled=%d",
+	r.summary = r.systemSummary(identity, changes, failed, l)
+	return nil
+}
+
+// systemSummary is the run's one-line summary.
+func (r *pollRun) systemSummary(identity string, changes system.Changes, failed []string, l system.Loaded) string {
+	f, summary := r.f, ""
+	summary = fmt.Sprintf("poll %s: identity=%s, groups added=%d modified=%d removed=%d unchanged=%d, units created=%d reused=%d superseded=%d, groups failed=%d, already handled=%d",
 		f.ID, identity, len(changes.Added), len(changes.Modified), len(changes.Removed), changes.Unchanged, r.created, r.reused, r.superseded, len(failed), r.skipped)
 	if len(failed) > 0 {
-		r.summary += " (first failure: " + failed[0] + ")"
+		summary += " (first failure: " + failed[0] + ")"
 	}
 	if !l.Trusted {
-		r.summary += ", state=rebuilt (" + l.Reason + ")"
+		summary += ", state=rebuilt (" + l.Reason + ")"
 	}
-	r.summary += fmt.Sprintf(", model tokens=%d", r.res.Tokens)
-	return nil
+	summary += fmt.Sprintf(", model tokens=%d", r.res.Tokens)
+	return summary
 }
 
 type unitRow struct {

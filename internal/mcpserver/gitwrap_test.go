@@ -1,12 +1,15 @@
 package mcpserver
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1465,5 +1468,27 @@ func TestKBStatus_BehindAndLastPushAfterPush(t *testing.T) {
 	}
 	if !strings.HasSuffix(syncInAt, "Z") {
 		t.Errorf("last_sync_in_at %q is not UTC (missing Z suffix)", syncInAt)
+	}
+}
+
+// The timing line goes through the standard logger like every other line of the
+// server, so it carries the time (not parallel: the logger is global).
+func TestGitWrap_TimingLineCarriesATimestamp(t *testing.T) {
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(testLogSink{}) })
+	k, _ := setupGitKB(t)
+	writeWrappedTool(t, k, "concept_write", nil)
+	line := ""
+	for _, l := range strings.Split(buf.String(), "\n") {
+		if strings.Contains(l, "cartographer: timing op=") {
+			line = l
+		}
+	}
+	if line == "" {
+		t.Fatalf("no timing line in %q", buf.String())
+	}
+	if ok, _ := regexp.MatchString(`^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} cartographer: timing op=`, line); !ok {
+		t.Errorf("timing line has no leading timestamp: %q", line)
 	}
 }
