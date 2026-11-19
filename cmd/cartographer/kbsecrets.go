@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/config"
+	"github.com/BeppeTemp/cartographer/internal/gitx"
+	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/sops"
 )
 
@@ -90,6 +93,17 @@ func cmdKBSecretsInit(args []string) int {
 	token := resolveToken(cfg)
 	health, err := client.New(cfg.ServerURL, token).WithInsecureHTTP(cfg.InsecureHTTPAllowed()).Health(probeTimeout)
 	if err != nil {
+		// Only a refused connection proves no service runs (an answer, a 401
+		// included, or a timeout does not): then the rule is written in the
+		// clone directly, as kb reauthor and kb attach do (#2278).
+		if isConnRefused(err) {
+			code := runKBSecretsInit(&directRuleCaller{name: name, dataDir: dataDir, cfg: scfg, errOut: os.Stderr},
+				name, strings.TrimSpace(*recipient), *keyFile, credDir, *force, os.Stdout, os.Stderr)
+			if code == 0 {
+				fmt.Fprintln(os.Stderr, "service not running: wrote the rule in the clone directly")
+			}
+			return code
+		}
 		fmt.Fprintln(os.Stderr, "kb secrets init:", err)
 		return 1
 	}
@@ -101,6 +115,77 @@ func cmdKBSecretsInit(args []string) int {
 	dir, _ := os.Getwd()
 	c := repairCaller(cfg, token, targets[0], dir, os.Stderr)
 	return runKBSecretsInit(c, name, strings.TrimSpace(*recipient), *keyFile, credDir, *force, os.Stdout, os.Stderr)
+}
+
+// secretsRuleSubject is the commit subject of the creation rule, the one the
+// secrets_init tool commits with.
+const secretsRuleSubject = "chore(secrets): enable secrets, creation rule for 1 recipient"
+
+// directRuleCaller answers the secrets_init call of runKBSecretsInit by
+// writing the rule in the KB's clone itself, for when no service runs: the
+// same family as kb reauthor and kb attach (open the clone, take the process
+// lock D155, commit the path, push best-effort). The text it returns is the
+// tool's, so the caller's one code path and output stay the same.
+type directRuleCaller struct {
+	name, dataDir string
+	cfg           *config.Config
+	errOut        io.Writer
+}
+
+func (d *directRuleCaller) Invoke(tool string, args any) (json.RawMessage, error) {
+	if tool != "secrets_init" {
+		return nil, fmt.Errorf("%s is not available without a running service", tool)
+	}
+	m, _ := args.(map[string]any)
+	recipient, _ := m["recipient"].(string)
+	force, _ := m["force"].(bool)
+
+	root := filepath.Join(d.dataDir, d.name)
+	k, err := kb.Open(root)
+	if err != nil {
+		return nil, fmt.Errorf("%s is not an OKF KB: %v", root, err)
+	}
+	if !gitx.IsRepo(root) {
+		return nil, fmt.Errorf("%s is not a git repository", root)
+	}
+	k.GitEnv = gitEnvForKB(d.name, d.cfg.CredentialsPath())
+	idName, idEmail, hasID := d.cfg.IdentityFor(d.name)
+	if hasID {
+		k.SetDefaultIdentity(idName, idEmail)
+	}
+	release, err := k.AcquireProcessLock(reauthorLockTimeout, "cartographer kb secrets init")
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
+	state, previous, err := sops.InitRule(k.Root, recipient, force)
+	if err != nil {
+		var exists *sops.RuleExistsError
+		if errors.As(err, &exists) {
+			return nil, fmt.Errorf("the KB already has a different .sops.yaml (recipients: %s); pass force to replace it", strings.Join(previous, ", "))
+		}
+		return nil, err
+	}
+	msg := "secrets_init: rule " + state
+	if state == sops.RuleReplaced {
+		msg += "; files already under secrets/ keep their old recipients: run sops updatekeys on each"
+	}
+	// Commit even when the rule is unchanged: a rerun after a failed commit
+	// finds the file already written, and CommitPaths is a no-op when there is
+	// nothing to commit.
+	before, _ := gitx.HeadSHA(k.Root)
+	if err := k.CommitPaths([]string{".sops.yaml"}, secretsRuleSubject, idName, idEmail); err != nil {
+		return nil, fmt.Errorf("the rule was written but not committed: %v (run the command again)", err)
+	}
+	if after, _ := gitx.HeadSHA(k.Root); after != before || state != sops.RuleUnchanged {
+		// A failed push is not fatal: the rule is committed and the server
+		// pushes on its next write or sync.
+		if err := k.SyncOut(); err != nil {
+			fmt.Fprintf(d.errOut, "kb secrets init: the rule is committed but not pushed yet: %v\n", err)
+		}
+	}
+	return json.RawMessage(msg), nil
 }
 
 // runKBSecretsInit is cmdKBSecretsInit once a caller for the KB exists. The

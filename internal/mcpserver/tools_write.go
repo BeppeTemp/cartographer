@@ -1051,8 +1051,13 @@ func toolMapCreate(k *kb.KB) Tool {
 				}
 				result["ontology_mode"] = created.OntologyMode
 			}
+			var warnings []string
 			if w := mapTitleWarning(params.Name, params.Title); w != "" {
-				result["warnings"] = []string{w}
+				warnings = append(warnings, w)
+			}
+			warnings = append(warnings, unknownTemplateWarnings(k, params.Templates, params.DefaultTemplate)...)
+			if len(warnings) > 0 {
+				result["warnings"] = warnings
 			}
 			return jsonResult(result), nil
 		},
@@ -1133,6 +1138,48 @@ func validateTemplateParams(templates []string, def string) string {
 		}
 	}
 	return fmt.Sprintf("'default_template' %q is not in 'templates': add it to 'templates' in the same call", def)
+}
+
+// unknownTemplateWarnings explains, without refusing, each template slug a
+// map contract names that is no parseable templates/<slug>.md yet (#2278): the
+// catalog is the only definition of a known template, and writing the template
+// after the map stays legal, so the call succeeds and says what will happen to
+// the pages meanwhile (template_missing). Only the parameters given are
+// examined; shared by map_create and map_update.
+func unknownTemplateWarnings(k *kb.KB, templates []string, def string) []string {
+	var named []string
+	seen := map[string]bool{}
+	for _, slug := range append(append([]string{}, templates...), def) {
+		if slug != "" && !seen[slug] {
+			seen[slug] = true
+			named = append(named, slug)
+		}
+	}
+	if len(named) == 0 {
+		return nil
+	}
+	catalog := k.TemplateCatalog()
+	known := make([]string, 0, len(catalog))
+	for slug := range catalog {
+		known = append(known, slug)
+	}
+	sort.Strings(known)
+	list := "none"
+	if len(known) > 0 {
+		list = strings.Join(known, ", ")
+	}
+	var out []string
+	for _, slug := range named {
+		if _, ok := catalog[slug]; ok {
+			continue
+		}
+		param := "templates"
+		if slug == def && !containsString(templates, slug) {
+			param = "default_template"
+		}
+		out = append(out, fmt.Sprintf("%s: %q names no template in templates/ yet (known: %s): write templates/%s.md with artifact_write, or pages of this map will report template_missing", param, slug, list, slug))
+	}
+	return out
 }
 
 // validateContractParams rejects the empty entries a map contract must not
@@ -1428,6 +1475,17 @@ func toolMapUpdate(k *kb.KB) Tool {
 			}
 			if params.FieldValues != nil {
 				warnings = append(warnings, fieldValuesShadowWarnings(params.Map, contract)...)
+			}
+			if params.Templates != nil || params.DefaultTemplate != nil {
+				var given []string
+				if params.Templates != nil {
+					given = *params.Templates
+				}
+				def := ""
+				if params.DefaultTemplate != nil {
+					def = *params.DefaultTemplate
+				}
+				warnings = append(warnings, unknownTemplateWarnings(k, given, def)...)
 			}
 			if len(warnings) > 0 {
 				result["warnings"] = warnings

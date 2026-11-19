@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/feedback"
+	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/okf"
@@ -456,7 +458,7 @@ func toolGateCheck(k *kb.KB) Tool {
 	return Tool{
 		Name:        "gate_check",
 		ReadOnly:    true,
-		Description: "Local gate: validate + lint + commit_gate. Use at session end over the IDs you wrote, or before fast-forwarding to main. changed_ids alone lints just those (no whole-KB structure checks); empty changed_ids: whole KB; scope: a path prefix. pass needs zero lint findings in the scope, no validation error and a passing commit gate: a finding is a problem to fix.",
+		Description: "Local gate: validate + lint + commit_gate. Use at session end over the IDs you wrote, or before fast-forwarding to main. changed_ids alone lints just those (no whole-KB structure checks); empty changed_ids: whole KB; scope: a path prefix. pass needs zero lint findings in the scope, no validation error and a passing commit gate: a finding is a problem to fix. Unknown changed_ids go to warnings.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["changed_ids"],
@@ -611,9 +613,78 @@ func toolGateCheck(k *kb.KB) Tool {
 			if !pass {
 				result["blocked_by"] = gateBlockedBy(valErrs, lintFindings, gate.Blockers)
 			}
+			if w := unknownChangedIDs(k, params.ChangedIDs, scopedToIDs); len(w) > 0 {
+				result["warnings"] = w
+			}
 			return jsonResult(result), nil
 		},
 	}
+}
+
+// gateUnknownIDCap bounds how many absent changed_ids unknownChangedIDs
+// examines (one git log each); the rest are silent.
+const gateUnknownIDCap = 50
+
+// unknownChangedIDs returns one warning per changed id that is not a concept
+// of the KB and was never one in its git history: a typo, which the gate
+// otherwise passes having checked nothing for it. An absent id with history
+// is a legitimate deletion or move and says nothing. Without git history the
+// two cannot be told apart, and the warning says so. pass is never touched
+// (a warning is not a refusal, #2278); gate_check is resourceWhole, so the
+// warning is no existence oracle for a scoped token.
+func unknownChangedIDs(k *kb.KB, ids []string, onlyIDs bool) []string {
+	// With a scope the ids are not what is linted, so "nothing was checked for
+	// it" would be false: the wording claims only what holds (#2278).
+	tail := ""
+	if onlyIDs {
+		tail = ": nothing was checked for it"
+	}
+	var out []string
+	examined := 0
+	for _, id := range ids {
+		loc, err := k.LocateConcept(okf.ConceptID(id))
+		if err == nil {
+			if _, statErr := os.Stat(loc.File); statErr == nil {
+				continue
+			}
+			if _, statErr := os.Stat(filepath.Join(loc.Dir, "index.md")); statErr == nil {
+				continue
+			}
+		}
+		if examined >= gateUnknownIDCap {
+			break
+		}
+		examined++
+		if err != nil {
+			out = append(out, fmt.Sprintf("changed_ids %q is not a valid concept id%s", id, tail))
+			continue
+		}
+		rel, relErr := conceptGitPath(k, id)
+		if relErr != nil {
+			continue
+		}
+		hasHistory := false
+		inRepo := gitx.IsRepo(k.Root)
+		if inRepo {
+			if revs, hErr := gitx.FileHistory(k.Root, rel, 1); hErr == nil && len(revs) > 0 {
+				hasHistory = true
+			} else if hErr == nil {
+				// also the expanded form, "<id>/index.md"
+				if revs, hErr = gitx.FileHistory(k.Root, strings.TrimSuffix(rel, ".md")+"/index.md", 1); hErr == nil && len(revs) > 0 {
+					hasHistory = true
+				}
+			}
+		}
+		if hasHistory {
+			continue
+		}
+		if _, headErr := gitx.HeadSHA(k.Root); !inRepo || headErr != nil {
+			out = append(out, fmt.Sprintf("changed_ids %q is not a concept of this KB: cannot tell a deletion from a typo without git history%s", id, tail))
+			continue
+		}
+		out = append(out, fmt.Sprintf("changed_ids %q is not a concept of this KB and never was in its history (a typo?)%s", id, tail))
+	}
+	return out
 }
 
 // --- conflict_resolve ---
