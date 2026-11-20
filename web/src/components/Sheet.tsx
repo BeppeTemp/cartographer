@@ -12,6 +12,7 @@ export function Sheet({
   side,
   label,
   wide = false,
+  closeButton = true,
   onClose,
   children,
 }: {
@@ -19,6 +20,9 @@ export function Sheet({
   label: string;
   /** Room to read prose: the release history, not a rail or an inspector. */
   wide?: boolean;
+  /** False when the content brings its own close button (the inspector's
+   *  header): two × side by side read as two different actions. */
+  closeButton?: boolean;
   onClose(): void;
   children: ReactNode;
 }) {
@@ -36,14 +40,16 @@ export function Sheet({
         aria-label={label}
         tabIndex={-1}
       >
-        <button
-          type="button"
-          className="sheet__close button button--icon"
-          onClick={onClose}
-          aria-label={`Close ${label.toLowerCase()}`}
-        >
-          &times;
-        </button>
+        {closeButton && (
+          <button
+            type="button"
+            className="sheet__close button button--icon"
+            onClick={onClose}
+            aria-label={`Close ${label.toLowerCase()}`}
+          >
+            &times;
+          </button>
+        )}
         {children}
       </div>
     </div>

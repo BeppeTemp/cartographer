@@ -531,7 +531,7 @@ cd .worktrees/my-change && make dev DATA=<data dir>   # or no DATA: the generate
 `make dev` rebuilds and restarts Meridian on every Go change and serves the UI
 with hot reload on `http://localhost:5173/ui/`. `DATA` is copied with its git
 remotes keeping their fetch URL and an unreachable push URL, so nothing the session writes leaves the
-machine; `API_PORT`/`UI_PORT` keep two sessions apart. With `DATA`, the instance also shows this machine's real client (Settings, Artifacts usage): `make dev` runs `cartographer sync --report-to` against it, which reports and changes nothing (D1044). Nothing is pushed
+machine; `API_PORT`/`UI_PORT` keep two sessions apart; `TESTKBS=0` with `DATA` leaves the generated test KBs (and their synthetic Surveyor) out, to judge the Atlas on real data only. With `DATA`, the instance also shows this machine's real client (Settings, Artifacts usage): `make dev` runs `cartographer sync --report-to` against it, which reports and changes nothing (D1044). Nothing is pushed
 while iterating; at the end the change is queued with `make ready`. With no plan, the
 commit message is the record: its title (`feat:`/`fix:` for what a user notices) and its
 body become the commit on `main`, and so the release changelog — the skill says what the

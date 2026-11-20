@@ -1280,7 +1280,7 @@ export function App() {
         </Sheet>
       )}
       {narrow && sheet === "inspector" && view.panel === "atlas" && (
-        <Sheet side="end" label="Inspector" onClose={() => setSheet(null)}>
+        <Sheet side="end" label="Inspector" closeButton={!view.concept} onClose={() => setSheet(null)}>
           {inspector}
         </Sheet>
       )}

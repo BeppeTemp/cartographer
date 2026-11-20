@@ -67,7 +67,7 @@ user waits to see the result.
    from `.worktrees/<slug>`.
 2. `make dev` from the worktree, in the background. `DATA=<data dir>` serves a
    copy of real KBs (remotes keep their fetch URL but a push fails, deleted on exit); without it
-   the synthetic test KBs `make dev` generates (D818). Another live session on the machine → pick other ports:
+   the synthetic test KBs `make dev` generates (D818), mounted beside `DATA` too unless `TESTKBS=0`. Another live session on the machine → pick other ports:
    `API_PORT=39281 UI_PORT=5174`.
 3. Give the user the UI address: `http://localhost:<UI_PORT>/ui/` — `localhost`,
    not `127.0.0.1`, which Vite does not listen on. Go changes restart the
