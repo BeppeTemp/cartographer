@@ -1025,7 +1025,7 @@ restarts from the first entry. A failing task is not retried in the same run; re
 skip it until the next poll (this is also how a token with read but no write grant shows up). A revoked token
 (401) or a refused host (403) ends the process with exit 1. A profile whose model API rejects the credential
 is off for the rest of the run and tried again at the next one. A run closes with one `log_append` per KB it
-touched, ending `stopped=done|window|budget|idle|shutdown|error`; a run that found nothing writes nothing.
+touched, ending `stopped=done|window|budget|idle|shutdown|error`; a KB the run left quiet (`stopped=done`, no tokens, no unit, no commit) gets no entry, so a poll that found nothing writes nothing to the KB's log.
 
 **Shutdown.** SIGINT/SIGTERM cancel the in-flight model call, abandon the task in progress (its claim lapses by
 lease; what was committed stays), write the closing entries in parallel with a 5 s HTTP timeout and exit 0. A
