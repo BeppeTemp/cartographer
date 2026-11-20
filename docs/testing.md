@@ -661,7 +661,7 @@ fleet, each profile (`profiles_test.go`) and that no generated page holds a word
 built by `clientconfig.Save` and `Report`) after every server start, and the three bodies of the synthetic Surveyor (`surveyor-*.json`; `TestSurveyorPayloadsOfTheTestKBsAreAcceptedByTheRoutes` posts them to the real handlers), so Settings → Client has a machine to show. By hand: run a
 server (`cartographer serve --http :39273 --kb …`) and `cd web && npm run dev`: Vite serves the UI with hot reload on
 `http://localhost:5173/ui/` and proxies `/api` and `/health` (the version beside the theme switch) to the server
-(`CARTOGRAPHER_DEV_API` for another address); the Atlas follows the KB live
+(`CARTOGRAPHER_DEV_API` for another address, `CARTOGRAPHER_DEV_TOKEN` sent as the proxied calls' bearer for a server with tokens); the Atlas follows the KB live
 (D337). The bundle's provenance hash covers the files git tracks under `web/` (a
 directory walk outside a repository), so an untracked `.DS_Store`, `*.tsbuildinfo` or
 `.env.local` does not move it; a new source file counts once it is `git add`ed.

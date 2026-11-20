@@ -12,6 +12,8 @@
 # The generated test KBs (internal/testkbs) are always mounted: alone without
 # DATA, beside the copied KBs with it (a test KB whose name a DATA KB already
 # has is left out), so every Atlas view has something to show whatever the data.
+# TESTKBS=0 with DATA leaves them out, and the synthetic Surveyor with them:
+# the instance serves only the copied KBs, to judge the Atlas on real data.
 # A synthetic Surveyor reports on three of them (heartbeat, settings, runs and
 # report candidates, posted to the component routes after every start and
 # repeated every half hour, its declaration being live for three hours): the
@@ -107,7 +109,11 @@ if [ -n "${DATA:-}" ]; then
 		for r in $(git -C "$repo" remote); do git -C "$repo" remote set-url --push "$r" "$work/no-push"; done
 	done
 fi
-add_test_kbs "$work/data"
+if [ -n "${DATA:-}" ] && [ "${TESTKBS:-1}" = 0 ]; then
+	echo "[dev] TESTKBS=0: only the KBs of DATA are mounted"
+else
+	add_test_kbs "$work/data"
+fi
 kbargs=(--data "$work/data")
 
 [ -d web/node_modules ] || (cd web && npm ci --silent)

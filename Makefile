@@ -233,8 +233,8 @@ worktree-clean: ## Remove the worktrees, local and fork branches of merged PRs, 
 
 # The live session's instance (the cartographer-develop-live skill): Go rebuilt and restarted on
 # change, the UI hot-reloaded by Vite. DATA is copied, never served in place.
-dev: ## Live instance from this worktree: make dev [DATA=<data dir>] [API_PORT=39280] [UI_PORT=5173]
-	@DATA="$(DATA)" API_PORT="$(API_PORT)" UI_PORT="$(UI_PORT)" ./scripts/dev.sh
+dev: ## Live instance from this worktree: make dev [DATA=<data dir>] [TESTKBS=0] [API_PORT=39280] [UI_PORT=5173]
+	@DATA="$(DATA)" TESTKBS="$(TESTKBS)" API_PORT="$(API_PORT)" UI_PORT="$(UI_PORT)" ./scripts/dev.sh
 
 # Deliberately Go-only: a contributor changing Go code must not need a Node
 # toolchain. The committed UI bundle is kept honest by a pure-Go staleness test

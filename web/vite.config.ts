@@ -19,11 +19,23 @@ export default defineConfig({
   plugins: [react()],
   // `npm run dev` serves the UI with hot reload and sends /api to a running
   // server: `cartographer serve --http :39273` by default, any other with
-  // CARTOGRAPHER_DEV_API. A local config file under web/ would do the same but
+  // CARTOGRAPHER_DEV_API (plus CARTOGRAPHER_DEV_TOKEN for a server
+  // with tokens). A local config file under web/ would do the same but
   // enter the bundle's provenance hash and fail web-check in CI.
   server: {
     proxy: Object.fromEntries(
-      ["/api", "/health"].map((path) => [path, process.env.CARTOGRAPHER_DEV_API ?? "http://127.0.0.1:39273"]),
+      ["/api", "/health"].map((path) => [
+        path,
+        {
+          target: process.env.CARTOGRAPHER_DEV_API ?? "http://127.0.0.1:39273",
+          // A server with tokens (a remote one, read through a port-forward)
+          // answers 401 to the proxied calls: CARTOGRAPHER_DEV_TOKEN is sent as
+          // their bearer, never written anywhere.
+          headers: process.env.CARTOGRAPHER_DEV_TOKEN
+            ? { Authorization: `Bearer ${process.env.CARTOGRAPHER_DEV_TOKEN}` }
+            : undefined,
+        },
+      ]),
     ),
   },
   build: {
