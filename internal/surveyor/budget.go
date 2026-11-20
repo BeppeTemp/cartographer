@@ -302,14 +302,21 @@ func oneLine(s string) string {
 }
 
 // Close writes one closing entry per touched KB; summary, if any, is added to
-// every KB's own summaries (a line that names no KB's content). A failed log_append is retried
-// once and then logged: it never fails the run (its spending is then lost, like
-// a crash's). It returns the KBs that got no entry.
+// every KB's own summaries (a line that names no KB's content). A KB whose run
+// was quiet (stopped=done, no tokens, no units, no commits) gets no entry: it
+// spent nothing the ledger must count and a log commit per interval would be
+// noise (D2281). A failed log_append is retried once and then logged: it never
+// fails the run (its spending is then lost, like a crash's). It returns the KBs
+// whose entry could not be written; a KB skipped as quiet is not among them.
 func (b *Budget) Close(stopped, summary string) (failed []string) {
 	b.mu.Lock()
-	kbs := append([]string(nil), b.order...)
-	entries := make(map[string]string, len(kbs))
-	for _, kb := range kbs {
+	kbs := make([]string, 0, len(b.order))
+	entries := make(map[string]string, len(b.order))
+	for _, kb := range b.order {
+		if stopped == StoppedDone && summary == "" && b.quietLocked(kb) {
+			continue
+		}
+		kbs = append(kbs, kb)
 		entries[kb] = b.entry(kb, stopped, summary)
 	}
 	b.mu.Unlock()
@@ -336,6 +343,20 @@ func (b *Budget) Close(stopped, summary string) (failed []string) {
 		}
 	}
 	return failed
+}
+
+// quietLocked reports that the run spent no token, finished no unit and made no
+// commit on the KB. The caller holds b.mu.
+func (b *Budget) quietLocked(kb string) bool {
+	if b.units[kb] != 0 || b.commits[kb] != 0 {
+		return false
+	}
+	for _, n := range b.perKB[kb] {
+		if n != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // totalUnits and totalCommits are what the run did, over all KBs.

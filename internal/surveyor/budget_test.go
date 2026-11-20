@@ -213,6 +213,42 @@ func TestBudgetCloseWritesOneEntryPerTouchedKB(t *testing.T) {
 	}
 }
 
+func TestBudgetCloseSkipsAQuietKB(t *testing.T) {
+	quiet, busy := &ledgerCaller{}, &ledgerCaller{}
+	b := newTestBudget(map[string]*ledgerCaller{"kb-a": quiet, "work-kb": busy})
+	b.Begin([]string{"kb-a", "work-kb"}, testNow)
+	b.Touch("kb-a") // a poll that found nothing: no tokens, no unit, no commit
+	b.Note("kb-a", 0, 0)
+	b.Note("work-kb", 1, 1)
+	if failed := b.Close(StoppedDone, ""); len(failed) != 0 {
+		t.Fatalf("a quiet KB is not a failure: %v", failed)
+	}
+	if len(quiet.appends) != 0 || len(busy.appends) != 1 {
+		t.Fatalf("quiet=%d busy=%d, want 0 and 1", len(quiet.appends), len(busy.appends))
+	}
+}
+
+func TestBudgetCloseWritesAQuietKBOnAnyOtherStop(t *testing.T) {
+	for _, stopped := range []string{StoppedError, StoppedWindow, StoppedBudget, StoppedIdle, StoppedShutdown} {
+		kb := &ledgerCaller{}
+		b := newTestBudget(map[string]*ledgerCaller{"kb-a": kb})
+		b.Begin([]string{"kb-a"}, testNow)
+		b.Touch("kb-a")
+		b.Close(stopped, "")
+		if len(kb.appends) != 1 {
+			t.Errorf("stopped=%s: %d entries, want 1", stopped, len(kb.appends))
+		}
+	}
+	kb := &ledgerCaller{}
+	b := newTestBudget(map[string]*ledgerCaller{"kb-a": kb})
+	b.Begin([]string{"kb-a"}, testNow)
+	b.Touch("kb-a")
+	b.Close(StoppedDone, "stopped: fatal")
+	if len(kb.appends) != 1 {
+		t.Errorf("a closing line to carry: %d entries, want 1", len(kb.appends))
+	}
+}
+
 func TestBudgetCloseLogsAfterTwoFailures(t *testing.T) {
 	kb := &ledgerCaller{failApp: 5}
 	b := newTestBudget(map[string]*ledgerCaller{"kb-a": kb})
