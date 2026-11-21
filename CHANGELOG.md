@@ -8,6 +8,24 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.29.2](https://github.com/BeppeTemp/cartographer/compare/v0.29.1...v0.29.2) (2026-11-21)
+
+
+### Atlas
+
+#### Bug Fixes
+
+* one close button on the inspector sheet on a narrow screen ([5a3a390](https://github.com/BeppeTemp/cartographer/commit/5a3a390857514e34ebf12ab90a77b6ca2b6e9a86))
+
+
+### General
+
+#### Bug Fixes
+
+* a quiet Surveyor run writes no closing log entry ([ef3dcb9](https://github.com/BeppeTemp/cartographer/commit/ef3dcb99b2bf781047d33b6f2d44d600374bb23a)), closes [#2283](https://github.com/BeppeTemp/cartographer/issues/2283)
+* Surveyor supersede, orphaned claims, quiet polls, repair summary, author ([bc6474f](https://github.com/BeppeTemp/cartographer/commit/bc6474fb481c243e2355dd6c3ce11a72c726cdc0)), closes [#2279](https://github.com/BeppeTemp/cartographer/issues/2279)
+* warn, not refuse or pass in silence, on three edge cases ([1b3af74](https://github.com/BeppeTemp/cartographer/commit/1b3af74883c96b60b4f4123645387711f2d9dbf6)), closes [#2278](https://github.com/BeppeTemp/cartographer/issues/2278)
+
 ## [0.29.1](https://github.com/BeppeTemp/cartographer/compare/v0.29.0...v0.29.1) (2026-11-18)
 
 
