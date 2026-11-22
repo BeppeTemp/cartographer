@@ -10,7 +10,8 @@ production lines is split by work package, or this body starts a line with
 ## What
 
 <!-- One bullet per behaviour that changes: before → after. A fix for a regression
-also names the PR that introduced it, on a line of its own: `Regression-of: #<n>`.
+also names the PR that introduced it, on a line of its own: `Regression-of: #<n>`
+(a maintainer's queued change writes `Introduced-by:`, CONTRIBUTING.md §Pull requests).
 A line that starts like a conventional commit (`feat(mcp): ...`) becomes a changelog
 entry: write it as ONE unwrapped line, release-please keeps only its first line. -->
 

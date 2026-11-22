@@ -141,10 +141,19 @@ every finding costs the author a commit and the reviewer another round (D857):
 ## Changing the reviewer
 
 A reviewer is a definition (`.claude/agents/cartographer-contract-reviewer.md`, `cartographer-security-reviewer` likewise), a model pin and §3–§5 of this
-skill. A PR that changes any of them runs the evals and reports the score in its
-`## Self-review`; nothing runs them in CI (D856: an eval is N reviewer spawns).
+skill. A change to any of them runs the evals and reports the score in its
+`## Self-review` (a queued change: in its message); nothing runs them in CI (D856: an eval is N reviewer spawns).
+A change to either definition file or to this `SKILL.md` is not queued without a new line in
+`evals/scores.md` or a line `Evals: none - <reason>` in its message: `scripts/pr-triage.sh` prints
+a `BLOCK` for it at `make ready` (also when it cannot read your permission: it fails closed) and a
+`WARN` on a pull request. A score older than 30 days is run again, even with no
+change to the reviewer.
 
-1. `.claude/skills/cartographer-review-pr/scripts/eval-setup.sh` (or `<id>…` for some cases)
+A run scores a bounded set, however long the tables grow: the ten newest `c` rows, every row of
+class `security` and the `k` rows. `.claude/skills/cartographer-review-pr/scripts/eval-case.sh --scored`
+prints their ids.
+
+1. `.claude/skills/cartographer-review-pr/scripts/eval-setup.sh <id>…` with those ids (with none, every case)
    adds one detached worktree per distinct squash commit of `evals/cases.md`
    (cases on the same commit share it, as `eval-c2-c3`) and prints one mandate
    line each: the case ids it serves (`c2,c3`), worktree, `base` (the commit's
@@ -153,8 +162,8 @@ skill. A PR that changes any of them runs the evals and reports the score in its
    with that line verbatim (a subagent cannot spawn one). The worktree holds the
    whole history, so the `eval:` constraint is what keeps the reviewer from
    finding the fix: both reviewer definitions honour it (no history after HEAD,
-   no reading of `evals/`, no `gh` lookup but the plan). Case `c4`, the
-   `security` class, is also given to `cartographer-security-reviewer`.
+   no reading of `evals/`, no `gh` lookup but the plan). A case of class
+   `security` is also given to `cartographer-security-reviewer`.
 3. It compares each report with the rows; the reviewer is not told them. A case
    is **caught** when a high or medium finding names the defect's file and its
    class; a shared run is scored once per case it serves. **Noise** is the high
@@ -166,13 +175,23 @@ skill. A PR that changes any of them runs the evals and reports the score in its
 
 ## When a defect escapes
 
-A fix for a regression names its origin in the PR body, `Regression-of: #<pr>`
-(`pr-triage.sh` prints the line). When such a PR merges, the coordinator:
+A fix names the change that introduced its defect: a maintainer's queued `fix` on its
+`Found-by:` and `Introduced-by:` lines (`CONTRIBUTING.md` §Pull requests), a contributor's PR on
+a `Regression-of: #<pr>` line of its body; `pr-triage.sh` prints either. Once the fix has landed,
+the coordinator, after `git fetch origin main`:
 
-1. adds the introducing PR as a row of `evals/cases.md` (squash commit, fixing PR,
-   defect as `file:line` at the introducing commit, expected finding, class);
-2. answers in the row's last cell: what did the reviewer not have in front of it?
-3. fixes that where it bites (D214): a test or a lint check, a line in the area
+1. lists the escapes not yet cases, oldest first:
+   `.claude/skills/cartographer-review-pr/scripts/eval-case.sh --pending` (it reads all of `main`;
+   `--since <YYYY-MM-DD>` bounds the fixes it reads). An escape is a `fix` whose `Found-by:` lines do
+   not all say `review`, whose `Introduced-by:` names a commit of `main`, and whose introducing
+   change a reviewer read: its `Review:` tier is `standard` or `full`, or it has no `Review:`
+   line (`not recorded`); a `light` change had no reviewer;
+2. adds each, in that order, with `eval-case.sh <fix sha>`: one row per introducing change at
+   the end of the first table of `evals/cases.md`, the four cells a person fills set to `TODO`;
+3. fills them: the defect as `file:line` at the introducing commit, the expected finding, the
+   class, and in the last cell what the reviewer did not have in front of it. A `TODO` cell
+   fails `make test`, so a row cannot land unfilled;
+4. fixes that where it bites (D214): a test or a lint check, a line in the area
    `AGENTS.md`, or an entry in the reviewer's list of things to look for.
 
 ## Before opening your own PR, or queuing a change
@@ -182,7 +201,10 @@ maintainer's change is reviewed this way on its branch, before `make ready`; the
 is `REVIEW="<tier>, <n> rounds"`, and the steps below stop at step 2:
 
 1. `scripts/pr-triage.sh` with no argument compares the current branch with `upstream/main`
-   (`origin/main` without that remote) and prints your role; fix every `BLOCK`.
+   (`origin/main` without that remote) and prints your role; fix every `BLOCK`. A change with a
+   message file runs it as `TRIAGE_BODY="$(cat <message file>)" scripts/pr-triage.sh`, as
+   `make ready` does, so its `Evals: none - <reason>`, `Docs: none - <reason>` and
+   `Size exception:` lines count.
    The `plan-gate` check runs the same script on the PR.
 2. Spawn the reviewers of the tier (§3) on your own worktree (tier from the triage, PR number
    "not opened yet", the base the triage measured from), fix or answer each finding, in rounds as in §5.

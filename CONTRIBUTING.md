@@ -215,9 +215,10 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
     section reports an independent review run before opening — the
     `cartographer-contract-reviewer` subagent of the `cartographer-review-pr` skill, or your client's equivalent,
     at most three rounds — and its `Revert` section says what a revert of the
-    released change would not undo. A `fix:` PR that repairs a regression also
-    names the PR that introduced it, on a line `Regression-of: #<n>`: the
-    reviewers are scored against such PRs (`cartographer-review-pr` §When a defect escapes).
+    released change would not undo. A contributor's `fix:` PR that repairs a regression also
+    names the PR that introduced it, on a line `Regression-of: #<n>` (a maintainer's queued
+    `fix` writes `Introduced-by:`, below): the reviewers are scored against such changes
+    (`cartographer-review-pr` §When a defect escapes).
   - **Docs (advisory)**: `pr-triage.sh` prints a `WARN` when a path mapped in
     `scripts/doc-owners.tsv` has at least **10 production lines** changed and its page (the
     one `docs/index.md` §Documentation maintenance rules names) is untouched. It does not

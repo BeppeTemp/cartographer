@@ -4,6 +4,8 @@ topic: project-governance
 
 # D860 — A defect that escapes review becomes an eval case for the reviewers
 
+> **Amended by D2292**: a maintainer's queued fix names the introducing change on an `Introduced-by:` line (a contributor's PR keeps `Regression-of: #<pr>`); `eval-case.sh` turns a landed escape into a row, a run scores a bounded set of rows, and `make ready` refuses a change to a reviewer definition with no score line and no `Evals: none - <reason>` line.
+
 **Decision.** A `fix:` PR that repairs a regression names the PR that introduced
 it, `Regression-of: #<pr>`. That PR becomes a row of
 `.agents/skills/review-pr/evals/cases.md`, and a change to a reviewer definition,
