@@ -1,5 +1,6 @@
 ---
 topic: transport-auth
+amended_by: D152, D153
 ---
 
 # D102 — Opt-in per-KB MCP tool-name prefix

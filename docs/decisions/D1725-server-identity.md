@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amended_by: D1974
 ---
 
 # D1725 — the server git identity lives in git.identities.default, and a settings key can be Moved

@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amends: D1096
 ---
 
 # D1901 — One versioned route family for what components report

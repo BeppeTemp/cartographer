@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amended_by: D704, D1258
 ---
 
 # D358 — The kb-doctor session runs unattended by default

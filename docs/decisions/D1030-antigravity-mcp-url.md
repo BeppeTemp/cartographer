@@ -1,5 +1,6 @@
 ---
 topic: client-configurator
+amends: D194
 ---
 
 # D1030 — Antigravity emits canonical "url" key for MCP Streamable HTTP

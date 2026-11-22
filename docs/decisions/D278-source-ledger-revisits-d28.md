@@ -1,5 +1,6 @@
 ---
 topic: data-plane
+amends: D28
 ---
 
 # D278 — A source ledger of `Source` concepts revisits D28's removal of source ingestion

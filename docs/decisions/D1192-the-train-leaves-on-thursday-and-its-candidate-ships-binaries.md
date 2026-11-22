@@ -1,5 +1,7 @@
 ---
 topic: deployment-release
+amends: D956, D989
+amended_by: D1384
 ---
 
 # D1192 — The train leaves on Thursday, and its release candidate ships binaries

@@ -1,5 +1,6 @@
 ---
 topic: architecture
+amends: D820
 ---
 
 # D1146 — Retirements are rows of the Activity timeline, not a tab of their own

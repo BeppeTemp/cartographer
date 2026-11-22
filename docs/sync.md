@@ -587,7 +587,7 @@ its HTTP entry, and unbinding the last workspace returns to it on the next `sync
 the token the way `sync` does: a literal `server.token` in `.cartographer.yaml`, else the environment variable that `token: ${NAME}` names (`CARTOGRAPHER_TOKENS` by default), else the private token file; the entry never holds it, and for
 Codex, which filters the environment of an MCP server, names the variable in `env_vars`. The command
 is the one found on `PATH`, never the path of the running binary (a versioned Cellar directory). `sync`
-removes the project entries that an earlier version wrote into repositories (D717).
+removes the project entries that an earlier version wrote into repositories (D717, D737).
 `cartographer workspace resolve [<path>]` prints which binding wins for a folder.
 
 **A repository a KB declares is bound to it (D1019).** A KB's `paths.yaml` already declares the

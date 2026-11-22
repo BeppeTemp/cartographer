@@ -1,5 +1,6 @@
 ---
 topic: data-plane
+amends: D19
 ---
 
 # D62 — KB repo cleanup: no generated AGENTS.md/.gitignore, exclude via .git/info/exclude (WP6)

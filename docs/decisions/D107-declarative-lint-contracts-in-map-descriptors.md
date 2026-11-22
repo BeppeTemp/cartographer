@@ -1,5 +1,6 @@
 ---
 topic: data-plane
+amended_by: D159
 ---
 
 # D107 — Declarative lint contracts in map descriptors

@@ -1,5 +1,6 @@
 ---
 topic: client-configurator
+amends: D1723
 ---
 
 # D1797 — A wildcard is refused only where it can still lead into Cartographer's state

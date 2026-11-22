@@ -1,5 +1,6 @@
 ---
 topic: project-governance
+amended_by: D1384
 ---
 
 # D987 — Only the next train's work merges, and every accepted issue has a milestone

@@ -1,5 +1,6 @@
 ---
 topic: skills-services-secrets
+amended_by: D1557
 ---
 
 # D958 — The bundled skills take the `cartographer-` prefix, and the old names keep working

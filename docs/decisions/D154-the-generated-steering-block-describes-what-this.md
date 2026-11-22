@@ -1,5 +1,6 @@
 ---
 topic: sync-provisioning
+amends: D65, D141
 ---
 
 # D154 — The generated steering block describes what this client received

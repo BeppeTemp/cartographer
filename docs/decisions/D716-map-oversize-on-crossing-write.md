@@ -1,5 +1,7 @@
 ---
 topic: control-plane
+amends: D312, D313
+amended_by: D947
 ---
 
 # D716 — map_oversize is reported on the write that crosses the threshold

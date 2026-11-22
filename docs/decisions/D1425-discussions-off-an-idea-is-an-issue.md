@@ -1,5 +1,6 @@
 ---
 topic: project-governance
+amends: D100, D955
 ---
 
 # D1425 — GitHub Discussions are off, and an idea from outside is an issue

@@ -1,5 +1,7 @@
 ---
 topic: control-plane
+amends: D275, D289
+amended_by: D907, D947
 ---
 
 # D350 — An opt-in write gate refuses, and rolls back, a write that introduces findings

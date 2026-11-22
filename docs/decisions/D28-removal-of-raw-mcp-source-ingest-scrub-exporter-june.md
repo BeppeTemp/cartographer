@@ -1,5 +1,6 @@
 ---
 topic: data-plane
+amended_by: D278
 ---
 
 # D28 — Removal of `raw/`, `mcp/`, `source_ingest`, `scrub`, `exporter` (June 2026)

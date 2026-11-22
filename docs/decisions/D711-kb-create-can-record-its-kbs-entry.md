@@ -1,5 +1,7 @@
 ---
 topic: deployment-release
+amends: D85, D151, D177
+superseded_by: D906
 ---
 
 # D711 — `kb create` / `kb clone` can record their `kbs[]` entry

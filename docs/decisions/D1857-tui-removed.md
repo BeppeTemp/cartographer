@@ -1,5 +1,7 @@
 ---
 topic: client-configurator
+supersedes: D175
+amends: D37, D1612
 ---
 
 # D1857 — The TUI dashboard is removed; bare `cartographer` prints a short status and the usage

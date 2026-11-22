@@ -1,5 +1,7 @@
 ---
 topic: deployment-release
+amends: D73
+amended_by: D1979, D1996, D2111
 ---
 
 # D217 — On Windows the native service is a per-user Scheduled Task, driven by PowerShell

@@ -1,5 +1,7 @@
 ---
 topic: project-governance
+amends: D1020, D1592
+amended_by: D1704, D1706, D1750, D1755, D2040, D2293
 ---
 
 # D1610 — A maintainer's PR is attested by a local signoff, the hosted checks run once

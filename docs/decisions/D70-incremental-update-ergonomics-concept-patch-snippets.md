@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amended_by: D1185
 ---
 
 # D70 — Incremental update ergonomics: `concept_patch` + snippets in `search` results

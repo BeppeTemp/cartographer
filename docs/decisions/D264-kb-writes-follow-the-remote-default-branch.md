@@ -1,5 +1,6 @@
 ---
 topic: concurrency-git
+amended_by: D335, D1093
 ---
 
 # D264 — KB writes follow the remote default branch

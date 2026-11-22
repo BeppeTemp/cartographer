@@ -1,5 +1,7 @@
 ---
 topic: data-plane
+amends: D275
+amended_by: D350
 ---
 
 # D289 — lint checks a KB against the current standard, not only against its own contracts

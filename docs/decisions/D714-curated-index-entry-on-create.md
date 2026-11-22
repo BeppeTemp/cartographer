@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amended_by: D1099, D1768
 ---
 
 # D714 — `index_entry` on creation adds a curated index entry, atomically in `concept_batch`

@@ -1,5 +1,7 @@
 ---
 topic: deployment-release
+amends: D134, D156
+amended_by: D1071, D1412
 ---
 
 # D710 — `kb create --remote` adopts a forge's initial commit

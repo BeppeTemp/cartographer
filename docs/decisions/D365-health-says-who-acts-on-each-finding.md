@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amended_by: D947
 ---
 
 # D365 — Health says who acts on each finding

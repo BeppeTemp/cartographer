@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amended_by: D1581
 ---
 
 # D1350 — A release is published last, after its binaries, cask and image exist

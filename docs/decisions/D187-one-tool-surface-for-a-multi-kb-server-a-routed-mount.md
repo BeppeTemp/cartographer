@@ -1,5 +1,6 @@
 ---
 topic: transport-auth
+amended_by: D288, D1096
 ---
 
 # D187 — One tool surface for a multi-KB server: a routed mount with the KB as an argument

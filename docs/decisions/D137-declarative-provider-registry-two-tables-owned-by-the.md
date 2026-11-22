@@ -1,5 +1,6 @@
 ---
 topic: client-configurator
+amended_by: D1662
 ---
 
 # D137 — Declarative provider registry: two tables, owned by the packages that own the concepts

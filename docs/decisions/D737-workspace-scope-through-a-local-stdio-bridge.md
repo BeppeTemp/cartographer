@@ -1,5 +1,7 @@
 ---
 topic: sync-provisioning
+supersedes: D717
+amended_by: D1757
 ---
 
 # D737 — A workspace binding scopes the tools through a local stdio bridge

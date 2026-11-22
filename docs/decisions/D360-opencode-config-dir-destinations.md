@@ -1,5 +1,6 @@
 ---
 topic: sync-provisioning
+amended_by: D1841
 ---
 
 # D360 — OpenCode global skills and agents live in its config directory, and a moved destination relocates on sync

@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amended_by: D2280
 ---
 
 # D2039 — secrets_init writes the creation rule, admin only

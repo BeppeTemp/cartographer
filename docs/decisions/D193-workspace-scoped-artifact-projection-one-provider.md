@@ -1,5 +1,6 @@
 ---
 topic: sync-provisioning
+amended_by: D364
 ---
 
 # D193 — Workspace-scoped artifact projection: one provider, different KBs per repository

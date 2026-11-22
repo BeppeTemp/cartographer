@@ -1,5 +1,6 @@
 ---
 topic: project-governance
+superseded_by: D330
 ---
 
 # D198 — No recorded demo in the README

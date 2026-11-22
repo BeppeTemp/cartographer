@@ -108,7 +108,7 @@ cheapest first:
 
 1. **Write-time repair** (D349, D355): a write applies the safe mechanical
    fixes to the concepts it just wrote, to a fixpoint, and the write gate
-   (D350) refuses what introduces a finding the write could have avoided;
+   (D350, D907) refuses what introduces a finding the write could have avoided;
    both are fixed behaviour.
 2. **Background repair** (D323): the server applies every safe fix over the KB, in one commit, with
    no agent: at every start (an upgrade or a config change can make untouched pages fixable), after

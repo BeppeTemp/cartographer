@@ -1,5 +1,6 @@
 ---
 topic: skills-services-secrets
+amended_by: D1994
 ---
 
 # D1256 — Ingest pipeline skills

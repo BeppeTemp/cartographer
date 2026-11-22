@@ -1,5 +1,7 @@
 ---
 topic: deployment-release
+amends: D73, D134
+amended_by: D710
 ---
 
 # D156 — Service `PATH`, `restart` after `stop`, and a `kb create` that keeps its scaffold

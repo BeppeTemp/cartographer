@@ -1,5 +1,6 @@
 ---
 topic: project-governance
+amends: D1755
 ---
 
 # D2025 — A gate that loses its build host exits 69 and is gated again, never retried as a flake

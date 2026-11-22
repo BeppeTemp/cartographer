@@ -1,5 +1,6 @@
 ---
 topic: transport-auth
+amends: D102
 ---
 
 # D153 — A tool prefix is the default for every mounted KB

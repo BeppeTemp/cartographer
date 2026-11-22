@@ -1,5 +1,6 @@
 ---
 topic: project-governance
+amended_by: D884, D992
 ---
 
 # D327 — The plan-implementer subagent is a thin per-client wrapper over the implement-issue skill

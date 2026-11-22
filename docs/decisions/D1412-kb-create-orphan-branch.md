@@ -1,5 +1,6 @@
 ---
 topic: concurrency-git
+amends: D710, D1093
 ---
 
 # D1412 — `kb create --branch X` puts a KB on an orphan branch of a repository with history

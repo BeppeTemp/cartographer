@@ -1,5 +1,6 @@
 ---
 topic: client-configurator
+amended_by: D906
 ---
 
 # D51 — MCP server name fixed to "cartographer"; auto-trust hint with the exact command

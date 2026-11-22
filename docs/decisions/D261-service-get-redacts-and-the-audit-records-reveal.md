@@ -1,5 +1,7 @@
 ---
 topic: skills-services-secrets
+amends: D158
+amended_by: D1894
 ---
 
 # D261 — service_get redacts resolved secrets unless reveal, and the audit records reveal

@@ -1,5 +1,6 @@
 ---
 topic: client-configurator
+amended_by: D1864
 ---
 
 # D676 — GitHub Copilot CLI is a provider, with a hook file of its own

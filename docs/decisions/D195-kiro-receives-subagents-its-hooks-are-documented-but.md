@@ -1,5 +1,6 @@
 ---
 topic: sync-provisioning
+amended_by: D291
 ---
 
 # D195 — Kiro receives subagents; its hooks are documented but not shipped

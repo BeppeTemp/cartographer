@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amends: D290
 ---
 
 # D294 — lint and kb_status stay fast on real KBs

@@ -1,5 +1,7 @@
 ---
 topic: deployment-release
+amends: D1443
+amended_by: D1707
 ---
 
 # D1454 — Only bug fixes reach main directly; a feature lives on an exp/<theme> branch and lands in slices

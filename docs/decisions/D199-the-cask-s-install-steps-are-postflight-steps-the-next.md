@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amends: D121, D192
 ---
 
 # D199 — The Cask's install steps are `postflight_steps`; the next sync repairs the service

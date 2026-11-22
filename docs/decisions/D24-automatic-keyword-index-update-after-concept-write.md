@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amended_by: D36
 ---
 
 # D24 — Automatic keyword index update after `concept_write`

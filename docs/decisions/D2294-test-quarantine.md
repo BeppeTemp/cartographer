@@ -1,5 +1,6 @@
 ---
 topic: project-governance
+amends: D1755
 ---
 
 # D2294 — A flaky Go test leaves the gate's verdict by a versioned line with an issue and an expiry, and lapses back into it

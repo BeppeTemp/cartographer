@@ -1,5 +1,6 @@
 ---
 topic: sync-provisioning
+amended_by: D300
 ---
 
 # D140 — A scheduled sync trigger for clients with no session hook; Kiro has no registrable one

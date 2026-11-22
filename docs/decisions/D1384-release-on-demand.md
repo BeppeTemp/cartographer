@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amends: D956, D987, D989, D1168, D1180, D1192
 ---
 
 # D1384 — Releases on demand: no weekly train, the freeze opens with the candidate

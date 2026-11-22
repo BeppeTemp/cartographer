@@ -1,5 +1,6 @@
 ---
 topic: client-configurator
+amended_by: D690, D704, D1258, D1892
 ---
 
 # D369 — A scheduled headless doctor is a client-side opt-in, declared to the server

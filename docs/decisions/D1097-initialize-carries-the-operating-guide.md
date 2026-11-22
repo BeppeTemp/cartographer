@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amended_by: D1724
 ---
 
 # D1097 — `initialize` carries the operating guide; a provisioned client marks itself

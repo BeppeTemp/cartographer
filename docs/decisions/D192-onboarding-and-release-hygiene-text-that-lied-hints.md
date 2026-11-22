@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amended_by: D199, D1022
 ---
 
 # D192 — Onboarding and release hygiene: text that lied, hints that could not be run, paths that ended half-done

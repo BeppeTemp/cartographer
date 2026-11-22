@@ -1,5 +1,6 @@
 ---
 topic: sync-provisioning
+amends: D1182
 ---
 
 # D1246 — The routed `kb` clause of the routing sentence is short

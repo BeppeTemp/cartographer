@@ -1,5 +1,6 @@
 ---
 topic: transport-auth
+amended_by: D152
 ---
 
 # D120 — Tool-prefix discovery for client-owned multi-KB operations

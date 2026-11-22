@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amended_by: D989, D1192, D1384
 ---
 
 # D956 — Releases leave on a weekly train, gated on a tested release candidate

@@ -1,5 +1,6 @@
 ---
 topic: transport-auth
+amends: D128, D133
 ---
 
 # D168 — The MCP wire format comes from the official SDK

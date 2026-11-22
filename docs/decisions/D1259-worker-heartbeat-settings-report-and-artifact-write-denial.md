@@ -1,5 +1,7 @@
 ---
 topic: control-plane
+amends: D948
+amended_by: D1892
 ---
 
 # D1259 — A worker declares itself by heartbeat, reports typed settings on their own route, and a token can be denied artifact writes

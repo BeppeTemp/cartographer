@@ -1,5 +1,6 @@
 ---
 topic: client-configurator
+amended_by: D1797
 ---
 
 # D1723 — A plugin declares its permissions in a closed, lexically checked grammar

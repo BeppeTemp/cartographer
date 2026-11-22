@@ -1,5 +1,6 @@
 ---
 topic: client-configurator
+amends: D676
 ---
 
 # D1864 — The copilot provider covers GitHub Copilot in VS Code

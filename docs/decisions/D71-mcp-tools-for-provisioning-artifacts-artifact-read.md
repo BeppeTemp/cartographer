@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amended_by: D906
 ---
 
 # D71 — MCP tools for provisioning artifacts: `artifact_read`/`artifact_write`/`artifact_list`/`artifact_delete`

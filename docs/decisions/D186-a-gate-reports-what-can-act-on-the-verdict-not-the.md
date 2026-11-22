@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amended_by: D947
 ---
 
 # D186 — A gate reports what can act on the verdict, not the whole archive

@@ -1,5 +1,6 @@
 ---
 topic: transport-auth
+amends: D1894
 ---
 
 # D2110 — A token that expired while configured does not stop the start

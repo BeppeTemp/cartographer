@@ -1,5 +1,6 @@
 ---
 topic: sync-provisioning
+amended_by: D57
 ---
 
 # D48 — Provisioning extended to `kind: agent`/`hook`; hooks without auto-merge into `settings.json`; per-kind counts

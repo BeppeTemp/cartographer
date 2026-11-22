@@ -1,5 +1,6 @@
 ---
 topic: data-plane
+amended_by: D947
 ---
 
 # D336 — The doctor is called until the Observatory is empty; a new artifact is not "never used"

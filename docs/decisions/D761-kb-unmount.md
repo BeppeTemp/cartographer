@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amended_by: D772
 ---
 
 # D761 — `kb unmount` parks the clone outside discovery, backs up the config, refuses unpushed work

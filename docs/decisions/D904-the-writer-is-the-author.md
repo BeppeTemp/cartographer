@@ -1,5 +1,8 @@
 ---
 topic: concurrency-git
+supersedes: D341
+amends: D46, D265
+amended_by: D950, D2016
 ---
 
 # D904 — The writer is the author of a commit, the server its committer, the token a trailer

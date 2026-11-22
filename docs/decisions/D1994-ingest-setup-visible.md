@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amends: D1256
 ---
 
 # D1994 — `ingest_setup` is in the agent tools/list

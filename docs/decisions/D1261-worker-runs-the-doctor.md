@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amended_by: D1436
 ---
 
 # D1261 — The worker runs the doctor, delegated, and only a closed session writes `kb-doctor`

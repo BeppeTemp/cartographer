@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+superseded_by: D135
 ---
 
 # D20 — Embedding: interface + Ollama adapter, wired

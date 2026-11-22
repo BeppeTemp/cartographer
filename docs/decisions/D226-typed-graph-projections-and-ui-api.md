@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amended_by: D244
 ---
 
 # D226 — Typed read projections and a read-only UI API

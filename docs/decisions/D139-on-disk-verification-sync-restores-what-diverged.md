@@ -1,5 +1,6 @@
 ---
 topic: sync-provisioning
+amended_by: D157, D1556
 ---
 
 # D139 — On-disk verification: sync restores what diverged locally

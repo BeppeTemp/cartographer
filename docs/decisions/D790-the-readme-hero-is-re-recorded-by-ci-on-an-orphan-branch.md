@@ -1,5 +1,6 @@
 ---
 topic: project-governance
+amended_by: D2041
 ---
 
 # D790 — The README hero is re-recorded by CI on an orphan branch

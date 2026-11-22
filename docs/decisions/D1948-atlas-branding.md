@@ -1,5 +1,6 @@
 ---
 topic: architecture
+amended_by: D2078
 ---
 
 # D1948 — an operator's logo, favicon and one accent are approved data of a plugin's atlas side, derived and verified by the server

@@ -1,5 +1,6 @@
 ---
 topic: project-governance
+amends: D790, D807, D1068
 ---
 
 # D2041 — The README tells its story in three films and two Atlas recordings, each with a size cap

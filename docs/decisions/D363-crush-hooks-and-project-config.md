@@ -1,5 +1,6 @@
 ---
 topic: sync-provisioning
+amends: D225
 ---
 
 # D363 — Crush gets PreToolUse hooks and project mcp/hook cells

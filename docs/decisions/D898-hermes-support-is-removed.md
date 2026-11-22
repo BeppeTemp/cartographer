@@ -1,5 +1,7 @@
 ---
 topic: client-configurator
+supersedes: D141
+amends: D364
 ---
 
 # D898 — Hermes support is removed, with the mechanisms only it used

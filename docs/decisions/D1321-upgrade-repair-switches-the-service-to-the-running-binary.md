@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amended_by: D2111
 ---
 
 # D1321 — upgrade-repair switches the service definition to the running binary

@@ -1,5 +1,6 @@
 ---
 topic: concurrency-git
+superseded_by: D903
 ---
 
 # D117 — Server Git profile uses a dedicated working branch and GitHub PR boundary

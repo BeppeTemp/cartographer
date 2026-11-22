@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amends: D710
 ---
 
 # D1071 — `kb create` replaces a forge's boilerplate README

@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amended_by: D711, D754, D772
 ---
 
 # D177 — `kb rename` is offline, bounded, and says what it does not migrate

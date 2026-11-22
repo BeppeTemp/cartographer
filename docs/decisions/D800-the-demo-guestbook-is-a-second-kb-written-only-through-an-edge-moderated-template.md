@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amended_by: D2053
 ---
 
 # D800 — The demo guestbook is a second KB, written only through an edge-moderated template

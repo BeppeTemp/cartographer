@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amended_by: D1454, D1459
 ---
 
 # D1443 — A maintenance release comes from a release-<x.y> branch with its own release PR

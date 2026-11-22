@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amends: D217, D1321
 ---
 
 # D2111 — a service definition runs under the previous stable's binary

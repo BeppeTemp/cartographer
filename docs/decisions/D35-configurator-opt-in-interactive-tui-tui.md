@@ -1,5 +1,6 @@
 ---
 topic: client-configurator
+superseded_by: D37
 ---
 
 # D35 — Configurator: opt-in interactive TUI (`--tui`)

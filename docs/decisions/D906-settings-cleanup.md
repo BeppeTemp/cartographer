@@ -1,5 +1,8 @@
 ---
 topic: client-configurator
+supersedes: D54, D711
+amends: D51, D65, D71, D115, D254, D352, D746
+amended_by: D950, D1916
 ---
 
 # D906 — Settings cleanup: one home per key, and no setting that turns a safeguard or a feature off

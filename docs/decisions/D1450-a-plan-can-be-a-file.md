@@ -1,5 +1,6 @@
 ---
 topic: project-governance
+amended_by: D1458
 ---
 
 # D1450 — A maintainer's plan can reach the subagents as a file

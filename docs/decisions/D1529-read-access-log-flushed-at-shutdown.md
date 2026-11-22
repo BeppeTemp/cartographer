@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amends: D322
 ---
 
 # D1529 — The read-access log is flushed at clean shutdown

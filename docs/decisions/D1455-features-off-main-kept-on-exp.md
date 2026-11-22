@@ -1,5 +1,6 @@
 ---
 topic: project-governance
+amended_by: D1459
 ---
 
 # D1455 — The 0.28 features leave main and wait on exp branches

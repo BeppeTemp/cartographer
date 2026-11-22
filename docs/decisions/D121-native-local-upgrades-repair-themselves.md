@@ -1,5 +1,7 @@
 ---
 topic: deployment-release
+amends: D95
+amended_by: D199
 ---
 
 # D121 — Native local upgrades repair themselves

@@ -1,5 +1,6 @@
 ---
 topic: client-configurator
+superseded_by: D1857
 ---
 
 > **Superseded by [D1857](D1857-tui-removed.md)**: the dashboard is removed.

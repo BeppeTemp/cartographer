@@ -1,5 +1,6 @@
 ---
 topic: client-configurator
+amended_by: D1007, D1030
 ---
 
 # D194 — Support Google Antigravity in multi-provider client and provisioning

@@ -1,5 +1,6 @@
 ---
 topic: architecture
+amends: D1439, D1441, D1442
 ---
 
 # D1867 — Meridian and Compass name the server and the client

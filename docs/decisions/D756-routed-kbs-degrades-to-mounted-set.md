@@ -1,5 +1,7 @@
 ---
 topic: transport-auth
+amends: D288
+amended_by: D772
 ---
 
 # D756 — A routed `?kbs=` serves the mounted subset and reports the unknown names

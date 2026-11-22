@@ -1,5 +1,6 @@
 ---
 topic: project-governance
+amended_by: D884, D992
 ---
 
 # D203 — AGENTS.md is the canonical instruction file, and a skill exists once

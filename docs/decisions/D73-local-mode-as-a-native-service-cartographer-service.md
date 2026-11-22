@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amended_by: D83, D156, D217, D1439, D1682
 ---
 
 > **Amended by [D1439](D1439-four-components-one-binary.md)**: Several servers may mount one KB for synchronization, never for scaling: no replicas, no load balancer, no failover.

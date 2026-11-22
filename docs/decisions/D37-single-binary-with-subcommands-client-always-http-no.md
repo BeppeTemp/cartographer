@@ -1,5 +1,7 @@
 ---
 topic: client-configurator
+supersedes: D35
+amended_by: D1439, D1857
 ---
 
 > **Amended by [D1439](D1439-four-components-one-binary.md)**: The one binary is deployed as four components (Server, Surveyor, Atlas, Client), each a subcommand of it, never separate binaries.

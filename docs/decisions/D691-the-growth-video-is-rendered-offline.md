@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amends: D677
 ---
 
 # D691 — The growth video is rendered offline, at 60 fps, in the background

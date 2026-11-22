@@ -1,5 +1,6 @@
 ---
 topic: transport-auth
+amends: D177, D756, D761
 ---
 
 # D772 — A routed `?kbs=` follows a renamed KB through `kb_aliases`

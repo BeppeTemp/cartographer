@@ -1,5 +1,6 @@
 ---
 topic: sync-provisioning
+amended_by: D781
 ---
 
 # D780 — `graph_context` is named where agents choose their tools, not fused into `search`

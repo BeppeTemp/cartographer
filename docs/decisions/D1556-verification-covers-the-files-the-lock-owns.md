@@ -1,5 +1,6 @@
 ---
 topic: sync-provisioning
+amends: D139
 ---
 
 # D1556 — Verification covers the files the lock owns; a foreign file is information

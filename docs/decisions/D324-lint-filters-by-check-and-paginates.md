@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amended_by: D947
 ---
 
 # D324 — lint filters by check and paginates

@@ -218,7 +218,7 @@ precedence: the last explicitly set level wins.
 **Git: one way to write (D903).** Cartographer has no git settings of its own: the SSH key and the token that reach a remote are files of the credentials directory (D905). Every write is one commit on the KB's branch: the remote's default branch, or the one the KB's `settings.yaml` names with `branch` (the team's choice), or, for one server alone, the one its `kbs[].branch` names (below); a KB syncs exactly
 when it has a remote (fetch and pull-rebase before a read or write, push after a write) and a KB without one
 never contacts anything. The freshness window of the pull (30s) and the debounce of the background push (3s)
-are constants. There is no pull-request boundary and no forge: the Meridian git profile (D117) and its keys
+are constants. There is no pull-request boundary and no forge: the Meridian git profile (D117, D903) and its keys
 (`git.profile`, `git.base_branch`, `git.working_branch`, `git.forge`, `git.github_*` and their `kbs[]` forms)
 are gone with the `pr_status` and `pr_finalize` tools, and so are `git.autocommit`, `git.sync`, `git.in_window`,
 `git.out_debounce` and `kbs[].path`. A KB that has a remote and was kept from pushing with `git.sync: false`

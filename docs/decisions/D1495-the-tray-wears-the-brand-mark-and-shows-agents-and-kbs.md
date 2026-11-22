@@ -1,5 +1,6 @@
 ---
 topic: client-configurator
+amended_by: D1862
 ---
 
 # D1495 — The tray wears the brand mark and shows the agents and the KBs

@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amended_by: D1259
 ---
 
 > **Amended by D1259**: Health also shows one read-only line saying which worker maintains the KB and when its doctor last ran (upkeep, not a finding).

@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amended_by: D134, D711
 ---
 
 # D85 — `kb create` and first-KB onboarding: a CLI command, not only the agentic skill

@@ -1,5 +1,6 @@
 ---
 topic: data-plane
+superseded_by: D907
 ---
 
 # D834 — The suppression inventory counts in lint and reads its dates from git

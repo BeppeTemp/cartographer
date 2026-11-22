@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amends: D1443, D1455
 ---
 
 # D1459 — What a release shipped stays on main, whatever branch it was cut from

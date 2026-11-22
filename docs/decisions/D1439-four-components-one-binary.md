@@ -1,5 +1,7 @@
 ---
 topic: deployment-release
+amends: D37, D73, D227
+amended_by: D1867
 ---
 
 # D1439 — Four deployment components, one binary, and a scenario matrix as the map

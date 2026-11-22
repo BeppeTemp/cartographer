@@ -1,5 +1,6 @@
 ---
 topic: client-configurator
+amends: D800
 ---
 
 # D2053 — The documentation is a generated knowledge base: small units, a hub per page, decisions as leaves

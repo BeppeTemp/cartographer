@@ -1,5 +1,6 @@
 ---
 topic: project-governance
+amended_by: D1610
 ---
 
 # D1592 — Required checks run on a PR, the heavy legs only in the merge queue

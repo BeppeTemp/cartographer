@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amends: D906
 ---
 
 # D1916 — A public read-only API at /api/v1, opt-in, from the same route table

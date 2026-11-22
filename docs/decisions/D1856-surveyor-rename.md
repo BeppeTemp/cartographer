@@ -1,5 +1,6 @@
 ---
 topic: architecture
+amends: D1442
 ---
 
 # D1856 — The Surveyor's packages, routes and wire fields are named surveyor

@@ -1,5 +1,6 @@
 ---
 topic: sync-provisioning
+amended_by: D291
 ---
 
 # D55 — Agents also materialized on OpenCode, via frontmatter translation

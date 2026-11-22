@@ -1,5 +1,6 @@
 ---
 topic: concurrency-git
+amended_by: D904, D905, D950
 ---
 
 # D46 — Per-KB git identity (author/committer + SSH): per-KB env wins over the process, default committer = author

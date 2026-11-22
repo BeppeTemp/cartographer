@@ -351,9 +351,9 @@ A page of a journal (`kind: journal`: incidents and every dated log) is read who
 
 Nothing in a KB switches a lint check off or hides a finding ([D907](decisions/D907-the-lint-cannot-be-escaped.md)). Every finding is closed by fixing the page or the map contract; a Health panel with no findings is what a finished `cartographer-kb-doctor` session leaves, and it means the pages are right, not that something was set aside. A false positive is a defect of the check: report it and the check is fixed for every KB, instead of one page silencing it. What was removed:
 
-- `lint_ignore` in a concept's frontmatter (D159) and in a map's `_map.md` (D306), and `lint_accept` in `instructions.md` (D332);
+- `lint_ignore` in a concept's frontmatter (D159) and in a map's `_map.md` (D306), and `lint_accept` in `instructions.md` (D332, D907);
 - the per-map thresholds and opt-outs: §Cost thresholds, §Decay checks, §Templates are page schemas, §Maps and Journals (**Removed keys**);
-- the suppression inventory (D834: `lint.RunWithSuppressions`, `kb_status.suppressions`), `lint.CheckAcceptability` and `kb_status.conformance.acceptability` (D313), and the check `lint_ignore_invalid`;
+- the suppression inventory (D834, D907: `lint.RunWithSuppressions`, `kb_status.suppressions`), `lint.CheckAcceptability` and `kb_status.conformance.acceptability` (D313), and the check `lint_ignore_invalid`;
 - the dismissal of a `kb_review` item (§Review keys): each kind closes when the pages it names are in the state it asks for.
 
 The legacy keys are reported and dropped, never honoured:

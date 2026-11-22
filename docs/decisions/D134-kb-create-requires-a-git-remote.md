@@ -1,5 +1,7 @@
 ---
 topic: deployment-release
+amends: D85
+amended_by: D156, D710
 ---
 
 # D134 — `kb create` requires a git remote

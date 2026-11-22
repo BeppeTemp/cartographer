@@ -1,5 +1,6 @@
 ---
 topic: sync-provisioning
+amends: D59, D360
 ---
 
 # D1841 — An OpenCode hook plugin is written where the scope's client reads it, and a moved plugin relocates on sync

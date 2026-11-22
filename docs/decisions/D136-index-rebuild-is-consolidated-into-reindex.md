@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amends: D90
 ---
 
 # D136 — `index_rebuild` is consolidated into `reindex`

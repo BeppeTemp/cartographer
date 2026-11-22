@@ -1,5 +1,6 @@
 ---
 topic: data-plane
+amended_by: D906
 ---
 
 # D746 — A KB carries its own policy in `settings.yaml`, and it wins over the server

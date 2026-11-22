@@ -1,5 +1,6 @@
 ---
 topic: client-configurator
+amends: D1097, D1603
 ---
 
 # D1724 — Cartographer works with each client's tool hiding and pins only its entry tools

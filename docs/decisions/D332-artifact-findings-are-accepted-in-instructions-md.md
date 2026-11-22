@@ -1,5 +1,6 @@
 ---
 topic: data-plane
+superseded_by: D907
 ---
 
 # D332 — Artifact findings are accepted with `lint_accept` in `instructions.md`, keyed by path

@@ -1,5 +1,7 @@
 ---
 topic: deployment-release
+amends: D73
+amended_by: D1996
 ---
 
 # D1682 — On Linux the service backend is chosen at runtime: systemd, else cron, else none

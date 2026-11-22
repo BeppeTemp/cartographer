@@ -1,5 +1,6 @@
 ---
 topic: skills-services-secrets
+amends: D2009
 ---
 
 # D2017 — status shows an agent with unparsable frontmatter as held, with the parse error

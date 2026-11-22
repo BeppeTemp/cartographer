@@ -1,5 +1,6 @@
 ---
 topic: sync-provisioning
+superseded_by: D737
 ---
 
 # D717 — A workspace projection writes Cartographer's own MCP entry, restricted to its KBs

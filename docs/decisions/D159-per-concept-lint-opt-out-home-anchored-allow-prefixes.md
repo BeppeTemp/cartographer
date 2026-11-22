@@ -1,5 +1,7 @@
 ---
 topic: data-plane
+amends: D107, D124
+amended_by: D907, D947
 ---
 
 # D159 — Per-concept lint opt-out, home-anchored allow prefixes, related size thresholds

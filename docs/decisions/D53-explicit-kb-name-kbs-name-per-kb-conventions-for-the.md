@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amended_by: D905
 ---
 
 # D53 — Explicit KB name (`kbs[].name`) + per-KB conventions for the git token (`git.token_dir`) and SOPS key (`sops.age_key_dir`)

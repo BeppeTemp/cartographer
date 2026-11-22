@@ -1,5 +1,6 @@
 ---
 topic: project-governance
+amends: D1610
 ---
 
 # D1704 — A fast tier for iterating, a Windows leg in the signoff, CI when the build host is away

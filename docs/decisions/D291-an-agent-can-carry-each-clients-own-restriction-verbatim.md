@@ -1,5 +1,6 @@
 ---
 topic: sync-provisioning
+amends: D55, D58, D195, D283
 ---
 
 # D291 — An agent can carry each client's own restriction, verbatim

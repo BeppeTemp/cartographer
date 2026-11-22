@@ -1,5 +1,6 @@
 ---
 topic: concurrency-git
+amends: D237
 ---
 
 # D311 — The server settles reserved-file conflicts itself, and a write survives a failed fetch on a current base

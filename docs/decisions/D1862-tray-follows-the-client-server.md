@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amends: D1482, D1495
 ---
 
 # D1862 — The tray follows the local service or, with none, the client's server

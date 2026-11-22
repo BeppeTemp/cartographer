@@ -1,5 +1,6 @@
 ---
 topic: client-configurator
+amends: D1737, D1738
 ---
 
 # D1795 — A stale MCP file may lie outside the config directory, and a global instructions file may sit under `{documents}`

@@ -1,5 +1,6 @@
 ---
 topic: transport-auth
+amends: D47, D118, D132
 ---
 
 # D166 — HTTP connection timeouts, and deleting three unreachable entry points

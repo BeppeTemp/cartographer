@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amended_by: D123, D154, D285, D906
 ---
 
 # D65 — "agent" tool profile and compact instructions: less fixed context per session

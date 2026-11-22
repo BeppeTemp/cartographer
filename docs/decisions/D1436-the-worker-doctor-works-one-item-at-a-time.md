@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amends: D1261
 ---
 
 # D1436 — The worker's doctor works one review item at a time, as far as the operator allows

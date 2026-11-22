@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amends: D192
 ---
 
 # D1022 — Releases carry keyless build provenance and SBOMs, and the installer never skips the manifest

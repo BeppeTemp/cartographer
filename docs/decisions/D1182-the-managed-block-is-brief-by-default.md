@@ -1,5 +1,6 @@
 ---
 topic: sync-provisioning
+amended_by: D1246
 ---
 
 # D1182 — The managed instructions block is brief by default

@@ -1,5 +1,6 @@
 ---
 topic: client-configurator
+superseded_by: D1720
 ---
 
 # D1701 — A client variant contributes a hook directory to its base's shared dispatcher and never writes one

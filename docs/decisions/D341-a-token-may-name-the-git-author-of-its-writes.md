@@ -1,5 +1,6 @@
 ---
 topic: transport-auth
+superseded_by: D904
 ---
 
 # D341 — A token may name the git author of its writes

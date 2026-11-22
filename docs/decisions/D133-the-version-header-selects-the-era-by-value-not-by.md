@@ -1,5 +1,6 @@
 ---
 topic: transport-auth
+amended_by: D168
 ---
 
 # D133 — The version header selects the era by value, not by presence

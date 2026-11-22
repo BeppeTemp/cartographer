@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amended_by: D716, D1099
 ---
 
 # D312 — a write answers with the structural findings it caused, from a scoped lint

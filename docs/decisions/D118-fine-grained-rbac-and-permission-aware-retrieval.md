@@ -1,5 +1,6 @@
 ---
 topic: transport-auth
+amended_by: D166
 ---
 
 # D118 — Fine-grained RBAC and permission-aware retrieval

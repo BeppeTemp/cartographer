@@ -1,5 +1,6 @@
 ---
 topic: sync-provisioning
+superseded_by: D1720
 ---
 
 # D1657 — A client variant is a declarative KB artifact in `variants/`

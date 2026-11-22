@@ -1,5 +1,6 @@
 ---
 topic: transport-auth
+amends: D102, D120, D144
 ---
 
 # D152 — Tool-prefix uniqueness is enforced, and the client warning reads the prefixes

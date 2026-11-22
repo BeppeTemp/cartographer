@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amends: D1441
 ---
 
 # D1881 — The Helm chart deploys any subset of Meridian and Surveyors

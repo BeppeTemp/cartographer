@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amended_by: D905
 ---
 
 # D325 — Out of the box, what keeps a KB healthy is on: new maps demand index entries, a fresh install keeps an audit log that rotates, a client with no reliable hook gets its sync timer, a new KB gets an `instructions.md`

@@ -1,5 +1,6 @@
 ---
 topic: data-plane
+amends: D287, D307
 ---
 
 # D827 — A links section ends at the next heading of any level, and its repair keeps a heading the template requires

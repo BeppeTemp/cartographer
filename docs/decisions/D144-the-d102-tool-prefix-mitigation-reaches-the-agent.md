@@ -1,5 +1,6 @@
 ---
 topic: transport-auth
+amended_by: D152
 ---
 
 # D144 — The D102 tool-prefix mitigation reaches the agent

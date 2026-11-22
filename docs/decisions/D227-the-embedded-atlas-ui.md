@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amended_by: D1439
 ---
 
 > **Amended by [D1439](D1439-four-components-one-binary.md)**: The Atlas is a deployment component of the Server and is never deployed on its own.
