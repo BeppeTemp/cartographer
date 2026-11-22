@@ -600,7 +600,9 @@ jobs:
 
   # A red main is a signal, not something the next PR discovers (D672): the
   # first failing push opens a `ci-red` issue, later ones comment on it, and the
-  # first green push closes it.
+  # first green push closes it. The body names, for each red leg, whether the gate
+  # of each train in the range ran it (scripts/main-red.sh, from the `Gate:` line
+  # of the train PR); that part fails open, it never keeps the issue from opening.
   main-status:
     name: main-status
     needs: [test, test-windows, web, demo-edge, docker, helm, test-macos, test-linux-nosystemd]
@@ -609,13 +611,25 @@ jobs:
     permissions:
       issues: write
       actions: read
+      contents: read
+      pull-requests: read
     steps:
+      # The one script, without credentials; a checkout that fails leaves the issue
+      # without its coverage lines, not without the issue.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        continue-on-error: true
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/main-red.sh
+          sparse-checkout-cone-mode: false
       - env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           RED: ${{ contains(needs.*.result, 'failure') }}
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           SHA: ${{ github.sha }}
+          # The job results reach the script through the environment only, never its text.
+          NEEDS_JSON: ${{ toJSON(needs) }}
         run: |
           open=$(gh issue list -R "$REPO" --label ci-red --state open --json number -q '.[0].number')
           if [ "$RED" = true ]; then
@@ -628,6 +642,12 @@ jobs:
               since="no earlier green run found"
             fi
             body="CI failed on main at $SHA ($since): $RUN"
+            # What the train gates of the range ran; the script exits 0 on its own failures, so
+            # a non-zero exit means it is missing or broken: the issue opens anyway, and still
+            # ends with its Found-by line.
+            coverage=$(bash scripts/main-red.sh "$REPO" "$SHA" "$green") ||
+              coverage=$(printf '%s\n' "$coverage" "Gate coverage: could not be read (scripts/main-red.sh)" "Found-by: main-ci")
+            body=$(printf '%s\n\n%s' "$body" "$coverage")
             if [ -n "$open" ]; then
               gh issue comment "$open" -R "$REPO" -b "$body"
             else

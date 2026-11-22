@@ -91,7 +91,16 @@ one `echo`, pinned by `TestPlanGateQueueWorkflowDoesNothing`) report success bec
 already passed them. Both only matter if a queue is ever enabled. Runs on `main` coalesce (`ci.yml`, `codeql.yml`, `security.yml` and
 `docs.yml` each keep one running run and the newest pending one; only `privacy.yml` and `release-please.yml` are
 outside this), so the `main-status` job opens a `ci-red` issue on the first failing push naming the range since the
-last green push run (a compare URL), comments on later ones, and closes it on the next green push. `docs/decisions.md`'s
+last green push run (a compare URL), comments on later ones, and closes it on the next green push. The body or comment
+ends with what `scripts/main-red.sh` reads of the range: the red legs; each pull request of it, newest first and at
+most 10, as a train with its `Gate:` line or as not a train; for each red leg, the trains whose gate did not run it
+whole and why (a build-host gate never runs `test-macos`, `test-linux-nosystemd`, `docker`, `helm` or `demo-edge`,
+runs `test` without its `test-install` step, `web` only with `web=yes` and `test-windows` only on the `windows=<n>`
+packages; an unreadable `Gate:` line covers nothing); `Every red leg ran green in the train gate` only when every pull
+request of the range is a train whose gate ran every red leg whole; and `Found-by: main-ci`. It reads the job results
+from `NEEDS_JSON` and the trains through the API, never a log, and fails open: what it cannot read is one
+`Gate coverage: could not be read (<step>)` line, never a missing issue (a missing or broken script is one too, and
+the body still ends with `Found-by: main-ci`). `docs/decisions.md`'s
 generated index is checked only on the release PR, which regenerates it. The working tree is LF on both
 legs (`.gitattributes`): gofmt is line-ending-sensitive, so a CRLF checkout fails
 `fmt-check` on every file at once.
@@ -1216,7 +1225,8 @@ failing lines in the body, a Go panic or `fatal error:` as `pkg.Test (panic)` or
 the `--- FAIL` line right before the `panic:`, else go test's `running tests:` entry, else the first `.TestX(` frame of the
 first goroutine; each name is cut to 60 characters, and listed once in the form it is printed in, so a test whose name a
 panic's entry cut is not named twice; the title is cut to 200 at a name boundary, `and N more`, since GitHub
-refuses one past 256). Every name, from the log or from a `signoff: flaky:` line, passes one filter (`safe_names` in
+refuses one past 256). Both flaky issues end with a blank line and `Found-by: gate` (a red `main`'s `ci-red` issue
+ends with `Found-by: main-ci`). Every name, from the log or from a `signoff: flaky:` line, passes one filter (`safe_names` in
 `scripts/land.sh`) before it reaches a title, a body or a commit message, because the log holds the change's own
 output: only `[A-Za-z0-9_.-]` is kept (a `/` becomes `_`, and a panic's ` (panic: <message>)` suffix keeps its own
 `[A-Za-z0-9 _:-]`), so a name has no `@`, `#`, `[`, `!` or `/`, and `(` and `:` only in the panic suffix. The
