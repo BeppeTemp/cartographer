@@ -682,8 +682,10 @@ probe_of() { # $1 = the last gate's log, $2 = the token of that gate
     }
     NF == 3 && ($1 == "linux" || $1 == "windows") && ok($2) && ok($3) && ($2 != "-" || $3 != "-") { print $1, $2, $3 }' || true
 }
+# Both flaky bodies end with `Found-by: gate`, where the flake was found (the `ci-red` issue of a
+# red main says `Found-by: main-ci`, scripts/main-red.sh).
 issue_flaky() { # $1 = names, one per line, $2 = what happened, $3 = body
-  gh issue create -R "$repo" --label bug --title "$(issue_title "$1" "$2")" --body "$3" >/dev/null ||
+  gh issue create -R "$repo" --label bug --title "$(issue_title "$1" "$2")" --body "$3"$'\n\n'"Found-by: gate" >/dev/null ||
     log "warning: could not open the flaky issue"
 }
 # A green gate whose signoff retried named tests: they are flaky, the train lands, a bug names them.
