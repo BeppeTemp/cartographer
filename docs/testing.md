@@ -1324,6 +1324,36 @@ An open `train/*` PR of the repository built on the current `main`, which this l
 not open, is adopted and merged the same way; one built on an older `main` is closed; a
 fork's is waited on for `LAND_OPEN_TRIES` polls, then the lander stops.
 
+The lander runs the scripts of `origin/main`, wherever it is started: every mode but `--status` and
+`--dry-run` (which runs the scripts beside it) first resets its own checkout `$state/src` (a detached worktree
+in its state directory) to `refs/remotes/origin/main`, the name every git call of `land.sh` spells out because
+a tag named `origin/main` would win over the short one (no fetch of the lander or of `scripts/ready.sh` takes
+tags), and runs that checkout's `land.sh` with the same options, `--gate` included, from the main clone;
+`--daemon` does so before it detaches. So `make ready` in a worktree made before a lander fix landed lands
+with the fixed lander, and removing that worktree while the lander gates breaks nothing (`make worktree-rm`
+refuses only the root of a lander run with `LAND_SELF=1`). The checkout of a running lander is never reset
+under it, and one starting lander at a time resets it: the start lock `$state/src.lock` is a symlink made with
+its content, `<pid>.<epoch>`, held over the reset and the handoff only (after the fetch; `--daemon` drops it
+for its own network calls and holds it again until the detached lander's pid file exists), and a second
+starter says `a lander already runs here (starting, pid <n>)`. It is taken over, renamed away first so that of
+two starters only one takes it, when its holder died, when it is older than `LAND_START_TIMEOUT` (300 s), or
+when it is anything else older than 5 s. Between two trains, when `scripts/` on `origin/main` differs from the
+checkout's, the lander resets it and runs the new `land.sh` (the same pid, so the lock holds). `LAND_SELF=1`
+runs the scripts beside the one invoked: the tests set it, and it tries a lander change before it lands. A
+lander on another machine is seen before the gate: a `train/*` branch on origin with no open PR that is not
+this machine's (`$state/branch`, the trains this lander composed and has not cleaned up yet) is that lander's
+train while its tip is younger than `LAND_TRAIN_STALE` (21600 s: the tip keeps its composition time through
+the gate, a red train's re-run and a full bisection). The lander waits on it until it goes stale, or for
+`LAND_OPEN_TRIES` polls of its own when that is set, then stops naming the branch; it looks again right before
+its own gate and drops the composition when one appeared (nothing pushed), and `--daemon` starts none (`a
+lander elsewhere is gating train/<id>: not started here, the change is queued and that lander takes it (make
+land-status; if that lander is dead: LAND_FORCE=1 make land, or delete train/<id> on origin)`). With
+`LAND_FORCE=1` the daemon starts and the lander waits on no such train. An older one was left by a lander that
+died and is deleted; this machine's own leftover is deleted at once; nothing is deleted when the open PRs
+could not be listed in full (a failed call, or as many PRs as the limit of 1000). The guard covers the hosted
+gate, whose train branch is on origin during the whole gate: on the build host it reaches origin only after
+the gate.
+
 Each queued change also has a **hosted pre-check** (`.github/workflows/ready-check.yml`, on
 the push of its `ready/<slug>` ref, D1877): the Windows tests of the packages
 it can break (`scripts/ready-check-plan.sh`: `affected-pkgs.sh --code`, one to four shards by

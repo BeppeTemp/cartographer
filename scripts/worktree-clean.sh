@@ -23,7 +23,7 @@
 # holds a commit with both `Lander-Slug: <slug>` and `Lander-Tip: <the branch head>` trailers
 # (the lander keeps them), ready/<slug> is gone from the upstream (an ls-remote failure
 # counts as still there), and the worktree is clean (a head past the tip, by merges of landed work only, counts). Worktrees landed before the trailer are removed by
-# hand. The worktree a running lander was started from is never removed (lander-guard.sh).
+# hand. The worktree a running lander runs its scripts from (LAND_SELF=1) is never removed (lander-guard.sh).
 set -euo pipefail
 
 dry=0

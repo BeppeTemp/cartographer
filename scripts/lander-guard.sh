@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # lander-guard.sh — refuses (exit 1, reason on stderr) to remove the worktree a running
-# lander was started from: its scripts live there, and the lander's next gate would fail
-# with "No such file or directory".
+# lander runs its scripts from: the lander's next gate would fail with "No such file or
+# directory". That is a worktree only for a lander run with LAND_SELF=1 (or one older than
+# land.sh's own checkout of main, $state/src, which every other lander runs from).
 #
 #   lander-guard.sh <worktree path>
 #
