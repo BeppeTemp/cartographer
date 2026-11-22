@@ -59,11 +59,12 @@
 #                 shard at once (SIGNOFF_WINDOWS_SHARDS, default 4), over the packages a
 #                 code change of the branch can break (scripts/affected-pkgs.sh --code:
 #                 a change of documents or scripts has no Windows leg), in parallel with
-#                 the targets, and `go test -count=1 -timeout 20m <packages>` for the
-#                 retry; a failure (exit 1, the shards') fails the signoff, an exit 75 is
-#                 reported and skipped (test-windows on main stays the net), any other
-#                 exit is the wrapper's: `the Windows machine failed (exit N) before the
-#                 gate finished` (step 4d).
+#                 the targets, and the same script over the import paths of the named
+#                 tests' packages for the retry and the probe, so the quarantined tests
+#                 (test/quarantine.tsv) are out of those too; a failure (exit 1, the
+#                 shards') fails the signoff, an exit 75 is reported and skipped
+#                 (test-windows on main stays the net), any other exit is the wrapper's:
+#                 `the Windows machine failed (exit N) before the gate finished` (step 4d).
 #   SIGNOFF_PROBE_FILE  the lander's file for the probe of a confirmed failure, with a token
 #                 on file descriptor 3 (`3<<<"$token"`): the file gets `<token> <words>` when the
 #                 run ends, the words of the `signoff: probe:` line (step 4c), and an empty line
@@ -115,7 +116,7 @@ cd "$(git rev-parse --show-toplevel)"
 # none): the lander's bisection step (scripts/land.sh, D1878). It runs, on this
 # tree, only the command the targeted retry below ran when it confirmed a red run (its
 # `signoff: probe:` line): no refusal, no push, no status. Exit 0 green, 75 the machine is
-# unavailable, the platform's own failure code red (make's 2 on linux, `go test`'s 1 on
+# unavailable, the platform's own failure code red (make's 2 on linux, the shards' 1 on
 # windows): any other exit (ssh's 255, a signal, a missing wrapper) is the wrapper's, not the
 # tests', and is reported as 75 too: the lander then bisects with full gates, whose infra
 # handling is aware of a lost host, instead of rejecting a change no test condemned.
@@ -129,7 +130,7 @@ if [ "${1:-}" = --probe ]; then
   if [ "$plat" = windows ]; then
     own=1
     read -r -a wmk <<<"${SIGNOFF_WINDOWS:?the probe of a Windows failure needs SIGNOFF_WINDOWS}"
-    [ -z "$p0" ] || "${wmk[@]}" go test -count=1 -timeout 20m ${p0//,/ } || rc=$?
+    [ -z "$p0" ] || "${wmk[@]}" bash scripts/test-shard.sh "${SIGNOFF_WINDOWS_SHARDS:-4}" all ${p0//,/ } || rc=$?
   else
     [ -z "$p0" ] || "${mk[@]}" test-rerun RERUN_PKGS="$p0" || rc=$?
     [ "$rc" != 0 ] || [ -z "$p1" ] || "${mk[@]}" test-rerun RERUN_PKGS="$p1" RERUN_RACE=1 || rc=$?
@@ -328,7 +329,9 @@ host_die() { # $1 = what failed, $2 = its exit code
 # a signoff ending in the red line without a "confirmed" line made the lander re-run and, with
 # the host still down, bisect; it exits 69 and the lander gates the same tree again (amends
 # D1755: "a retry that cannot run fails the signoff like a red one"). Only plain words reach
-# the wrappers: the packages joined by commas (RERUN_PKGS), never a regular expression.
+# the wrappers: the packages joined by commas (RERUN_PKGS), never a regular expression. The Windows
+# retry is the leg's own script (test-shard.sh) over the packages' import paths: it drops the
+# quarantined tests on the far side, so a quarantined flake is never "confirmed" by its retry.
 uniq_words() { printf '%s\n' "$@" | sort -u | paste -sd ' ' -; }
 flaky=
 retry() { # $1 = linux|windows, $2 = the red log; 0 when the retry is green
@@ -345,7 +348,8 @@ retry() { # $1 = linux|windows, $2 = the red log; 0 when the retry is green
   echo "signoff: retrying once on $1, the packages of:$names" >&2
   # shellcheck disable=SC2086
   if [ "$1" = windows ]; then
-    "${wmk[@]}" go test -count=1 -timeout 20m $p0 || rrc=$?
+    [ -n "$p0" ] || return 1
+    "${wmk[@]}" bash scripts/test-shard.sh "${SIGNOFF_WINDOWS_SHARDS:-4}" all $p0 || rrc=$?
   else
     [ -z "$p0" ] || "${mk[@]}" test-rerun RERUN_PKGS="${p0// /,}" || rrc=$?
     [ "$rrc" != 0 ] || [ -z "$p1" ] || "${mk[@]}" test-rerun RERUN_PKGS="${p1// /,}" RERUN_RACE=1 || rrc=$?

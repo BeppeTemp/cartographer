@@ -595,6 +595,59 @@ jobs:
           cache: false
       - run: make test-linux
 
+  # The quarantined Go tests (test/quarantine.tsv, D2294), outside every verdict:
+  # each active entry runs alone in its package and the job summary says which passed, so a test
+  # that no longer fails shows. Push to main only, never on a dispatched gate: a branch's code does
+  # not run beside this job's `issues: write`, which only the last step holds. Not in
+  # `main-status`'s needs nor in HOSTED_JOBS (scripts/signoff.sh), and continue-on-error: a
+  # quarantined test turns neither main nor a gate red. An entry past its date is back in the gate,
+  # and the last step says so once on its issue.
+  quarantine:
+    name: quarantine
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false # a job with a write token restores no shared cache (D1020)
+      - name: Configure git for tests
+        run: |
+          git config --global user.name ci
+          git config --global user.email ci@local
+          git config --global init.defaultBranch master
+      # The tests' output goes to the log, only the `quarantine:` lines to the summary.
+      - name: Run the quarantined tests
+        run: |
+          set -o pipefail
+          { echo '```'; scripts/quarantine.sh --run; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
+      # One comment per issue and expiry date: a lookup that fails skips the issue this time
+      # rather than risk a second one.
+      - name: Say on its issue that an entry expired
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          expired=$(scripts/quarantine.sh --expired)
+          while IFS=$'\t' read -r pkg name issue _ expires; do
+            [ -n "$issue" ] || continue
+            note="quarantine expired on $expires: the test is back in the gate; fix it, or renew the line with a reason"
+            if ! bodies=$(gh issue view "$issue" -R "$REPO" --json comments --jq '.comments[].body'); then
+              echo "cannot read the comments of #$issue ($pkg.$name): not commenting this time"
+              continue
+            fi
+            if grep -qF "quarantine expired on $expires:" <<<"$bodies"; then continue; fi
+            gh issue comment "$issue" -R "$REPO" -b "$note" || echo "cannot comment on #$issue ($pkg.$name)"
+          done <<<"$expired"
+
   # The PR title and body lint (the required `pr-title` check) is its own
   # workflow, pr-title.yml: it re-runs on `edited`, which this one must not (D865).
 
