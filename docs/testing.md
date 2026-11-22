@@ -387,6 +387,14 @@ otherwise silent — no client, compiler or linter reports any of them:
   dropped, lines joined, so a wrapped phrase is found too);
 - every decision file is well formed, carries a known `topic`, holds no leftover
   template placeholder, and claims a number no other file claims;
+- the relations between decision records hold (`TestDecisionRelationsHold`, fixtures in
+  `internal/repodocs/decision_relations_test.go`): each `supersedes`/`amends` in a
+  frontmatter is mirrored by `superseded_by`/`amended_by` on the other record and the
+  reverse, every id names a file, no record names itself, no relations form a cycle, a
+  superseded record supersedes or amends no later one, and the AD file declares none; a
+  current-state file (`docs/` outside `docs/decisions/`, `CONTRIBUTING.md`, every
+  `AGENTS.md`, `.claude/`) that cites a superseded record names its successor on the
+  same line, generated blocks aside;
 - every `D<n>` cited anywhere in the repository resolves to a record, is a
   declared gap, or is reserved by an open plan (D208);
 - every `docs/…` path cited anywhere exists — including in Go and shell comments,

@@ -131,6 +131,26 @@ type Decision struct {
 	Title   string
 	Topic   string
 	File    string // base name, e.g. "D115-mcp-allow-list.md"
+	// The relations its frontmatter declares (D2301),
+	// as ids: Supersedes and Amends on the newer record, SupersededBy and AmendedBy,
+	// their mirrors, on the older one. RelationProblems checks them.
+	Supersedes, Amends, AmendedBy []string
+	SupersededBy                  string
+	// relationErrs are the relation values that do not parse: RelationProblems
+	// reports them, so a bad value fails one test, not every caller of LoadDecisions.
+	relationErrs []string
+}
+
+// ID is the id a citation and a relation name the record by: `D<n>`,
+// `D-new-<slug>`, or "" for the historical AD file.
+func (d Decision) ID() string {
+	switch {
+	case d.Num > 0:
+		return fmt.Sprintf("D%d", d.Num)
+	case d.Pending:
+		return strings.TrimSuffix(d.File, ".md")
+	}
+	return ""
 }
 
 var (
@@ -188,6 +208,7 @@ func LoadDecisions(root string) ([]Decision, error) {
 			return nil, fmt.Errorf("%s: missing `topic:` in frontmatter", name)
 		}
 		d.Topic = m[1]
+		parseRelations(&d, text)
 
 		title, err := headingOf(text)
 		if err != nil {
@@ -255,17 +276,45 @@ var TemplatePlaceholders = []string{
 }
 
 // RenderIndex builds the generated block for docs/decisions.md: one flat list
-// per topic, no second level of routing. Explicit HTML anchors, so the
-// per-topic links work identically on GitHub and on the mkdocs site.
+// per topic of the records that hold, an amended one followed by the records
+// that amend it, then one last list of the superseded ones, each pointing at
+// its successor. Explicit HTML anchors, so the per-topic links work
+// identically on GitHub and on the mkdocs site.
+//
+// A change to this renderer does not regenerate docs/decisions.md: the release
+// PR does, and CI checks it strictly there only (D328), so parallel changes do
+// not conflict on the index.
 func RenderIndex(decisions []Decision) string {
-	byTopic := map[string][]Decision{}
+	byID := map[string]Decision{}
 	for _, d := range decisions {
+		if id := d.ID(); id != "" {
+			byID[id] = d
+		}
+	}
+	link := func(id string) string {
+		if d, ok := byID[id]; ok {
+			return fmt.Sprintf("[%s](decisions/%s)", id, d.File)
+		}
+		return id
+	}
+	byTopic := map[string][]Decision{}
+	var superseded []Decision
+	for _, d := range decisions {
+		if d.SupersededBy != "" {
+			superseded = append(superseded, d)
+			continue
+		}
 		byTopic[d.Topic] = append(byTopic[d.Topic], d)
 	}
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "## All decisions\n\n")
-	fmt.Fprintf(&b, "%d records, one file each, grouped by the topic they belong to.\n", len(decisions))
+	if len(superseded) == 0 {
+		fmt.Fprintf(&b, "%d records, one file each, grouped by the topic they belong to.\n", len(decisions))
+	} else {
+		fmt.Fprintf(&b, "%d records, one file each, grouped by the topic they belong to; %d superseded, listed last.\n",
+			len(decisions), len(superseded))
+	}
 	b.WriteString("In code and in prose the reference is the bare `D<n>`, with no path: resolve it\n")
 	b.WriteString("with `ls docs/decisions/D<n>-*`. Add one with `make decisions-new`, then\n")
 	b.WriteString("regenerate this list with `make decisions-index`.\n")
@@ -282,7 +331,25 @@ func RenderIndex(decisions []Decision) string {
 		// words out of hand-written prose of docs/decisions.md.
 		fmt.Fprintf(&b, "\n<a id=%q></a>\n\n### %s\n\n", t.Slug, t.Title)
 		for _, d := range ds {
-			fmt.Fprintf(&b, "- [%s](decisions/%s)\n", d.Title, d.File)
+			fmt.Fprintf(&b, "- [%s](decisions/%s)", d.Title, d.File)
+			if len(d.AmendedBy) > 0 {
+				ids := append([]string(nil), d.AmendedBy...)
+				sort.SliceStable(ids, func(i, j int) bool { return byID[ids[i]].rank() < byID[ids[j]].rank() })
+				links := make([]string, len(ids))
+				for i, id := range ids {
+					links[i] = link(id)
+				}
+				fmt.Fprintf(&b, " (amended by %s)", strings.Join(links, ", "))
+			}
+			b.WriteString("\n")
+		}
+	}
+	if len(superseded) > 0 {
+		// No explicit anchor: GitHub and mkdocs derive the same `superseded` id
+		// from the heading, and a second element with that id would duplicate it.
+		b.WriteString("\n### Superseded\n\n")
+		for _, d := range superseded {
+			fmt.Fprintf(&b, "- [%s](decisions/%s) → %s\n", d.Title, d.File, link(d.SupersededBy))
 		}
 	}
 	return b.String()

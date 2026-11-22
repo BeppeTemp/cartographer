@@ -49,7 +49,22 @@ them resolves.
    part a reader six months from now actually needs. Current behaviour goes in
    the corresponding topic page, future work in a GitHub issue.
 
-4. **Do not regenerate the index in the same PR**: the list below is
+4. **A record that replaces or changes an older one says so in both
+   frontmatters, in the same change.** The newer record carries
+   `supersedes: D<n>` when no part of the older one holds any more, or
+   `amends: D<n>, D<m>` when the older one holds except where the newer one
+   says; the older one carries the mirror, `superseded_by: D<n>` (one record)
+   or `amended_by: D<n>, …`. Ids are comma-separated `D<n>` or `D-new-<slug>`:
+   the lander numbers a pending id on both sides. The keys are optional, and
+   the historical AD file carries none. `make test` fails on a relation that
+   is not mirrored (naming the line to write), on an id with no file, on a
+   cycle, and on a current-state page (`docs/`, `CONTRIBUTING.md`, an
+   `AGENTS.md`, `.claude/`) that cites a superseded record without its
+   successor on the same line. The index lists an amended record in its topic
+   with the records that amend it, and a superseded one only under
+   Superseded, pointing at its successor.
+
+5. **Do not regenerate the index in the same PR**: the list below is
    regenerated on the release PR, which CI checks strictly (D328). Parallel PRs
    that each rewrote it conflicted with every merge. `make decisions-index`
    still regenerates it locally when you want to read it current. CI fails on a
