@@ -84,6 +84,8 @@ git remote get-url upstream >/dev/null 2>&1 && remote=upstream
 # permission on the repository is write or higher (a read or triage one is a
 # contributor); a bot has its own role.
 role=contributor
+# Set in the branch mode when the permission could not be read: the eval check fails closed on it.
+perm_unread=
 if [ $# -ge 1 ]; then
   PR=$1
   meta=$(gh pr view "$PR" --json title,author,closingIssuesReferences,statusCheckRollup,body,headRefName,labels)
@@ -123,7 +125,11 @@ else
   author=$(gh api user --jq .login 2>/dev/null || echo me)
   sizelabel=""
   perm=$(gh repo view "$slug" --json viewerPermission --jq .viewerPermission 2>/dev/null || echo UNKNOWN)
-  case "$perm" in ADMIN|MAINTAIN|WRITE) role=maintainer ;; esac
+  case "$perm" in
+    ADMIN|MAINTAIN|WRITE) role=maintainer ;;
+    TRIAGE|READ) ;;
+    *) perm_unread=1 ;; # gh failed, or answered nothing it names
+  esac
   echo "Branch $(git rev-parse --abbrev-ref HEAD) vs $remote/main (before opening a PR)"
   issues=$(git log --format=%B "$tbase"..HEAD | grep -oiE '(closes|fixes) #[0-9]+' | grep -oE '[0-9]+' | sort -u || true)
   body=${TRIAGE_BODY:-}
@@ -185,8 +191,32 @@ fi
 # Advisory, never blocking, and fail open: a broken map must not fail the required plan-gate check.
 DOCS_PR_BODY=$body "$(dirname "$0")/doc-owners.sh" <<<"$classified" || echo "WARN: doc-owners.sh failed — the docs-owner check did not run"
 [ -n "$decision" ] && echo "Decision file: $decision"
-regression=$(grep -i -m1 '^regression-of:' <<<"$body" || true)
-[ -n "$regression" ] && echo "$regression — a regression: if it merges, add it to .claude/skills/cartographer-review-pr/evals/cases.md (cartographer-review-pr §When a defect escapes)"
+# The line a fix names its origin on: a contributor's `Regression-of:`, a maintainer's
+# `Introduced-by:` that is not `unknown` (cartographer-review-pr §When a defect escapes).
+escape=$(tr -d '\r' <<<"$body" | grep -iE '^(regression-of|introduced-by):[[:space:]]*[^[:space:]]' |
+  grep -viE '^introduced-by:[[:space:]]*unknown[[:space:]]*$' || true)
+escape=${escape%%$'\n'*}
+[ -n "$escape" ] && echo "$escape — an escape: once it lands, .claude/skills/cartographer-review-pr/scripts/eval-case.sh <sha> adds it to evals/cases.md (cartographer-review-pr §When a defect escapes)"
+# A reviewer definition (either reviewer agent file, or the review skill's SKILL.md, whole: the
+# triage reads paths only) is scored when it changes (cartographer-review-pr §Changing the
+# reviewer): a new line in evals/scores.md, or a body line `Evals: none - <reason>`. Refused in
+# the branch mode only (what make ready runs), for a maintainer or when the permission could not
+# be read (fail closed: a failed gh call must not turn the BLOCK into a WARN); on a PR a WARN,
+# never counted for --gate: a train's body is the lander's and cannot carry the change's line,
+# and a contributor cannot run the maintainer's evals.
+reviewers=$(cut -f4 <<<"$classified" | grep -xF -e .claude/agents/cartographer-contract-reviewer.md \
+  -e .claude/agents/cartographer-security-reviewer.md -e .claude/skills/cartographer-review-pr/SKILL.md || true)
+scored=$(awk -F'\t' '$4 == ".claude/skills/cartographer-review-pr/evals/scores.md" && $2 ~ /^[0-9]+$/ && $2 > 0' <<<"$classified")
+if [ -n "$reviewers" ] && [ -z "$scored" ] && ! grep -qi '^Evals: none - *[^[:space:]]' <<<"${body//$'\r'/}"; then
+  evals="a reviewer definition changed with no new line in evals/scores.md (run the evals, or say \"Evals: none - <reason>\")"
+  if [ $# -eq 0 ] && [ "$role" = maintainer ]; then
+    echo "BLOCK: $evals"
+  elif [ $# -eq 0 ] && [ -n "$perm_unread" ]; then
+    echo "BLOCK: $evals — the role could not be read (gh repo view failed), so the check fails closed"
+  else
+    echo "WARN: $evals"
+  fi
+fi
 if [ $# -ge 1 ]; then
   # A title with no scope is fine (requireScope: false); an unlisted one fails pr-title after the push.
   title=$(jq -r .title <<<"$meta")
