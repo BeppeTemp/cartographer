@@ -119,7 +119,11 @@ numbers both).
    is the independent read. The user tried the behaviour; nobody else has read
    the code. A review that returns no findings after no work has not happened: check that
    it read the diff before you count it.
-4. Write the record (below) to a message file outside the worktree. Maintainer mode, on the
+4. Write the record (below) to a message file outside the worktree. A `fix` record ends with
+   a `Found-by: <value>` line per defect (a value of `scripts/found-by.tsv`) and an
+   `Introduced-by: <ref>` line per change that introduced one (`CONTRIBUTING.md` §Pull requests):
+   the commit `git log -S` or `git blame` on the defect's lines names, or `unknown`, never a
+   guess; `make ready` refuses a `fix` without them. Maintainer mode, on the
    user's decision: `make ready MSG=<file> REVIEW="<tier>, <n> rounds"` (plus `AFTER=<slug>`).
    It squashes the branch, checks the message, queues it and starts the lander, which
    rebases it onto `main`, holds it in the release freeze if it is a `feat`/`perf`/`refactor`

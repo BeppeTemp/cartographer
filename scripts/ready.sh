@@ -5,7 +5,8 @@
 #
 # In the change's worktree: squashes the branch onto its merge-base with main into ONE
 # commit whose message is MSG (a conventional title, changelog body lines on one line
-# each, `Closes #n`/`Refs #n`), checks it as pr-title.yml would (scripts/commit-lint.sh)
+# each, `Closes #n`/`Refs #n`), checks it as pr-title.yml would (scripts/commit-lint.sh),
+# its `Found-by:`/`Introduced-by:` lines (a `fix`) and `Cost:` line (scripts/trailers-lint.sh)
 # and the size cap as plan-gate would (scripts/pr-triage.sh), pushes it as
 # `refs/heads/ready/<slug>` (slug = the branch name after its prefix) and starts the
 # lander (scripts/land.sh --daemon) unless one already runs on this machine. The branch
@@ -100,6 +101,7 @@ full=$(mktemp "${TMPDIR:-/tmp}/ready-msg.XXXXXX")
 trap 'rm -f "$full"' EXIT
 grep -vE '^(Lander-[A-Za-z]+|Review): ' "$MSG" >"$full" || true
 "$here/commit-lint.sh" "$full" || die "the message does not pass the title and body rules"
+why=$("$here/trailers-lint.sh" "$full" 2>&1) || die "the message does not say where the defect was found (Found-by, Introduced-by), or its Cost line is malformed: $why"
 args=()
 [ -z "${AFTER:-}" ] || args+=(--trailer "Lander-After: $AFTER")
 [ -z "${HOLD:-}" ] || args+=(--trailer "Lander-Hold: yes")

@@ -271,6 +271,19 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
   sleep while it runs (`caffeinate -i`); a closed lid still stops it.
 - **No open PR depends on another open PR**: a contributor's dependent work goes in the same
   PR, or waits for the merge. A maintainer's dependent change is queued with `AFTER=<slug>`.
+- **A maintainer's queued `fix` says where its defect was found and what introduced it**, on
+  lines of its message that start at column 0, anywhere in it (they need not be trailers:
+  a `Closes #n` line beside them is fine). One `Found-by: <value>` line per defect it fixes,
+  the value one of `scripts/found-by.tsv` (`scripts/trailers-lint.sh --values` prints them),
+  and one `Introduced-by: <ref>` line per change that introduced one: a commit of `main`,
+  the slug of a landed change (its `Lander-Slug`), `#<n>` for a pull request, or `unknown`
+  alone when it cannot be found (a `Regression-of: #<n>` line counts as one). Any queued
+  change may also carry one `Cost: impl <n>k, review <n>k, rounds <n>` line, which the
+  coordinator writes: thousands of tokens of the implementing and the reviewing subagents,
+  and the review rounds, `?` for a figure the client does not show. `make ready` refuses a
+  `fix` without the two lines, a ref that names no change of `main` and a `Cost:` line of
+  any other shape (`scripts/trailers-lint.sh`); none of these lines reaches the changelog.
+  A contributor's PR needs none of them.
 - PRs are **squash-merged** (a train is rebase-merged, its commits already are the
   changes) and the PR title becomes the commit message on
   `main`: it must be a valid [conventional commit](https://www.conventionalcommits.org/)

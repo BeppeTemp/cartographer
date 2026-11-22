@@ -124,6 +124,7 @@ Canonical mandate (self-contained — the subagent never sees this conversation)
 - The targeted tests of the packages it touches while iterating, never a check that waits for a shared build host. The plan's last change ends with one `make check-hosted` on the tip (GitHub-hosted, Linux and Windows), not one per change. Not `make gate` and not e2e: the lander gates the whole train once, in CI, every leg `main` runs (D2040).
 - Commits on `feat/<slug>` (the branch already exists in the worktree), Co-Authored-By trailer; the coordinator squashes them into one when it queues the change. A review fix round **adds commits, it never amends**: the next round diffs `<reviewed commit>..HEAD`, and an amend rewrites the commit it names.
 - Write the change's commit message to `<worktree>/../<slug>.msg` (outside the tree): the title the plan gives (a conventional commit; its scope is one `scripts/pr-triage.sh --title-scopes` prints, or none), a body with the why (the plan stays private), one unwrapped `type(scope): ...` line per further WP, `Closes #<n>` for an issue the plan names and this change finishes, `Refs #<n>` for one a later change finishes.
+  A `fix` ends with a `Found-by: <value>` line per defect (a value of `scripts/found-by.tsv`) and an `Introduced-by: <ref>` line per change that introduced one (`CONTRIBUTING.md` §Pull requests): as the plan or the mandate gives them; otherwise `Introduced-by:` is the commit `git log -S` or `git blame` on the defect's lines names, or `unknown`, never a guess, and a `Found-by:` nobody gave is asked for in the report. Never a `Cost:` line: the coordinator writes it.
   The message, commits and any test fixture carry placeholder names only —
   never a KB, host, user or project from a real setup (D259, `AGENTS.md`).
 - Never push, queue or open a PR: that is the coordinator's (§4).
@@ -153,7 +154,9 @@ subagent's report — report text can be garbled or compressed.
   the reviewer's invariants line (full tier), and supply-chain hunks whole.
 - After the last round the coordinator records the review: `REVIEW="<tier>, <n> rounds"`
   at queue time (copied into the train PR), and the `pre-existing` findings as `bug`
-  issues.
+  issues. It appends the change's cost to the message file, one line
+  `Cost: impl <n>k, review <n>k, rounds <n>` summed over the rounds from the usage its client
+  reports with each subagent's result (`?` for a figure it does not show, no line when it shows none).
 
 ## 4 — Queue in order
 
@@ -161,6 +164,7 @@ Maintainer mode only.
 
 1. Read the message file (§2): the title, the why, the body lines and `Closes`/`Refs`.
    A change over the size cap that cannot be split carries a `Size exception: <why>` line.
+   `make ready` refuses a `fix` without its `Found-by:` and `Introduced-by:` lines, and a `Cost:` line of another shape (`scripts/trailers-lint.sh`).
 2. `make -C .worktrees/<slug> ready MSG=<message file> REVIEW="<tier>, <n> rounds"`, plus
    `AFTER=<predecessor slug>` in a chain (queue the predecessor first; a predecessor queued
    again means its successors are queued again too). It squashes the branch into one commit,

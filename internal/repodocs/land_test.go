@@ -1232,16 +1232,30 @@ func TestReadyQueuesOneCommitWithTheMessage(t *testing.T) {
 		t.Errorf("the squashed commit holds both files, got %q", files)
 	}
 
+	// A fix says where its defect was found and what introduced it: without the two
+	// lines nothing is queued (the queued change stays as it was); with them, they are
+	// lines of the queued commit.
+	queued := e.upGit("rev-parse", "ready/my-change")
+	if out, ok := ready("fix(kb): my change\n\nCloses #7\n"); ok || !strings.Contains(out, "Found-by") || !strings.Contains(out, "Introduced-by") {
+		t.Fatalf("a fix without Found-by and Introduced-by must be refused with both reasons: ok=%v\n%s", ok, out)
+	}
+	if got := e.upGit("rev-parse", "ready/my-change"); got != queued {
+		t.Errorf("a refused fix must leave the queued change alone: %s, was %s", got, queued)
+	}
+
 	// A change built on the queued one carries only its own diff, as its child, and the
 	// two land in one train in that order.
-	if out, ok := ready("fix(kb): my change\n"); !ok {
+	if out, ok := ready("fix(kb): my change\n\n" + fixLines); !ok {
 		t.Fatalf("queuing again failed\n%s", out)
+	}
+	if msg := e.upGit("log", "-1", "--format=%B", "ready/my-change"); !strings.Contains(msg, fixLines) {
+		t.Errorf("the queued commit must carry the two lines:\n%s", msg)
 	}
 	e.git("checkout", "-q", "-b", "feat/next")
 	e.write(filepath.Join(e.work, "x3.txt"), "x3\n")
 	e.git("add", "x3.txt")
 	e.git("commit", "-q", "-m", "wip x3")
-	if out, ok := ready("fix(kb): next\n", "AFTER=my-change"); !ok {
+	if out, ok := ready("fix(kb): next\n\n"+fixLines, "AFTER=my-change"); !ok {
 		t.Fatalf("ready AFTER failed\n%s", out)
 	}
 	if parent, want := e.upGit("rev-parse", "ready/next^"), e.upGit("rev-parse", "ready/my-change"); parent != want {
@@ -1256,6 +1270,9 @@ func TestReadyQueuesOneCommitWithTheMessage(t *testing.T) {
 	}
 	if got := strings.Join(e.mainSubjects(), " | "); got != "fix(kb): my change | fix(kb): next" {
 		t.Fatalf("main holds %q", got)
+	}
+	if msg := e.upGit("log", "-1", "--format=%B", "main"); !strings.Contains(msg, fixLines) {
+		t.Errorf("the landed commit must keep the two lines:\n%s", msg)
 	}
 }
 
@@ -1281,7 +1298,7 @@ func TestReadyAfterAPredecessorThatLanded(t *testing.T) {
 	e.git("checkout", "-q", "-b", "feat/first")
 	commit("a1.txt")
 	commit("a2.txt")
-	if out, ok := ready("fix(kb): first\n"); !ok {
+	if out, ok := ready("fix(kb): first\n\n" + fixLines); !ok {
 		t.Fatalf("queuing first failed\n%s", out)
 	}
 	e.git("checkout", "-q", "-b", "feat/second")
@@ -1301,14 +1318,14 @@ func TestReadyAfterAPredecessorThatLanded(t *testing.T) {
 	}
 	e.git("checkout", "-q", "feat/second")
 	for _, bad := range []string{"nowhere", "Bad_Slug", "-x"} {
-		if out, ok := ready("fix(kb): second\n", "AFTER="+bad); ok {
+		if out, ok := ready("fix(kb): second\n\n"+fixLines, "AFTER="+bad); ok {
 			t.Fatalf("AFTER=%s must be refused\n%s", bad, out)
 		}
 	}
-	if out, ok := ready("fix(kb): second\n", "AFTER=nowhere"); ok || !strings.Contains(out, "git rebase") {
+	if out, ok := ready("fix(kb): second\n\n"+fixLines, "AFTER=nowhere"); ok || !strings.Contains(out, "git rebase") {
 		t.Fatalf("an unknown predecessor must be refused with the rebase: ok=%v\n%s", ok, out)
 	}
-	out, ok := ready("fix(kb): second\n", "AFTER=first")
+	out, ok := ready("fix(kb): second\n\n"+fixLines, "AFTER=first")
 	if !ok {
 		t.Fatalf("ready AFTER a landed change failed\n%s", out)
 	}
@@ -1336,7 +1353,7 @@ func TestReadyAfterAPredecessorThatLanded(t *testing.T) {
 		t.Fatalf("landing forged failed\n%s", out)
 	}
 	e.git("checkout", "-q", "feat/second")
-	if out, ok := ready("fix(kb): second\n", "AFTER=forged"); ok || !strings.Contains(out, "git rebase") {
+	if out, ok := ready("fix(kb): second\n\n"+fixLines, "AFTER=forged"); ok || !strings.Contains(out, "git rebase") {
 		t.Fatalf("a landed commit that is not its head's change must be refused with the rebase: ok=%v\n%s", ok, out)
 	}
 }

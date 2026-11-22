@@ -39,7 +39,11 @@ is the larger one. So:
 - the code is read by the `cartographer-contract-reviewer` subagent (full tier: also `cartographer-security-reviewer`), which run on a cheaper model
   (`.claude/agents/`, pinned in each definition). Spawn them with `Agent`,
   `subagent_type: cartographer-contract-reviewer` / `cartographer-security-reviewer`,
-  `run_in_background: true` (`cartographer-source-reader` the same way).
+  `run_in_background: true` (`cartographer-source-reader` the same way);
+- what a change cost is recorded with it: the coordinator's `Cost:` line in the queued
+  message (`cartographer-implement-plan` §3: the tokens of the implementing and the reviewing
+  subagents, and the rounds) stays on the commit that lands, so `git log --grep='^Cost:'`
+  on `main` reads the figures back, change by change.
 
 ## 1 — Triage (no code read)
 
