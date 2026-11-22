@@ -458,8 +458,10 @@ func TestLanderFlakyIssueTitleIsBounded(t *testing.T) {
 		[]string{"PATH=" + dir + string(os.PathListSeparator) + os.Getenv("PATH"), "OUT=" + out},
 		"kb.TestA\nkb.TestB", what, "the body")
 	args := strings.Split(strings.TrimSpace(readFile(t, dir, "args")), "\n")
-	// The body gets its blank line and `Found-by: gate` (printed one argument per line here).
-	if want := "flaky: kb.TestA kb.TestB " + what; !reflect.DeepEqual(args, []string{"issue", "create", "-R", "up/proj", "--label", "bug", "--title", want, "--body", "the body", "", "Found-by: gate"}) {
+	// The body gets the quarantine line and `Found-by: gate`, each after a blank line (printed one
+	// argument per line here).
+	const quarantine = "To take it out of the gate while it is fixed, add it to test/quarantine.tsv with this issue's number."
+	if want := "flaky: kb.TestA kb.TestB " + what; !reflect.DeepEqual(args, []string{"issue", "create", "-R", "up/proj", "--label", "bug", "--title", want, "--body", "the body", "", quarantine, "", "Found-by: gate"}) {
 		t.Errorf("gh got %q", args)
 	}
 }

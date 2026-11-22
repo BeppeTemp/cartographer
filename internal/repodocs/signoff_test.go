@@ -109,9 +109,14 @@ esac
 exit 0
 `, 0o755)
 	e.winLog = filepath.Join(tmp, "win.log")
+	// The leg and the retry or probe are the same script: the leg gets the affected packages as
+	// ./ paths (affected-pkgs.sh), the retry and the probe the import paths of the failed tests.
 	e.write(filepath.Join(bin, "fakewin"), `#!/bin/sh
 echo "$*" >> "$FAKE_WIN_LOG"
-case "$*" in "go test -count=1 "*) exit "${FAKE_WIN_RERUN_RC:-0}" ;; esac
+case "$*" in
+  "bash scripts/test-shard.sh "*" all ./"*) ;;
+  "bash scripts/test-shard.sh "*) exit "${FAKE_WIN_RERUN_RC:-0}" ;;
+esac
 [ -z "${FAKE_WIN_OUT:-}" ] || printf '%b' "$FAKE_WIN_OUT"
 exit "${FAKE_WIN_RC:-0}"
 `, 0o755)
@@ -598,8 +603,10 @@ func TestSignoffRetriesNamedWindowsTestsOnce(t *testing.T) {
 	if !ok {
 		t.Fatalf("a green Windows retry must let the signoff go on\n%s", out)
 	}
-	if got := e.log(e.winLog); !strings.Contains(got, "go test -count=1 -timeout 20m github.com/x/p/internal/a") {
-		t.Errorf("the retry runs the named test's package on Windows, got %q", got)
+	// Through the leg's own script, which drops the quarantined tests on the far side of the
+	// wrapper: only plain words cross it (D1755), and a quarantined flake is never confirmed.
+	if got := e.log(e.winLog); !strings.Contains(got, "\nbash scripts/test-shard.sh 4 all github.com/x/p/internal/a\n") || strings.Contains(got, "go test") {
+		t.Errorf("the retry runs the named test's package on Windows through test-shard.sh, got %q", got)
 	}
 	if p := e.posts(); len(p) != 1 || !strings.Contains(p[0], " windows=3 ") || !strings.Contains(p[0], " flaky=1 - make ") {
 		t.Errorf("the status says a test was retried: %v", p)
@@ -967,7 +974,7 @@ func TestSignoffThePlatformProbeOfALostHostIsTheBuildHost(t *testing.T) {
 }
 
 // signoff.sh --probe is the lander's bisection step: 0 green, the platform's own failure code
-// (make's 2, `go test`'s 1 on windows) red, 75 the machine is unavailable; any other exit is the
+// (make's 2, the shards' 1 on windows) red, 75 the machine is unavailable; any other exit is the
 // wrapper's (ssh's 255, a signal, a missing command) and is reported as 75, so the lander bisects
 // with full gates instead of reading it as red and rejecting a change no test condemned.
 func TestSignoffProbeMapsAWrapperFailureTo75(t *testing.T) {
@@ -988,6 +995,10 @@ func TestSignoffProbeMapsAWrapperFailureTo75(t *testing.T) {
 				win, "FAKE_RERUN_RC="+c.rc, "FAKE_WIN_RERUN_RC="+c.rc)
 			if code != c.want {
 				t.Fatalf("--probe %s with a wrapper exit %d: want %d, got %d\n%s", c.plat, mustAtoi(t, c.rc), c.want, code, out)
+			}
+			// The Windows probe is the retry's call: the quarantined tests stay out of the bisection.
+			if got := strings.TrimSpace(e.log(e.winLog)); c.plat == "windows" && got != "bash scripts/test-shard.sh 4 all github.com/x/p/a" {
+				t.Errorf("the Windows probe runs %q, want the leg's script over the import path", got)
 			}
 			if len(e.posts()) != 0 || e.remoteTip("origin", "main") != "" {
 				t.Errorf("a probe pushes and posts nothing\n%s", out)

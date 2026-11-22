@@ -1,0 +1,13 @@
+# test/quarantine.tsv — flaky Go tests out of the gate's verdict while they are fixed
+# (scripts/quarantine.sh, docs/testing.md §Go tests, D2294).
+#
+# One test per line, five tab-separated fields:
+#   <import path of the package>	<top-level test function>	<issue number>	<added YYYY-MM-DD>	<expires YYYY-MM-DD>
+# for instance
+#   github.com/BeppeTemp/cartographer/internal/kb	TestSomethingFlaky	1234	2026-01-05	2026-02-04
+#
+# The issue is the open bug that tracks the fix: quarantine is not a fix, the issue stays open.
+# The expiry is at most 30 days after the day the line is added. Past it the line lapses: the
+# test is back in the gate, and the `quarantine` job of ci.yml says so once on the issue. Fix the
+# test, or renew the line with a reason in the issue. The name must be unique in the module
+# (go test -skip matches it in every package), which internal/repodocs checks with the rest.

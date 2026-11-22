@@ -14,6 +14,17 @@ GO_DIRS = cmd internal docsfs.go
 RACE_RUN = Race|Concurren
 comma := ,
 
+# The flaky Go tests out of the verdict while they are fixed (test/quarantine.tsv,
+# scripts/quarantine.sh, D2294): `-skip '^(A|B)$'`, or nothing, on every
+# `go test` of test, race, test-rerun and check-run. One -skip over every package is exact
+# because a quarantined name is unique in the module (internal/repodocs/quarantine_test.go).
+# $(shell) drops the script's exit code (make 3.81 has no .SHELLSTATUS), so QUARANTINE_NOTE,
+# the first line of those four targets, runs it again and fails the target on a list that does
+# not parse: a broken list must not silently skip nothing.
+QUARANTINE_RE := $(shell scripts/quarantine.sh --skip 2>/dev/null)
+QUARANTINE_SKIP = $(if $(QUARANTINE_RE),-skip '$(QUARANTINE_RE)')
+QUARANTINE_NOTE = @n=$$(scripts/quarantine.sh --count) || exit 2; [ "$$n" = 0 ] || echo "quarantine: $$n test(s) skipped (test/quarantine.tsv)"
+
 help: ## Show this message
 	@grep -E '^[a-zA-Z_-]+:.*##' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*##"}; {printf "  %-12s %s\n", $$1, $$2}'
 
@@ -23,23 +34,26 @@ build: ## Build the binary into bin/cartographer
 test: ## Run all tests
 	# 20m, not go test's default 10m: internal/mcpserver alone takes ~10m on the
 	# Windows runner (git is slow there), and the timeout then kills the package.
-	go test -timeout 20m ./...
+	$(QUARANTINE_NOTE)
+	go test -timeout 20m $(QUARANTINE_SKIP) ./...
 
 race: ## Run the concurrency tests (name contains Race or Concurrent) under the race detector
 	# A data race seldom fails an assertion: only -race reports it. The whole
 	# suite under -race is several times slower, so only the tests written to
 	# exercise concurrency run here; name a new one accordingly. Only the packages
 	# that hold one are built under -race: building all of them cost more than running.
+	$(QUARANTINE_NOTE)
 	@pkgs=$$(grep -rlE --include='*_test.go' '^func (Test|Example|Fuzz)[A-Za-z0-9_]*(Race|Concurren)' cmd internal | \
 	  xargs -n1 dirname | sort -u | sed 's|^|./|' | tr '\n' ' '); \
-	if [ -n "$$pkgs" ]; then echo "go test -race -count=1 -run '$(RACE_RUN)' $$pkgs"; \
-	  go test -race -count=1 -run '$(RACE_RUN)' $$pkgs; fi
+	if [ -n "$$pkgs" ]; then echo "go test -race -count=1 -run '$(RACE_RUN)' $(QUARANTINE_SKIP) $$pkgs"; \
+	  go test -race -count=1 -run '$(RACE_RUN)' $(QUARANTINE_SKIP) $$pkgs; fi
 
 # The targeted retry of `make signoff` (scripts/signoff.sh step 4c): the packages of the Go
 # tests a red run named (RERUN_PKGS, comma-separated), whole, once more and uncached;
 # RERUN_RACE=1 runs their concurrency tests under the race detector, as `race` does.
 test-rerun:
-	go test -count=1 -timeout 20m $(if $(RERUN_RACE),-race -run '$(RACE_RUN)') $(subst $(comma), ,$(RERUN_PKGS))
+	$(QUARANTINE_NOTE)
+	go test -count=1 -timeout 20m $(if $(RERUN_RACE),-race -run '$(RACE_RUN)') $(QUARANTINE_SKIP) $(subst $(comma), ,$(RERUN_PKGS))
 
 vet: ## Run go vet (also for Windows, macOS and 32-bit ARM, the targets of .goreleaser.yaml: the platform jobs skip PRs outside platform-specific code, so a PR catches its compile errors here)
 	go vet ./...
@@ -263,8 +277,9 @@ check: ## Fast tier: fmt-check, vet and the tests of the packages this branch af
 	else exit $$rc; fi
 
 check-run: fmt-check vet
-	@[ -z "$(strip $(CHECK_PKGS))" ] || go test -timeout 20m $(CHECK_PKGS)
-	@[ -z "$(strip $(CHECK_PKGS))" ] || go test -race -count=1 -run 'Race|Concurren' $(CHECK_PKGS)
+	$(QUARANTINE_NOTE)
+	@[ -z "$(strip $(CHECK_PKGS))" ] || go test -timeout 20m $(QUARANTINE_SKIP) $(CHECK_PKGS)
+	@[ -z "$(strip $(CHECK_PKGS))" ] || go test -race -count=1 -run 'Race|Concurren' $(QUARANTINE_SKIP) $(CHECK_PKGS)
 	@# E2E=1, optional: adds the e2e scenarios the train gate runs (D1750, D2040), so a broken
 	@# scenario can be found before the queue. Their server listens on a fixed
 	@# port, so the port comes from this tree's path: two worktrees checking here do not collide.
