@@ -307,6 +307,8 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
   in the change's own files (D1706); a citation or an edit of one whose change already landed
   follows the number it was given, and a second `D-new-<slug>` for a landed slug is rejected. A contributor's PR numbers it after the PR (D672):
   `make decisions-new N=<n> SLUG=<slug> TOPIC=<topic>`.
+  A record that replaces or changes an older one declares it in both frontmatters
+  (`supersedes`/`superseded_by`, `amends`/`amended_by`: `docs/decisions.md` §Adding a decision).
   Smaller choices need no file — the PR is
   their record. Do not regenerate `docs/decisions.md` in a feature PR: the
   release PR regenerates the index (D328).

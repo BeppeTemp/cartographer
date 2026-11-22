@@ -151,6 +151,29 @@ func TestNoDecisionFileKeepsATemplatePlaceholder(t *testing.T) {
 	}
 }
 
+// A record that replaces or changes an older one says so in both frontmatters,
+// and a current-state file that cites a superseded record names its successor
+// (`supersedes`/`superseded_by`, `amends`/`amended_by`). No guard against finding no
+// relation: a tree with none is valid, and the fixtures of
+// decision_relations_test.go prove the check bites.
+func TestDecisionRelationsHold(t *testing.T) {
+	root := repoRoot(t)
+	decisions, err := LoadDecisions(root)
+	if err != nil {
+		t.Fatalf("loading the decisions: %v", err)
+	}
+	for _, p := range RelationProblems(decisions) {
+		t.Error(p)
+	}
+	stale, err := SupersededCitations(root, decisions)
+	if err != nil {
+		t.Fatalf("scanning the repository: %v", err)
+	}
+	for _, s := range stale {
+		t.Error(s)
+	}
+}
+
 // The budgets no client reports on. See the constants for what enforces each.
 //
 // Lines are measured on the hand-written text and characters on the whole file,
