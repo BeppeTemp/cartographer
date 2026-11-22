@@ -2,11 +2,11 @@ name: ready-check
 
 # The hosted pre-check of a maintainer's queued change (D1877). On the push
 # of `ready/<slug>` (scripts/ready.sh: one commit on top of main or of the change it follows),
-# it runs the legs the build host's `make check` does not: the Windows tests of the packages
+# it runs the legs `make check` does not: the Windows tests of the packages
 # the change can break, sharded as test-windows is (D785), and the frontend's unit tests and
 # bundle checks when it touches web/. The lander reads this run's conclusion on the change's
 # commit (scripts/land.sh): a red change is gated alone, so it no longer turns a whole train
-# red and costs a bisection on the build host. The browser suite, the Linux tests and the
+# red and costs a bisection. The browser suite, the Linux tests and the
 # combined tree stay with the train gate.
 #
 # Only a maintainer can push a ready/ branch, so no pull request's code runs here; the jobs

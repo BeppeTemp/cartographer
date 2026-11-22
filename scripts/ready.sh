@@ -24,9 +24,10 @@
 # Trailers the lander reads: `Lander-After: <slug>` (land after that change),
 # `Lander-Hold: yes` (queued, not landed until queued again without it) and
 # `Review: <tier>, <n> rounds` (the review record, copied into the train PR).
-# The lander keeps two trailers on the landed commit, `Lander-Slug: <slug>` and
+# The lander keeps three trailers on the landed commit: `Lander-Slug: <slug>` and
 # `Lander-Tip: <the branch head squashed>` (added here), which `make worktree-clean`
-# reads; any of them in the message is dropped first.
+# reads, and the `Review` added here (the last one: the lander drops every other
+# `Review` line); any copy of them in the message is dropped first.
 #
 # A contributor does not queue: they open a PR, and CI tests it.
 # Plain bash 3.2 (the macOS default).

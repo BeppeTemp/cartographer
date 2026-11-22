@@ -252,7 +252,7 @@ gate: fmt-check vet test race ## Everything that must be green before a PR is op
 # Go builds: the check then exits 75 itself.
 CHECK_MAKE ?= $(MAKE)
 CHECK_LOCAL_FALLBACK ?= 1
-check: ## Fast tier: fmt-check, vet and the tests of the packages this branch affects (CHECK_MAKE runs them elsewhere; E2E=1 adds the e2e scenarios)
+check: ## Fast tier: fmt-check, vet and the tests of the packages this branch affects (CHECK_MAKE runs them elsewhere; E2E=1, optional, adds the e2e scenarios the train gate runs)
 	@changed=$$(scripts/affected-pkgs.sh --changed) || { echo "check: cannot compute the changed paths (see above): not running a check that would test nothing" >&2; exit 1; }; \
 	pkgs=$$(printf '%s\n' "$$changed" | scripts/affected-pkgs.sh) || { echo "check: cannot compute the affected packages" >&2; exit 1; }; \
 	pkgs=$$(printf '%s' "$$pkgs" | tr '\n' ' '); \
@@ -265,22 +265,23 @@ check: ## Fast tier: fmt-check, vet and the tests of the packages this branch af
 check-run: fmt-check vet
 	@[ -z "$(strip $(CHECK_PKGS))" ] || go test -timeout 20m $(CHECK_PKGS)
 	@[ -z "$(strip $(CHECK_PKGS))" ] || go test -race -count=1 -run 'Race|Concurren' $(CHECK_PKGS)
-	@# E2E=1, the implementer's last check before it reports: the scenarios the train gate runs
-	@# (D1750), found while the implementer is still there. Their server listens on a fixed
+	@# E2E=1, optional: adds the e2e scenarios the train gate runs (D1750, D2040), so a broken
+	@# scenario can be found before the queue. Their server listens on a fixed
 	@# port, so the port comes from this tree's path: two worktrees checking here do not collide.
 	@[ -z "$(CHECK_E2E)" ] || [ -z "$(strip $(CHECK_PKGS))" ] || \
 	  E2E_HTTP_PORT=$${E2E_HTTP_PORT:-$$((40000 + $$(printf %s "$(CURDIR)" | cksum | cut -d' ' -f1) % 10000))} ./test/e2e/run.sh
 	@echo "check: OK"
 
-# Opt-in: the same fast tier on a GitHub-hosted runner (scripts/hosted-check.sh), parallel
-# where the build host has one slot. Not a gate.
-check-hosted: ## Fast tier on a GitHub-hosted runner (opt-in, no build host): make check-hosted [E2E=1]
+# The same fast tier on a GitHub-hosted runner (scripts/hosted-check.sh), one runner per
+# check, with a Windows leg. Not a gate.
+check-hosted: ## Fast tier on a GitHub-hosted runner, Linux and Windows: make check-hosted [E2E=1]
 	@$(MAKE) check CHECK_MAKE=./scripts/hosted-check.sh
 
-# A maintainer's replacement for `make gate` + `git push`: the gate (and the web
-# legs when the diff needs them), the push, and the `signoff` status that CI's
+# A maintainer's replacement for `make gate` + `git push`: the gate (hosted by default:
+# ci.yml dispatched on the branch; SIGNOFF_GATE=host runs the targets, and the web legs when
+# the diff needs them, on the build host), the push, and the `signoff` status that CI's
 # `gate` job looks for. scripts/signoff.sh has the rules.
-signoff: ## Maintainer only: gate (+ web-gate when needed), push the branch and attest its sha for CI (a contributor just pushes)
+signoff: ## Maintainer only: gate (hosted by default, SIGNOFF_GATE=host on the build host), push the branch and attest its sha for CI (a contributor just pushes)
 	@./scripts/signoff.sh
 
 # The machine running make, so the status can name where the targets ran when
@@ -294,10 +295,12 @@ signoff-platform:
 ready: ## Maintainer only: queue this branch (MSG=<message file> [AFTER=<slug>] [HOLD=1] [REVIEW="<tier>, <n> rounds"]) and start the lander
 	@MSG="$(MSG)" AFTER="$(AFTER)" HOLD="$(HOLD)" REVIEW="$(REVIEW)" ./scripts/ready.sh
 
-land: ## Maintainer only: land the queue in the foreground until nothing is landable (DRY=1: print the next train)
-	@./scripts/land.sh $(if $(DRY),--dry-run)
+# GATE counts only on the make command line: make imports the environment, and an exported
+# GATE=host would put the lander on the build host without anyone choosing it that day.
+land: ## Maintainer only: land the queue in the foreground until nothing is landable (DRY=1: print the next train; GATE=host on the command line: gate on the build host, hosted otherwise)
+	@./scripts/land.sh $(if $(DRY),--dry-run) $(if $(filter command line,$(origin GATE)),$(if $(GATE),--gate $(GATE)))
 
-land-status: ## The lander's queue, its open train PR and the rejected changes
+land-status: ## The lander's queue, its open train PR, the rejected changes and the running lander's gate
 	@./scripts/land.sh --status
 
 # The two `web-leg` matrix legs of ci.yml as one local command: install once

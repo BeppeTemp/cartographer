@@ -58,7 +58,9 @@ func newSignoffEnv(t *testing.T) *signoffEnv {
 		"GIT_COMMITTER_NAME=user", "GIT_COMMITTER_EMAIL=user@example.com",
 		"FAKE_MAKE_LOG="+e.makeLog, "FAKE_GH_LOG="+e.ghLog, "FAKE_GH_RUNS="+e.runs,
 		"FAKE_PLATFORM=linux/amd64", "FAKE_PERM=WRITE",
-		"SIGNOFF_MAKE="+filepath.Join(bin, "fakemake"),
+		// The build host, explicitly: the cases below test its path (the default is hosted,
+		// gate_mode_test.go).
+		"SIGNOFF_GATE=host", "SIGNOFF_MAKE="+filepath.Join(bin, "fakemake"),
 		"PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
 	)
 	e.write(filepath.Join(bin, "fakemake"), `#!/bin/sh
@@ -142,6 +144,17 @@ func (e *signoffEnv) run(dir, name string, args ...string) string {
 		e.t.Fatalf("%s %v: %v\n%s", name, args, err, out)
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// unset removes key from the environment every later run gets (appending `KEY=` would set it empty).
+func (e *signoffEnv) unset(key string) {
+	var env []string
+	for _, kv := range e.env {
+		if !strings.HasPrefix(kv, key+"=") {
+			env = append(env, kv)
+		}
+	}
+	e.env = env
 }
 
 func (e *signoffEnv) write(path, body string, mode os.FileMode) {
@@ -348,7 +361,7 @@ func TestSignoffRetriesNamedGoTestsOnce(t *testing.T) {
 		if !strings.Contains(out, "signoff: flaky: kb.TestA mcpserver.TestRaceB failed and passed on a targeted retry") {
 			t.Errorf("the flaky tests are named on the line the lander reads\n%s", out)
 		}
-		if p := e.posts(); len(p) != 1 || !strings.Contains(p[0], " - 2 flaky retried") {
+		if p := e.posts(); len(p) != 1 || !strings.Contains(p[0], " flaky=2 - make ") {
 			t.Errorf("the status says tests were retried: %v", p)
 		}
 	})
@@ -411,7 +424,7 @@ func TestSignoffPushesAndAttestsTheSha(t *testing.T) {
 		t.Fatalf("want exactly one POST, got %v", posts)
 	}
 	p := posts[0]
-	for _, want := range []string{"POST", "repos/up/proj/statuses/" + head, "state=success", "context=signoff", "make gate smoke-http smoke e2e - linux/amd64 - "} {
+	for _, want := range []string{"POST", "repos/up/proj/statuses/" + head, "state=success", "context=signoff", "description=gate=host linux/amd64 windows=none web=no ", " - make gate smoke-http smoke e2e"} {
 		if !strings.Contains(p, want) {
 			t.Errorf("the POST lacks %q: %s", want, p)
 		}
@@ -442,7 +455,7 @@ func TestSignoffAddsWebGateWhenTheDiffNeedsIt(t *testing.T) {
 	if got := strings.TrimSpace(e.log(e.makeLog)); got != "-k gate smoke-http smoke e2e web-gate" {
 		t.Errorf("a web/src change adds web-gate to the default targets, got %q", got)
 	}
-	if p := e.posts(); len(p) != 1 || !strings.Contains(p[0], "make gate smoke-http smoke e2e web-gate - ") {
+	if p := e.posts(); len(p) != 1 || !strings.Contains(p[0], " web=yes ") || !strings.HasSuffix(p[0], " - make gate smoke-http smoke e2e web-gate") {
 		t.Errorf("the status names both targets: %v", p)
 	}
 }
@@ -528,7 +541,7 @@ func TestSignoffRunsTheWindowsLegOnTheAffectedPackages(t *testing.T) {
 	if got != "bash scripts/test-shard.sh 4 all ./internal/a ./internal/b ./internal/procattr" {
 		t.Errorf("the Windows leg must test the affected packages, got %q", got)
 	}
-	if p := e.posts(); len(p) != 1 || !strings.Contains(p[0], " - windows ") || strings.Contains(p[0], "not run") {
+	if p := e.posts(); len(p) != 1 || !strings.Contains(p[0], " windows=3 ") {
 		t.Errorf("the status names the Windows leg: %v", p)
 	}
 }
@@ -567,7 +580,7 @@ func TestSignoffWindowsLegFailurePushesAndPostsNothing(t *testing.T) {
 	if !ok {
 		t.Fatalf("an unavailable Windows machine must not fail signoff\n%s", out)
 	}
-	if p := e.posts(); len(p) != 1 || !strings.Contains(p[0], "windows unavailable") {
+	if p := e.posts(); len(p) != 1 || !strings.Contains(p[0], " windows=unavailable ") {
 		t.Errorf("the status says the leg was skipped: %v", p)
 	}
 }
@@ -588,7 +601,7 @@ func TestSignoffRetriesNamedWindowsTestsOnce(t *testing.T) {
 	if got := e.log(e.winLog); !strings.Contains(got, "go test -count=1 -timeout 20m github.com/x/p/internal/a") {
 		t.Errorf("the retry runs the named test's package on Windows, got %q", got)
 	}
-	if p := e.posts(); len(p) != 1 || !strings.Contains(p[0], " - 1 flaky retried") {
+	if p := e.posts(); len(p) != 1 || !strings.Contains(p[0], " windows=3 ") || !strings.Contains(p[0], " flaky=1 - make ") {
 		t.Errorf("the status says a test was retried: %v", p)
 	}
 	_, ok = e.signoff(e.work, "SIGNOFF_WINDOWS="+fakewin, "FAKE_WIN_RC=1", "FAKE_WIN_OUT="+red, "FAKE_WIN_RERUN_RC=1")
@@ -604,7 +617,7 @@ func TestSignoffWithoutAWindowsCommandSaysSo(t *testing.T) {
 	if out, ok := e.signoff(e.work); !ok {
 		t.Fatalf("signoff failed\n%s", out)
 	}
-	if p := e.posts(); len(p) != 1 || !strings.Contains(p[0], "windows not run") {
+	if p := e.posts(); len(p) != 1 || !strings.Contains(p[0], " windows=none ") {
 		t.Errorf("the status says the Windows leg did not run: %v", p)
 	}
 }
@@ -628,7 +641,7 @@ func hostedRun(runStatus, def string, over map[string]string) string {
 }
 
 // Exit 75 from SIGNOFF_MAKE (the probe or the targets) means the machine is
-// unavailable, and SIGNOFF_HOSTED=1 skips the machine altogether: the branch is pushed,
+// unavailable, and SIGNOFF_GATE=hosted (or its synonym SIGNOFF_HOSTED=1) skips the machine altogether: the branch is pushed,
 // ci.yml is dispatched on it, and the status is posted only when every job of
 // HOSTED_JOBS is green, Windows and macOS included (D-new-hosted-train-gate). The first red
 // job ends the wait and cancels the rest of the run.
@@ -648,6 +661,7 @@ func TestSignoffGatesInCIWithEveryHostedJob(t *testing.T) {
 		hostedEnv, ok    bool
 	}{
 		{"make exits 75, all green", green, "", false, true},
+		{"SIGNOFF_GATE=hosted, all green", green, "", true, true},
 		{"SIGNOFF_HOSTED, all green", green, "", true, true},
 		{"gate job alone is not enough", gateOnly, "unfinished after the wait", true, false},
 		{"a red job ends the wait", redEarly, "the jobs test-macos of ci.yml run 7 are red", true, false},
@@ -661,9 +675,13 @@ func TestSignoffGatesInCIWithEveryHostedJob(t *testing.T) {
 			head := e.run(e.work, "git", "rev-parse", "HEAD")
 			args := []string{`FAKE_GH_DISPATCHED=[{"databaseId":7}]`, "FAKE_GH_JOBS=" + c.jobs, "SIGNOFF_GATE_TRIES=3",
 				`FAKE_GH_JOBLOG=test-macos\tRun tests\t2026-01-01T00:00:00.0000000Z --- FAIL: TestTrayQuits (0.10s)\n`}
-			if c.hostedEnv {
+			switch {
+			case c.name == "SIGNOFF_HOSTED, all green":
+				e.unset("SIGNOFF_GATE") // the synonym alone: with SIGNOFF_GATE=host it is a contradiction
 				args = append(args, "SIGNOFF_HOSTED=1")
-			} else {
+			case c.hostedEnv:
+				args = append(args, "SIGNOFF_GATE=hosted")
+			default:
 				args = append(args, "FAKE_MAKE_RC=75")
 			}
 			out, ok := e.signoff(e.work, args...)
@@ -674,7 +692,7 @@ func TestSignoffGatesInCIWithEveryHostedJob(t *testing.T) {
 				t.Errorf("the output must say %q:\n%s", c.want, out)
 			}
 			if c.hostedEnv && strings.TrimSpace(e.log(e.makeLog)) != "" {
-				t.Errorf("SIGNOFF_HOSTED runs no make:\n%s", e.log(e.makeLog))
+				t.Errorf("a hosted gate runs no make:\n%s", e.log(e.makeLog))
 			}
 			if !strings.Contains(e.log(e.ghLog), "workflow run ci.yml -R up/proj --ref feat/x") {
 				t.Errorf("ci.yml must be dispatched on the branch:\n%s", e.log(e.ghLog))
@@ -683,8 +701,12 @@ func TestSignoffGatesInCIWithEveryHostedJob(t *testing.T) {
 				t.Errorf("the branch must be pushed before the dispatch\n%s", out)
 			}
 			posts := e.posts()
-			if c.ok && (len(posts) != 1 || !strings.Contains(posts[0], "github-actions/ci.yml run 7")) {
-				t.Errorf("the status names the CI run: %v", posts)
+			want := "description=gate=hosted run=7 legs=8 "
+			if !c.hostedEnv {
+				want = "description=gate=hosted fallback=host-unavailable run=7 legs=8 "
+			}
+			if c.ok && (len(posts) != 1 || !strings.Contains(posts[0], want)) {
+				t.Errorf("the status names the mode and the CI run (%q): %v", want, posts)
 			}
 			if !c.ok && len(posts) != 0 {
 				t.Errorf("a red or unfinished run posts nothing: %v", posts)
@@ -1011,7 +1033,7 @@ func TestSignoffHostedNeverPicksARunThatExistedBeforeTheDispatch(t *testing.T) {
 		if strings.Contains(log, "run view 5") || !strings.Contains(log, "run view 9") {
 			t.Errorf("the gate of run 9 is followed, never the earlier run 5:\n%s", log)
 		}
-		if p := e.posts(); len(p) != 1 || !strings.Contains(p[0], "ci.yml run 9") {
+		if p := e.posts(); len(p) != 1 || !strings.Contains(p[0], " run=9 ") {
 			t.Errorf("the status names the dispatched run: %v", p)
 		}
 	})

@@ -8,14 +8,29 @@
 # commit status of a maintainer exists on the head sha, and this script posts it.
 # A contributor just pushes the branch and opens the PR: CI tests it.
 #
-# In order: refuse (detached HEAD, main, a dirty tree, a contributor) -> run the
+# In order: refuse (an unknown gate mode, detached HEAD, main, a dirty tree, a contributor)
+# -> hosted (the default): push, dispatch ci.yml on the branch and wait for every job of
+# HOSTED_JOBS (step 4b) -> post the status. On the build host instead: run the
 # targets (make -k: all of them, even after one fails) -> retry once the packages of the
 # Go tests a red run names, when nothing else failed (step 4c) -> check HEAD did not move -> push
 # (explicit remote and refspec) -> post the status -> re-run a failed ci.yml run of
 # that sha. Any failure before the push changes nothing on the remote; any failure
 # before the POST posts nothing.
 #
-#   SIGNOFF_MAKE  the command that runs make targets, split on whitespace (default
+#   SIGNOFF_GATE  where the gate runs (D2293): `hosted`, the default
+#                 (also when unset or empty), or `host`. hosted: no make here or on a build
+#                 host, the gate is ci.yml run on GitHub (step 4b): every job of HOSTED_JOBS,
+#                 Linux, Windows and macOS, in parallel (D2040); SIGNOFF_MAKE and
+#                 SIGNOFF_WINDOWS are not used, and a notice says so when one is set (never
+#                 its value: it may name a private wrapper). host: the targets run through
+#                 SIGNOFF_MAKE and SIGNOFF_WINDOWS below. Any other value, and host with
+#                 SIGNOFF_HOSTED set, are refused before anything runs. The first line on
+#                 stderr names the mode, `signoff: gate: <mode>`, and the status description
+#                 starts with it (`gate=hosted run=<id> ...`, `gate=host <platform> ...`,
+#                 steps 4b and 7), which scripts/land.sh copies into the train PR.
+#                 `signoff.sh --hosted-jobs` prints HOSTED_JOBS and exits.
+#   SIGNOFF_HOSTED  non-empty: the same as SIGNOFF_GATE=hosted (older setups).
+#   SIGNOFF_MAKE  with SIGNOFF_GATE=host, the command that runs make targets, split on whitespace (default
 #                 `make`). A command that takes make's arguments and runs them on
 #                 another machine from the same tree (for instance a wrapper that
 #                 syncs the clean tree to a build host and runs make there); it
@@ -31,10 +46,6 @@
 #                 The first call, `signoff-platform`, goes through the same rule: only
 #                 126 and 127 (the wrapper is missing or not executable) are a
 #                 configuration error, "check SIGNOFF_MAKE".
-#   SIGNOFF_HOSTED  non-empty: no make here or on a build host, the gate is ci.yml run on
-#                 GitHub (step 4b): every job of HOSTED_JOBS, Linux, Windows and macOS, in
-#                 parallel. The maintainer's default and the lander's (D2040):
-#                 one build host is one slot, the hosted runners are many.
 #
 # Exits: 0 signed off; 1 refused or red (a `failed (exit N): nothing pushed` line);
 # 69 (EX_UNAVAILABLE) the wrapper failed in the middle of the gate, no test failed. The code
@@ -43,7 +54,7 @@
 # SIGNOFF_WINDOWS use, to say "the machine is unavailable, run the gate in CI": here the
 # machine broke mid-gate, and the answer is to gate the same tree again. No make, go, ssh
 # (255) or signal (128+n) exit is 69, and every command of this script is checked or ends in die.
-#   SIGNOFF_WINDOWS a command that runs its arguments natively on Windows from the
+#   SIGNOFF_WINDOWS with SIGNOFF_GATE=host, a command that runs its arguments natively on Windows from the
 #                 same tree (empty: no Windows leg). It gets scripts/test-shard.sh, every
 #                 shard at once (SIGNOFF_WINDOWS_SHARDS, default 4), over the packages a
 #                 code change of the branch can break (scripts/affected-pkgs.sh --code:
@@ -93,6 +104,9 @@ HOSTED_JOBS="gate test-windows web demo-edge docker helm test-macos test-linux-n
 
 die() { echo "signoff: $*" >&2; exit 1; }
 
+# signoff.sh --hosted-jobs: the jobs a hosted gate waits for (the lander logs their count).
+if [ "${1:-}" = --hosted-jobs ]; then echo "$HOSTED_JOBS"; exit 0; fi
+
 here=$(cd "$(dirname "$0")" && pwd)
 cd "$(git rev-parse --show-toplevel)"
 
@@ -122,6 +136,27 @@ if [ "${1:-}" = --probe ]; then
   fi
   case "$rc" in 0 | 75 | "$own") ;; *) echo "signoff: the probe's machine failed (exit $rc): not a verdict" >&2; rc=75 ;; esac
   exit "$rc"
+fi
+
+# 0. The gate mode, decided once, before any gh or make call (D2293):
+# hosted unless SIGNOFF_GATE=host asks for the build host. A refusal here ran, pushed and
+# posted nothing. In hosted mode the build host's variables are dropped, so step 3 computes no
+# Windows leg and no child sees them; the notice never prints their value.
+gate_mode=${SIGNOFF_GATE:-}
+case "$gate_mode" in
+  "") gate_mode=hosted ;;
+  hosted | host) ;;
+  *) die "SIGNOFF_GATE is hosted or host: $gate_mode" ;;
+esac
+if [ "$gate_mode" = host ] && [ -n "${SIGNOFF_HOSTED:-}" ]; then
+  die "SIGNOFF_GATE=host and SIGNOFF_HOSTED contradict each other"
+fi
+echo "signoff: gate: $gate_mode" >&2
+if [ "$gate_mode" = hosted ]; then
+  if [ -n "${SIGNOFF_MAKE:-}" ] || [ -n "${SIGNOFF_WINDOWS:-}" ]; then
+    echo "signoff: the gate is hosted: SIGNOFF_MAKE and SIGNOFF_WINDOWS are not used (SIGNOFF_GATE=host runs the gate on the build host)" >&2
+  fi
+  unset SIGNOFF_MAKE SIGNOFF_WINDOWS
 fi
 
 # 1. Refusals.
@@ -181,13 +216,17 @@ still_head() {
   [ "$(git rev-parse HEAD)" = "$sha" ] && [ "$(git symbolic-ref --short -q HEAD || true)" = "$branch" ] ||
     die "HEAD moved during the run: the new commit was not signed off, run it again"
 }
-# 4b. The machine of SIGNOFF_MAKE is unavailable: push, dispatch ci.yml on the branch and
-# post the status only when every job of HOSTED_JOBS is green. SIGNOFF_HOSTED=1 starts here.
-hosted() { # $1 = why the gate runs in CI
-  echo "signoff: $1: ci.yml runs the gate instead, every job of: $HOSTED_JOBS" >&2
+# 4b. The hosted gate (the default), or the machine of SIGNOFF_MAKE is unavailable: push,
+# dispatch ci.yml on the branch and post the status only when every job of HOSTED_JOBS is green.
+# The description starts with the mode, `gate=hosted`, and `fallback=host-unavailable` when the
+# build host was asked for: the 140-character cut can only lose its tail (` - make <targets>`).
+hosted() { # $1 = why the gate runs in CI, $2 = `fallback` when the build host was asked for
+  echo "signoff: $1: ci.yml runs the gate, every job of: $HOSTED_JOBS" >&2
   still_head
   push
-  local t0 id= v= i existing before run
+  local t0 id= v= i existing before run fb= jobs
+  [ "${2:-}" != fallback ] || fb=" fallback=host-unavailable"
+  read -r -a jobs <<<"$HOSTED_JOBS"
   t0=$(date +%s)
   # Run ids only grow, and no clock is involved (createdAt is GitHub's, this host's may skew):
   # the run to follow is the first one newer than the newest that already exists for this
@@ -229,7 +268,7 @@ hosted() { # $1 = why the gate runs in CI
        die "the jobs of ci.yml run $id are unfinished after the wait: nothing posted" ;;
   esac
   secs=$(( $(date +%s) - t0 ))
-  post "make $targets - github-actions/ci.yml run $id ($HOSTED_JOBS) - $(printf '%dm%02ds' $((secs / 60)) $((secs % 60)))"
+  post "gate=hosted$fb run=$id legs=${#jobs[@]} $(printf '%dm%02ds' $((secs / 60)) $((secs % 60))) - make $targets"
   echo "signoff: ${sha:0:12} on $branch signed off by ci.yml run $id"
   exit 0
 }
@@ -359,13 +398,13 @@ win_failures() { # $1 = the leg's log
     END { flush(0) }'
 }
 
-# 4. Targets. First the platform probe, so a broken wrapper is found before the gate is spent.
-# SIGNOFF_HOSTED=1: no build host at all, the gate is ci.yml's (step 4b).
-[ -z "${SIGNOFF_HOSTED:-}" ] || hosted "SIGNOFF_HOSTED is set"
+# 4. Targets. Hosted (step 0): no build host at all, the gate is ci.yml's (step 4b).
+# On the build host, first the platform probe, so a broken wrapper is found before the gate is spent.
+[ "$gate_mode" != hosted ] || hosted "the gate is hosted (the default)"
 read -r -a mk <<<"${SIGNOFF_MAKE:-make}"
 prc=0
 probe=$("${mk[@]}" -s --no-print-directory signoff-platform) || prc=$?
-[ "$prc" != 75 ] || hosted "the build host is unavailable (exit 75)"
+[ "$prc" != 75 ] || hosted "the build host is unavailable (exit 75)" fallback
 # 126/127: the wrapper is not executable or not found, a configuration error. Any other exit
 # is the host failing at its first call (an ssh drop is the likeliest moment): gated again.
 case "$prc" in
@@ -375,14 +414,20 @@ case "$prc" in
 esac
 platform=$(printf '%s\n' "$probe" | awk 'NF { l = $0 } END { print l }')
 [ -n "$platform" ] || die "the platform probe printed nothing"
+# The platform is the one word of the description the tree under test prints (its Makefile's
+# signoff-platform): only `<os>/<arch>`, so it cannot add a `windows=` or `web=` word to the
+# status the lander copies into the train PR.
+[[ "$platform" =~ ^[a-z0-9]+/[a-z0-9]+$ ]] || die "the platform probe printed no <os>/<arch>"
 echo "signoff: running make $targets on $platform" >&2
 start=$(date +%s)
 # The Windows leg runs beside the targets; its log and end time go to temp files.
-win_pid= win_log=
+win_pid= win_log= win_n=0
 if [ -n "$win_pkgs" ]; then
   read -r -a wmk <<<"$SIGNOFF_WINDOWS"
   win_log=$(mktemp "${TMPDIR:-/tmp}/signoff-windows.XXXXXX")
-  echo "signoff: Windows leg on $(printf '%s\n' $win_pkgs | wc -l | tr -d ' ') package(s)" >&2
+  read -r -a win_list <<<"$win_pkgs"
+  win_n=${#win_list[@]}
+  echo "signoff: Windows leg on $win_n package(s)" >&2
   # shellcheck disable=SC2086  # the packages are a word list on purpose
   # Sharded as the CI's test-windows legs are (D785): internal/mcpserver alone is most of it.
   ( r=0; "${wmk[@]}" bash scripts/test-shard.sh "${SIGNOFF_WINDOWS_SHARDS:-4}" all $win_pkgs >"$win_log" 2>&1 || r=$?
@@ -401,7 +446,7 @@ set +e
 rc=${PIPESTATUS[0]}
 set -e
 secs=$(( $(date +%s) - start ))
-[ "$rc" != 75 ] || hosted "the build host is unavailable (exit 75)"
+[ "$rc" != 75 ] || hosted "the build host is unavailable (exit 75)" fallback
 case "$rc" in
   0) ;;
   2) lrc=0; retry linux "$mlog" || lrc=$?
@@ -410,15 +455,18 @@ case "$rc" in
   *) host_die "the build host" "$rc" ;;
 esac
 duration=$(printf '%dm%02ds' $((secs / 60)) $((secs % 60)))
-windows="windows not run"
+# The status's `windows=` word: the number of packages of the leg, `none` when it did not run,
+# `unavailable` on its exit 75.
+windows=none
 if [ -n "$win_pid" ]; then
   wait "$win_pid" || true
   win_pid=
   read -r wrc wend <"$win_log.end" || { wrc=1; wend=$(date +%s); }
   wsecs=$(( wend - start ))
+  windows=$win_n
   case "$wrc" in
-    0) windows="windows $(printf '%dm%02ds' $((wsecs / 60)) $((wsecs % 60)))" ;;
-    75) windows="windows unavailable"; echo "signoff: warning: the Windows machine is unavailable, leg skipped" >&2 ;;
+    0) echo "signoff: the Windows leg is green ($(printf '%dm%02ds' $((wsecs / 60)) $((wsecs % 60))))" >&2 ;;
+    75) windows=unavailable; echo "signoff: warning: the Windows machine is unavailable, leg skipped" >&2 ;;
     1) echo "signoff: the Windows leg is red: the output of its failing package(s):" >&2
        winout=$(win_failures "$win_log")
        if [ -n "$winout" ]; then printf '%s\n' "$winout" >&2; else tail -n 40 "$win_log" >&2; fi
@@ -446,9 +494,12 @@ still_head
 # 6. Push.
 push
 
-# 7. Status.
+# 7. Status: the mode first, then what ran (the lander copies it up to ` - make` into the train PR).
+web_ran=no
+case " $targets " in *" $WEB_TARGET "*) web_ran=yes ;; esac
+# shellcheck disable=SC2086  # the flaky names are a word list on purpose: $# counts them
 set -- $flaky
-post "make $targets - $platform - $duration - $windows${flaky:+ - $# flaky retried}"
+post "gate=host $platform windows=$windows web=$web_ran $duration${flaky:+ flaky=$#} - make $targets"
 
 # 8. Re-run a failed ci.yml run of this sha: its gate ran before the status existed.
 # A run in progress is left alone, its gate is polling. Warnings only from here on.
