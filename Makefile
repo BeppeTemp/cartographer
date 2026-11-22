@@ -1,4 +1,4 @@
-.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke docker-surveyor docker-surveyor-smoke clean e2e e2e-upgrade demo-image demo-smoke demo-worker-test demo-tf-check helm-check test-install test-linux worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap settings-example openapi web web-test web-perf web-check e2e-web hero vulncheck lint-workflows signoff signoff-platform web-gate check check-run check-hosted ready land land-status test-rerun
+.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke docker-surveyor docker-surveyor-smoke clean e2e e2e-upgrade demo-image demo-smoke demo-worker-test demo-tf-check helm-check test-install test-linux worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap runs-where settings-example openapi web web-test web-perf web-check e2e-web hero vulncheck lint-workflows signoff signoff-platform web-gate check check-run check-hosted ready land land-status test-rerun
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
 # gofmt takes paths, and `gofmt -l .` walks every hidden directory — including
@@ -343,6 +343,9 @@ changelog-areas: ## Group the newest CHANGELOG.md section by area (the release P
 
 codemap: ## Regenerate the code map in AGENTS.md from the package doc comments
 	@go test ./internal/repodocs -run TestCodeMapIsUpToDate -count=1 -args -update
+
+runs-where: ## Regenerate the what-runs-where table in docs/testing.md from ci.yml and signoff.sh
+	@go test ./internal/repodocs -run TestRunsWhereTableIsUpToDate -count=1 -args -update
 
 openapi: ## Regenerate docs/openapi.json from the API route table (internal/mcpserver/apiroutes.go)
 	@go run ./internal/openapi/gen docs/openapi.json

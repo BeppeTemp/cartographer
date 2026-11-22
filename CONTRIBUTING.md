@@ -228,24 +228,12 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
     trailing comment (`uses: owner/repo@<40 hex> # v1.2.3`; resolve it with
     `gh api repos/<owner>/<repo>/git/ref/tags/<tag>`). `make gate` fails on any other
     reference (D1020); Dependabot keeps the pins current.
-- **What runs where** (D1592, D1610): a contributor's PR runs `test`, the web legs when the
-  frontend changed, `pr-title` and `plan-gate`, all collected by `gate`. **A maintainer's PR
-  is pushed with `make signoff`** and CI runs only `changes`, `gate` (which looks for the
-  `signoff` status of a maintainer on the head sha), `pr-title` and `plan-gate`. The heavy
-  legs (Windows, macOS, docker, demo-edge) run on push to `main`, which also runs `smoke-http`,
-  `smoke`, `e2e` and `test-install`; `make signoff` runs `gate`, `smoke-http`, `smoke` and `e2e`
-  before the push too, so only `test-install` is first run on `main` (D1750). Runs on `main` coalesce (one running, the newest pending; the `ci-red` issue
-  names the range since the last green commit), so a Windows- or macOS-only break is caught
-  on `main` and fixed by a follow-up. The required checks are `gate`, `pr-title` and
-  `plan-gate`. `SIGNOFF_MAKE` points `make signoff` at a wrapper that runs the make targets
-  on another machine (its exit 75 means the machine is unavailable: the signoff then lets
-  `ci.yml` run the gate on the pushed branch; `SIGNOFF_HOSTED=1`, the maintainer's setting,
-  always does, and then waits for every leg `main` runs, Windows and macOS included, so a train
-  gated in CI does not turn `main` red (D2040); an exit other than make's 2, such as ssh's 255 when the
-  connection drops, is the wrapper's: the signoff exits 69, not a red gate, so the lander gates the train again, a bounded number of times), `SIGNOFF_WINDOWS` at one that runs the tests of
-  the packages a code change affects on Windows beside them, sharded; the push is `--force-with-lease` and names its remote
-  and branch. `make check` is the fast tier to run while iterating (the affected packages only). `make check-hosted` runs it on a GitHub-hosted runner (a maintainer's agent's check: parallel, no shared build host), with a Windows leg beside the Linux one (the packages of the gate's Windows leg), so a Windows-only failure shows before the change is queued; `make check` itself runs on Linux only (maintainer only: a contributor's push is refused and the check runs locally).
-  `docs/testing.md` has the table.
+- **What runs where** (D1592, D1610): a contributor's PR runs `test`, the web legs when the frontend changed, `pr-title`
+  and `plan-gate`; a maintainer's PR is pushed with `make signoff`, whose `signoff` status `gate` looks for; a train is
+  gated once and `main` runs its jobs again on the push. The required checks are `gate`, `pr-title` and `plan-gate`.
+  The train gate is hosted by default (D2040, D2293); `make land GATE=host` gates on the build host.
+  `make check` (affected packages) and `make check-hosted` (on GitHub, with a Windows leg) are the tiers to iterate with.
+  Which job runs on which event, and what each gate runs, is the generated table of `docs/testing.md` §Levels.
 - **A maintainer's change lands in a train** (D1706): finished and reviewed on its
   branch, it is queued with `make ready MSG=<message file>` as **one commit** whose message
   is the changelog entry (a conventional title, body lines unwrapped, `Closes #n`; checked as
