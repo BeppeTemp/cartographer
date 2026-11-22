@@ -11,9 +11,10 @@
 #                           TRIAGE_BASE the commit it is measured from (default: the merge-base)
 #
 # Prints at most ~20 lines: size split by kind, areas, review tier, closed issues,
-# CI, docs and decision hints (the docs-owner WARN comes from doc-owners.sh), and the
-# BLOCK/WARN lines that send a PR back
-# without anyone reading its code. It reads metadata only, never the diff body.
+# CI, docs and decision hints (the docs-owner WARN comes from doc-owners.sh), in the branch
+# mode the acceptance criteria line (ac-trace.sh), and the BLOCK/WARN lines that send a PR
+# back without anyone reading its code. It reads metadata, never the diff body; the branch
+# mode also reads the tree at HEAD, for the tests that cite a criterion.
 set -euo pipefail
 
 # Limits are CONTRIBUTING.md §Pull requests; change them there and here together.
@@ -190,6 +191,8 @@ if [ -z "$docs_touched" ] && [ "$prod" -gt 50 ] && ! grep -qi '^Docs: none - *[^
 fi
 # Advisory, never blocking, and fail open: a broken map must not fail the required plan-gate check.
 DOCS_PR_BODY=$body "$(dirname "$0")/doc-owners.sh" <<<"$classified" || echo "WARN: doc-owners.sh failed — the docs-owner check did not run"
+# The acceptance criteria of the message, traced to the tests of the tree: branch mode only (a PR has no tree here), advisory and fail open as above.
+[ $# -ge 1 ] || TRIAGE_BODY=$body "$(dirname "$0")/ac-trace.sh" || echo "WARN: ac-trace.sh failed — the criteria check did not run"
 [ -n "$decision" ] && echo "Decision file: $decision"
 # The line a fix names its origin on: a contributor's `Regression-of:`, a maintainer's
 # `Introduced-by:` that is not `unknown` (cartographer-review-pr §When a defect escapes).

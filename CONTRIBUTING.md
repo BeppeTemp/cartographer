@@ -361,7 +361,9 @@ dispatched by hand with one of three actions.
   so a candidate that exists starts; the binaries are published only after the images,
   and only once the built binary prints the candidate's tag. The same run renders the
   README film when its sources changed (`film.yml`, D1068): a red film job fails the
-  candidate, so there is nothing to release until it is fixed. A maintainer runs the images on a
+  candidate, so there is nothing to release until it is fixed. `scripts/ac-report.sh` lists the
+  acceptance criteria landed since the last stable release (§Plans), `manual` rows first: they are
+  the input of the candidate's test matrix. A maintainer runs the images on a
   real deployment and the binaries as native service and client (below), adds the
   `rc-ok` label and runs `action: release`. Without the label, or if the candidate
   is not the current head of `main` (a fix landed after the build), the release is
