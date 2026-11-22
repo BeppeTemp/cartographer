@@ -1,15 +1,15 @@
 name: hosted-check
 
-# The implementer's fast-tier check (`make check-run`) on a GitHub-hosted runner, for when
-# the build host's single slot is busy. Triggered only by scripts/hosted-check.sh, which
+# The implementer's fast-tier check (`make check-run`) on a GitHub-hosted runner, one runner
+# per check, so no check waits on a shared machine. Triggered only by scripts/hosted-check.sh, which
 # pushes the worktree state to a throwaway `check/<slug>-<sha12>` branch, dispatches this
 # workflow on it, waits, and deletes the branch (the token here is read-only, so the
 # script does it). The job holds no secret; nothing here is a required check or a gate:
 # the train gate, `make signoff` and CI's `gate` run as before. GitHub only accepts a
 # dispatch for a workflow file that exists on the default branch.
 #
-# Two jobs run in parallel: `check` (Linux, `make check-run`) and `windows`, the Windows leg of
-# the train gate (scripts/signoff.sh): the sharded `go test` of the packages scripts/hosted-check.sh
+# Two jobs run in parallel: `check` (Linux, `make check-run`) and `windows`, the Windows leg a
+# build-host gate runs (scripts/signoff.sh): the sharded `go test` of the packages scripts/hosted-check.sh
 # puts in win_pkgs (scripts/affected-pkgs.sh --code), so a failure only Windows sees (#1935) shows
 # up before the change is queued. It is skipped when the change touches no Go code (win_pkgs empty).
 on:

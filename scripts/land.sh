@@ -3,8 +3,10 @@
 #
 #   land.sh            land trains until the queue holds nothing landable, then exit
 #   land.sh --daemon   the same, detached (nohup, log in the state dir), unless one runs
-#   land.sh --status   the queue, the open train PR and the rejected changes
+#   land.sh --status   the queue, the open train PR, the rejected changes and a running lander's gate
 #   land.sh --dry-run  compose the next train and print it: nothing gated, pushed or opened
+#   --gate hosted|host with any of them but --status: where the train gate runs, hosted (the
+#                      default: ci.yml on GitHub) or host (the build host, `make land GATE=host`)
 #
 # The queue is `refs/heads/ready/<slug>` on origin (scripts/ready.sh pushes them), oldest
 # first. A train is main plus at most LAND_MAX (8) changes, cherry-picked in queue order
@@ -19,11 +21,14 @@
 # `D-new-<slug>.md` is applied to `D<n>-<slug>.md`; a change adding a `D-new-<slug>.md` whose
 # slug main holds is rejected, naming the file.
 #
-# The train branch `train/<UTC time>` is gated by scripts/signoff.sh (the gate, the web
-# legs and the Windows leg when needed, the CI fallback on exit 75, the push and the
-# `signoff` status: one gate for the whole train). With SIGNOFF_HOSTED=1, the maintainer's
-# setting (D2040), the gate is ci.yml on GitHub: every leg main's CI runs,
-# Windows and macOS included, in parallel; a prefix of a bisection is gated the same way. The signoff itself retries once the
+# The train branch `train/<UTC time>` is gated by scripts/signoff.sh (the gate, the push and
+# the `signoff` status: one gate for the whole train) in the lander's mode, and only its
+# option chooses it (D2293). Hosted, the default (D2040), the gate is
+# ci.yml on GitHub: every leg main's CI runs, Windows and macOS included, in parallel; a
+# prefix of a bisection is gated the same way. With --gate host it runs on the build host
+# (the web legs and the Windows leg when needed, the CI fallback on exit 75). The mode is
+# logged at start and on each train line, and the train PR's third line is `Gate: <the
+# signoff status of its head, up to " - make">`, or `Gate: unknown (...)`. On the build host the signoff itself retries once the
 # Go tests a red run names (its step 4c): green, the train lands on that gate and a `bug`
 # issue names them; red, the failure is confirmed and bisection starts without a re-run.
 # A signoff that exits 69 (ssh or rsync dropped, so no test failed: #1843; its line `the build
@@ -37,7 +42,8 @@
 # tests' packages (`signoff.sh --probe`, D1878) and the green prefix then gets
 # one full gate before it lands. Green: one PR, title
 # `chore(dev): train <id>, <k> changes`, rebase-merged so every change stays its own
-# conventional commit on main; once merged, the landed queue entries are deleted (a queued
+# conventional commit on main, keeping its `Lander-Slug`, its `Lander-Tip` and the `Review`
+# it was queued with; once merged, the landed queue entries are deleted (a queued
 # change that main already holds, by its diff or by a commit carrying its `Lander-Slug` and
 # `Lander-Tip` trailers, is dequeued, not rejected). A required check that fails is rerun once
 # (a check reading the PR's diff fails with a 5xx right after it is opened): red again, the
@@ -54,7 +60,7 @@
 # changes takes only changes whose pre-check is green (or has no verdict: none started within
 # LAND_PRECHECK_START, still running past LAND_PRECHECK_WAIT, cancelled, or GitHub did not
 # answer). When none is, the oldest change whose pre-check is still running is gated alone,
-# else the oldest red one: the build host never idles waiting on GitHub, and a change that
+# else the oldest red one: no gate waits on a pre-check, and a change that
 # breaks a leg costs one gate of its own instead of a red train and its bisection.
 #
 # A rejected change moves to `refs/heads/failed/<slug>`: a commit on top of it whose
@@ -68,7 +74,8 @@
 #   LAND_INFRA_TRIES (3)  LAND_INFRA_WAIT (120 s)
 #   LAND_MAX (8)  LAND_POLL (30 s)  LAND_MERGE_TRIES (90 polls)  LAND_OPEN_TRIES (120 polls)  LAND_STATE (state dir)
 #   LAND_PRECHECK_START (300 s)  LAND_PRECHECK_WAIT (1200 s), from the queued commit's time
-#   SIGNOFF_* are passed to signoff.sh unchanged.
+#   SIGNOFF_GATE is set by the lander (its --gate); the other SIGNOFF_* are passed to
+#   signoff.sh unchanged.
 #
 # Plain bash 3.2 (the macOS default): no associative arrays.
 set -euo pipefail
@@ -76,6 +83,27 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 log() { echo "land: $(date -u +%H:%M:%S) $*" >&2; }
 die() { log "$*"; exit 1; }
+
+# The arguments, checked before anything starts: at most one of --daemon, --status and --dry-run,
+# and --gate hosted|host with any but --status. The gate mode is that option and nothing else.
+# SIGNOFF_GATE and SIGNOFF_HOSTED are never read to choose it: a variable exported in a shell
+# profile, or inherited from the session that queued the first change (scripts/ready.sh starts
+# the lander from there), put every lander on the build host without anyone choosing it that day
+# (D2293). The lander sets SIGNOFF_GATE itself, below.
+usage() { echo "usage: land.sh [--daemon | --dry-run] [--gate hosted|host] | land.sh --status" >&2; exit 2; }
+action= gate_mode=hosted gate_given=false
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --daemon | --status | --dry-run) [ -z "$action" ] || usage; action=$1 ;;
+    --gate)
+      [ $# -ge 2 ] && ! $gate_given || usage
+      case "$2" in hosted | host) gate_mode=$2 gate_given=true ;; *) usage ;; esac
+      shift ;;
+    *) usage ;;
+  esac
+  shift
+done
+[ "$action" != --status ] || ! $gate_given || usage
 
 common=$(git -C "$here" rev-parse --path-format=absolute --git-common-dir)
 main_repo=${common%/.git}
@@ -89,25 +117,50 @@ repo=$(cd "$main_repo" && "$here/upstream-repo.sh")
 g() { git -C "$main_repo" "$@"; }
 
 running() { [ -f "$state/pid" ] && kill -0 "$(cat "$state/pid")" 2>/dev/null; }
+# The gate mode of the running lander ($state/gate, beside its pid), or `not recorded` (one
+# started before the file existed).
+running_gate() { local m; m=$(cat "$state/gate" 2>/dev/null || true); echo "${m:-not recorded}"; }
+# A foreground lander that finds one running: it names that one's gate and, asked for another
+# mode, says the trains stay on it (the running lander keeps its mode until it exits).
+already_running() {
+  local m; m=$(running_gate)
+  echo "land: a lander already runs here (pid $(cat "$state/pid"), gate: $m)"
+  [ "$m" = "not recorded" ] || [ "$m" = "$gate_mode" ] ||
+    echo "land: asked for gate $gate_mode: the trains stay on the running lander's gate ($m) until it exits"
+}
 
-case "${1:-}" in
+case "$action" in
   --daemon)
-    if running; then echo "land: a lander already runs here (pid $(cat "$state/pid"))"; exit 0; fi
-    nohup "$0" >>"$state/log" 2>&1 </dev/null &
-    echo "land: lander started (pid $!), log $state/log"
+    if running; then echo "land: a lander already runs here (pid $(cat "$state/pid"), gate: $(running_gate))"; exit 0; fi
+    # The detached lander gets the option, never a mode through the environment: it inherits this
+    # one unchanged and decides (and logs the notice below) itself.
+    set --
+    ! $gate_given || set -- --gate "$gate_mode"
+    nohup "$0" "$@" >>"$state/log" 2>&1 </dev/null &
+    echo "land: lander started (pid $!, gate: $gate_mode), log $state/log"
     exit 0 ;;
 esac
+
+# The mode reaches signoff.sh through the environment, set once here: both signoff calls (the
+# gate and the bisection probe) inherit the lander's mode, whatever the shell exported.
+env_gate=${SIGNOFF_GATE:-}
+unset SIGNOFF_HOSTED
+export SIGNOFF_GATE=$gate_mode
 
 fetch() { g fetch -q --prune origin main '+refs/heads/ready/*:refs/remotes/origin/ready/*' '+refs/heads/failed/*:refs/remotes/origin/failed/*'; }
 
 # The queue, oldest first: "<slug> <sha>" lines.
 queue() { g for-each-ref --sort=committerdate --format='%(refname:lstrip=4) %(objectname)' refs/remotes/origin/ready/; }
 trailer() { g log -1 --format=%B "$2" | git interpret-trailers --parse | sed -n "s/^$1: *//p" | head -n 1; }
+# The review record of a queued commit: its LAST `Review` trailer, the one `make ready REVIEW=`
+# appended. ready.sh strips only `Review: ` with a space from the message, so an earlier
+# `Review:light` survives there and interpret-trailers normalises it into a trailer.
+review_of() { g log -1 --format=%B "$1" | git interpret-trailers --parse | sed -n "s/^Review: *//p" | tail -n 1; }
 title() { g log -1 --format=%s "$1"; }
 # "<number> <branch> <head sha> <true if from a fork> <base branch>" per open train PR.
 open_trains() { gh pr list -R "$repo" --state open --json number,headRefName,headRefOid,isCrossRepository,baseRefName --jq '.[] | select(.headRefName | startswith("train/")) | "\(.number) \(.headRefName) \(.headRefOid) \(.isCrossRepository) \(.baseRefName)"'; }
 
-if [ "${1:-}" = --status ]; then
+if [ "$action" = --status ]; then
   fetch || true
   echo "queue:"; queue | while read -r s sha; do
     extra=; a=$(trailer Lander-After "$sha"); [ -z "$a" ] || extra=" (after $a)"
@@ -117,21 +170,27 @@ if [ "${1:-}" = --status ]; then
   echo "open train PR:"; open_trains | cut -d' ' -f1,2 | sed 's/^/  #/' || true
   echo "rejected:"; g for-each-ref --format='%(refname:lstrip=4) %(contents:subject)' refs/remotes/origin/failed/ | sed 's/^/  /'
   [ ! -s "$state/blocked" ] || echo "stopped: $(cat "$state/blocked")"
-  if running; then echo "lander: running (pid $(cat "$state/pid")), log $state/log"; else echo "lander: not running"; fi
+  if running; then
+    echo "lander: running (pid $(cat "$state/pid")), log $state/log"
+    echo "gate: $(running_gate)"
+  else
+    echo "lander: not running"
+  fi
   exit 0
 fi
 dry=false
-[ "${1:-}" != --dry-run ] || dry=true
+[ "$action" != --dry-run ] || dry=true
 
 # One lander per machine and repository.
 if ! $dry; then
-  if running && [ "$(cat "$state/pid")" != $$ ]; then echo "land: a lander already runs here"; exit 0; fi
+  if running && [ "$(cat "$state/pid")" != $$ ]; then already_running; exit 0; fi
   echo $$ >"$state/pid"
+  echo "$gate_mode" >"$state/gate" # read by --status
   rm -f "$state/blocked"
   # The root this lander runs from: removing that worktree deletes the scripts under it
   # (scripts/lander-guard.sh, used by worktree-rm and worktree-clean, reads this file).
   (cd "$here/.." && pwd -P) >"$state/root"
-  trap 'rm -f "$state/pid" "$state/root"' EXIT
+  trap 'rm -f "$state/pid" "$state/root" "$state/gate"' EXIT
   # The lander mostly waits (on the gate, on GitHub). A Mac on battery sleeps when idle, and
   # asleep the lander advances only in its dark wakes, a quarter of an hour apart, waking
   # with the network still down: caffeinate keeps it awake (not a closed lid) until the
@@ -148,6 +207,16 @@ if ! $dry; then
   done
   [ -n "$perm" ] || die "GitHub did not answer the permission read of $repo: try again"
   case "$perm" in ADMIN | MAINTAIN | WRITE) ;; *) die "permission on $repo is $perm: only a maintainer lands" ;; esac
+fi
+if [ "$gate_mode" = hosted ]; then
+  hosted_jobs=$("$here/signoff.sh" --hosted-jobs 2>/dev/null) || hosted_jobs=
+  read -r -a hosted_legs <<<"$hosted_jobs" || true
+  log "gate: hosted, ci.yml, ${#hosted_legs[@]} legs"
+else
+  log "gate: host, the build host"
+fi
+if [ "$env_gate" = host ] && ! $gate_given; then
+  log "the environment asks for the build host, the lander gates hosted: pass --gate host to use it"
 fi
 
 # reject <slug> <sha> <reason>: the change leaves the queue for failed/<slug>.
@@ -629,6 +698,21 @@ flaky_issue() { # $1 = gate log, $2 = what happened
     "The gate of the train \`$branch\` failed on $names and passed when the signoff ran their packages once more, the rest of the gate green. A retry is not a fix: find why they fail."
 }
 
+# gate_line <gated sha>: the `Gate:` line of the train PR, the gate the train actually had: the
+# description of the newest successful `signoff` status of that sha (GitHub lists the newest first)
+# up to its ` - make` (signoff.sh steps 4b and 7: `gate=hosted run=<id> legs=<n> <duration>`,
+# `gate=host <platform> windows=<n> web=<yes|no> <duration>`). The status, never the gate log, which
+# holds the change's own output. A status that cannot be read, is absent, or is not of that shape
+# (the `gate=` token, then words of [A-Za-z0-9=/._-]: it goes into a public PR body) gives
+# `Gate: unknown (...)`: never a reason to stop, the gate was green.
+gate_line() {
+  local d re='^gate=(hosted|host)( [A-Za-z0-9=/._-]+)+$'
+  d=$(gh api "repos/$repo/commits/$1/statuses?per_page=100" \
+    --jq '[.[] | select(.context == "signoff" and .state == "success")][0].description // ""' 2>/dev/null) || d=
+  d=${d%% - make*}
+  if [[ "$d" =~ $re ]]; then echo "Gate: $d"; else echo "Gate: unknown (the signoff status of ${1:0:12} could not be read)"; fi
+}
+
 # merge_train <PR> <gated head>: merges the train PR once its required checks pass, only while
 # main is still $base (or is the train itself: an earlier merge call went through). 0: merged;
 # 1: main moved, the PR is closed and the train must be composed again. Not auto-merge:
@@ -777,12 +861,19 @@ while :; do
       fi
     fi
     tip=$(trailer Lander-Tip "$sha")
-    msg=$(git log -1 --format=%B | grep -vE '^(Lander-[A-Za-z]+|Review): ' || true)
+    review=$(review_of "$sha")
+    # Every `Review` line goes, with or without the space and in any case (`review :x` is a
+    # trailer to git too): the record is the one value read above.
+    msg=$(git log -1 --format=%B | grep -vE '^Lander-[A-Za-z]+: ' | grep -viE '^review[[:space:]]*:' || true)
     # The lander's other trailers stay off main; the slug and the branch head ready.sh
     # squashed stay, so `make worktree-clean` can tell that the work of a feat/<slug>
-    # worktree landed (the train PR is not its PR). Any copy in the message was dropped above.
+    # worktree landed (the train PR is not its PR), and so does the review record, readable
+    # with `git log` (it was only in the train PR body). Any copy in the message was dropped
+    # above: the slug is this lander's, the tip the queued commit's trailer, the review the
+    # last one of the queued commit (review_of).
     targs=(--trailer "Lander-Slug: $s")
     [ -z "$tip" ] || targs+=(--trailer "Lander-Tip: $tip")
+    [ -z "$review" ] || targs+=(--trailer "Review: $review")
     printf '%s\n' "$msg" | git interpret-trailers "${targs[@]}" | git commit -q --amend --allow-empty -F -
     premap=$MAP # a rejected change leaves no number behind for the later ones
     number_decisions
@@ -821,7 +912,7 @@ while :; do
     if $dry; then log "dry run: no queued change applies on main"; exit 0; fi
     continue
   fi
-  log "train $branch: $k change(s): $(cut -d' ' -f1 <<<"$landed" | tr '\n' ' ')"
+  log "train $branch: $k change(s): $(cut -d' ' -f1 <<<"$landed" | tr '\n' ' ' | sed 's/ $//') [gate: $gate_mode]"
   if $dry; then
     git log --oneline "origin/main..HEAD"
     cd "$main_repo"; g worktree remove --force "$wt" >/dev/null 2>&1 || true
@@ -918,17 +1009,22 @@ while :; do
     continue
   fi
 
-  # One PR for the train, rebase-merged: each change stays its own commit on main.
+  # One PR for the train, rebase-merged: each change stays its own commit on main. Its third
+  # line says which gate the train had, read from the signoff status of the gated head.
+  gline=$(gate_line "$(git rev-parse HEAD)")
+  case "$gline" in "Gate: unknown"*) log "warning: $gline" ;; *) log "$gline" ;; esac
   body=$state/body-$id.md
   {
     echo "Size exception: a train of $k change(s), each under the cap when it was queued (make ready)."
+    echo
+    echo "$gline"
     echo
     echo "Landed by scripts/land.sh after one gate of the whole train (the \`signoff\` status of the head)."
     while read -r s sha; do
       echo
       echo "### \`$s\`: $(title "$sha" | sed 's/^/`/; s/$/`/')"
       echo
-      echo "- review: $(r=$(trailer Review "$sha"); echo "${r:-not recorded}")"
+      echo "- review: $(r=$(review_of "$sha"); echo "${r:-not recorded}")"
       g log -1 --format=%B "$sha" | grep -iE '^(closes|refs|fixes) #[0-9]+' | sed 's/^/- /' || true
     done <<<"$landed"
   } >"$body"

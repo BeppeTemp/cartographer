@@ -27,13 +27,16 @@ concurrency:
 # On main every job runs, and a red main opens (or updates) a `ci-red` issue.
 # A contributor's PR runs the light checks: `test`, the web legs (when the
 # frontend changed) and the two PR-title workflows. A maintainer's PR is gated
-# locally by `make signoff` and runs only `changes` and `gate`, which looks for
-# the signoff status of its head sha. `gate` is the one required CI check: the
+# by `make signoff` (hosted by default: this workflow, dispatched on the branch)
+# and runs `changes`, `gate`, which looks for the signoff status of its head
+# sha, and, as any PR does, `helm` and `forge` when their paths changed (the
+# `changes` filter). `gate` is the one required CI check: the
 # `test-windows` and `web` aggregators no longer run on a PR. The heavy legs
 # (Windows, macOS, Linux without systemd, docker, demo-edge) run on push to main, on workflow_dispatch
 # and on `merge_group` (D1592): the account runs about five jobs at a time and
-# twenty per PR was the bottleneck. A Windows- or macOS-only break is caught on
-# main and tracked by `ci-red`.
+# twenty per PR was the bottleneck. A Windows- or macOS-only break is caught by
+# the hosted train gate; `main` is the net for a build-host gate and for a
+# contributor's merge, tracked by `ci-red`.
 jobs:
   # Which of the slower jobs this PR needs: `web`, `forge` and `helm` only, the other
   # outputs stay in the table pinned by a test but no PR job reads them (the
@@ -134,7 +137,9 @@ jobs:
   # repository, so the split costs nothing.
   #
   # Push to main, a manual run and merge_group, never on a PR (D1592): a
-  # Windows-only break is caught on main and tracked by `ci-red`.
+  # Windows-only break is caught by the hosted train gate, which dispatches this
+  # workflow; `main` is the net for a build-host gate and for a contributor's
+  # merge, tracked by `ci-red`.
   test-windows-shard:
     name: test-windows (${{ matrix.shard }}/6)
     if: "!cancelled() && github.event_name != 'pull_request'"

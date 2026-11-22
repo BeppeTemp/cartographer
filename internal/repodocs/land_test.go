@@ -2,6 +2,7 @@ package repodocs
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -55,6 +56,8 @@ func newLandEnv(t *testing.T) *landEnv {
 		"GIT_COMMITTER_NAME=user", "GIT_COMMITTER_EMAIL=user@example.com",
 		"FAKE_GH_LOG="+e.ghLog, "FAKE_UP="+e.up, "FAKE_STATE="+filepath.Join(tmp, "gh-state"),
 		"SIGNOFF_MAKE="+filepath.Join(e.bin, "fakemake"), "SIGNOFF_POLL=0",
+		// A hosted gate (land.sh without --gate host): every job of the dispatched ci.yml run green.
+		"FAKE_GH_JOBS="+hostedRun("completed", "completed success", nil),
 		"LAND_STATE="+filepath.Join(tmp, "lander"), "LAND_POLL=0", "LAND_INFRA_WAIT=0", "LAND_MERGE_TRIES=3",
 		"PATH="+e.bin+string(os.PathListSeparator)+os.Getenv("PATH"),
 	)
@@ -136,13 +139,28 @@ case "$1 $2" in
     if [ "$n" -lt "${FAKE_PERM_FAILS:-0}" ]; then echo "HTTP 502" >&2; exit 1; fi
     echo "${FAKE_PERM:-ADMIN}" ;;
   "api user") echo '{"login":"user"}' | out ;;
-  "api -X") ;;
+  "api -X")
+    # The status the signoff posts (api -X POST repos/<repo>/statuses/<sha> ... -f description=<d>)
+    # is kept, so the read of the train head's statuses answers with it.
+    st=; d=; for a in "$@"; do case "$a" in repos/*/statuses/*) st=${a##*/} ;; description=*) d=${a#description=} ;; esac; done
+    [ -z "$st" ] || printf '%s' "$d" > "$FAKE_STATE.status-$st" ;;
+  "api repos/up/proj/commits/"*)
+    # The statuses of a commit, newest first: another context's, then the signoff's.
+    [ -z "${FAKE_STATUS_FAILS:-}" ] || { echo "HTTP 502" >&2; exit 1; }
+    c=${2#repos/up/proj/commits/}; c=${c%%/*}
+    if [ -f "$FAKE_STATE.status-$c" ]; then
+      jq -n --arg d "$(cat "$FAKE_STATE.status-$c")" '[{context:"other",state:"success",description:"gate=host forged"},{context:"signoff",state:"success",description:$d}]'
+    else echo '[]'; fi | out ;;
   "api repos/up/proj") echo '{"fork":false}' | out ;;
   "api repos/up/proj/issues"*) if [ -n "${FAKE_GH_LAST:-}" ]; then echo "[{\"number\":$FAKE_GH_LAST}]"; else echo '[]'; fi | out ;;
   "run list")
     # The hosted pre-check of a queued commit (ready-check.yml): green unless the commit is
     # named in FAKE_PRECHECK_RED (red) or FAKE_PRECHECK_RUNNING (in progress).
     case "$*" in
+      *workflow_dispatch*)
+        # The hosted gate's run of ci.yml: none before the first dispatch, then one per dispatch.
+        n=$(cat "$FAKE_STATE.dispatch" 2>/dev/null || echo 0)
+        if [ "$n" = 0 ]; then echo '[]'; else echo "[{\"databaseId\":$((6 + n))}]"; fi | out ;;
       *ready-check.yml*)
         c=; prev=; for a in "$@"; do [ "$prev" = --commit ] && c=$a; prev=$a; done
         if [[ " ${FAKE_PRECHECK_RUNNING:-} " == *" $c "* ]]; then echo '[{"status":"in_progress","conclusion":""}]'
@@ -155,6 +173,11 @@ case "$1 $2" in
       *) echo '[]' | out ;;
     esac ;;
   "run rerun") touch "$FAKE_STATE.reran" ;;
+  "workflow run")
+    # The hosted gate dispatches ci.yml; what the running lander's gate file says is kept.
+    n=$(cat "$FAKE_STATE.dispatch" 2>/dev/null || echo 0); echo $((n + 1)) > "$FAKE_STATE.dispatch"
+    cat "$LAND_STATE/gate" >> "$FAKE_STATE.gate-seen" 2>/dev/null || true ;;
+  "run view") case "$*" in *--log*) ;; *) printf '%s\n' "${FAKE_GH_JOBS:-}" | out ;; esac ;;
   "pr list") if [ -e "$FAKE_STATE.pr" ] && [ "$(cat "$FAKE_STATE.pr")" != OPEN ]; then echo '[]'; else echo "${FAKE_GH_TRAINS:-[]}"; fi | out ;;
   "pr create")
     head=; prev=; for a in "$@"; do [ "$prev" = --head ] && head=$a; prev=$a; done
@@ -255,12 +278,29 @@ func (e *landEnv) queue(slug, msg, date string, files map[string]string) {
 	e.git("checkout", "-q", "main")
 }
 
+// land runs the lander on the build host (`--gate host`, its fake make): the cases below test
+// that path; landArgs runs it with other arguments (no --gate: hosted, gate_mode_test.go).
 func (e *landEnv) land(extra ...string) (string, bool) {
 	e.t.Helper()
-	cmd := exec.Command("bash", filepath.Join(e.work, "scripts", "land.sh"))
+	out, rc := e.landArgs([]string{"--gate", "host"}, extra...)
+	return out, rc == 0
+}
+
+// landArgs runs land.sh with args and extra environment, and returns its output and exit code.
+func (e *landEnv) landArgs(args []string, extra ...string) (string, int) {
+	e.t.Helper()
+	cmd := exec.Command("bash", append([]string{filepath.Join(e.work, "scripts", "land.sh")}, args...)...)
 	cmd.Dir, cmd.Env = e.work, append(append([]string{}, e.env...), extra...)
 	out, err := cmd.CombinedOutput()
-	return string(out), err == nil
+	var ee *exec.ExitError
+	switch {
+	case err == nil:
+		return string(out), 0
+	case errors.As(err, &ee):
+		return string(out), ee.ExitCode()
+	}
+	e.t.Fatalf("land.sh: %v", err)
+	return "", -1
 }
 
 func (e *landEnv) upGit(args ...string) string {
@@ -283,7 +323,9 @@ func TestLanderLandsATrainInOrderAndNumbersItsDecisions(t *testing.T) {
 	e := newLandEnv(t)
 	// Split so the cited-path check does not take the fixture paths for citations.
 	dec := "docs/" + "decisions/"
-	e.queue("two", "fix(kb): two\n\nLander-After: one\nReview: standard, 1 rounds\n", "2026-01-01T10:00:00Z",
+	// The message holds `Review` lines ready.sh does not strip (no space, another case): the
+	// last trailer of the queued commit is the one `make ready REVIEW=` appended.
+	e.queue("two", "fix(kb): two\n\nReview: smuggled, 9 rounds\n\nreview :smuggled, 8 rounds\n\nA body line.\n\nLander-After: one\nReview:smuggled, 0 rounds\nReview: full, 2 rounds\n", "2026-01-01T10:00:00Z",
 		map[string]string{"two.txt": "follows D-new-one\n"})
 	e.queue("one", "feat(client): one\n\nCloses #5\n\nLander-Slug: planted\nLander-Tip: 1111111111111111111111111111111111111111\n", "2026-01-01T11:00:00Z", map[string]string{
 		dec + "D-new-one.md":     "---\ntopic: x\n---\n\n# D-new-one — One\n",
@@ -320,8 +362,20 @@ func TestLanderLandsATrainInOrderAndNumbersItsDecisions(t *testing.T) {
 		t.Errorf("the numbered file must be in change one's commit, got %s", got)
 	}
 	msgs := e.upGit("log", "--format=%B", "main")
-	if strings.Contains(msgs, "Lander-After") || strings.Contains(msgs, "Review:") {
+	if strings.Contains(msgs, "Lander-After") {
 		t.Errorf("the lander's trailers must not reach main:\n%s", msgs)
+	}
+	// The review record stays on the landed commit, once, with the queued trailer's value: a
+	// `Review:` line in the body is not it (the record is readable with git log).
+	if two := e.upGit("log", "-1", "--format=%B", "main"); strings.Count(strings.ToLower(two), "review") != 1 ||
+		!strings.Contains(two+"\n", "\nReview: full, 2 rounds\n") || strings.Contains(two, "smuggled") {
+		t.Errorf("the commit of two keeps its queued Review trailer, once:\n%s", two)
+	}
+	if body := e.trainBody(); !strings.Contains(body, "- review: full, 2 rounds\n") || strings.Contains(body, "smuggled") {
+		t.Errorf("the train PR names the review make ready recorded:\n%s", body)
+	}
+	if one := e.upGit("log", "-1", "--format=%B", "main~1"); strings.Contains(one, "Review:") {
+		t.Errorf("a change queued without a Review trailer lands without one:\n%s", one)
 	}
 	// Only the slug stays, for make worktree-clean (a train PR is not the PR of feat/<slug>).
 	for _, slug := range []string{"one", "two"} {
@@ -336,7 +390,7 @@ func TestLanderLandsATrainInOrderAndNumbersItsDecisions(t *testing.T) {
 	if n := strings.Count(msgs, "Lander-Slug:"); n != 2 {
 		t.Errorf("one Lander-Slug per landed commit, got %d:\n%s", n, msgs)
 	}
-	for _, f := range []string{"pid", "root"} {
+	for _, f := range []string{"pid", "root", "gate"} {
 		if _, err := os.Stat(filepath.Join(e.tmp, "lander", f)); err == nil {
 			t.Errorf("the lander must remove its %s file on exit", f)
 		}

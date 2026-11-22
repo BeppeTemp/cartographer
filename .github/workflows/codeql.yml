@@ -1,6 +1,7 @@
 # CodeQL for Go, JavaScript/TypeScript and the workflows (D1020). Not a required
 # check, and not run on a PR: it runs on push to main, weekly and on demand
-# (a maintainer's PR is gated locally by `make signoff`). security.yml scans a PR
+# (a maintainer's PR is gated by `make signoff`, hosted by default: ci.yml, dispatched on
+# the branch). security.yml scans a PR
 # when the dependency graph or the workflows change.
 #
 # This replaces GitHub's "default setup": keep the default setup disabled in
