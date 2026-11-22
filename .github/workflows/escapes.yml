@@ -1,0 +1,51 @@
+# The weekly escape report (scripts/escapes.sh): which phase found the defects fixed on
+# main, which review tier let them through, what the changes cost. It goes to the job
+# summary and, as a comment, on the one open issue titled "Escape report" with the
+# `process` label, which this job opens when none is. Nothing waits on it and it blocks
+# nothing: the script exits 0 when GitHub fails, with the two issue sections `not read`.
+#
+# The job holds `issues: write` and runs only the repository's own scripts, on main with
+# no credentials kept. No event field, issue body or commit message reaches a `run:` line:
+# the script prints shas, counts, issue numbers and the words of fixed lists only.
+name: escapes
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+# One run at a time, so two runs never open two issues.
+concurrency:
+  group: escapes
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The report reads the history of origin/main.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Report
+        run: |
+          scripts/escapes.sh > "$RUNNER_TEMP/escapes.md"
+          cat "$RUNNER_TEMP/escapes.md" >> "$GITHUB_STEP_SUMMARY"
+      - name: Comment on the Escape report issue
+        run: |
+          issue=$(gh issue list --label process --state open --limit 500 --json number,title \
+            --jq '[.[] | select(.title == "Escape report")][0].number // empty')
+          if [ -z "$issue" ]; then
+            issue=$(gh issue create --title "Escape report" --label process \
+              --body "The weekly report of scripts/escapes.sh (.github/workflows/escapes.yml), one comment a week.")
+          fi
+          gh issue comment "$issue" --body-file "$RUNNER_TEMP/escapes.md"
