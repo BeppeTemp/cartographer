@@ -1,0 +1,13 @@
+# found-by.tsv — where a defect was found: the values of a `Found-by:` line in the
+# message of a maintainer's queued `fix` (scripts/trailers-lint.sh, CONTRIBUTING.md
+# §Pull requests). One row per value, <value><TAB><what it means>, in phase order: a
+# defect found at a later phase escaped every earlier one. A value is added here, and
+# only here; a test fails on a `Found-by:` value a script or a workflow writes that is
+# not a row of this file.
+review	a reviewer or the coordinator, reading a change, found a defect already on main
+gate	a train gate or a queued change's pre-check (a flaky or broken test)
+main-ci	ci.yml on main (the ci-red issue)
+nightly	a scheduled workflow run on main, not a push
+rc	the trial of a release candidate
+user	someone using a release or main, the maintainer included
+agent	a session working on something else tripped on it
