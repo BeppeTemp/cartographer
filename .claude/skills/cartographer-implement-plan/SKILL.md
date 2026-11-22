@@ -60,11 +60,12 @@ state; the plans are read by the subagents that implement them.
 - **Run everything in the background** and act on completion notifications:
   never poll or read a subagent transcript.
 - **Nothing waits for one machine** (D2040): checks run on GitHub-hosted
-  runners (`make check-hosted`), the lander gates trains in CI (`SIGNOFF_HOSTED=1`); a shared
-  build host serves only targeted runs (`rgate -- go test …`) and Windows debugging.
+  runners (`make check-hosted`), the lander gates trains in CI; a shared build host
+  serves only targeted runs and Windows debugging.
 - **The process is frozen during a release**: a change to `scripts/`, `.github/`, the
-  `Makefile`, a skill or an agent definition found mid-release is written down and made
-  after the release, unless it unblocks the queue.
+  `Makefile`, a skill or an agent definition found mid-release is filed as a `process`
+  issue and made in the process week after the release (`CONTRIBUTING.md` §Releases),
+  unless it unblocks the queue.
 
 ## 1 — Wave planning (coordinator)
 
@@ -154,7 +155,9 @@ subagent's report — report text can be garbled or compressed.
   the reviewer's invariants line (full tier), and supply-chain hunks whole.
 - After the last round the coordinator records the review: `REVIEW="<tier>, <n> rounds"`
   at queue time (copied into the train PR), and the `pre-existing` findings as `bug`
-  issues. It appends the change's cost to the message file, one line
+  issues, each with a `Found-by: review` line and, when `git blame` names the change, an
+  `Introduced-by: <ref>` line, which the fix copies (`CONTRIBUTING.md` §Issues). It
+  appends the change's cost to the message file, one line
   `Cost: impl <n>k, review <n>k, rounds <n>` summed over the rounds from the usage its client
   reports with each subagent's result (`?` for a figure it does not show, no line when it shows none).
 

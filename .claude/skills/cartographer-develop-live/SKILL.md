@@ -106,7 +106,9 @@ numbers both).
 ## 3 — Close
 
 1. Agree the scope with the user: what is in this change, what becomes an `idea` or a `bug`
-   issue, and whether it waits on another queued change (`AFTER=<slug>`).
+   issue (a `bug` with its `Found-by:` line, and its `Introduced-by:` line when the session
+   knows the change: `CONTRIBUTING.md` §Issues), and whether it waits on another queued
+   change (`AFTER=<slug>`).
 2. Closing mandate to one `cartographer-live-implementer` (or yourself): the docs named in
    `docs/index.md` §Documentation maintenance rules for what changed, the tests
    still missing, `make web` if `web/` changed (the bundle is committed), then
@@ -155,7 +157,8 @@ become the squashed commit's); release-please reads both subject and body.
   `feat:`/`fix:` by accident.
 - **Body**: what changed and why, step by step as it was accepted; what the user
   verified on the instance; what was tried and dropped, when a reader would
-  re-propose it; the decision file; the follow-ups opened as `idea` or `bug` issues.
+  re-propose it; the decision file; the follow-ups opened as `idea` or `bug` issues (a `bug`
+  with its `Found-by:` and, when known, `Introduced-by:` lines: §3).
   The `wip:` commits are squashed away: the body is what remains.
 
 ## Traps

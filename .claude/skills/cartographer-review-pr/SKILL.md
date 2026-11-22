@@ -110,9 +110,11 @@ subagents each, in the background.
   the rounds rule of §5 applies to it unchanged.
 - Every verified finding is answered before the verdict: fixed, by a commit, or
   dismissed with a one-line reason. A `pre-existing` finding does not block and
-  is not fixed in this PR: it becomes one `bug` issue each, with the `accepted` label,
-  and is fixed in the same session when it is bounded (`CONTRIBUTING.md` §Fixes
-  without a plan). A flaky or broken test met on the way is one too: a rerun that
+  is not fixed in this PR: it becomes one `bug` issue each, with the `accepted` label
+  and a `Found-by: review` line (`Introduced-by: <ref>` too when `git blame` names the
+  change; `CONTRIBUTING.md` §Issues), and is fixed in the same session when it is
+  bounded (`CONTRIBUTING.md` §Fixes without a plan). A flaky or broken test met on the
+  way is one too, found by `gate` (`CONTRIBUTING.md` §Fixes without a plan): a rerun that
   turns it green is not an answer.
 - **A `pre-existing` security finding is never made public** (it concerns released
   code): no `bug` issue, no PR comment. Draft a private GitHub security advisory
@@ -207,7 +209,9 @@ is `REVIEW="<tier>, <n> rounds"`, and the steps below stop at step 2:
    (`origin/main` without that remote) and prints your role; fix every `BLOCK`. A change with a
    message file runs it as `TRIAGE_BODY="$(cat <message file>)" scripts/pr-triage.sh`, as
    `make ready` does, so its `Evals: none - <reason>`, `Docs: none - <reason>` and
-   `Size exception:` lines count.
+   `Size exception:` lines count; a change in a chain adds `TRIAGE_BASE=<predecessor's branch>`,
+   as `make ready` passes its base, or it is measured from main and a predecessor's edit counts
+   as its own.
    The `plan-gate` check runs the same script on the PR.
 2. Spawn the reviewers of the tier (§3) on your own worktree (tier from the triage, PR number
    "not opened yet", the base the triage measured from), fix or answer each finding, in rounds as in §5.
