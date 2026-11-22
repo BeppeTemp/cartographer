@@ -573,6 +573,7 @@ func TestEveryGoTestCallSiteSkipsTheQuarantine(t *testing.T) {
 		{"", "", "go test -list ", "lists the tests, runs none"},
 		{"Makefile", "decisions-index", "", "a generator: one named test with -update"},
 		{"Makefile", "codemap", "", "a generator: one named test with -update"},
+		{"Makefile", "runs-where", "", "a generator: one named test with -update"},
 		{"Makefile", "settings-example", "", "a generator: one named test"},
 		{"scripts/test-shard.sh", "", `-run "$re"`, "drops the quarantined names from its plan instead"},
 		{"scripts/quarantine.sh", "", `-run "^$name\$"`, "runs the quarantined tests, on purpose"},

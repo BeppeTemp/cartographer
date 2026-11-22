@@ -152,7 +152,7 @@ func TestEveryMakeTargetIsRunByCIOrDeclaredLocal(t *testing.T) {
 	local := map[string]bool{
 		"help": true, "build": true, "run": true, "run-http": true, "dev": true, "clean": true,
 		"fmt": true, "hero": true, "web": true, "worktree-add": true, "worktree-rm": true, "worktree-clean": true,
-		"decisions-index": true, "decisions-new": true, "changelog-areas": true, "codemap": true,
+		"decisions-index": true, "decisions-new": true, "changelog-areas": true, "codemap": true, "runs-where": true,
 		"settings-example": true, "openapi": true, "demo-kb": true, "demo-image": true,
 		"signoff": true, "signoff-platform": true, "web-gate": true,
 		// The signoff's targeted retry of the Go tests a red run named (scripts/signoff.sh).
