@@ -43,7 +43,9 @@ is the larger one. So:
 - what a change cost is recorded with it: the coordinator's `Cost:` line in the queued
   message (`cartographer-implement-plan` §3: the tokens of the implementing and the reviewing
   subagents, and the rounds) stays on the commit that lands, so `git log --grep='^Cost:'`
-  on `main` reads the figures back, change by change.
+  on `main` reads the figures back, change by change, and the weekly escape report
+  (`scripts/escapes.sh`, a comment on the open `Escape report` issue every Monday) gives their
+  medians per review tier: that report is where the figures are read.
 
 ## 1 — Triage (no code read)
 
@@ -147,7 +149,8 @@ A change to either definition file or to this `SKILL.md` is not queued without a
 `evals/scores.md` or a line `Evals: none - <reason>` in its message: `scripts/pr-triage.sh` prints
 a `BLOCK` for it at `make ready` (also when it cannot read your permission: it fails closed) and a
 `WARN` on a pull request. A score older than 30 days is run again, even with no
-change to the reviewer.
+change to the reviewer: the weekly escape report (`scripts/escapes.sh`) prints the age of the last
+line of `evals/scores.md`, says `run them` past 30 days, and counts the escapes still pending.
 
 A run scores a bounded set, however long the tables grow: the ten newest `c` rows, every row of
 class `security` and the `k` rows. `.claude/skills/cartographer-review-pr/scripts/eval-case.sh --scored`
