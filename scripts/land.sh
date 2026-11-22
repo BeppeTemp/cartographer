@@ -70,9 +70,33 @@
 # main adopts it (the same merge, the same rerun-once rule) and goes on with the queue; one
 # built on an older main is closed and its changes composed again; a fork's, or one whose
 # head it cannot match, is waited on for LAND_OPEN_TRIES polls, then the lander stops.
+# A `train/*` branch on origin with no open PR that is not this machine's ($state/branch, the
+# trains this machine composed and has not cleaned up) is another machine's lander gating it,
+# while its tip is younger than LAND_TRAIN_STALE (21600 s): the lander waits on it as on that
+# PR (until it goes stale, or LAND_OPEN_TRIES polls of its own when that is set, then it stops
+# naming the branch), looks again right before its own gate (a composition is then dropped,
+# nothing pushed), and --daemon starts nothing. LAND_FORCE=1 starts one anyway, and a lander
+# run with it waits on no such train. Older, its lander died: the branch is deleted. This
+# machine's own leftover (a lander that died after its push) is deleted at once. Nothing is
+# deleted when the open PRs could not be listed in full. Limits: on the build host the branch
+# reaches origin only after the gate, so this covers the hosted gate; two compositions pushed
+# in the same second are still caught by the main checks.
+#
+# The lander runs origin/main's scripts wherever it is started (a change's worktree, older than
+# main or removed while it gates): every mode but --status and --dry-run (which runs the
+# scripts beside it) first resets its own checkout $state/src to main and runs that one's
+# land.sh with the same options, unless a lander already runs or starts here (the start lock,
+# below), whose checkout is left alone. Main is refs/remotes/origin/main, spelled out (a tag
+# named origin/main would win over the short name), and no fetch of the lander or of
+# scripts/ready.sh takes tags. Between two trains, when main's scripts/ changed, it resets that checkout and
+# runs the new script (the same pid: the lock holds). LAND_SELF=1 runs the scripts beside this
+# one instead (the tests, a lander change tried before it lands).
 #
 #   LAND_INFRA_TRIES (3)  LAND_INFRA_WAIT (120 s)
 #   LAND_MAX (8)  LAND_POLL (30 s)  LAND_MERGE_TRIES (90 polls)  LAND_OPEN_TRIES (120 polls)  LAND_STATE (state dir)
+#   LAND_TRAIN_STALE (21600 s: a train's tip keeps its composition time through the gate, the
+#     re-run of a red one and a full bisection, several gates in all)  LAND_FORCE  LAND_SELF
+#   LAND_START_TIMEOUT (300 s: the start lock of $state/src)
 #   LAND_PRECHECK_START (300 s)  LAND_PRECHECK_WAIT (1200 s), from the queued commit's time
 #   SIGNOFF_GATE is set by the lander (its --gate); the other SIGNOFF_* are passed to
 #   signoff.sh unchanged.
@@ -113,7 +137,49 @@ mkdir -p "$state"
 max=${LAND_MAX:-8}
 poll=${LAND_POLL:-30}
 
-repo=$(cd "$main_repo" && "$here/upstream-repo.sh")
+# The checkout $state/src is reset by one starting lander at a time. The lock is a symlink,
+# made atomically with its content, `<pid of its holder>.<epoch when taken>`; it covers the
+# reset and the handoff only (the exec keeps the pid; --daemon holds it until the detached
+# lander's pid file exists, then drops it; a foreground lander drops it once its pid file
+# guards the checkout). It is taken over when its holder died, when it is older than
+# LAND_START_TIMEOUT (300 s), or when it is not such a link and older than 5 s.
+src_lock=$state/src.lock
+lock_pid() { local t; t=$(readlink "$src_lock" 2>/dev/null) || return 0; echo "${t%%.*}"; }
+take_src_lock() {
+  local t p e age old now
+  now=$(date +%s)
+  # ln makes a link inside a directory found there (garbage, never one of these locks): not a take.
+  if [ ! -d "$src_lock" ] || [ -L "$src_lock" ]; then ln -sn "$$.$now" "$src_lock" 2>/dev/null && return 0; fi
+  if t=$(readlink "$src_lock" 2>/dev/null) && [[ "$t" =~ ^([0-9]+)\.([0-9]+)$ ]]; then
+    p=${BASH_REMATCH[1]} e=${BASH_REMATCH[2]} age=$((now - e))
+    if kill -0 "$p" 2>/dev/null && [ "$age" -lt "${LAND_START_TIMEOUT:-300}" ]; then return 1; fi
+  else
+    t=$(readlink "$src_lock" 2>/dev/null || true) e=$(date -r "$src_lock" +%s 2>/dev/null || echo 0)
+    [ $((now - e)) -ge 5 ] || return 1
+  fi
+  # Renamed away, then checked: of two starters that found it stale, only the one that moved
+  # what it read takes it over; the other gives back what it moved.
+  old=$src_lock.stale.$$
+  mv "$src_lock" "$old" 2>/dev/null || return 1
+  if [ "$(readlink "$old" 2>/dev/null || true)" != "$t" ]; then
+    ln -sn "$(readlink "$old")" "$src_lock" 2>/dev/null || true
+    rm -f "$old"
+    return 1
+  fi
+  rm -rf "$old"
+  ln -sn "$$.$now" "$src_lock" 2>/dev/null
+}
+held_src_lock() { [ "$(lock_pid)" = "$1" ]; }
+drop_src_lock() { ! held_src_lock $$ || rm -f "$src_lock"; }
+# The repository, read through gh (a network call): main's land.sh, run in this lander's place
+# while it holds the start lock (the exec, or --daemon's detached lander), takes it from the
+# one that read it, so no network call runs under the lock. Read only by such a lander.
+if [ -n "${LAND_EXEC_REPO:-}" ] && { held_src_lock $$ || held_src_lock "$PPID"; }; then
+  repo=$LAND_EXEC_REPO
+else
+  repo=$(cd "$main_repo" && "$here/upstream-repo.sh")
+fi
+unset LAND_EXEC_REPO
 g() { git -C "$main_repo" "$@"; }
 
 running() { [ -f "$state/pid" ] && kill -0 "$(cat "$state/pid")" 2>/dev/null; }
@@ -129,15 +195,107 @@ already_running() {
     echo "land: asked for gate $gate_mode: the trains stay on the running lander's gate ($m) until it exits"
 }
 
+fetch() { g fetch -q --no-tags --prune origin main '+refs/heads/ready/*:refs/remotes/origin/ready/*' '+refs/heads/failed/*:refs/remotes/origin/failed/*' '+refs/heads/train/*:refs/remotes/origin/train/*'; }
+# "<number> <branch> <head sha> <true if from a fork> <base branch>" per open train PR. A list
+# that may be cut (as many PRs as the limit) fails: a train whose PR it left out would read as
+# having none, and be deleted.
+open_trains() { gh pr list -R "$repo" --state open --limit 1000 --json number,headRefName,headRefOid,isCrossRepository,baseRefName --jq 'if length >= 1000 then error("the open PRs may be more than listed") else .[] | select(.headRefName | startswith("train/")) | "\(.number) \(.headRefName) \(.headRefOid) \(.isCrossRepository) \(.baseRefName)" end'; }
+
+# foreign_trains <open train PR branches, one per line>: "<branch> <age of its tip in s>" per
+# train/* branch on origin, as last fetched, that is neither this machine's ($state/branch)
+# nor the head of an open PR.
+foreign_trains() {
+  local own b t now
+  own=$(cat "$state/branch" 2>/dev/null || true)
+  now=$(date +%s)
+  while read -r b t; do
+    if [ -n "$b" ] && ! grep -qxF "$b" <<<"$own" && ! grep -qxF "$b" <<<"$1"; then echo "$b $((now - t))"; fi
+  done < <(g for-each-ref --format='%(refname:lstrip=3) %(committerdate:unix)' refs/remotes/origin/train/)
+}
+# young_train <open train PR branches>: the first foreign train younger than LAND_TRAIN_STALE,
+# the one another machine's lander is gating; nothing when there is none.
+young_train() {
+  local b a
+  while read -r b a; do
+    if [ -n "$b" ] && [ "$a" -lt "${LAND_TRAIN_STALE:-21600}" ]; then echo "$b"; break; fi
+  done < <(foreign_trains "$1")
+}
+
+# The lander runs origin/main's scripts, from its own checkout $state/src (see the header): a
+# change's worktree holds the scripts of the main it branched from, and can be removed while
+# its lander gates.
+src=$state/src
+# Main as fetched, spelled out: a tag named origin/main (on origin, or in the clone from any
+# fetch that took tags) would win over the short name, and pick the scripts or the base.
+main_ref=refs/remotes/origin/main
+# refresh_src: creates $state/src at origin/main, or resets it there.
+refresh_src() {
+  if [ -e "$src/.git" ]; then
+    git -C "$src" reset -q --hard "$main_ref" && git -C "$src" clean -qfd || die "cannot reset the lander's checkout of main, $src"
+  else
+    g worktree prune 2>/dev/null || true
+    g worktree add -q --detach "$src" "$main_ref" >/dev/null 2>&1 || die "cannot create the lander's checkout of main, $src"
+  fi
+}
+# run_main: replaces this process with $state/src's land.sh, given this one's options: the same
+# --gate when one was given (the mode is that option only, D2293), never one from the environment.
+# It runs from the main clone: started in a worktree that is then removed, every git call
+# would fail on a missing working directory.
+run_main() {
+  cd "$main_repo"
+  set --
+  [ -z "$action" ] || set -- "$action"
+  ! $gate_given || set -- "$@" --gate "$gate_mode"
+  LAND_EXEC_REPO=$repo exec bash "$src/scripts/land.sh" "$@"
+}
+# A running lander's checkout is never reset under it (its next signoff would be another
+# script's): then this one only says so (--daemon, a foreground lander). A --dry-run takes no
+# lock and resets nothing: it runs the scripts beside it.
+starting() { echo "land: a lander already runs here (starting, pid $(lock_pid))"; exit 0; }
+if [ "$action" != --status ] && [ "$action" != --dry-run ] && [ -z "${LAND_SELF:-}" ] &&
+  ! [ "$here/land.sh" -ef "$src/scripts/land.sh" ]; then
+  g fetch -q --no-tags origin main || die "cannot fetch origin"
+  take_src_lock || starting
+  if running && [ "$(cat "$state/pid")" != $$ ]; then
+    drop_src_lock
+  else
+    refresh_src
+    run_main
+  fi
+fi
+
 case "$action" in
   --daemon)
-    if running; then echo "land: a lander already runs here (pid $(cat "$state/pid"), gate: $(running_gate))"; exit 0; fi
+    if running; then drop_src_lock; echo "land: a lander already runs here (pid $(cat "$state/pid"), gate: $(running_gate))"; exit 0; fi
+    drop_src_lock # no network call under the lock
+    # A lander on another machine is gating a train: it takes this change too, none starts here.
+    if [ -z "${LAND_FORCE:-}" ] && fetch 2>/dev/null && prs=$(open_trains 2>/dev/null); then
+      f=$(young_train "$(cut -d' ' -f2 <<<"$prs")")
+      if [ -n "$f" ]; then
+        echo "land: a lander elsewhere is gating $f: not started here, the change is queued and that lander takes it (make land-status; if that lander is dead: LAND_FORCE=1 make land, or delete $f on origin)"
+        exit 0
+      fi
+    fi
+    # The handoff: the lock again (another lander may have started meanwhile), held until the
+    # detached lander's pid file guards the checkout.
+    if [ -z "${LAND_SELF:-}" ]; then
+      take_src_lock || starting
+      if running; then drop_src_lock; echo "land: a lander already runs here (pid $(cat "$state/pid"), gate: $(running_gate))"; exit 0; fi
+    fi
     # The detached lander gets the option, never a mode through the environment: it inherits this
     # one unchanged and decides (and logs the notice below) itself.
     set --
     ! $gate_given || set -- --gate "$gate_mode"
-    nohup "$0" "$@" >>"$state/log" 2>&1 </dev/null &
-    echo "land: lander started (pid $!, gate: $gate_mode), log $state/log"
+    LAND_EXEC_REPO=$repo nohup "$0" "$@" >>"$state/log" 2>&1 </dev/null &
+    child=$!
+    if held_src_lock $$; then
+      for _ in $(seq 1 100); do
+        [ "$(cat "$state/pid" 2>/dev/null || true)" != "$child" ] && kill -0 "$child" 2>/dev/null || break
+        sleep 0.1
+      done
+      drop_src_lock
+    fi
+    echo "land: lander started (pid $child, gate: $gate_mode), log $state/log"
     exit 0 ;;
 esac
 
@@ -147,8 +305,6 @@ env_gate=${SIGNOFF_GATE:-}
 unset SIGNOFF_HOSTED
 export SIGNOFF_GATE=$gate_mode
 
-fetch() { g fetch -q --prune origin main '+refs/heads/ready/*:refs/remotes/origin/ready/*' '+refs/heads/failed/*:refs/remotes/origin/failed/*'; }
-
 # The queue, oldest first: "<slug> <sha>" lines.
 queue() { g for-each-ref --sort=committerdate --format='%(refname:lstrip=4) %(objectname)' refs/remotes/origin/ready/; }
 trailer() { g log -1 --format=%B "$2" | git interpret-trailers --parse | sed -n "s/^$1: *//p" | head -n 1; }
@@ -157,8 +313,6 @@ trailer() { g log -1 --format=%B "$2" | git interpret-trailers --parse | sed -n 
 # `Review:light` survives there and interpret-trailers normalises it into a trailer.
 review_of() { g log -1 --format=%B "$1" | git interpret-trailers --parse | sed -n "s/^Review: *//p" | tail -n 1; }
 title() { g log -1 --format=%s "$1"; }
-# "<number> <branch> <head sha> <true if from a fork> <base branch>" per open train PR.
-open_trains() { gh pr list -R "$repo" --state open --json number,headRefName,headRefOid,isCrossRepository,baseRefName --jq '.[] | select(.headRefName | startswith("train/")) | "\(.number) \(.headRefName) \(.headRefOid) \(.isCrossRepository) \(.baseRefName)"'; }
 
 if [ "$action" = --status ]; then
   fetch || true
@@ -184,18 +338,23 @@ dry=false
 # One lander per machine and repository.
 if ! $dry; then
   if running && [ "$(cat "$state/pid")" != $$ ]; then already_running; exit 0; fi
+  # The pid is already this one's when this lander ran main's new scripts between two trains.
+  again=false
+  [ "$(cat "$state/pid" 2>/dev/null || true)" != $$ ] || again=true
   echo $$ >"$state/pid"
+  drop_src_lock # the pid file guards $state/src from here on
   echo "$gate_mode" >"$state/gate" # read by --status
   rm -f "$state/blocked"
-  # The root this lander runs from: removing that worktree deletes the scripts under it
-  # (scripts/lander-guard.sh, used by worktree-rm and worktree-clean, reads this file).
+  # The root this lander runs from, $state/src unless LAND_SELF=1: removing that worktree
+  # deletes the scripts under it (scripts/lander-guard.sh, used by worktree-rm and
+  # worktree-clean, reads this file).
   (cd "$here/.." && pwd -P) >"$state/root"
   trap 'rm -f "$state/pid" "$state/root" "$state/gate"' EXIT
   # The lander mostly waits (on the gate, on GitHub). A Mac on battery sleeps when idle, and
   # asleep the lander advances only in its dark wakes, a quarter of an hour apart, waking
   # with the network still down: caffeinate keeps it awake (not a closed lid) until the
   # lander exits.
-  if command -v caffeinate >/dev/null 2>&1; then caffeinate -i -w $$ >/dev/null 2>&1 </dev/null & fi
+  if ! $again && command -v caffeinate >/dev/null 2>&1; then caffeinate -i -w $$ >/dev/null 2>&1 </dev/null & fi
   # The permission is read again when GitHub does not answer (5xx, transport: an empty answer
   # or a failed call), as dequeue does: only a definite answer outside the maintainer roles
   # says the user is not one.
@@ -256,7 +415,7 @@ landed_on_main() {
   tip=$(trailer Lander-Tip "$2")
   [ -n "$tip" ] || return 1
   # A fixed-string search narrows the log (a slug is not a regex); the trailers decide, whole.
-  for c in $(g log origin/main --format=%H --fixed-strings --grep="Lander-Slug: $1"); do
+  for c in $(g log "$main_ref" --format=%H --fixed-strings --grep="Lander-Slug: $1"); do
     [ "$(trailer Lander-Slug "$c")" = "$1" ] && [ "$(trailer Lander-Tip "$c")" = "$tip" ] && return 0
   done
   return 1
@@ -730,8 +889,8 @@ merge_train() {
     st=${v%% *} ms=${v#* }
     [ "$st" != MERGED ] || return 0
     [ "$st" != CLOSED ] || die "train PR #$1 was closed by hand: the queue is untouched"
-    if g fetch -q origin main 2>/dev/null; then
-      cur=$(g rev-parse origin/main)
+    if g fetch -q --no-tags origin main 2>/dev/null; then
+      cur=$(g rev-parse "$main_ref")
       if [ "$cur" != "$base" ]; then
         [ "$(g rev-parse "$cur^{tree}")" != "$(g rev-parse "$2^{tree}")" ] || return 0
         log "main moved before train PR #$1 merged (${base:0:12}..${cur:0:12}): closing it, composing the train again"
@@ -783,11 +942,11 @@ merge_train() {
 adopt_train() {
   local head cur
   [ "$4" = false ] && [ "$5" = main ] || return 1
-  g fetch -q origin "+refs/heads/$2:refs/remotes/origin/$2" 2>/dev/null || return 1
+  g fetch -q --no-tags origin "+refs/heads/$2:refs/remotes/origin/$2" 2>/dev/null || return 1
   head=$(g rev-parse "refs/remotes/origin/$2" 2>/dev/null) || return 1
   [ "$head" = "$3" ] || return 1
-  cur=$(g rev-parse origin/main)
-  if [ "$(g merge-base origin/main "$head")" != "$cur" ]; then
+  cur=$(g rev-parse "$main_ref")
+  if [ "$(g merge-base "$main_ref" "$head")" != "$cur" ]; then
     log "train PR #$1 is built on a main that moved (not ${cur:0:12}): closing it, composing the train again"
     gh pr close "$1" -R "$repo" --delete-branch >/dev/null 2>&1 || { log "warning: could not close train PR #$1"; return 1; }
     return 0
@@ -802,11 +961,23 @@ adopt_train() {
 }
 
 wt=$state/train
-waited=0
+waited=0 fwaited=0 fwaiting=
 while :; do
   fetch || die "cannot fetch origin"
+  # Main's scripts changed since this lander started (a lander change landed): between two
+  # trains, it resets its checkout and runs the new land.sh.
+  if [ -z "${LAND_SELF:-}" ] && ! $dry && [ "$here/land.sh" -ef "$src/scripts/land.sh" ] &&
+    [ "$(g rev-parse "$main_ref:scripts")" != "$(git -C "$src" rev-parse HEAD:scripts)" ]; then
+    log "main's scripts changed: running them (origin/main $(g rev-parse --short=12 "$main_ref"))"
+    refresh_src
+    [ "$(g rev-parse "$main_ref:scripts")" = "$(git -C "$src" rev-parse HEAD:scripts)" ] ||
+      die "the lander's checkout of main, $src, does not hold main's scripts after its reset"
+    run_main
+  fi
   if ! $dry; then
-    others=$(open_trains || true)
+    # A failed read is not "no open PR": nothing is deleted on it (deleting a PR's head closes it).
+    prs_known=true
+    others=$(open_trains) || { others= prs_known=false; }
     if [ -n "$others" ]; then
       # shellcheck disable=SC2086  # the five fields of the first line, split on purpose
       if adopt_train $(head -n 1 <<<"$others"); then waited=0; continue; fi
@@ -816,6 +987,54 @@ while :; do
       log "train PR #${others%% *} is open (not one to adopt: another lander's, or a fork's): waiting"
       sleep "$poll"; continue
     fi
+    # This machine's trains ended (merged, closed, dropped before their gate) or were left by a
+    # lander that died after its push: a branch of one still on origin, with no open PR, goes.
+    # $state/branch keeps, one per line, those not cleaned up yet (the PR list failed, a delete
+    # failed): never "another machine's" train.
+    owns=$(cat "$state/branch" 2>/dev/null || true)
+    if [ -n "$owns" ] && $prs_known; then
+      keep=
+      while read -r own; do
+        if [ -z "$own" ] || ! g rev-parse -q --verify "refs/remotes/origin/$own" >/dev/null; then
+          :
+        elif g push -q origin --delete "$own" >/dev/null 2>&1; then
+          log "$own is a train this machine left on origin with no open PR: deleted"
+        else
+          log "warning: could not delete $own, a train this machine left on origin"
+          keep="$keep$own"$'\n'
+        fi
+      done <<<"$owns"
+      if [ -n "$keep" ]; then printf '%s' "$keep" >"$state/branch"; else rm -f "$state/branch"; fi
+    fi
+    # Another machine's train: deleted when its lander died (its tip older than LAND_TRAIN_STALE),
+    # else waited on as an open PR is.
+    if $prs_known; then
+      while read -r b a; do
+        if [ "$a" -ge "${LAND_TRAIN_STALE:-21600}" ]; then
+          if g push -q origin --delete "$b" >/dev/null 2>&1; then
+            log "$b is a train with no open PR, its tip ${a} s old: its lander died, deleted"
+          else
+            log "warning: could not delete $b, a train whose lander died"
+          fi
+        fi
+      done < <(foreign_trains "")
+    fi
+    # Its own count of polls, from the first one on this branch: an earlier wait on a PR or on
+    # another train does not shorten it. Without LAND_OPEN_TRIES it lasts until the train goes
+    # stale (then deleted above): a dead lander's train stops the next one for no longer.
+    # LAND_FORCE=1: a train left by a dead lander does not stall this one until it goes stale.
+    foreign=
+    [ -n "${LAND_FORCE:-}" ] || foreign=$(young_train "")
+    if [ -n "$foreign" ]; then
+      [ "$foreign" = "$fwaiting" ] || fwaited=0
+      fwaiting=$foreign fwaited=$((fwaited + 1))
+      fmax=${LAND_OPEN_TRIES:-$(( ${LAND_TRAIN_STALE:-21600} / (poll > 0 ? poll : 1) + 2 ))}
+      [ "$fwaited" -le "$fmax" ] ||
+        die "$foreign is still on origin after the wait, with no open PR: another machine's lander gating it, or one that stopped (deleted once its tip is older than LAND_TRAIN_STALE; if its lander is dead: LAND_FORCE=1 make land, or delete $foreign on origin); the queue is untouched"
+      log "$foreign is on origin with no open PR: another machine's lander is gating it, waiting (if that lander is dead: LAND_FORCE=1 make land, or delete $foreign on origin)"
+      sleep "$poll"; continue
+    fi
+    fwaiting= waited=0 # each wait starts with its full budget
   fi
   compose
   if [ -z "$TRAIN" ]; then
@@ -824,13 +1043,14 @@ while :; do
   fi
 
   # The train worktree, reset to main.
-  if [ ! -d "$wt/.git" ] && [ ! -f "$wt/.git" ]; then g worktree add -q --detach "$wt" origin/main; fi
+  if [ ! -d "$wt/.git" ] && [ ! -f "$wt/.git" ]; then g worktree add -q --detach "$wt" "$main_ref"; fi
   cd "$wt"
   git cherry-pick --abort >/dev/null 2>&1 || true
   git reset -q --hard && git clean -qfd
   id=$(date -u +%Y%m%d-%H%M%S)
   branch=train/$id
-  git checkout -q -B "$branch" origin/main
+  git checkout -q -B "$branch" "$main_ref"
+  $dry || echo "$branch" >>"$state/branch" # this machine's train, until it is cleaned up (never by the exit trap)
   base=$(git rev-parse HEAD) # the main this train is gated on, and the only one it merges onto
   MAP=
   # The newest issue or PR number: pending decisions are numbered above it.
@@ -851,13 +1071,13 @@ while :; do
         log "$s edits a pending decision that main holds numbered: applied to the numbered file"
       else
         # Its train landed and the queue entry outlived it: the same diff is on main.
-        if [ "$(g cherry origin/main "$sha" "$sha^" 2>/dev/null | cut -c1)" = - ]; then
+        if [ "$(g cherry "$main_ref" "$sha" "$sha^" 2>/dev/null | cut -c1)" = - ]; then
           log "$s is already on main: dequeued"
           $dry || dequeue "$s" "$sha" || log "warning: could not delete ready/$s"
           continue
         fi
         hint= # grep without -q reads all of git log: an early exit would fail it under pipefail
-        if g log --format=%s "$sha^..origin/main" | grep -xF "$(title "$sha")" >/dev/null; then
+        if g log --format=%s "$sha^..$main_ref" | grep -xF "$(title "$sha")" >/dev/null; then
           hint=" (main already holds a commit with its title: landed, its decision numbered?)"
         fi
         reject "$s" "$sha" "conflict: it does not apply on main plus the changes before it in the train$hint"
@@ -918,9 +1138,21 @@ while :; do
   fi
   log "train $branch: $k change(s): $(cut -d' ' -f1 <<<"$landed" | tr '\n' ' ' | sed 's/ $//') [gate: $gate_mode]"
   if $dry; then
-    git log --oneline "origin/main..HEAD"
+    git log --oneline "$main_ref..HEAD"
     cd "$main_repo"; g worktree remove --force "$wt" >/dev/null 2>&1 || true
     exit 0
+  fi
+
+  # A train another machine pushed since the loop top: its lander is gating it, so this
+  # composition is dropped before anything is pushed, and the loop top waits on it.
+  g fetch -q --no-tags --prune origin '+refs/heads/train/*:refs/remotes/origin/train/*' ||
+    die "cannot fetch origin before the gate of $branch: the queue is untouched"
+  foreign=
+  [ -n "${LAND_FORCE:-}" ] || foreign=$(young_train "")
+  if [ -n "$foreign" ]; then
+    log "$foreign appeared on origin while $branch was composed: another machine's lander is gating it, composing again after it"
+    git checkout -q --detach && git branch -q -D "$branch" || true
+    continue
   fi
 
   # The gate: once; on red, again (flaky?) unless the signoff's targeted retry already
@@ -1006,9 +1238,9 @@ while :; do
 
   # Main moved during the gate (a contributor's PR, a Dependabot merge, the release): the
   # gated tree is not the one a merge would land. Compose the train again on the new main.
-  g fetch -q origin main || die "cannot fetch origin after the gate of $branch: the queue is untouched"
-  if [ "$(g rev-parse origin/main)" != "$base" ]; then
-    log "main moved during the gate of $branch (${base:0:12}..$(g rev-parse --short=12 origin/main)): composing the train again"
+  g fetch -q --no-tags origin main || die "cannot fetch origin after the gate of $branch: the queue is untouched"
+  if [ "$(g rev-parse "$main_ref")" != "$base" ]; then
+    log "main moved during the gate of $branch (${base:0:12}..$(g rev-parse --short=12 "$main_ref")): composing the train again"
     g push -q origin --delete "$branch" >/dev/null 2>&1 || true
     continue
   fi

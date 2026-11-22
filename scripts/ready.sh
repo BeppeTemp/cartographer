@@ -9,7 +9,9 @@
 # its `Found-by:`/`Introduced-by:` lines (a `fix`) and `Cost:` line (scripts/trailers-lint.sh)
 # and the size cap as plan-gate would (scripts/pr-triage.sh), pushes it as
 # `refs/heads/ready/<slug>` (slug = the branch name after its prefix) and starts the
-# lander (scripts/land.sh --daemon) unless one already runs on this machine. The branch
+# lander (scripts/land.sh --daemon) unless one already runs on this machine or another
+# machine's lander is gating a train (that one takes the change). The lander runs the
+# scripts of origin/main, not this worktree's. The branch
 # itself is left as it is. Running it again replaces the queued change.
 #
 # A change built on another queued change (its branch holds that change's commits) is
@@ -57,7 +59,7 @@ case "$perm" in
 esac
 git remote get-url upstream >/dev/null 2>&1 && die "the lander works on the upstream repository itself: origin must be it, not a fork"
 
-git fetch -q origin main "+refs/heads/ready/*:refs/remotes/origin/ready/*" || die "cannot fetch origin"
+git fetch -q --no-tags origin main "+refs/heads/ready/*:refs/remotes/origin/ready/*" || die "cannot fetch origin"
 [ -z "${AFTER:-}" ] || [[ "$AFTER" =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "AFTER must be a slug of lowercase letters, digits and dashes: $AFTER"
 base=$(git merge-base origin/main HEAD) parent=$base
 if [ -n "${AFTER:-}" ] && after=$(git rev-parse -q --verify "refs/remotes/origin/ready/$AFTER^{commit}"); then

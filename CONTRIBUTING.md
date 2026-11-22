@@ -156,9 +156,10 @@ removes a clean `feat/<slug>` or `exp/<slug>` worktree whose slug and current he
 `Lander-Tip: <sha>` trailers of one commit of the upstream `main` (`make ready` records the head it squashed, the lander
 keeps both on the landed commit, a copy in the message is dropped) once `ready/<slug>` is gone from the upstream (a
 failing `ls-remote` counts as still there); a reused slug, or a branch with a commit after the queued one, is kept;
-worktrees landed before the trailer existed are removed by hand. `make worktree-rm` and `make worktree-clean` refuse
-the worktree a running lander was started from (`scripts/lander-guard.sh`): removing it deletes the scripts under the
-lander, whose next gate would fail; wait for it to exit (`make land-status`).
+worktrees landed before the trailer existed are removed by hand. A lander runs the scripts of its own checkout of
+`origin/main`, so removing the worktree it was started from is harmless; `make worktree-rm` and `make worktree-clean`
+refuse only the worktree a lander run with `LAND_SELF=1` runs its scripts from (`scripts/lander-guard.sh`): removing it
+deletes the scripts under the lander, whose next gate would fail; wait for it to exit (`make land-status`).
 
 ## Adding a lint check
 

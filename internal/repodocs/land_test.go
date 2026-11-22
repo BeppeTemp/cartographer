@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -59,6 +60,8 @@ func newLandEnv(t *testing.T) *landEnv {
 		// A hosted gate (land.sh without --gate host): every job of the dispatched ci.yml run green.
 		"FAKE_GH_JOBS="+hostedRun("completed", "completed success", nil),
 		"LAND_STATE="+filepath.Join(tmp, "lander"), "LAND_POLL=0", "LAND_INFRA_WAIT=0", "LAND_MERGE_TRIES=3",
+		// The scripts of this clone, not origin/main's (the tests of that path set LAND_SELF=).
+		"LAND_SELF=1",
 		"PATH="+e.bin+string(os.PathListSeparator)+os.Getenv("PATH"),
 	)
 	e.write(filepath.Join(e.bin, "fakemake"), `#!/bin/sh
@@ -152,7 +155,10 @@ case "$1 $2" in
       jq -n --arg d "$(cat "$FAKE_STATE.status-$c")" '[{context:"other",state:"success",description:"gate=host forged"},{context:"signoff",state:"success",description:$d}]'
     else echo '[]'; fi | out ;;
   "api repos/up/proj") echo '{"fork":false}' | out ;;
-  "api repos/up/proj/issues"*) if [ -n "${FAKE_GH_LAST:-}" ]; then echo "[{\"number\":$FAKE_GH_LAST}]"; else echo '[]'; fi | out ;;
+  "api repos/up/proj/issues"*)
+    # Another machine pushes train/<FAKE_TRAIN_ON_COMPOSE> while this lander composes (it reads the floor then).
+    [ -z "${FAKE_TRAIN_ON_COMPOSE:-}" ] || git --git-dir="$FAKE_UP" update-ref "refs/heads/train/$FAKE_TRAIN_ON_COMPOSE" main
+    if [ -n "${FAKE_GH_LAST:-}" ]; then echo "[{\"number\":$FAKE_GH_LAST}]"; else echo '[]'; fi | out ;;
   "run list")
     # The hosted pre-check of a queued commit (ready-check.yml): green unless the commit is
     # named in FAKE_PRECHECK_RED (red) or FAKE_PRECHECK_RUNNING (in progress).
@@ -178,7 +184,12 @@ case "$1 $2" in
     n=$(cat "$FAKE_STATE.dispatch" 2>/dev/null || echo 0); echo $((n + 1)) > "$FAKE_STATE.dispatch"
     cat "$LAND_STATE/gate" >> "$FAKE_STATE.gate-seen" 2>/dev/null || true ;;
   "run view") case "$*" in *--log*) ;; *) printf '%s\n' "${FAKE_GH_JOBS:-}" | out ;; esac ;;
-  "pr list") if [ -e "$FAKE_STATE.pr" ] && [ "$(cat "$FAKE_STATE.pr")" != OPEN ]; then echo '[]'; else echo "${FAKE_GH_TRAINS:-[]}"; fi | out ;;
+  "pr list")
+    # FAKE_PR_LIST_FAILS: GitHub does not answer; FAKE_GH_TRAINS_LISTS=n: the trains are open for n lists only.
+    [ -z "${FAKE_PR_LIST_FAILS:-}" ] || { echo "HTTP 502" >&2; exit 1; }
+    n=$(cat "$FAKE_STATE.lists" 2>/dev/null || echo 0); echo $((n + 1)) > "$FAKE_STATE.lists"
+    if [ -n "${FAKE_GH_TRAINS_LISTS:-}" ] && [ "$n" -ge "$FAKE_GH_TRAINS_LISTS" ]; then echo '[]'
+    elif [ -e "$FAKE_STATE.pr" ] && [ "$(cat "$FAKE_STATE.pr")" != OPEN ]; then echo '[]'; else echo "${FAKE_GH_TRAINS:-[]}"; fi | out ;;
   "pr create")
     head=; prev=; for a in "$@"; do [ "$prev" = --head ] && head=$a; prev=$a; done
     echo "$head" > "$FAKE_STATE.head"; echo OPEN > "$FAKE_STATE.pr"
@@ -192,7 +203,9 @@ case "$1 $2" in
   "pr merge")
     git --git-dir="$FAKE_UP" update-ref refs/heads/main "refs/heads/$(cat "$FAKE_STATE.head")"
     echo MERGED > "$FAKE_STATE.pr" ;;
-  "pr close") [ -n "${FAKE_CLOSE_FAILS:-}" ] && exit 1; echo CLOSED > "$FAKE_STATE.pr" ;;
+  "pr close") [ -n "${FAKE_CLOSE_FAILS:-}" ] && exit 1; echo CLOSED > "$FAKE_STATE.pr"
+    # --delete-branch deletes the head on origin, as GitHub does.
+    case "$*" in *--delete-branch*) git --git-dir="$FAKE_UP" update-ref -d "refs/heads/$(cat "$FAKE_STATE.head")" 2>/dev/null || true ;; esac ;;
   "pr checks") if [ -n "${FAKE_STARTUP_FAILURE:-}" ]; then echo '[{"bucket":"fail","state":"STARTUP_FAILURE"}]'; elif red; then echo '[{"bucket":"fail","state":"FAILURE"}]'; else echo '[{"bucket":"pass"}]'; fi | out ;;
   "pr view") ms=${FAKE_MERGE_STATE:-CLEAN}; red && ms=BLOCKED
     printf '{"state":"%s","mergeStateStatus":"%s"}\n' "$(cat "$FAKE_STATE.pr" 2>/dev/null || echo OPEN)" "$ms" | out ;;
@@ -1941,5 +1954,397 @@ func TestLanderMapsAnEditButNotInTestdata(t *testing.T) {
 	}
 	if got := e.upGit("show", "main:"+fx); got != "// D-new-x\n// more D-new-x" {
 		t.Errorf("the testdata file is not rewritten, got %q", got)
+	}
+}
+
+// pushTrain puts train/<name> on origin, one commit on main with no PR, committed at date
+// (now when empty): another machine's lander gating it, or one that died.
+func (e *landEnv) pushTrain(name, date string) {
+	e.t.Helper()
+	cmd := exec.Command("git", "--git-dir="+e.up, "commit-tree", e.upGit("rev-parse", "main^{tree}"), "-p", "main", "-m", "chore(dev): train "+name)
+	cmd.Env = e.env
+	if date != "" {
+		cmd.Env = append(append([]string{}, e.env...), "GIT_COMMITTER_DATE="+date)
+	}
+	out, err := cmd.Output()
+	if err != nil {
+		e.t.Fatalf("commit-tree: %v", err)
+	}
+	e.upGit("update-ref", "refs/heads/train/"+name, strings.TrimSpace(string(out)))
+}
+
+// withLandMarker is land.sh with a line that prints marker and the root the lander recorded,
+// once its pid and root are written, and removes $FAKE_RM when it is set.
+func withLandMarker(t *testing.T, script, marker string) string {
+	t.Helper()
+	at := "# reject <slug> <sha> <reason>: the change leaves the queue"
+	if strings.Count(script, at) != 1 {
+		t.Fatalf("land.sh has no single %q", at)
+	}
+	return strings.Replace(script, at, `echo "`+marker+`, root $(cat "$state/root" 2>/dev/null)" >&2
+[ -z "${FAKE_RM:-}" ] || rm -rf "$FAKE_RM"
+`+at, 1)
+}
+
+// A lander started from a worktree made before a lander fix landed runs origin/main's
+// land.sh, from its own checkout: the worktree can go while it gates. LAND_SELF=1 runs the
+// scripts beside it.
+func TestLanderRunsMainsScriptsFromAnOlderWorktree(t *testing.T) {
+	e := newLandEnv(t)
+	wt := filepath.Join(e.tmp, "wt")
+	e.git("worktree", "add", "-q", "-b", "feat/old", wt, "main")
+	marker := "land: marker: main's land.sh"
+	e.git("checkout", "-q", "-B", "fix", "origin/main")
+	e.write(filepath.Join(e.work, "scripts", "land.sh"), withLandMarker(t, readTmp(t, e.work, filepath.Join("scripts", "land.sh")), marker))
+	e.git("commit", "-q", "-am", "fix(dev): the lander fix")
+	e.git("push", "-q", "origin", "fix:main")
+	e.git("checkout", "-q", "main")
+	src := filepath.Join(e.tmp, "lander", "src")
+
+	if out, ok := e.land(); !ok || strings.Contains(out, marker) {
+		t.Fatalf("LAND_SELF=1 runs this clone's land.sh (ok=%v):\n%s", ok, out)
+	}
+	if _, err := os.Stat(src); err == nil {
+		t.Errorf("LAND_SELF=1 makes no checkout of main")
+	}
+
+	e.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"qa.txt": "a\n"})
+	cmd := exec.Command("bash", filepath.Join(wt, "scripts", "land.sh"), "--gate", "host")
+	cmd.Dir, cmd.Env = wt, append(append([]string{}, e.env...), "LAND_SELF=", "FAKE_RM="+wt)
+	b, err := cmd.CombinedOutput()
+	out := string(b)
+	if err != nil {
+		t.Fatalf("land.sh from the worktree: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, marker+", root "+src+"\n") {
+		t.Errorf("the lander runs main's land.sh from %s:\n%s", src, out)
+	}
+	if got := strings.Join(e.mainSubjects(), " | "); got != "fix(dev): the lander fix | fix(kb): a" {
+		t.Errorf("main holds %q: the change lands with the worktree gone\n%s", got, out)
+	}
+	if _, err := os.Stat(wt); err == nil {
+		t.Errorf("the marker line removes the worktree before the gate")
+	}
+	if strings.Contains(out, "--gate host") || !strings.Contains(out, "gate: host, the build host") {
+		t.Errorf("main's land.sh gets the same --gate:\n%s", out)
+	}
+}
+
+// A lander change lands in one train: the next train is composed and gated by the new land.sh.
+func TestLanderRunsMainsNewScriptsBetweenTrains(t *testing.T) {
+	e := newLandEnv(t)
+	marker := "land: marker: the new land.sh"
+	e.queue("lander-fix", "fix(dev): lander fix\n", "2026-01-01T10:00:00Z", map[string]string{
+		"scripts/land.sh": withLandMarker(t, readTmp(t, e.work, filepath.Join("scripts", "land.sh")), marker),
+	})
+	e.queue("b", "fix(kb): b\n", "2026-01-01T11:00:00Z", map[string]string{"qb.txt": "b\n"})
+	out, rc := e.landArgs([]string{"--gate", "host"}, "LAND_SELF=", "LAND_MAX=1")
+	if rc != 0 {
+		t.Fatalf("land failed (rc=%d)\n%s", rc, out)
+	}
+	if got := strings.Join(e.mainSubjects(), " | "); got != "fix(dev): lander fix | fix(kb): b" {
+		t.Fatalf("main holds %q\n%s", got, out)
+	}
+	changed, m, second := strings.Index(out, "main's scripts changed: running them"), strings.Index(out, marker), strings.Index(out, "1 change(s): b [gate: host]")
+	if changed < 0 || m < changed || second < m || strings.Count(out, marker) != 1 {
+		t.Errorf("after the first train the lander runs the new land.sh, which lands b:\n%s", out)
+	}
+}
+
+// A train branch with no open PR and a young tip is another machine's lander gating it: the
+// lander waits on it as on an open PR, then stops naming it, the queue untouched.
+func TestLanderWaitsOnATrainAnotherMachineGates(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"qa.txt": "a\n"})
+	e.pushTrain("20260101-000000", "")
+	out, ok := e.land("LAND_OPEN_TRIES=1")
+	if ok || !strings.Contains(out, "train/20260101-000000 is on origin with no open PR: another machine's lander is gating it, waiting") ||
+		!strings.Contains(out, "train/20260101-000000 is still on origin after the wait") {
+		t.Fatalf("the lander waits, then stops naming the branch (ok=%v):\n%s", ok, out)
+	}
+	if e.refs("ready/") != "a" || e.refs("train/") != "20260101-000000" || strings.Contains(e.makeLog(), "gate") {
+		t.Errorf("nothing gated, the queue and the branch untouched: ready=%q train=%q\n%s", e.refs("ready/"), e.refs("train/"), out)
+	}
+}
+
+// A train branch with no open PR whose tip is older than LAND_TRAIN_STALE was left by a
+// lander that died: it is deleted and the train lands.
+func TestLanderDeletesATrainWhoseLanderDied(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"qa.txt": "a\n"})
+	e.pushTrain("20200101-000000", "2020-01-01T00:00:00Z")
+	out, ok := e.land()
+	if !ok || !strings.Contains(out, "train/20200101-000000 is a train with no open PR, its tip ") || !strings.Contains(out, "its lander died, deleted") {
+		t.Fatalf("the stale train is deleted (ok=%v):\n%s", ok, out)
+	}
+	if got := strings.Join(e.mainSubjects(), " | "); got != "fix(kb): a" || e.refs("train/") != "" {
+		t.Errorf("the train lands and no train branch is left: main %q, train %q\n%s", got, e.refs("train/"), out)
+	}
+}
+
+// This machine's own train left on origin (a lander that died after its push) is deleted at
+// once, however young.
+func TestLanderDeletesItsOwnLeftoverTrain(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"qa.txt": "a\n"})
+	e.pushTrain("own", "")
+	e.write(filepath.Join(e.tmp, "lander", "branch"), "train/own\n")
+	out, ok := e.land()
+	if !ok || !strings.Contains(out, "train/own is a train this machine left on origin with no open PR: deleted") {
+		t.Fatalf("the leftover is deleted (ok=%v):\n%s", ok, out)
+	}
+	if got := strings.Join(e.mainSubjects(), " | "); got != "fix(kb): a" || e.refs("train/") != "" {
+		t.Errorf("the train lands and no train branch is left: main %q, train %q\n%s", got, e.refs("train/"), out)
+	}
+	if _, err := os.Stat(filepath.Join(e.tmp, "lander", "branch")); err == nil {
+		t.Errorf("the branch file goes once its train ended")
+	}
+}
+
+// A train another machine pushes while this lander composes is seen right before the gate:
+// the composition is dropped, nothing gated or pushed.
+func TestLanderDropsItsCompositionForATrainPushedMeanwhile(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"qa.txt": "a\n"})
+	out, ok := e.land("FAKE_TRAIN_ON_COMPOSE=x", "LAND_OPEN_TRIES=1")
+	if ok || !strings.Contains(out, "train/x appeared on origin while train/") || !strings.Contains(out, "train/x is still on origin after the wait") {
+		t.Fatalf("the composition is dropped, then the lander waits on train/x (ok=%v):\n%s", ok, out)
+	}
+	if e.refs("ready/") != "a" || e.refs("train/") != "x" || strings.Contains(e.makeLog(), "gate") {
+		t.Errorf("nothing gated or pushed: ready=%q train=%q\n%s", e.refs("ready/"), e.refs("train/"), out)
+	}
+}
+
+// --daemon starts no lander while another machine's is gating a train (make ready on a second
+// machine queues only); LAND_FORCE=1 starts one anyway, which does not wait on that train.
+func TestLanderDaemonStartsNothingWhileAnotherMachineGates(t *testing.T) {
+	e := newLandEnv(t)
+	state := filepath.Join(e.tmp, "lander")
+	e.pushTrain("20260101-000000", "")
+	out, rc := e.landArgs([]string{"--daemon"})
+	if rc != 0 || !strings.Contains(out, "land: a lander elsewhere is gating train/20260101-000000: not started here, the change is queued and that lander takes it (make land-status; if that lander is dead: LAND_FORCE=1 make land, or delete train/20260101-000000 on origin)") ||
+		strings.Contains(out, "lander started") {
+		t.Fatalf("--daemon says why it starts nothing (rc=%d):\n%s", rc, out)
+	}
+	if _, err := os.Stat(filepath.Join(state, "pid")); err == nil {
+		t.Errorf("no pid is written")
+	}
+	out, rc = e.landArgs([]string{"--daemon"}, "LAND_FORCE=1", "LAND_OPEN_TRIES=0")
+	if rc != 0 || !strings.Contains(out, "land: lander started (pid ") {
+		t.Fatalf("LAND_FORCE=1 starts one (rc=%d):\n%s", rc, out)
+	}
+	deadline := time.Now().Add(time.Minute)
+	for !strings.Contains(readTmpOrEmpty(state, "log"), "the queue is empty") {
+		if time.Now().After(deadline) {
+			t.Fatalf("the forced lander did not go past the train:\n%s", readTmpOrEmpty(state, "log"))
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	for _, err := os.Stat(filepath.Join(state, "pid")); err == nil; _, err = os.Stat(filepath.Join(state, "pid")) {
+		if time.Now().After(deadline) {
+			t.Fatal("the forced lander did not exit")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// A tag named origin/main, on origin or already in the clone, on a commit whose land.sh is not
+// main's, chooses neither the scripts the lander runs nor the main it composes on: no fetch
+// takes tags, and main is refs/remotes/origin/main spelled out. The change lands as usual.
+func TestLanderIgnoresATagNamedOriginMain(t *testing.T) {
+	e := newLandEnv(t)
+	marker := "land: marker: a tag's land.sh"
+	e.git("checkout", "-q", "-B", "evil", "origin/main")
+	e.write(filepath.Join(e.work, "scripts", "land.sh"), withLandMarker(t, readTmp(t, e.work, filepath.Join("scripts", "land.sh")), marker))
+	e.git("commit", "-q", "-am", "chore: not main")
+	tagged := e.git("rev-parse", "HEAD")
+	e.git("push", "-q", "origin", "evil")
+	e.git("checkout", "-q", "main")
+	src := filepath.Join(e.tmp, "lander", "src")
+	queue := func(slug string) {
+		e.queue(slug, "fix(kb): "+slug+"\n", "2026-01-01T10:00:00Z", map[string]string{"q" + slug + ".txt": slug + "\n"})
+	}
+	land := func(when, slug string) {
+		t.Helper()
+		out, rc := e.landArgs([]string{"--gate", "host"}, "LAND_SELF=")
+		if rc != 0 || strings.Contains(out, marker) {
+			t.Fatalf("%s: the lander runs main's land.sh and lands (rc=%d):\n%s", when, rc, out)
+		}
+		if got := e.mainSubjects(); got[len(got)-1] != "fix(kb): "+slug || strings.Contains(strings.Join(got, "|"), "not main") {
+			t.Errorf("%s: %s lands on main, not on the tagged commit: %q", when, slug, got)
+		}
+		if got, want := e.run(src, "git", "rev-parse", "HEAD:scripts"), e.upGit("rev-parse", "main:scripts"); got != want {
+			t.Errorf("%s: the checkout holds scripts %s, not main's %s", when, got, want)
+		}
+	}
+	queue("a") // the harness's own fetch would take the tag: it comes after
+	e.upGit("tag", "origin/main", tagged)
+	land("a tag on origin", "a")
+	if got := e.git("tag", "-l", "origin/main"); got != "" {
+		t.Errorf("the lander's fetches take no tag, got %q", got)
+	}
+	e.upGit("tag", "-d", "origin/main") // the harness's queue cannot run with it in the clone
+	queue("b")
+	e.git("tag", "origin/main", tagged)
+	land("a tag in the clone", "b")
+}
+
+// The wait on another machine's train has its own budget: polls already spent waiting on an
+// open PR do not end it early.
+func TestLanderWaitsOnAForeignTrainWithItsOwnBudget(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"qa.txt": "a\n"})
+	head, _ := e.trainBranch("fork", "origin/main", "x")
+	pr := `FAKE_GH_TRAINS=[{"number":42,"headRefName":"train/fork","headRefOid":"` + head + `","isCrossRepository":true,"baseRefName":"main"}]`
+	out, ok := e.land(pr, "FAKE_GH_TRAINS_LISTS=2", "LAND_OPEN_TRIES=2")
+	if ok || strings.Count(out, "train PR #42 is open") != 2 ||
+		strings.Count(out, "train/fork is on origin with no open PR: another machine's lander is gating it, waiting") != 2 ||
+		!strings.Contains(out, "train/fork is still on origin after the wait") {
+		t.Fatalf("two polls on the PR, then two of its own on the branch (ok=%v):\n%s", ok, out)
+	}
+}
+
+// When the open PRs cannot be listed, nothing is deleted: neither a stale train nor this
+// machine's leftover, which stays this machine's when the next train is composed.
+func TestLanderDeletesNothingWhenThePRListFails(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"qa.txt": "a\n"})
+	e.pushTrain("20200101-000000", "2020-01-01T00:00:00Z")
+	e.pushTrain("own", "")
+	branch := filepath.Join(e.tmp, "lander", "branch")
+	e.write(branch, "train/own\n")
+	out, ok := e.land("FAKE_PR_LIST_FAILS=1")
+	if !ok || strings.Contains(out, "deleted") {
+		t.Fatalf("the train lands and nothing is deleted (ok=%v):\n%s", ok, out)
+	}
+	if got := strings.Join(e.mainSubjects(), " | "); got != "fix(kb): a" {
+		t.Errorf("main holds %q\n%s", got, out)
+	}
+	if got := e.refs("train/"); got != "20200101-000000\nown" {
+		t.Errorf("both train branches stay, got %q", got)
+	}
+	if got := readTmpOrEmpty(filepath.Dir(branch), "branch"); !strings.Contains(got, "train/own\n") {
+		t.Errorf("the leftover stays this machine's, got %q", got)
+	}
+}
+
+// make ready's path: --daemon from a worktree's script runs main's land.sh, detached, with the
+// same --gate.
+func TestLanderDaemonRunsMainsScripts(t *testing.T) {
+	e := newLandEnv(t)
+	marker := "land: marker: main's land.sh"
+	e.git("checkout", "-q", "-B", "fix", "origin/main")
+	e.write(filepath.Join(e.work, "scripts", "land.sh"), withLandMarker(t, readTmp(t, e.work, filepath.Join("scripts", "land.sh")), marker))
+	e.git("commit", "-q", "-am", "fix(dev): the lander fix")
+	e.git("push", "-q", "origin", "fix:main")
+	e.git("checkout", "-q", "main")
+	e.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"qa.txt": "a\n"})
+	state := filepath.Join(e.tmp, "lander")
+	out, rc := e.landArgs([]string{"--daemon", "--gate", "host"}, "LAND_SELF=")
+	if rc != 0 || !strings.Contains(out, "land: lander started (pid ") || !strings.Contains(out, ", gate: host)") {
+		t.Fatalf("--daemon (rc=%d):\n%s", rc, out)
+	}
+	deadline := time.Now().Add(time.Minute)
+	for {
+		_, err := os.Stat(filepath.Join(state, "pid"))
+		if strings.Contains(readTmpOrEmpty(state, "log"), "the queue is empty") && os.IsNotExist(err) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the detached lander did not finish:\n%s", readTmpOrEmpty(state, "log"))
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	log := readTmpOrEmpty(state, "log")
+	if !strings.Contains(log, marker+", root "+filepath.Join(state, "src")+"\n") || !strings.Contains(log, "1 change(s): a [gate: host]") {
+		t.Errorf("the detached lander is main's, on the build host:\n%s", log)
+	}
+	if got := strings.Join(e.mainSubjects(), " | "); got != "fix(dev): the lander fix | fix(kb): a" {
+		t.Errorf("main holds %q\n%s", got, log)
+	}
+	if _, err := os.Stat(filepath.Join(state, "src.lock")); err == nil {
+		t.Errorf("the start lock is dropped once the lander's pid file guards the checkout")
+	}
+}
+
+// One starting lander at a time resets the checkout: a second one says a lander runs and exits
+// 0. The start lock is taken over when its holder died, when it is older than
+// LAND_START_TIMEOUT though its holder lives (stuck on the network), and when it is a directory,
+// not one of these links, older than 5 s.
+func TestLanderStartsAloneWhileAnotherResetsItsCheckout(t *testing.T) {
+	e := newLandEnv(t)
+	state := filepath.Join(e.tmp, "lander")
+	src, lock := filepath.Join(state, "src"), filepath.Join(state, "src.lock")
+	if err := os.MkdirAll(state, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := func(pid int, age time.Duration) {
+		t.Helper()
+		_ = os.RemoveAll(lock)
+		if err := os.Symlink(strconv.Itoa(pid)+"."+strconv.FormatInt(time.Now().Add(-age).Unix(), 10), lock); err != nil {
+			t.Fatal(err)
+		}
+	}
+	refused := func(when string) {
+		t.Helper()
+		out, rc := e.landArgs([]string{"--gate", "host"}, "LAND_SELF=")
+		if rc != 0 || !strings.Contains(out, "land: a lander already runs here (starting, pid ") {
+			t.Fatalf("%s: the start lock is held (rc=%d):\n%s", when, rc, out)
+		}
+		if _, err := os.Stat(src); err == nil {
+			t.Fatalf("%s: the checkout is not touched", when)
+		}
+	}
+	taken := func(when string) {
+		t.Helper()
+		out, rc := e.landArgs([]string{"--gate", "host"}, "LAND_SELF=")
+		if rc != 0 || !strings.Contains(out, "the queue is empty") {
+			t.Fatalf("%s: the lock is taken over (rc=%d):\n%s", when, rc, out)
+		}
+		if _, err := os.Stat(filepath.Join(src, "scripts", "land.sh")); err != nil {
+			t.Errorf("%s: the checkout is made: %v", when, err)
+		}
+		if _, err := os.Lstat(lock); err == nil {
+			t.Errorf("%s: the lock is dropped", when)
+		}
+		_ = os.RemoveAll(src)
+		e.git("worktree", "prune")
+	}
+	link(os.Getpid(), 0)
+	refused("a live holder")
+	if out, _ := e.landArgs([]string{"--gate", "host"}, "LAND_SELF="); !strings.Contains(out, "(starting, pid "+strconv.Itoa(os.Getpid())+")") {
+		t.Errorf("the message names the holder:\n%s", out)
+	}
+	link(os.Getpid(), 400*time.Second)
+	taken("a live holder past LAND_START_TIMEOUT")
+	dead := exec.Command("true")
+	if err := dead.Run(); err != nil {
+		t.Fatal(err)
+	}
+	link(dead.Process.Pid, 0)
+	taken("a holder that died")
+	if err := os.Mkdir(lock, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	refused("a fresh directory with no pid")
+	old := time.Now().Add(-time.Minute)
+	if err := os.Chtimes(lock, old, old); err != nil {
+		t.Fatal(err)
+	}
+	taken("a directory with no pid, older than 5 s")
+}
+
+// A lander run with LAND_FORCE=1 does not wait on a young train with no open PR (a dead
+// lander's, which would stall it until it goes stale): it lands.
+func TestLanderForcedDoesNotWaitOnATrain(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"qa.txt": "a\n"})
+	e.pushTrain("20260101-000000", "")
+	out, ok := e.land("LAND_FORCE=1", "LAND_OPEN_TRIES=0")
+	if !ok || strings.Contains(out, "waiting") || strings.Contains(out, "appeared on origin") {
+		t.Fatalf("the forced lander lands past the train (ok=%v):\n%s", ok, out)
+	}
+	if got := strings.Join(e.mainSubjects(), " | "); got != "fix(kb): a" {
+		t.Errorf("main holds %q\n%s", got, out)
 	}
 }
