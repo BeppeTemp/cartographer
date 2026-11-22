@@ -31,6 +31,9 @@ repository.
 ```markdown
 # <title>
 
+Plan id for acceptance criteria: <plan id>
+Verified against main: <sha>
+
 ## Context and diagnosis
 
 The why: evidence, measurements, constraints; decisions already made with their
@@ -38,9 +41,13 @@ rationale; invariants to preserve, in bold.
 
 ## WP1 — <title>
 
-One WP section per work package: one-line goal; file:line to touch; exact semantics
-and error cases; tests to add; acceptance criterion. `make check` green at the end of
+One WP section per work package: one-line goal; the anchors to touch; exact semantics
+and error cases; tests to add; acceptance criteria. `make check` green at the end of
 each WP.
+
+- AC-<plan id>-<n> test: <one checkable sentence>
+- AC-<plan id>-<n> manual: <one checkable sentence>
+- AC-<plan id>-<n> deferred: <one checkable sentence> — <reason>
 
 ## Changes
 
@@ -52,7 +59,7 @@ with one WP omits the body line when it equals the title.
 
 ## Closing
 
-- [ ] Current-state docs: `docs/<page>.md`
+- [ ] Docs delta, one line per file and change: `[<change slug>] <file> §<section>: add | change | remove — <what the file says afterwards>`, or `[<change slug>] none — <reason>`; `<file>` is a current-state file (a `docs/` page, `CONTRIBUTING.md`, a skill, an area `AGENTS.md`), and a line without a slug belongs to the plan's last change
 - [ ] Decision file: `docs/decisions/D-new-<slug>.md` (numbered when it lands), `topic: <topic>` (one of `repodocs.TopicOrder`; `make decisions-new` lists them), or `none` (no architectural or contract choice)
 - [ ] Traps: fixed with a test or a comment next to the code, or `none`
 - [ ] Release impact: `<none | describe>`
@@ -68,24 +75,37 @@ with one WP omits the body line when it equals the title.
    choice) is stated in its Closing section; the file is written **at the end of
    implementation**, not now — the plan is its draft. It is pending, `D-new-<slug>`, and
    the lander numbers it (D1706).
-3. Derive the real `file:line` pointers before writing, with `Grep`/`Glob`
-   rather than by reading whole files, and read only the located
-   ranges. For an area you do not already know, send an `Explore`
-   subagent first and derive the pointers from its report. The plan contains
-   pointers, not paraphrases.
-4. Write the plan (in English) to a scratch file outside the repository, following
+3. Name **anchors**, never line numbers: a file path plus a symbol in it (a function,
+   a type, a make target, a heading, a workflow job, a test name). Lines move when a
+   sibling plan lands between the writing and the implementation, so the implementer
+   resolves each anchor to `file:line` on its own base. Find them with `Grep`/`Glob`
+   rather than by reading whole files, read only the located ranges, and check that
+   every anchor exists on `main` and every decision holds there. For an area you do
+   not already know, send an `Explore` subagent first and take the anchors from its
+   report. The plan contains anchors, not paraphrases, and its
+   `Verified against main: <sha>` line names the commit they were checked on.
+4. Give the plan its id line and number each WP's acceptance criteria
+   (§Plan structure): `AC-<plan id>-<n>`, `<plan id>` matching
+   `[A-Za-z0-9]+(-[A-Za-z0-9]+)*` and `<n>` unique in the plan, one checkable sentence
+   each, of kind `test` (a test can prove it), `manual` (only a person or a
+   release-candidate lane can check it) or `deferred` (with the reason). The criteria
+   outlive the plan: the implementer copies them into the change's message. Write the
+   Closing's docs delta as what each file says afterwards, each line naming the change
+   that makes it (a line without a slug belongs to the plan's last change): the contract reviewer compares a change's
+   lines with its diff.
+5. Write the plan (in English) to a scratch file outside the repository, following
    the structure above, and hand that file to the maintainer. A plan that answers
    issues names them, so the change can close them.
-5. Apply the self-sufficiency test from `CONTRIBUTING.md`, and replace every real KB
+6. Apply the self-sufficiency test from `CONTRIBUTING.md`, and replace every real KB
    name, host, username, employer or client with a placeholder: the implementer
    pours the plan into a public commit (D259).
-6. Group the WPs into the fewest changes the size cap allows, by file-set and dependency
+7. Group the WPs into the fewest changes the size cap allows, by file-set and dependency
    (`CONTRIBUTING.md` §Plans). A change may build on another: it names it, and is queued
    after it (`AFTER=<slug>`).
-7. One analysis, several plans → every plan states the cross-plan execution order
+8. One analysis, several plans → every plan states the cross-plan execution order
    and which sibling plans touch the same files (those are built one on the other and
    queued in order, never in parallel). A pointer into a sibling's not-yet-implemented artifact cites
-   the plan and its WP, never an invented `file:line`.
+   the plan and its WP, never an invented anchor.
 
 ## Delegating the drafting
 
@@ -96,18 +116,19 @@ Sonnet), several in parallel, in the background: the spawn prompt is the issue n
 when there is one, the decisions, the sibling plans with their execution order and an
 absolute scratch path outside the repository. It reports the decisions the code
 contradicts; the coordinator brings those back to the user, then reads the plan
-(privacy, execution order) and hands it over per step 4. A request split into several
+(privacy, execution order) and hands it over per step 5. A request split into several
 plans gets one writer per plan.
 
 ## Consuming a plan (implementing session)
 
 0. Only a plan file the maintainer gave in the session is implemented, whoever the caller is.
 
-1. Read the file.
+1. Read the file, and resolve every anchor of the change to `file:line`.
 2. Execute the WPs in order, `make check` after each.
-3. Update the docs per the closing checklist and, if it names one, write the pending
+3. Update the docs per the lines of the Closing's docs delta that name the change (a line without a slug belongs to the plan's last change) and, if it names one, write the pending
    decision file (`make decisions-new SLUG=<slug> TOPIC=<topic>`; never regenerate
    `docs/decisions.md`: the release PR regenerates the index, D328); a change that finishes
-   an issue the plan names says `Closes #<n>` in its message, an earlier one `Refs #<n>`.
-4. Contradiction between plan and code → **stop and tell the maintainer**: the plan
+   an issue the plan names says `Closes #<n>` in its message, an earlier one `Refs #<n>`;
+   the message carries one `AC:` line per criterion of its WPs (`CONTRIBUTING.md` §Plans).
+4. Contradiction between plan and code, or an anchor that does not resolve → **stop and tell the maintainer**: the plan
    may be stale relative to `main`.

@@ -34,8 +34,8 @@ Protocol: JSON-RPC 2.0, stdio newline-delimited, HTTP POST /mcp, logs on stderr.
 
 Structural questions: targeted Grep/Explore, then read only the cited `file:line`.
 
-- the **why** lives in `docs/decisions/`, one file per decision (`ls docs/decisions/D47-*`), current behavior in `docs/` (map in `docs/index.md`);
-- mandates to a coding subagent include the derived `file:line` pointers.
+- the **why** lives in `docs/decisions/`, one file per decision, current behavior in `docs/`;
+- mandates to a coding subagent carry `file:line`; a plan names files and symbols, its implementer derives the lines.
 
 ## Areas
 
