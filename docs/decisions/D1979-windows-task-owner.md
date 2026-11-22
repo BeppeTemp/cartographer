@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amends: D217
 ---
 
 # D1979 — The Windows tasks belong to the user, whoever installs them, and a restart needs only the right to start

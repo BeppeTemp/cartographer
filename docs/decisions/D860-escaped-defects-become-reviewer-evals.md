@@ -1,5 +1,6 @@
 ---
 topic: project-governance
+amended_by: D2292
 ---
 
 # D860 — A defect that escapes review becomes an eval case for the reviewers

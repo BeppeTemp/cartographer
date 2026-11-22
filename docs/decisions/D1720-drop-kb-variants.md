@@ -1,5 +1,7 @@
 ---
 topic: client-configurator
+supersedes: D1657, D1662, D1695, D1698, D1701, D1702
+amends: D1700
 ---
 
 # D1720 — A fork of a client is client tooling, not knowledge

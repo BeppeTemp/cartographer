@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amends: D2039
 ---
 
 # D2280 — an edge case warns or falls back, it does not refuse or pass in silence (#2278)

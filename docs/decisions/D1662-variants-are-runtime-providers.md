@@ -1,5 +1,7 @@
 ---
 topic: client-configurator
+amends: D137
+superseded_by: D1720
 ---
 
 # D1662 — A client variant is a runtime provider registered beside the built-ins, never inside their lists

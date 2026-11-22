@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amended_by: D1862
 ---
 
 # D1482 — The local server has a tray icon, in its own process

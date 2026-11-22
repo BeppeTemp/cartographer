@@ -1,5 +1,6 @@
 ---
 topic: concurrency-git
+amends: D76
 ---
 
 # D155 — Surviving an external process writing into a synced KB

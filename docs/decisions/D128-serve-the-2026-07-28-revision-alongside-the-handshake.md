@@ -1,5 +1,6 @@
 ---
 topic: transport-auth
+amended_by: D168
 ---
 
 # D128 — Serve the 2026-07-28 revision alongside the handshake era

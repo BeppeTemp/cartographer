@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amended_by: D2026
 ---
 
 # D1921 — the fast-tier check can run on a GitHub-hosted runner, opt-in and never a gate

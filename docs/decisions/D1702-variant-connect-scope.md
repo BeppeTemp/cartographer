@@ -1,5 +1,6 @@
 ---
 topic: client-configurator
+superseded_by: D1720
 ---
 
 # D1702 — A discovered client variant is connected with its declaring KB only

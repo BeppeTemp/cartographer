@@ -1,5 +1,6 @@
 ---
 topic: sync-provisioning
+amended_by: D291
 ---
 
 # D283 — A dropped `tools` allow-list is reported, and an agent can opt out of being widened

@@ -1,5 +1,7 @@
 ---
 topic: project-governance
+amends: D203, D327, D364
+superseded_by: D992
 ---
 
 # D884 — Cartographer is developed with Claude Code, Kiro, OpenCode and Copilot CLI, on Claude models, with five subagents

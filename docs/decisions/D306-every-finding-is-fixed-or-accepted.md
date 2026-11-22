@@ -1,5 +1,6 @@
 ---
 topic: data-plane
+amended_by: D907, D1099
 ---
 
 # D306 — Every finding is fixed or accepted, and a map accepts a style once

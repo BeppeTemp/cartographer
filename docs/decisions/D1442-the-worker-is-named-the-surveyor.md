@@ -1,5 +1,6 @@
 ---
 topic: architecture
+amended_by: D1856, D1867
 ---
 
 # D1442 — The background role is the Surveyor, the command `cartographer surveyor`

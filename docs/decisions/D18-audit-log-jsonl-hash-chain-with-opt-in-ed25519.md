@@ -1,5 +1,6 @@
 ---
 topic: transport-auth
+amended_by: D905
 ---
 
 # D18 — Audit log: JSONL hash-chain with opt-in Ed25519 signature (compliance-grade)

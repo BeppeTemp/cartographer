@@ -1,5 +1,7 @@
 ---
 topic: control-plane
+amends: D358, D369, D690
+amended_by: D1258
 ---
 
 # D704 — An agent works on a KB only when the operator asks

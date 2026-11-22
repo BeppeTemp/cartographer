@@ -1,5 +1,6 @@
 ---
 topic: data-plane
+amends: D74
 ---
 
 # D91 — Import convenience without widening the default write surface

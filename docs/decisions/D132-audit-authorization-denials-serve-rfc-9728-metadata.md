@@ -1,5 +1,6 @@
 ---
 topic: transport-auth
+amended_by: D166
 ---
 
 # D132 — Audit authorization denials; serve RFC 9728 metadata; drop the unwired HTTP handler layer

@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amended_by: D711
 ---
 
 # D151 — A KB's capabilities and mount provenance are visible from a session

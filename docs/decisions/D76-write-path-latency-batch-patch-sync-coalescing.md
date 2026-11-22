@@ -1,5 +1,6 @@
 ---
 topic: concurrency-git
+amended_by: D155, D167
 ---
 
 # D76 — Write-path latency: batch patch, sync coalescing, asynchronous push

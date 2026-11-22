@@ -1,5 +1,7 @@
 ---
 topic: transport-auth
+amends: D261
+amended_by: D2110
 ---
 
 # D1894 — Tokens have a kind and an expiry; non-human kinds are never admin

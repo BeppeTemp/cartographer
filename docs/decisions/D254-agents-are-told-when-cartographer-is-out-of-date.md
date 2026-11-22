@@ -1,5 +1,6 @@
 ---
 topic: client-configurator
+amended_by: D906
 ---
 
 # D254 — Agents are told when Cartographer is out of date

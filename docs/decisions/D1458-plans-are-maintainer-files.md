@@ -1,5 +1,6 @@
 ---
 topic: project-governance
+amends: D672, D1450, D1451
 ---
 
 # D1458 — A plan is a maintainer's file, and the repository has no plan issues

@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amends: D1191
 ---
 
 # D2028 — The age key of a KB is resolved on every read

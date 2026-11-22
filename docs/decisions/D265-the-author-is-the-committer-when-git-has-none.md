@@ -1,5 +1,6 @@
 ---
 topic: concurrency-git
+amended_by: D904, D950
 ---
 
 # D265 — The author is the committer when git has none

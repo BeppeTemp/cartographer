@@ -1,5 +1,6 @@
 ---
 topic: skills-services-secrets
+amended_by: D2017
 ---
 
 # D2009 — An agent's frontmatter gets D212's strict-YAML refusal, and an agent that does not parse is named

@@ -1,5 +1,8 @@
 ---
 topic: concurrency-git
+supersedes: D117
+amends: D335
+amended_by: D1093
 ---
 
 # D903 — Git has one way to write, on any provider, and old settings files are realigned

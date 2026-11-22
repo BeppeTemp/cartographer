@@ -1,5 +1,6 @@
 ---
 topic: project-governance
+amends: D1454
 ---
 
 # D1707 — One lane to main for every maintainer change; exp/ only for public builds

@@ -1,5 +1,7 @@
 ---
 topic: deployment-release
+amends: D956
+amended_by: D1192, D1384
 ---
 
 # D989 — The freeze and the release candidate move to Saturday

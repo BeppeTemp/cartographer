@@ -1,5 +1,7 @@
 ---
 topic: control-plane
+amends: D70, D185, D309, D781
+amended_by: D1354
 ---
 
 # D1185 — Tool results are lighter by default: compact JSON, `search` limit 8 and no `related`, no `frontmatter_raw`

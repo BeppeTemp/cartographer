@@ -1,5 +1,6 @@
 ---
 topic: data-plane
+amended_by: D160
 ---
 
 # D77 — Atlas/Map/Journal hierarchy: the dossier becomes a state of the concept

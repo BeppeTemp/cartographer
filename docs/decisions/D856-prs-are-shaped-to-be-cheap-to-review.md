@@ -1,5 +1,6 @@
 ---
 topic: project-governance
+amended_by: D1451
 ---
 
 # D856 — A pull request is shaped to be cheap to review

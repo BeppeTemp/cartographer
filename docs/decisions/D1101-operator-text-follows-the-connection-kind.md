@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amends: D299
 ---
 
 # D1101 — Operator-directed text follows the connection kind

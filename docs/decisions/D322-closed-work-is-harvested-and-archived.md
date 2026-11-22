@@ -1,5 +1,6 @@
 ---
 topic: data-plane
+amended_by: D1529
 ---
 
 # D322 — `archived` is a reserved status: closed journal entries are harvested, then leave the active surface

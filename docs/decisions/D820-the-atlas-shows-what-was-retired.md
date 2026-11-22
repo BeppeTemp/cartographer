@@ -1,5 +1,6 @@
 ---
 topic: architecture
+amended_by: D1146
 ---
 
 # D820 — The Atlas shows what was retired, read from the root log, as a tab of Activity

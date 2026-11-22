@@ -1,5 +1,6 @@
 ---
 topic: sync-provisioning
+amended_by: D719
 ---
 
 # D359 — The OpenCode hook plugin is generated in the shape of the installed major

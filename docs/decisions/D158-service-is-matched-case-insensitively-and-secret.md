@@ -1,5 +1,6 @@
 ---
 topic: skills-services-secrets
+amended_by: D261
 ---
 
 # D158 — `Service` is matched case-insensitively, and `secret_resolve` redacts by default

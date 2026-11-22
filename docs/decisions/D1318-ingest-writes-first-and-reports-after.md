@@ -1,5 +1,6 @@
 ---
 topic: skills-services-secrets
+amends: D279
 ---
 
 # D1318 — Ingest writes first and reports after

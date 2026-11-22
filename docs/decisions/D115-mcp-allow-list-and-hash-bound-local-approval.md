@@ -1,5 +1,6 @@
 ---
 topic: sync-provisioning
+amended_by: D906
 ---
 
 # D115 — MCP allow-list and hash-bound local approval

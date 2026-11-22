@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amends: D781, D1185, D1207
 ---
 
 # D1354 — `search` restores the v0.26 read path: 20 hits, a related block of 5, no section named

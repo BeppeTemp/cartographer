@@ -1,5 +1,7 @@
 ---
 topic: control-plane
+amends: D780
+amended_by: D1185, D1354
 ---
 
 # D781 — `search` offers a `related` block from the link graph, on by default, off with `related: 0`

@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amended_by: D2076
 ---
 
 # D1986 — The cluster projection has its own preview route

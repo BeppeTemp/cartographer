@@ -1,5 +1,6 @@
 ---
 topic: architecture
+amends: D1986
 ---
 
 # D2076 — The cluster view is super-nodes in the graph, with no interface of its own

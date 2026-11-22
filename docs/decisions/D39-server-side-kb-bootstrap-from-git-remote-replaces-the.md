@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amended_by: D905
 ---
 
 # D39 — Server-side KB bootstrap from git remote (replaces the k8s init container)

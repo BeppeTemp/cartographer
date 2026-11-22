@@ -1,5 +1,7 @@
 ---
 topic: sync-provisioning
+amends: D193
+amended_by: D884, D898
 ---
 
 # D364 — Antigravity and Hermes get project-local cells; co-owned paths survive a prune

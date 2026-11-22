@@ -1,5 +1,6 @@
 ---
 topic: skills-services-secrets
+amended_by: D166, D905
 ---
 
 # D47 — Per-KB SOPS: `AgeKeyEnv` (env wins), flat `service_get(resolve_secrets)`, resolve requires rw

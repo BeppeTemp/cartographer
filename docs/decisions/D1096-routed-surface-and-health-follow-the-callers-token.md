@@ -1,5 +1,7 @@
 ---
 topic: transport-auth
+amends: D187
+amended_by: D1901
 ---
 
 # D1096 — The routed surface and /health follow the caller's token

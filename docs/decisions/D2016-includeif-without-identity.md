@@ -1,5 +1,6 @@
 ---
 topic: concurrency-git
+amends: D904
 ---
 
 # D2016 — An includeIf counts as a per-folder identity only when an included file may set one

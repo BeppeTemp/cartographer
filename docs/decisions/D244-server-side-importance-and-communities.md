@@ -1,5 +1,6 @@
 ---
 topic: architecture
+amends: D226
 ---
 
 # D244 — server-side importance and communities

@@ -1,5 +1,6 @@
 ---
 topic: client-configurator
+amended_by: D1720
 ---
 
 # D1700 — A client variant reaches Cartographer in one of three declared MCP modes, none of them a script

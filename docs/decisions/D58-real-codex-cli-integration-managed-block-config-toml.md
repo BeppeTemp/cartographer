@@ -1,5 +1,6 @@
 ---
 topic: sync-provisioning
+amended_by: D230, D291
 ---
 
 # D58 — Real Codex CLI integration: managed-block `config.toml`, TOML agents, hook engine

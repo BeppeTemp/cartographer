@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amends: D306, D312, D714
 ---
 
 # D1099 — The only live page of an archive is no orphan, and `concept_write` takes `index_entry`

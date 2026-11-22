@@ -1,5 +1,6 @@
 ---
 topic: project-governance
+amends: D1610, D1706, D2040
 ---
 
 # D2293 — The gate mode is a per-invocation choice with a hosted default, and every train says which gate it had

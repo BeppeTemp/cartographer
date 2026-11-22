@@ -1,5 +1,7 @@
 ---
 topic: project-governance
+supersedes: D884
+amends: D203, D327
 ---
 
 # D992 — This repository is developed with Claude Code only

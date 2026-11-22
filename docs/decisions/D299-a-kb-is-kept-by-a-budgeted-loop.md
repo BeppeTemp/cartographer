@@ -1,5 +1,7 @@
 ---
 topic: control-plane
+amends: D290, D298
+amended_by: D947, D1101
 ---
 
 # D299 — A KB is kept by a budgeted loop the server proposes

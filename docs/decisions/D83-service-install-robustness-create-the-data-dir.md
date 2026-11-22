@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amends: D73
 ---
 
 # D83 — Service install robustness: create the data dir, tolerate its absence, stable plist binary path

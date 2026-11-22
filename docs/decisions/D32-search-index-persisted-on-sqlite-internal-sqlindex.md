@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amended_by: D135
 ---
 
 # D32 — Search index persisted on SQLite (`internal/sqlindex`)

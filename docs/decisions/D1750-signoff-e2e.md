@@ -1,5 +1,7 @@
 ---
 topic: project-governance
+amends: D1610
+amended_by: D2040
 ---
 
 # D1750 — The signoff runs smoke-http, smoke and e2e; only test-install is first run on main

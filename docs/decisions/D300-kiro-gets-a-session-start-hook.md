@@ -1,5 +1,6 @@
 ---
 topic: sync-provisioning
+amends: D140
 ---
 
 # D300 — Kiro gets a session-start hook through a standalone file Cartographer owns, limited to the V3 TUI

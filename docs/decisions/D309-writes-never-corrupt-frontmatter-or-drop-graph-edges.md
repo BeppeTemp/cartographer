@@ -1,5 +1,6 @@
 ---
 topic: data-plane
+amended_by: D1185, D1558
 ---
 
 # D309 — Writes never corrupt frontmatter or drop graph edges

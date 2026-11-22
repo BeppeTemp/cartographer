@@ -1,5 +1,6 @@
 ---
 topic: project-governance
+supersedes: D198
 ---
 
 # D330 — The README shows a recorded Atlas tour again, filmed by a test

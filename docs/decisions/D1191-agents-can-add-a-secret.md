@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amended_by: D2028
 ---
 
 # D1191 — An agent with rw scope can add a secret to a KB

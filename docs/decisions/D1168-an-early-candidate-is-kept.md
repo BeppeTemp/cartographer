@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amended_by: D1384
 ---
 
 # D1168 — A candidate built from the current main is kept by the Saturday run

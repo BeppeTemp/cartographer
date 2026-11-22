@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amended_by: D947
 ---
 
 # D370 — The server keeps one lint sample a day, and Health draws the trend

@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amended_by: D691
 ---
 
 # D677 — The growth replay exports as a browser-recorded video

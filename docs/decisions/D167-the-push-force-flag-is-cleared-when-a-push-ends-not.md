@@ -1,5 +1,6 @@
 ---
 topic: concurrency-git
+amends: D76
 ---
 
 # D167 — The push force flag is cleared when a push ends, not only when one starts

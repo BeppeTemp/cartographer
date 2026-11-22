@@ -1,5 +1,7 @@
 ---
 topic: data-plane
+supersedes: D13
+amended_by: D248
 ---
 
 # D72 — KB refactoring ergonomics: backlink rewrite and batch in `concept_move`, consistent index, inventory, explicit dossiers

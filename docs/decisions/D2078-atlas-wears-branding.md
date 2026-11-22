@@ -1,5 +1,6 @@
 ---
 topic: architecture
+amends: D1948
 ---
 
 # D2078 — The Atlas wears the plugin branding

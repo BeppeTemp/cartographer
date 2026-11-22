@@ -1,5 +1,6 @@
 ---
 topic: sync-provisioning
+amends: D359
 ---
 
 # D719 — An unreadable OpenCode version writes the newest plugin shape, with a warning

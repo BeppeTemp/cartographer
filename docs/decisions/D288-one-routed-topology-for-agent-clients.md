@@ -1,5 +1,7 @@
 ---
 topic: transport-auth
+amends: D187
+amended_by: D756, D1183
 ---
 
 # D288 — One routed topology for agent clients: the binding in the URL, tools never prefixed

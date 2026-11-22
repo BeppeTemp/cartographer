@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amended_by: D294, D299, D947
 ---
 
 # D290 — Drifted KBs are repaired by an explicit tool call, and `kb_status` signals when to

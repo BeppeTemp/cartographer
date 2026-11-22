@@ -1,5 +1,7 @@
 ---
 topic: control-plane
+supersedes: D20
+amends: D32
 ---
 
 # D135 — Remove semantic search and the Ollama embedding backend

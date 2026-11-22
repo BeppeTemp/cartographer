@@ -1,5 +1,6 @@
 ---
 topic: data-plane
+amended_by: D289, D350
 ---
 
 # D275 — a map contract can constrain field values and forbid fields

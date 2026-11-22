@@ -1,5 +1,6 @@
 ---
 topic: data-plane
+amends: D72
 ---
 
 # D248 — Backlink rewrite follows the graph

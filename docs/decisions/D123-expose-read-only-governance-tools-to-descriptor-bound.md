@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amends: D65
 ---
 
 # D123 — Expose read-only governance tools to descriptor-bound agents

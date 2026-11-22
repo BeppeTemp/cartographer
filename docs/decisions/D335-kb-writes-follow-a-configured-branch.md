@@ -1,5 +1,7 @@
 ---
 topic: concurrency-git
+amends: D264
+amended_by: D903, D1093
 ---
 
 # D335 — KB writes follow a configured branch

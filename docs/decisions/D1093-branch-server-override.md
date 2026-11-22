@@ -1,5 +1,7 @@
 ---
 topic: concurrency-git
+amends: D264, D335, D903
+amended_by: D1412
 ---
 
 # D1093 — A server can override the KB's branch for itself, and a clean clone follows the effective branch

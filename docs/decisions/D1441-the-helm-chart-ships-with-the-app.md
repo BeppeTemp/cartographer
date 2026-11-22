@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amended_by: D1867, D1881
 ---
 
 # D1441 — The Helm chart ships with the app

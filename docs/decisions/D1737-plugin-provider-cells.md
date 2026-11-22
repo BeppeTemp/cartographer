@@ -1,5 +1,6 @@
 ---
 topic: client-configurator
+amended_by: D1795
 ---
 
 # D1737 — A plugin provider's cells are data read through `cellFor`, its hooks join the base's dispatcher, and its MCP file may be a pattern

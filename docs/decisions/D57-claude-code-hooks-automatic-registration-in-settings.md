@@ -1,5 +1,6 @@
 ---
 topic: sync-provisioning
+amends: D48
 ---
 
 # D57 — Claude Code hooks: automatic registration in `settings.json`

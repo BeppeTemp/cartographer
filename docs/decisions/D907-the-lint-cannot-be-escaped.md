@@ -1,5 +1,8 @@
 ---
 topic: control-plane
+supersedes: D332, D834
+amends: D159, D306, D313, D315, D349, D350, D371
+amended_by: D947, D1892
 ---
 
 # D907 — The lint cannot be escaped: a write never introduces an avoidable finding, and nothing hides one

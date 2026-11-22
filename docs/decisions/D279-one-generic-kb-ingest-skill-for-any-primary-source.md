@@ -1,5 +1,6 @@
 ---
 topic: skills-services-secrets
+amended_by: D1318
 ---
 
 # D279 — One generic `kb-ingest` skill ingests any primary source, patching over creating

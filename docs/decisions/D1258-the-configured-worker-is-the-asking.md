@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amends: D358, D369, D704
 ---
 
 # D1258 — The configured worker is the asking

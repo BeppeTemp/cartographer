@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amends: D958
 ---
 
 # D1557 — `last_doctor` reads the first line of a log entry, nothing else

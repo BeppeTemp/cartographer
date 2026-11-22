@@ -1,5 +1,6 @@
 ---
 topic: data-plane
+amends: D309
 ---
 
 # D1558 — The frontmatter subset: validated keys, block scalars, inline comments

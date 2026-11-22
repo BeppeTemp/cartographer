@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+superseded_by: D252
 ---
 
 # D223 — the published Windows zip is a documented fallback, not a second channel

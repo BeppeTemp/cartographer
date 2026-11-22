@@ -1,5 +1,6 @@
 ---
 topic: sync-provisioning
+amended_by: D157
 ---
 
 # D138 — Provenance stamp on materialized skills and agents, and two hashes per managed file

@@ -1,5 +1,6 @@
 ---
 topic: client-configurator
+amends: D138, D139
 ---
 
 # D157 — Backfill managed-file hashes in place instead of rebuilding every client

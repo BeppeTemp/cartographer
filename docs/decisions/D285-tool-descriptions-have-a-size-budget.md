@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amends: D65
 ---
 
 # D285 — Tool descriptions have a size budget, enforced by a test

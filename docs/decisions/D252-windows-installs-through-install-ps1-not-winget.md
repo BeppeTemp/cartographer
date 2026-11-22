@@ -1,5 +1,7 @@
 ---
 topic: deployment-release
+supersedes: D223
+amends: D218
 ---
 
 # D252 — Windows installs through install.ps1, not winget

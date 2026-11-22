@@ -1,5 +1,6 @@
 ---
 topic: project-governance
+amended_by: D1610
 ---
 
 # D1020 — Security scans run in their own workflow and are not required checks

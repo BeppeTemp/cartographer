@@ -1,5 +1,7 @@
 ---
 topic: control-plane
+amends: D159, D186, D290, D299, D324, D336, D350, D365, D370, D688, D716, D907
+amended_by: D1043
 ---
 
 # D947 — The lint has no severity: every finding is a problem

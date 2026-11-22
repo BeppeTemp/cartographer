@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amends: D1350
 ---
 
 # D1581 — The cask and `:latest` are published after the release leaves draft

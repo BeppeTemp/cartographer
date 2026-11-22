@@ -1,5 +1,6 @@
 ---
 topic: client-configurator
+amended_by: D1724
 ---
 
 # D1603 — Pi is a provider

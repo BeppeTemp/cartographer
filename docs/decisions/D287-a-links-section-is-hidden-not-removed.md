@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amended_by: D827
 ---
 
 # D287 — A trailing links section is hidden by the Atlas, never flagged as such; its duplicates and bare lists are

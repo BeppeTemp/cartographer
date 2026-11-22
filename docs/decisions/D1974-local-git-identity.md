@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amends: D1725
 ---
 
 # D1974 — a personal install commits with the user's git identity, and refuses to push as local-admin

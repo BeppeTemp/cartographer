@@ -1,5 +1,6 @@
 ---
 topic: client-configurator
+amended_by: D363
 ---
 
 # D225 — Crush is a provider, and the file we write is the deprecated JSON

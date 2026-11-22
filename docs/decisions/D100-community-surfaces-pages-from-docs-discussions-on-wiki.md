@@ -1,5 +1,6 @@
 ---
 topic: project-governance
+amended_by: D1425
 ---
 
 # D100 — Community surfaces: Pages from `docs/`, Discussions on, Wiki off

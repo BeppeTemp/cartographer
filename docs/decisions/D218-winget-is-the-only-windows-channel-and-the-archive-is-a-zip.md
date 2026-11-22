@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amended_by: D252
 ---
 
 # D218 — winget is the only Windows channel, and its archive is a zip

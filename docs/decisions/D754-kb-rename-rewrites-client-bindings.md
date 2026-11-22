@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amends: D177
 ---
 
 # D754 — `kb rename` rewrites this machine's client bindings

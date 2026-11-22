@@ -1,5 +1,6 @@
 ---
 topic: client-configurator
+amended_by: D1857
 ---
 
 > **Superseded by [D1857](D1857-tui-removed.md)**: the dashboard is removed. The `runSync` rule itself stays true for `cartographer sync`.

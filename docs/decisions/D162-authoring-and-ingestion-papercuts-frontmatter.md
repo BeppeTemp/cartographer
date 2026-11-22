@@ -1,5 +1,6 @@
 ---
 topic: data-plane
+amends: D74, D75
 ---
 
 # D162 — Authoring and ingestion papercuts: frontmatter, placeholders, repo scan, import mapping

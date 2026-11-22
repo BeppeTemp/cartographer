@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amended_by: D121
 ---
 
 # D95 — Upgrade transparency through version-skew hints

@@ -1,5 +1,7 @@
 ---
 topic: client-configurator
+superseded_by: D898
+amended_by: D154
 ---
 
 # D141 — Hermes is a supported provider that receives deliveries, not installations

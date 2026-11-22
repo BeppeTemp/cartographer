@@ -1,5 +1,7 @@
 ---
 topic: client-configurator
+amends: D369
+amended_by: D704
 ---
 
 # D690 — The scheduled doctor is installed by `connect`, by default

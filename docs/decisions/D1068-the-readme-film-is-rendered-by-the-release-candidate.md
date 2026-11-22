@@ -1,5 +1,7 @@
 ---
 topic: deployment-release
+amends: D807
+amended_by: D2041
 ---
 
 # D1068 — The README film is rendered by the release candidate, and a failed render blocks the train

@@ -1,5 +1,6 @@
 ---
 topic: concurrency-git
+amended_by: D311
 ---
 
 # D237 — A bounded fetch, and a read backoff, for a remote that does not answer

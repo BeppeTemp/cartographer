@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amends: D737
 ---
 
 # D1757 — A provider with an active plugin tool uses the stdio bridge, with the access it had

@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amends: D18, D39, D46, D47, D53, D325
 ---
 
 # D905 — One credentials directory holds every secret file, and the audit log is always on and signed

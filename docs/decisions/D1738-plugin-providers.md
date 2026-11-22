@@ -1,5 +1,6 @@
 ---
 topic: client-configurator
+amended_by: D1795
 ---
 
 # D1738 — Plugin providers are registered at process start from the approved trees, and an unreadable store drops nothing

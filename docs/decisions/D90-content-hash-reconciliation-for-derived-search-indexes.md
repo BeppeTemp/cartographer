@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amended_by: D136
 ---
 
 # D90 — Content-hash reconciliation for derived search indexes

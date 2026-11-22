@@ -1,5 +1,6 @@
 ---
 topic: sync-provisioning
+amended_by: D1841
 ---
 
 # D59 — OpenCode hooks: generated JS plugin

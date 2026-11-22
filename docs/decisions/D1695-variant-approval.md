@@ -1,5 +1,6 @@
 ---
 topic: sync-provisioning
+superseded_by: D1720
 ---
 
 # D1695 — A client variant is applied only after a hash-bound approval that shows every path it writes

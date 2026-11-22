@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amends: D1921
 ---
 
 # D2026 — the hosted check has a Windows leg, always on when Go code changes

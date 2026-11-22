@@ -1,5 +1,7 @@
 ---
 topic: project-governance
+amends: D1610, D1706
+amended_by: D2025, D2294
 ---
 
 # D1755 — A red signoff runs the packages of the Go tests it can name once more, before anything is gated again

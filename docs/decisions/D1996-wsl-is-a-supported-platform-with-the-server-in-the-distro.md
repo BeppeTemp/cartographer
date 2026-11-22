@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amends: D217, D1682
 ---
 
 # D1996 — On Windows with WSL the server runs in the distro, a Windows task only keeps the distro alive

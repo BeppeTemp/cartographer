@@ -1,5 +1,6 @@
 ---
 topic: architecture
+amends: D369, D907, D1259
 ---
 
 # D1892 — a Surveyor can own the repair of its KBs: `NoModel` task kinds and the declared `tasks`

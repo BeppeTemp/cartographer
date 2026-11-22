@@ -1,5 +1,7 @@
 ---
 topic: project-governance
+amends: D856, D955
+amended_by: D1458
 ---
 
 # D1451 — Contributors open issues or direct PRs, and plans are a maintainer's tool

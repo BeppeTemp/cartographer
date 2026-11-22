@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amended_by: D907
 ---
 
 # D349 — A write repairs the mechanical findings of the concepts it wrote

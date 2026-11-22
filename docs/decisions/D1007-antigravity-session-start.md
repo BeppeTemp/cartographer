@@ -1,5 +1,6 @@
 ---
 topic: sync-provisioning
+amends: D194
 ---
 
 # D1007 — Antigravity receives SessionStart native hook and session bootstrap parity

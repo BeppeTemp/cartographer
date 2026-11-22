@@ -1,5 +1,6 @@
 ---
 topic: sync-provisioning
+amends: D58
 ---
 
 # D230 — Codex hooks register in hooks.json

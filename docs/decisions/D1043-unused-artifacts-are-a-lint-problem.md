@@ -1,5 +1,6 @@
 ---
 topic: data-plane
+amends: D947
 ---
 
 # D1043 — Unused skills and agents are a lint problem

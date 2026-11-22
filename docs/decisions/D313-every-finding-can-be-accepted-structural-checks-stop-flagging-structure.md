@@ -1,5 +1,6 @@
 ---
 topic: data-plane
+amended_by: D716, D907
 ---
 
 # D313 — Every finding can be accepted; structural checks stop flagging structure

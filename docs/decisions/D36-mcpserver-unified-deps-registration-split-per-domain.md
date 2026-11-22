@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amends: D24
 ---
 
 # D36 — mcpserver: unified `Deps` registration, split per domain, shared index

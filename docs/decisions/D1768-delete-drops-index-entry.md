@@ -1,5 +1,6 @@
 ---
 topic: control-plane
+amends: D714
 ---
 
 # D1768 — A delete removes the concept's line from its map's curated index

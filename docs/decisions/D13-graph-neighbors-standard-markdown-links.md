@@ -1,5 +1,6 @@
 ---
 topic: data-plane
+superseded_by: D72
 ---
 
 # D13 — Graph neighbors: standard markdown links

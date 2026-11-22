@@ -1,5 +1,6 @@
 ---
 topic: project-governance
+amended_by: D1458, D1706
 ---
 
 # D672 — CI gates what it merges, and a decision takes its issue's number

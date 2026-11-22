@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amended_by: D1384
 ---
 
 # D1180 — Dependabot waits out the freeze; the open PRs are armed after the train

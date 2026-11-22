@@ -1,5 +1,6 @@
 ---
 topic: sync-provisioning
+superseded_by: D906
 ---
 
 # D54 — Per-server trust persisted at `connect` (replaces the recurring `--auto-trust` gate)

@@ -1,5 +1,6 @@
 ---
 topic: client-configurator
+superseded_by: D1720
 ---
 
 # D1698 — Accepted client variants live in a cache, registered at start only while the client config authorizes them

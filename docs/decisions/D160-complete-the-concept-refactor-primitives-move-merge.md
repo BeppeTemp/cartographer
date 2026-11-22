@@ -1,5 +1,6 @@
 ---
 topic: data-plane
+amends: D77
 ---
 
 # D160 — Complete the concept refactor primitives: move, merge, collapse

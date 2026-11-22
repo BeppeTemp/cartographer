@@ -1,5 +1,6 @@
 ---
 topic: project-governance
+amends: D2040
 ---
 
 # D2128 — The lander rebuilds the Atlas bundle after numbering a citation under web/

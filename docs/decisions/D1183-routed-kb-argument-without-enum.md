@@ -1,5 +1,6 @@
 ---
 topic: transport-auth
+amends: D288
 ---
 
 # D1183 — The routed `kb` argument is a required string, not an enum

@@ -1,5 +1,6 @@
 ---
 topic: sync-provisioning
+amended_by: D162
 ---
 
 # D75 — Path portability across machines: placeholders auto-resolved via git remote

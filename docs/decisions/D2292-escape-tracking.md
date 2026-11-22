@@ -1,5 +1,6 @@
 ---
 topic: project-governance
+amends: D860
 ---
 
 # D2292 — A queued fix says where its defect was found and what introduced it, and escapes feed the reviewer evals by script
