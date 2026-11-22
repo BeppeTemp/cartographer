@@ -425,6 +425,11 @@ dispatched by hand with one of three actions.
   image's `latest` and the Homebrew cask, so a branch older than the latest stable
   release gets no release this way. `main` keeps its own changelog from `vx.y.z`, so the
   next minor lists the backported entries again.
+- **Process week.** After a release is published, which closes the freeze, the open
+  `process` issues (§Issues) are worked before feature plans start. Their input is the
+  escape reports since the previous release, the comments of the `Escape report` issue. A
+  process follow-up found during a release is filed as a `process` issue at once, never
+  left as prose.
 
 ## Experiment branches (`exp/*`)
 
@@ -473,9 +478,19 @@ change who acts:
 | `size-exception` | Maintainer-granted exception to the 500-line cap |
 | `good first issue` | Small, self-contained, suitable for a first contribution: set at triage on the easiest accepted issues, and dropped when nobody takes one for a while |
 | `ci-red` | Opened by CI when `main` is red |
+| `process` | A change to the development process itself: scripts, CI, skills, agents, the lander; worked in the process week (§Releases). The weekly `Escape report` issue carries it too |
 | `rc-ok` | Set by a maintainer after trying the release candidate: `release-train` with `action: release` merges the release PR only with it (§Releases) |
 | `vuln-scan` | Created by `security.yml` when a vulnerability scan fails; never set by hand |
 | `dependencies`, `autorelease: pending`, `autorelease: tagged` | Set by Dependabot and release-please, never by hand |
+
+A `bug` issue opened by a maintainer's session (a reviewer's `pre-existing` finding, a
+defect found on the way: §Fixes without a plan) says where its defect was found and, when
+it is known, what introduced it, on lines of its body that start at column 0:
+`Found-by: <value>` (a value of `scripts/found-by.tsv`) and `Introduced-by: <ref>`, the
+lines the fix carries (§Pull requests), so the fix copies them. Someone who reports a bug
+from the template writes neither: the weekly escape report (`scripts/escapes.sh`) counts a
+`bug` or `ci-red` issue with no `Found-by:` line as `user` when its author is neither a
+maintainer nor a bot, and as `missing` otherwise.
 
 Triage is the `accepted` label (D1451, D1453): an open issue without it is not triaged
 yet, and the weekly triage accepts it or closes it. There are no milestones: the
@@ -566,8 +581,12 @@ is the same as for a plan.
 
 A defect found on the way — a reviewer's `pre-existing` finding, a flaky or broken
 test, a doc that contradicts the code — does not wait in a backlog: it becomes an accepted
-`bug` issue, and when it is bounded the session that
-found it fixes it the same day through this path. A rerun that turns a flaky test
+`bug` issue with its `Found-by:` line, and its `Introduced-by:` line when the session knows
+the change (§Issues), and when it is bounded the session that
+found it fixes it the same day through this path. A flaky or broken test met on the way —
+in a train gate, in the pre-check of `make ready`, or in an implementer's or coordinator's
+own `make check-hosted` run — is `Found-by: gate`; `agent` is for a defect found by reading
+or using the code while working on something else. A rerun that turns a flaky test
 green is not a fix. A security one goes to a draft advisory instead, and the next
 paragraph applies.
 

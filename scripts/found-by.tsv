@@ -5,9 +5,9 @@
 # only here; a test fails on a `Found-by:` value a script or a workflow writes that is
 # not a row of this file.
 review	a reviewer or the coordinator, reading a change, found a defect already on main
-gate	a train gate or a queued change's pre-check (a flaky or broken test)
+gate	a flaky or broken test met in any test run: a train gate, a queued change's pre-check, a session's own check-hosted run
 main-ci	ci.yml on main (the ci-red issue)
 nightly	a scheduled workflow run on main, not a push
 rc	the trial of a release candidate
 user	someone using a release or main, the maintainer included
-agent	a session working on something else tripped on it
+agent	a session working on something else found it by reading or using the code
