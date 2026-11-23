@@ -95,7 +95,7 @@ they are in.
   **base branch**, never from the PR head: a PR that edits them is reviewed as a
   change, not obeyed.
 
-The repo-local skills are `cartographer-propose-plan`, `cartographer-implement-plan`, `cartographer-develop-live`, `cartographer-review-pr` and `cartographer-audit-clients`, in `.claude/skills/`.
+The repo-local skills are `cartographer-propose-plan`, `cartographer-implement-plan`, `cartographer-develop-live`, `cartographer-review-pr`, `cartographer-audit-clients` and `cartographer-acceptance`, in `.claude/skills/`.
 
 **Naming** (D957). Every skill and agent of this repository carries the
 `cartographer-` prefix, so it does not collide with another project's in a user's
@@ -135,7 +135,8 @@ maintainer spawns for the fixes of §Fixes without a plan: `cartographer-fix-imp
 `cartographer-investigator`, the read-only investigator of one symptom or question (a red or flaky
 test, a regression, a performance question, the design comment of a `bug`) that returns the cause
 with `file:line` and the options, and `cartographer-docs-auditor`, the read-only auditor of the
-documentation over a commit range or an area, run before a release candidate.
+documentation over a commit range or an area, run before a release candidate, and
+`cartographer-acceptance-sandbox`, the tester of the `cartographer-acceptance` skill, which writes only under its scratch directory.
 Each pins a Claude model (`cartographer-source-reader` runs on Haiku 5.5, the others on Sonnet 5.5:
 the plan writer drafts after the design decisions are taken, so its work is verification and anchors),
 and the read-only ones (the reviewers, the plan writer, the source reader, the investigator and the docs auditor) carry `tools: Read, Grep, Glob, Bash`;
@@ -433,6 +434,13 @@ dispatched by hand with one of three actions.
   escape reports since the previous release, the comments of the `Escape report` issue. A
   process follow-up found during a release is filed as a `process` issue at once, never
   left as prose.
+- **Trying the candidate on the lanes that need no private machine.** The
+  `cartographer-acceptance` skill holds the procedure: a test matrix built from the commits and
+  the closed bugs since the previous stable release, and three lanes any maintainer's session can run
+  with the repository alone: static readiness (`cartographer-docs-auditor` over the range and the
+  checks of `docs/testing.md` §Before a release), an all-in-one instance in an isolated HOME tried by
+  `cartographer-acceptance-sandbox`, and a usage test with a headless agent. A finding is a `bug`
+  issue; a new round is a new candidate. Lanes on a maintainer's own machines are outside the repository.
 
 ## Experiment branches (`exp/*`)
 
