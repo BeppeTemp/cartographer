@@ -54,6 +54,15 @@ const (
 	// column width instead (D209).
 	MaxRootLines = 120
 
+	// MaxDocPageLines bounds a docs/*.md page, generated blocks removed. A page
+	// over it is listed in GrandfatheredPages with a ceiling (D2316).
+	MaxDocPageLines = 1000
+
+	// MaxContributingBlockChars bounds one paragraph or list item (nested items
+	// apart) of CONTRIBUTING.md, so a reviewer can read a clause whole. A block
+	// over it is listed in GrandfatheredBlocks with a ceiling.
+	MaxContributingBlockChars = 1500
+
 	// Skill frontmatter, per Kiro's rules — the strictest of the clients that read
 	// agentskills.io files, so a skill written to them is valid everywhere.
 	MaxSkillNameChars        = 64
