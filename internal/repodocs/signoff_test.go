@@ -102,7 +102,7 @@ case "$1 $2" in
         echo "$body" | out ;;
       *) if [ -f "$FAKE_GH_RUNS" ]; then cat "$FAKE_GH_RUNS"; else echo '[]'; fi | out ;;
     esac ;;
-  "run view") case "$*" in *--log*) printf '%b' "${FAKE_GH_JOBLOG:-}" ;; *) printf '%s\n' "${FAKE_GH_JOBS:-}" | out ;; esac ;;
+  "run view") case "$*" in *--log*) n=$(cat "$FAKE_GH_LOG.logreads" 2>/dev/null || echo 0); echo $((n + 1)) > "$FAKE_GH_LOG.logreads"; [ "$n" -ge "${FAKE_GH_LOG_EMPTY:-0}" ] && printf '%b' "${FAKE_GH_JOBLOG:-}" ;; *) printf '%s\n' "${FAKE_GH_JOBS:-}" | out ;; esac ;;
   "workflow run") touch "$FAKE_GH_LOG.dispatched"; exit "${FAKE_GH_DISPATCH_RC:-0}" ;;
   "pr view") exit 1 ;;
 esac
@@ -1158,4 +1158,36 @@ func TestSignoffHandsTheProbeToTheLanderOutOfBand(t *testing.T) {
 		e, out, _, envDump := run(t, token, []string{"--probe", "linux", "github.com/x/p/internal/kb", "-"})
 		noLeak(t, e, out, envDump, token)
 	})
+}
+
+// AC-P3-15: the log of a failed hosted job is not served for a moment: the signoff reads it
+// again while it is empty, so the lander names the failing test and confirms it instead of
+// gating a second time. A log with lines and no failure is final (no further read), and a log
+// that never comes stops at SIGNOFF_LOG_TRIES.
+func TestSignoffHostedWaitsForTheLogOfAFailedJob(t *testing.T) {
+	red := hostedRun("in_progress", "in_progress ", map[string]string{"test-macos": "completed failure"})
+	for _, c := range []struct {
+		name, empty, log, reads string
+		named                   bool
+	}{
+		{"two empty reads then the log", "2", `test-macos\tRun tests\t2026-01-01T00:00:00.0000000Z --- FAIL: TestTrayQuits (0.10s)\n`, "3", true},
+		{"a log without a failure is final", "0", `test-macos\tRun tests\t2026-01-01T00:00:00.0000000Z build failed\n`, "1", false},
+		{"a log that never comes stops at the tries", "9", `x`, "3", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newSignoffEnv(t)
+			e.branch(e.work, "feat/x", "x.txt")
+			out, ok := e.signoff(e.work, `FAKE_GH_DISPATCHED=[{"databaseId":7}]`, "FAKE_GH_JOBS="+red, "SIGNOFF_GATE_TRIES=3",
+				"SIGNOFF_GATE=hosted", "SIGNOFF_LOG_TRIES=3", "FAKE_GH_LOG_EMPTY="+c.empty, "FAKE_GH_JOBLOG="+c.log)
+			if ok {
+				t.Fatalf("a red run is not green:\n%s", out)
+			}
+			if got := strings.Contains(out, "\n--- FAIL: TestTrayQuits"); got != c.named {
+				t.Errorf("test named = %v, want %v:\n%s", got, c.named, out)
+			}
+			if got := strings.TrimSpace(e.log(e.ghLog + ".logreads")); got != c.reads {
+				t.Errorf("log reads = %q, want %q", got, c.reads)
+			}
+		})
+	}
 }

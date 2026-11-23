@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ready.sh — a maintainer hands a finished, reviewed change to the lander (D1706).
 #
-#   make ready MSG=<file> [AFTER=<slug>] [HOLD=1] [REVIEW="<tier>, <n> rounds"]
+#   make ready MSG=<file> [AFTER=<slug>] [HOLD=1] [NOW=1] [REVIEW="<tier>, <n> rounds"]
 #
 # In the change's worktree: squashes the branch onto its merge-base with main into ONE
 # commit whose message is MSG (a conventional title, changelog body lines on one line
@@ -26,7 +26,8 @@
 # pre-check replays the whole queued chain on the current main (scripts/ready-check-base.sh).
 #
 # Trailers the lander reads: `Lander-After: <slug>` (land after that change),
-# `Lander-Hold: yes` (queued, not landed until queued again without it) and
+# `Lander-Hold: yes` (queued, not landed until queued again without it),
+# `Lander-Now: yes` (NOW=1: no collection window, the lander composes at once) and
 # `Review: <tier>, <n> rounds` (the review record, copied into the train PR).
 # The lander keeps three trailers on the landed commit: `Lander-Slug: <slug>` and
 # `Lander-Tip: <the branch head squashed>` (added here), which `make worktree-clean`
@@ -110,6 +111,7 @@ why=$("$here/trailers-lint.sh" "$full" 2>&1) || die "the message does not say wh
 args=()
 [ -z "${AFTER:-}" ] || args+=(--trailer "Lander-After: $AFTER")
 [ -z "${HOLD:-}" ] || args+=(--trailer "Lander-Hold: yes")
+[ -z "${NOW:-}" ] || args+=(--trailer "Lander-Now: yes")
 [ -z "${REVIEW:-}" ] || args+=(--trailer "Review: $REVIEW")
 # The branch head this commit squashes: with the slug it lets `make worktree-clean` prove
 # the work of a worktree landed (a reused slug or a copied trailer has another head).
