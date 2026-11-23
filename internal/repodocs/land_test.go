@@ -3091,3 +3091,203 @@ func TestLanderLogsTheFailedJobsOfARedPrecheck(t *testing.T) {
 		t.Errorf("the log names the failed jobs:\n%s", out)
 	}
 }
+
+// requeue runs scripts/requeue.sh in the work clone.
+func (e *landEnv) requeue(slug string, extra ...string) (string, bool) {
+	e.t.Helper()
+	cmd := exec.Command("bash", filepath.Join(e.work, "scripts", "requeue.sh"))
+	cmd.Dir = e.work
+	cmd.Env = append(append([]string{}, e.env...), append([]string{"SLUG=" + slug, "READY_NO_LANDER=1"}, extra...)...)
+	out, err := cmd.CombinedOutput()
+	return string(out), err == nil
+}
+
+// queueChild queues ready/<slug> as a child of ready/<after>, with Lander-After.
+func (e *landEnv) queueChild(slug, after, date string, files map[string]string) {
+	e.t.Helper()
+	e.git("fetch", "-q", "origin")
+	e.git("checkout", "-q", "-B", "work-"+slug, "origin/ready/"+after)
+	for p, body := range files {
+		e.write(filepath.Join(e.work, p), body)
+	}
+	e.git("add", ".")
+	cmd := exec.Command("git", "commit", "-q", "-F", "-")
+	cmd.Dir, cmd.Env = e.work, append(append([]string{}, e.env...), "GIT_COMMITTER_DATE="+date, "GIT_AUTHOR_DATE="+date)
+	cmd.Stdin = strings.NewReader("fix(kb): " + slug + "\n\nLander-After: " + after + "\n")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		e.t.Fatalf("commit: %v\n%s", err, out)
+	}
+	e.git("push", "-q", "--force", "origin", "HEAD:refs/heads/ready/"+slug)
+	e.git("checkout", "-q", "main")
+}
+
+func (e *landEnv) moveMain(file string) {
+	e.t.Helper()
+	e.git("fetch", "-q", "origin")
+	e.git("checkout", "-q", "-B", "mv", "origin/main")
+	e.write(filepath.Join(e.work, file), "moved\n")
+	e.git("add", ".")
+	e.git("commit", "-q", "-m", "chore: moved")
+	e.git("push", "-q", "origin", "HEAD:refs/heads/main")
+	e.git("checkout", "-q", "main")
+}
+
+// AC-P3-16: after main moved, requeue rebuilds a queued change on it, with its message, its dates
+// and its place in the queue; a chain of three keeps its parents.
+func TestRequeueRebuildsAChainOnAMovedMainKeepingDatesAndMessage(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("a", "fix(kb): a\n\nCloses #1\n", "2026-01-01T10:00:00Z", map[string]string{"qa.txt": "a\n"})
+	e.queueChild("b", "a", "2026-01-01T11:00:00Z", map[string]string{"b.txt": "b\n"})
+	e.queueChild("c", "b", "2026-01-01T12:00:00Z", map[string]string{"c.txt": "c\n"})
+	e.queue("other", "fix(kb): other\n", "2026-01-01T13:00:00Z", map[string]string{"o.txt": "o\n"})
+	oldA, oldC, oldO := e.upGit("rev-parse", "ready/a"), e.upGit("rev-parse", "ready/c"), e.upGit("rev-parse", "ready/other")
+	msgA := e.upGit("log", "-1", "--format=%B", "ready/a")
+	e.moveMain("m.txt")
+	out, ok := e.requeue("a")
+	if !ok {
+		t.Fatalf("requeue failed\n%s", out)
+	}
+	mainSha := e.upGit("rev-parse", "main")
+	if p := e.upGit("rev-parse", "ready/a^"); p != mainSha {
+		t.Errorf("a is rebuilt on the moved main: parent %s, want %s", p, mainSha)
+	}
+	if e.upGit("rev-parse", "ready/b^") != e.upGit("rev-parse", "ready/a") || e.upGit("rev-parse", "ready/c^") != e.upGit("rev-parse", "ready/b") {
+		t.Errorf("the chain keeps its parents")
+	}
+	if e.upGit("rev-parse", "ready/c") == oldC || e.upGit("rev-parse", "ready/a") == oldA {
+		t.Errorf("every member of the chain is a new commit")
+	}
+	if e.upGit("rev-parse", "ready/other") != oldO {
+		t.Errorf("an unrelated change is left alone")
+	}
+	if got := e.upGit("log", "-1", "--format=%B", "ready/a"); got != msgA {
+		t.Errorf("the message is kept verbatim:\n%q\n%q", got, msgA)
+	}
+	// Epoch seconds: git spells a UTC date +00:00 or Z by version (%cI), the instant is the same.
+	if got, want := e.upGit("log", "-1", "--format=%ct|%at", "ready/b"), "1767265200|1767265200"; got != want {
+		t.Errorf("author and committer dates are kept: %s, want %s (2026-01-01T11:00:00Z)", got, want)
+	}
+	if !strings.Contains(out, "ready/a "+oldA[:12]+" -> "+e.upGit("rev-parse", "ready/a")[:12]) {
+		t.Errorf("one line per ref with the old and the new sha:\n%s", out)
+	}
+	if got := e.upGit("for-each-ref", "--sort=committerdate", "--format=%(refname:lstrip=3)", "refs/heads/ready/"); got != "a\nb\nc\nother" {
+		t.Errorf("same place in the queue: %q", got)
+	}
+}
+
+// FIRST=1 dates the chain before the oldest queue entry, in chain order, and sets Lander-Now on the first.
+func TestRequeueFirstOrdersTheChainFirstAndSetsLanderNow(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("old", "fix(kb): old\n", "2026-01-01T09:00:00Z", map[string]string{"o.txt": "o\n"})
+	e.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"qa.txt": "a\n"})
+	e.queueChild("b", "a", "2026-01-01T11:00:00Z", map[string]string{"b.txt": "b\n"})
+	if out, ok := e.requeue("a", "FIRST=1"); !ok {
+		t.Fatalf("requeue failed\n%s", out)
+	}
+	if got := e.upGit("for-each-ref", "--sort=committerdate", "--format=%(refname:lstrip=3)", "refs/heads/ready/"); got != "a\nb\nold" {
+		t.Errorf("the chain is first, in order: %q", got)
+	}
+	if m := e.upGit("log", "-1", "--format=%B", "ready/a"); !strings.Contains(m, "Lander-Now: yes") {
+		t.Errorf("the first member carries Lander-Now:\n%s", m)
+	}
+	if m := e.upGit("log", "-1", "--format=%B", "ready/b"); strings.Contains(m, "Lander-Now") {
+		t.Errorf("only the first does:\n%s", m)
+	}
+}
+
+// From failed/ the rejection ref is gone, and the commit queued as it was is rebuilt.
+func TestRequeueFromARejectedChangeDeletesItsRejectionRef(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("x", "fix(kb): x\n", "2026-01-01T10:00:00Z", map[string]string{"x.txt": "x\n"})
+	x := e.upGit("rev-parse", "ready/x")
+	rej := e.upGit("commit-tree", x+"^{tree}", "-p", x, "-m", "lander: rejected")
+	e.upGit("update-ref", "refs/heads/failed/x", rej)
+	e.upGit("update-ref", "-d", "refs/heads/ready/x")
+	e.moveMain("m.txt")
+	if out, ok := e.requeue("x"); !ok {
+		t.Fatalf("requeue failed\n%s", out)
+	}
+	if e.refs("failed/") != "" || e.refs("ready/") != "x" {
+		t.Errorf("failed=%q ready=%q", e.refs("failed/"), e.refs("ready/"))
+	}
+}
+
+// AC-P3-17: an unknown slug, a conflict and an empty change leave the queue byte-identical.
+func TestRequeueThatFailsLeavesTheQueueByteIdentical(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"qa.txt": "a\n"})
+	e.queueChild("b", "a", "2026-01-01T11:00:00Z", map[string]string{"b.txt": "b\n"})
+	snap := func() string { return e.upGit("for-each-ref", "--format=%(refname) %(objectname)", "refs/heads/") }
+	before := snap()
+	if out, ok := e.requeue("nope"); ok || !strings.Contains(out, "queued: a b") {
+		t.Errorf("an unknown slug lists the queue (ok=%v):\n%s", ok, out)
+	}
+	// main now holds a conflicting qa.txt: the first member does not apply.
+	e.git("fetch", "-q", "origin")
+	e.git("checkout", "-q", "-B", "mv", "origin/main")
+	e.write(filepath.Join(e.work, "qa.txt"), "conflict\n")
+	e.git("add", ".")
+	e.git("commit", "-q", "-m", "chore: qa.txt")
+	e.git("push", "-q", "origin", "HEAD:refs/heads/main")
+	e.git("checkout", "-q", "main")
+	before = snap()
+	out, ok := e.requeue("a")
+	if ok || !strings.Contains(out, "a does not apply") || !strings.Contains(out, "qa.txt") || snap() != before {
+		t.Errorf("a conflict names the slug and the files and changes no ref (ok=%v):\n%s", ok, out)
+	}
+	// A change main already holds becomes empty.
+	e.queue("same", "fix(kb): same\n", "2026-01-01T12:00:00Z", map[string]string{"s.txt": "s\n"})
+	e.moveMain("s.txt")
+	e.git("checkout", "-q", "-B", "mv2", "origin/main")
+	e.write(filepath.Join(e.work, "s.txt"), "s\n")
+	e.git("add", ".")
+	e.git("commit", "-q", "-m", "chore: s")
+	e.git("push", "-q", "origin", "HEAD:refs/heads/main")
+	e.git("checkout", "-q", "main")
+	before = snap()
+	if out, ok := e.requeue("same"); ok || !strings.Contains(out, "already on main") || snap() != before {
+		t.Errorf("an empty change is already on main (ok=%v):\n%s", ok, out)
+	}
+}
+
+// Only a maintainer requeues.
+func TestRequeueRefusesAContributor(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"qa.txt": "a\n"})
+	before := e.upGit("rev-parse", "ready/a")
+	if out, ok := e.requeue("a", "FAKE_PERM=READ"); ok || !strings.Contains(out, "only a maintainer") || e.upGit("rev-parse", "ready/a") != before {
+		t.Errorf("a contributor does not requeue (ok=%v):\n%s", ok, out)
+	}
+}
+
+// The leases of the push are the shas read when the queue was read: a ref that moves between
+// that read and the push (here, a pre-push hook of the clone moves it) fails the lease, nothing is
+// pushed, and the message says the queue changed. The same for the rejection ref of a rejected change.
+func TestRequeueFailsWhenTheQueueMovesBeforeThePush(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"a2.txt": "a\n"})
+	e.queue("x", "fix(kb): x\n", "2026-01-01T11:00:00Z", map[string]string{"x.txt": "x\n"})
+	x := e.upGit("rev-parse", "ready/x")
+	e.upGit("update-ref", "refs/heads/failed/x", e.upGit("commit-tree", x+"^{tree}", "-p", x, "-m", "lander: rejected"))
+	e.upGit("update-ref", "-d", "refs/heads/ready/x")
+	e.moveMain("m.txt")
+	snap := func() string { return e.upGit("for-each-ref", "--format=%(refname) %(objectname)", "refs/heads/") }
+	hook := filepath.Join(e.work, ".git", "hooks", "pre-push")
+	for _, c := range []struct{ slug, ref string }{{"a", "refs/heads/ready/a"}, {"x", "refs/heads/failed/x"}} {
+		// The hook queues a newer version of the ref the lease guards, as another maintainer's push would.
+		e.write(hook, "#!/bin/sh\ngit --git-dir='"+e.up+"' update-ref "+c.ref+" \"$(git --git-dir='"+e.up+"' rev-parse main)\"\n")
+		out, ok := e.requeue(c.slug)
+		if ok || !strings.Contains(out, "the queue changed") {
+			t.Errorf("%s: a moved ref fails the lease and says so (ok=%v):\n%s", c.slug, ok, out)
+		}
+		if got := e.upGit("rev-parse", c.ref); got != e.upGit("rev-parse", "main") {
+			t.Errorf("%s: nothing of the requeue was pushed, %s holds %s", c.slug, c.ref, got)
+		}
+		if c.slug == "x" && strings.Contains(snap(), "refs/heads/ready/x ") {
+			t.Errorf("the atomic push wrote ready/x although the lease on failed/x failed:\n%s", snap())
+		}
+		if err := os.Remove(hook); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
