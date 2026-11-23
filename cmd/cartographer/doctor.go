@@ -246,7 +246,7 @@ func runDoctor(dir, only string) doctorReport {
 		foreign := heldByOther(held)
 		findings = append(findings, checkServerAt(dir, cfg, providers, facts, healthErr, foreignAddr, held)...)
 		if !foreign && healthErr == nil {
-			findings = append(findings, checkMCPVariables(cfg, approveManifest)...)
+			findings = append(findings, checkMCPVariables(cfg, approveManifestAll)...)
 		}
 		findings = append(findings, checkWSL()...)
 		findings = append(findings, checkPathBinaries()...)

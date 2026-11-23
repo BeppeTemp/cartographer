@@ -40,7 +40,7 @@ func approveFixture(t *testing.T, interactive bool) (home string, artifacts []co
 		}},
 	}
 	oldM, oldI := approveManifest, approveInteractive
-	approveManifest = func(*clientconfig.Config) (contract.Manifest, error) {
+	approveManifest = func(*clientconfig.Config, string) (contract.Manifest, error) {
 		return contract.Manifest{Revision: "r", Artifacts: artifacts}, nil
 	}
 	approveInteractive = func() bool { return interactive }
@@ -269,7 +269,7 @@ func TestCmdApprove_MCPReapprovalShowsTheDiff(t *testing.T) {
 	home, _ := approveFixture(t, false)
 	args := []string{"mcp", "tools", "--kb", "kb-a", "--yes"}
 	set := func(a contract.Artifact) {
-		approveManifest = func(*clientconfig.Config) (contract.Manifest, error) {
+		approveManifest = func(*clientconfig.Config, string) (contract.Manifest, error) {
 			return contract.Manifest{Revision: "r", Artifacts: []contract.Artifact{a}}, nil
 		}
 	}

@@ -95,7 +95,7 @@ func cmdMCPProbe(args []string) int {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return mcpprobe.ExitUsage
 	}
-	m, err := approveManifest(cfg)
+	m, err := approveManifest(cfg, kbName)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return mcpprobe.ExitUsage

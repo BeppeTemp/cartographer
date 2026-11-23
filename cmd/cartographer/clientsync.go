@@ -492,26 +492,33 @@ func annotateStaleBinding(err error, requiredBy map[string][]string) error {
 	return err
 }
 
-// fetchMergedManifest fetches every KB's artifacts and merges them into one
+// fetchMergedManifest is fetchMergedManifestFor without a KB: every projection
+// is judged.
+func fetchMergedManifest(cfg *clientconfig.Config) (contract.Manifest, error) {
+	return fetchMergedManifestFor(cfg, "")
+}
+
+// fetchMergedManifestFor fetches the KBs' artifacts and merges them into one
 // verified provisioning.Manifest, applying the same precedence rule (KB source
 // wins over bundle) BuildManifest applies server-side for one KB.
 //
-// The merge is strict (D171): two KBs claiming the same kind+name is an error,
-// not the alphabetical coin flip preferArtifact would otherwise perform. It is
-// deliberately evaluated here, before anything is materialized, so a collision
-// stops the sync instead of silently deciding which KB an agent reads.
-func fetchMergedManifest(cfg *clientconfig.Config) (contract.Manifest, error) {
+// The merge is strict (D171) and judged per projection, as sync judges it
+// (candidateSet.forProjection): two KBs claiming the same kind+name is an
+// error only when one projection receives both, not the alphabetical coin flip
+// preferArtifact would otherwise perform. Two KBs bound to disjoint workspaces
+// may share a name (#2306). With kb set, only the projections that receive kb
+// are judged, so a collision elsewhere cannot stop its approval. The result is
+// the union of the projections' artifacts, one entry per source, kind and name.
+// A KB no projection receives is merged alone: approve and mcp probe still see
+// what it advertises.
+func fetchMergedManifestFor(cfg *clientconfig.Config, kb string) (contract.Manifest, error) {
 	kbs := cfg.KnownKBs
-	if kb := client.PerKBName(cfg.ServerURL); kb != "" {
+	if name := client.PerKBName(cfg.ServerURL); name != "" {
 		// A per-KB endpoint serves its own KB only: the other KBs of the
 		// server are not this client's (#2172).
-		kbs = []string{kb}
+		kbs = []string{name}
 	}
 	cs, err := fetchCandidates(cfg, kbs)
-	if err != nil {
-		return contract.Manifest{}, err
-	}
-	merged, err := mergeAcrossPlugins(cs.all(), nil)
 	if err != nil {
 		return contract.Manifest{}, err
 	}
@@ -519,7 +526,105 @@ func fetchMergedManifest(cfg *clientconfig.Config) (contract.Manifest, error) {
 	if err != nil {
 		return contract.Manifest{}, err
 	}
-	return provisioning.VerifiedManifest(merged, pins)
+	if cs.HasBare {
+		// A server that names no KB has no binding to judge: one merge of
+		// everything it serves, as sync's fail-closed projections cannot be
+		// expressed against it.
+		merged, err := mergeAcrossPlugins(cs.all(), nil)
+		if err != nil {
+			return contract.Manifest{}, err
+		}
+		return provisioning.VerifiedManifest(merged, pins)
+	}
+	var out contract.Manifest
+	seen := map[string]bool{}
+	first := true
+	add := func(arts []contract.Artifact) error {
+		merged, err := mergeAcrossPlugins(arts, nil)
+		if err != nil {
+			return err
+		}
+		m, err := provisioning.VerifiedManifest(merged, pins)
+		if err != nil {
+			return err
+		}
+		if first {
+			out, out.Artifacts, first = m, nil, false
+		}
+		for _, a := range m.Artifacts {
+			if key := a.Source + "\x00" + a.Kind + "\x00" + a.Name; !seen[key] {
+				seen[key] = true
+				out.Artifacts = append(out.Artifacts, a)
+			}
+		}
+		return nil
+	}
+	reached := map[string]bool{}
+	judged := 0
+	for _, p := range approveProjections(cfg) {
+		if kb != "" && !slices.Contains(p.KBs, kb) {
+			continue
+		}
+		for _, k := range p.KBs {
+			reached[k] = true
+		}
+		judged++
+		if err := add(cs.forProjection(cfg, p)); err != nil {
+			if label := p.Label(); label != "" {
+				err = fmt.Errorf("%s: %w", label, err)
+			}
+			return contract.Manifest{}, err
+		}
+	}
+	for _, k := range kbs {
+		if reached[k] || (kb != "" && k != kb) {
+			continue
+		}
+		// A provider that failed to resolve its projections (allProjectionsPartial)
+		// lands here too: its KBs are merged alone, with no collision check
+		// among them; sync reports that provider.
+		if err := add(dropKBArtifacts(cfg, cs.forKBs([]string{k}))); err != nil {
+			return contract.Manifest{}, err
+		}
+	}
+	if judged == 0 && first {
+		return contract.Manifest{}, nil
+	}
+	out.Artifacts = kbShadowsBundle(out.Artifacts)
+	return out, nil
+}
+
+// kbShadowsBundle drops a bundle or plugin artifact when a KB ships the same
+// kind and name: the precedence one merge applies (a KB wins over the bundle)
+// holds inside each projection, and the union of projections must keep it.
+func kbShadowsBundle(arts []contract.Artifact) []contract.Artifact {
+	fromKB := map[string]bool{}
+	for _, a := range arts {
+		if strings.HasPrefix(a.Source, "kb:") {
+			fromKB[a.Kind+"\x00"+a.Name] = true
+		}
+	}
+	out := arts[:0:0]
+	for _, a := range arts {
+		if !strings.HasPrefix(a.Source, "kb:") && fromKB[a.Kind+"\x00"+a.Name] {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
+// approveProjections are the projections the connected providers have now: one
+// per provider in the default scope, a bundle-only one and one per bound
+// workspace in workspace scope. A provider whose workspaces cannot be resolved
+// is left out (sync reports it); with no connected provider the whole known
+// set is one projection, as before workspaces existed.
+func approveProjections(cfg *clientconfig.Config) []syncProjection {
+	ps, _ := allProjectionsPartial(cfg, cfg.Agents, "")
+	if len(cfg.Agents) == 0 {
+		ps = []syncProjection{globalProjection("", "", cfg.KnownKBs)}
+	}
+	return ps
 }
 
 // fetchCandidates connects to cfg.ServerURL, discovers the live per-KB

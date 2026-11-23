@@ -1662,7 +1662,7 @@ Inspect and record the current content with `cartographer approve <kind> <name> 
 (`kind` is `mcp`, `hook`, `skill` or `agent`; interactive terminals default to no confirmation; for a
 non-MCP kind the command lists the files and prints the `hook.json` and the content of the executable files). Approval records the source KB,
 artifact name (`<kind>/<name>` for everything but an MCP descriptor), content hash and timestamp in
-`.cartographer.yaml`; a content change requires reapproval. `cartographer approve revoke <kind> <name> --kb <kb>`
+`.cartographer.yaml`; a content change requires reapproval. The D171 name collision is judged per projection, as `sync` judges it: two KBs bound to disjoint workspaces may ship the same `kind`+`name` and each is approved with `--kb`; two that reach one projection are refused, and `--kb <kb>` judges only the projections that receive that KB (#2306). `mcp probe <kb>/<slug>` judges the same way; a KB with `artifacts: false` is left out whether or not a provider receives it, as in `sync`; a KB copy of a name shadows the bundled one. `cartographer approve revoke <kind> <name> --kb <kb>`
 takes effect on the next `cartographer sync` (revoking an approval that was never given is an error, exit 2, and without `--kb` it says whether there is nothing to revoke or the name is approved from several KBs): for an MCP descriptor it prunes the managed
 provider config; for a hook or an executable file it stops refreshing what is installed, which is left in
 place, registered and running (the command says how to remove it). A hook or executable file that is waiting is reported as pending on every sync and is not

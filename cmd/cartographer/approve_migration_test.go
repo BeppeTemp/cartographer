@@ -207,7 +207,7 @@ func TestCmdApprovePending_ShowsWhatWillRun(t *testing.T) {
 
 func TestCmdApprovePending_LeavesMCPDescriptorsToTheSingleForm(t *testing.T) {
 	home := pendingFixture(t, false)
-	approveManifest = func(*clientconfig.Config) (contract.Manifest, error) {
+	approveManifest = func(*clientconfig.Config, string) (contract.Manifest, error) {
 		return contract.Manifest{Artifacts: []contract.Artifact{
 			{Kind: "mcp", Name: "tools", Source: "kb:kb-a", ContentHash: "mcp-hash-0123456789", Files: []contract.ArtifactFile{
 				{Path: "tools.json", Content: []byte(`{"type":"http","url":"https://mcp.example.com/mcp"}`)},
@@ -233,7 +233,7 @@ func TestCmdApprovePending_LeavesMCPDescriptorsToTheSingleForm(t *testing.T) {
 
 func TestCmdApprovePending_EscapesWhatTheServerChose(t *testing.T) {
 	pendingFixture(t, false)
-	approveManifest = func(*clientconfig.Config) (contract.Manifest, error) {
+	approveManifest = func(*clientconfig.Config, string) (contract.Manifest, error) {
 		return contract.Manifest{Artifacts: []contract.Artifact{
 			{Kind: "hook", Name: "evil\nApproved: all\x1b[2J", Source: "kb:kb-a", ContentHash: "h-0123456789ab", Files: []contract.ArtifactFile{
 				{Path: "hook.json", Content: []byte("{}")},
