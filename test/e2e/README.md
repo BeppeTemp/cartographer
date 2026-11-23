@@ -10,6 +10,7 @@ They run in GitHub Actions after the Go test suite.
 
 ```bash
 make e2e
+make e2e-nightly
 make e2e-upgrade
 ./test/e2e/run.sh --only 10_scoped_tokens
 ./test/e2e/run.sh --only 09_git_conflict --keep
@@ -65,6 +66,18 @@ previous release from a throwaway worktree (`make e2e-upgrade`; the release PR's
 `upgrade-e2e` job): `E2E_UPGRADE_FROM=<ref>` picks another tag, `E2E_UPGRADE_ONLINE=1`
 lets the build download modules the cache lacks. It needs the tags (`git fetch --tags
 --unshallow` in a shallow clone).
+
+`./test/e2e/run.sh --optional` (`make e2e-nightly`) runs `scenarios/` and then `optional/` except
+`26_upgrade_from_previous`; the train gate's `make e2e` is unchanged. The other optional scenarios are
+the rows of the acceptance battery (`.claude/skills/cartographer-acceptance/references/battery.md`)
+that no other test covers, and `TestAcceptanceBattery` fails when one is named by no row:
+
+| Scenario | Row |
+|---|---|
+| `31_adversarial_protocol` | malformed and batched JSON-RPC, unknown parameters, limits, odd ids, a body over 1 MiB, a conflicting batch, ten parallel writers |
+| `32_secrets_lifecycle` | `kb secrets init`, `secret_set`, `secret_resolve` with the right key, a missing one and a wrong one |
+| `33_update_check_candidates` | `update check` against a fake release list: a candidate is never offered |
+| `34_server_down_exit_codes` | `--help` against the docs, `status` and `sync` with the server down, `disconnect` |
 
 ## Assertions under pipefail
 
