@@ -2638,3 +2638,60 @@ func TestLanderDeletesTheRejectionOfAChangeAlreadyOnMain(t *testing.T) {
 		})
 	}
 }
+
+// make ready AFTER=<slug> cancels the pre-check still running on the change it follows: that
+// change is no longer its unit's tip, so the lander never reads it, and the new tip's pre-check
+// replays it too. Best effort: a cancel GitHub refuses is one warning, the change stays queued.
+func TestReadyAfterCancelsThePredecessorsPrecheck(t *testing.T) {
+	for _, fails := range []bool{false, true} {
+		name := "the cancel succeeds"
+		if fails {
+			name = "the cancel fails"
+		}
+		t.Run(name, func(t *testing.T) {
+			e := newLandEnv(t)
+			e.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"qa.txt": "a\n"})
+			a := e.upGit("rev-parse", "ready/a")
+			// The fake gh answers ready.sh's list with a run in progress and one completed.
+			if err := os.Rename(filepath.Join(e.bin, "gh"), filepath.Join(e.bin, "gh-base")); err != nil {
+				t.Fatal(err)
+			}
+			e.write(filepath.Join(e.bin, "gh"), `#!/bin/bash
+case "$*" in
+  "run list"*"--json databaseId,status"*)
+    echo "$*" >> "$FAKE_GH_LOG"
+    jq_expr=; prev=; for a in "$@"; do [ "$prev" = --jq ] && jq_expr=$a; prev=$a; done
+    echo '[{"databaseId":91,"status":"in_progress"},{"databaseId":90,"status":"completed"}]' | jq -r "$jq_expr" ;;
+  "run cancel"*) echo "$*" >> "$FAKE_GH_LOG"; [ -z "${FAKE_CANCEL_FAILS:-}" ] ;;
+  *) exec "$(dirname "$0")/gh-base" "$@" ;;
+esac
+`)
+			e.git("fetch", "-q", "origin")
+			e.git("checkout", "-q", "-b", "feat/b", "origin/ready/a")
+			e.write(filepath.Join(e.work, "qb.txt"), "b\n")
+			e.git("add", "qb.txt")
+			e.git("commit", "-q", "-m", "wip b")
+			m := filepath.Join(e.tmp, "msg")
+			e.write(m, "feat(kb): b\n")
+			cmd := exec.Command("bash", filepath.Join(e.work, "scripts", "ready.sh"))
+			cmd.Dir = e.work
+			cmd.Env = append(append([]string{}, e.env...), "MSG="+m, "READY_NO_LANDER=1", "AFTER=a")
+			if fails {
+				cmd.Env = append(cmd.Env, "FAKE_CANCEL_FAILS=1")
+			}
+			out, err := cmd.CombinedOutput()
+			if err != nil || e.upGit("rev-parse", "ready/b^") != a {
+				t.Fatalf("b must be queued after a (err %v)\n%s", err, out)
+			}
+			log := e.log()
+			if !strings.Contains(log, "--workflow ready-check.yml --commit "+a) || !strings.Contains(log, "run cancel -R up/proj 91") ||
+				strings.Contains(log, "run cancel -R up/proj 90") {
+				t.Errorf("ready.sh must cancel a's run in progress (91), not the completed one (90):\n%s", log)
+			}
+			warned := strings.Contains(string(out), "ready: warning: the pre-check of ready/a could not be cancelled")
+			if warned != fails {
+				t.Errorf("warning printed %v, want %v:\n%s", warned, fails, out)
+			}
+		})
+	}
+}

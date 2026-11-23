@@ -262,7 +262,8 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
     lander stops (one in `startup_failure` stops it at once: it will not turn green), and an open train
     PR on the current `main` that it did not open is adopted (one on an older `main` is closed).
   - **Pre-check and status.** Each queued change gets a hosted pre-check
-    (`ready-check.yml`: its Windows tests and, for `web/`, the frontend unit tests): a train of
+    (`ready-check.yml`: its Windows tests and, for `web/`, the frontend unit tests, on its chain,
+    the changes it follows through `AFTER=`, replayed on the current `main`): a train of
     several units takes only those whose tip is green, and a red one is gated alone. `make land-status`
     shows the queue; `make land` runs the lander in the foreground (`DRY=1` prints the next train).
     Queued changes have no cap: a train holds at most 8 changes, and a longer chain is gated alone. On macOS the

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # ready-check-plan.sh — what the hosted pre-check of a queued change runs (ready-check.yml,
-# D1877). Reads the paths the change touches on stdin, one per line, and
+# D1877). Reads the paths the change's queued chain touches on stdin, one per line
+# (scripts/ready-check-base.sh prints them), and
 # prints `name=value` lines, ready for `>> "$GITHUB_OUTPUT"`:
 #
 #   pkgs    the packages a code change can break on Windows (scripts/affected-pkgs.sh
@@ -14,7 +15,8 @@
 #           its unit tests and bundle checks run, the browser suite stays in the train gate
 #
 # The legs are the ones the build host's `make check` does not run and that turned trains
-# red: a change that breaks them is gated alone instead (scripts/land.sh).
+# red: the lander reads the verdict on a unit's tip and gates a red unit alone instead
+# (scripts/land.sh).
 # internal/repodocs/ready_check_test.go pins the table. Plain bash 3.2.
 set -euo pipefail
 
