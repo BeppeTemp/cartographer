@@ -16,6 +16,20 @@ on:
       tag:
         description: "Pre-release tag, e.g. v0.18.0-rc.1"
         required: true
+  # The nightly's rehearsal (nightly.yml): the same pipeline, nothing published (no image, chart, release,
+  # tag or cache entry). A dispatch is never one: `rehearsal` is false there, and every step that logs in,
+  # pushes, deletes, creates or writes the build cache is conditioned on it (TestPreviewRehearsalPublishesNothing). A caller must grant what the jobs below
+  # declare (packages: write, contents: write); the conditions are what keep those grants unused.
+  workflow_call:
+    inputs:
+      tag:
+        description: "Pre-release tag, e.g. v0.0.0-nightly.1"
+        type: string
+        required: true
+      rehearsal:
+        description: "Build, smoke and package everything; log in, push, delete and create nothing"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -26,6 +40,8 @@ jobs:
   # The caller grants the most the called workflow's `publish` job holds (contents: write); its `render` job,
   # which runs the checked-out code, is read-only and publish only acts on main.
   film:
+    # A full render is up to two hours (D1168): a rehearsal leaves it to film-check.yml.
+    if: ${{ !inputs.rehearsal }}
     permissions:
       contents: write
     uses: ./.github/workflows/film.yml
@@ -66,7 +82,7 @@ jobs:
           tags: cartographer:smoke
           build-args: |
             VERSION=${{ inputs.tag }}
-          cache-to: type=gha,mode=max,scope=${{ github.run_id }}
+          cache-to: ${{ !inputs.rehearsal && format('type=gha,mode=max,scope={0}', github.run_id) || '' }}
       - name: Smoke the candidate
         env:
           TAG: ${{ inputs.tag }}
@@ -84,17 +100,19 @@ jobs:
           build-args: |
             VERSION=${{ inputs.tag }}
           cache-from: type=gha,scope=${{ github.run_id }}
-          cache-to: type=gha,mode=max,scope=${{ github.run_id }}
+          cache-to: ${{ !inputs.rehearsal && format('type=gha,mode=max,scope={0}', github.run_id) || '' }}
       - name: Smoke the Surveyor candidate
         env:
           TAG: ${{ inputs.tag }}
         run: test/smoke/surveyor-image.sh cartographer-surveyor:smoke "$TAG"
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        if: ${{ !inputs.rehearsal }}
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        if: ${{ !inputs.rehearsal }}
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -105,6 +123,7 @@ jobs:
           tags: |
             ghcr.io/beppetemp/cartographer:${{ inputs.tag }}
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        if: ${{ !inputs.rehearsal }}
         with:
           context: .
           target: surveyor
@@ -149,6 +168,7 @@ jobs:
           PATH="$BIN:$PATH" helm package deploy/helm/cartographer --version "${TAG#v}" --app-version "$TAG" --destination "$RUNNER_TEMP/chart"
       - name: Push the chart to ghcr.io
         id: push
+        if: ${{ !inputs.rehearsal }}
         env:
           BIN: ${{ runner.temp }}/bin
           TAG: ${{ inputs.tag }}
@@ -239,6 +259,7 @@ jobs:
       # latest release where it is. A run of a tag started again by hand replaces that
       # candidate (release-train gives every candidate its own tag); other candidates are kept (release.yml deletes them with the release).
       - name: Publish the pre-release
+        if: ${{ !inputs.rehearsal }}
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
