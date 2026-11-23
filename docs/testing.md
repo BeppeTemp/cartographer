@@ -390,6 +390,17 @@ otherwise silent — no client, compiler or linter reports any of them:
 
 - the `AGENTS.md` budgets: 120 lines of hand-written text, 12.000 characters for
   the whole file;
+- a size cap on prose (`internal/repodocs/sizecaps.go`): a `docs/*.md` page is at most 1.000
+  lines (generated blocks and `docs/decisions.md` aside) and a paragraph or list item of
+  `CONTRIBUTING.md` at most 1.500 characters (nested items counted apart, fences and tables
+  skipped). What is longer is in `GrandfatheredPages` or `GrandfatheredBlocks` with a ceiling,
+  its size plus 10% rounded up to 50; the test fails over the ceiling (`split it`), and when a
+  listed page or block is back under the cap (`remove it from the list`). Raising a ceiling is
+  a visible edit of the map, and `TestGrandfatherListsOnlyShrink` pins the exact entries,
+  and fails and asks for a lower ceiling when one sits more than one margin above its page
+  (D2316). A block is keyed by its nearest heading and the first 40 characters
+  of its text; the length of one line is
+  not capped;
 - the generated blocks are up to date — the decision index in `docs/decisions.md`,
   the code map in `AGENTS.md` and the what-runs-where table in this page (§Levels).
   The generator **is** this test run with `-update`, which is all

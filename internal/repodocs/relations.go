@@ -322,7 +322,7 @@ func SupersededCitations(root string, decisions []Decision) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		for i, line := range strings.Split(blankGeneratedBlocks(string(data)), "\n") {
+		for i, line := range strings.Split(blankGeneratedBlocks(string(data), [][2]string{{CodeMapBegin, CodeMapEnd}, {IndexBegin, IndexEnd}}), "\n") {
 			cited := map[string]bool{}
 			for _, id := range relationRef.FindAllString(line, -1) {
 				cited[id] = true
@@ -345,17 +345,20 @@ func keys(m map[string]bool) []string {
 	return out
 }
 
-// blankGeneratedBlocks is StripGeneratedBlocks that keeps the line count, so
-// a reported line number is the line in the file.
-func blankGeneratedBlocks(content string) string {
-	for _, pair := range [][2]string{{CodeMapBegin, CodeMapEnd}, {IndexBegin, IndexEnd}} {
-		i := strings.Index(content, pair[0])
-		j := strings.Index(content, pair[1])
-		if i < 0 || j < i {
-			continue
+// blankGeneratedBlocks blanks the generated blocks of the given marker pairs and
+// keeps the line count, so a reported line number is the line in the file.
+// SupersededCitations passes the code map and the decision index only.
+func blankGeneratedBlocks(content string, pairs [][2]string) string {
+	for _, pair := range pairs {
+		for {
+			i := strings.Index(content, pair[0])
+			j := strings.Index(content, pair[1])
+			if i < 0 || j < i {
+				break
+			}
+			j += len(pair[1])
+			content = content[:i] + strings.Repeat("\n", strings.Count(content[i:j], "\n")) + content[j:]
 		}
-		j += len(pair[1])
-		content = content[:i] + strings.Repeat("\n", strings.Count(content[i:j], "\n")) + content[j:]
 	}
 	return content
 }
