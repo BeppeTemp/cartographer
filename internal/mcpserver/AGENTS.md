@@ -69,6 +69,9 @@ test or a decision record: none of them is a preference.
   fail when a tool has no row in `docs/control-plane.md`, a marker or a parameter
   disagrees with the registry (D101, D1125). Renaming one is a breaking change,
   not a cleanup.
+- **Age and recency are computed on the server's clock, from the time the server received the datum**, never from a time a client or a Surveyor declares: a skewed or hostile clock would make a stale report look fresh (the surveyor and component routes: `uiapi_surveyors.go`, `uiapi_surveyorruns.go`, `uiapi_components.go`).
+- **A free-text field that reaches the server unchecked is not shown to a principal that sees other KBs**: check its scope first, because what one KB's writer typed would otherwise read as another's.
+- **A surface exposed outside (a route, a tier, a method set) is admitted by an explicit list**, never by "everything except": a new member is then closed until someone opens it on purpose.
 - Registration is per-KB: a tool added outside `RegisterKBTools` is invisible in
   multi-KB mounts.
 - **A test that gives a KB a remote makes it sync with that remote** (D903: a KB syncs

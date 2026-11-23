@@ -3,6 +3,7 @@ package repodocs
 import (
 	"io/fs"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -389,5 +390,82 @@ func TestShellScriptsNoPipeIntoGrepQuiet(t *testing.T) {
 	}
 	if scanned == 0 || pipefail == 0 {
 		t.Fatalf("the guard read %d scripts, %d of them with pipefail: it reads nothing", scanned, pipefail)
+	}
+}
+
+// sedInPlace is the pattern of `sed -i` (and `sed -ni`, `sed --in-place`): the
+// flag takes an argument on BSD sed and none on GNU sed, so one spelling edits
+// a file on Linux and fails or leaves a backup file on macOS.
+var sedInPlace = regexp.MustCompile(`\bsed\s+(?:-\S+\s+)*(?:-[A-Za-z]*i|--in-place)`)
+
+// sedInPlaceLines returns the 1-based lines of text that call `sed -i`,
+// comment lines excepted (a comment may explain the rule).
+func sedInPlaceLines(text string) []int {
+	var out []int
+	for i, l := range strings.Split(text, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(l), "#") {
+			continue
+		}
+		if sedInPlace.MatchString(l) {
+			out = append(out, i+1)
+		}
+	}
+	return out
+}
+
+// AC-P6-2: the lint fails on a script, a workflow step and a recipe.
+func TestSedInPlaceLintFixtures(t *testing.T) {
+	for name, text := range map[string]string{
+		"script":   "#!/bin/sh\nsed -i 's/a/b/' f\n",
+		"workflow": "steps:\n  - run: |\n      sed -i.bak 's/a/b/' f\n",
+		"recipe":   "t:\n\t@sed -ni 's/a/b/p' f\n",
+		"long":     "x:\n\tsed --in-place s/a/b/ f\n",
+		"clusterE": "sed -E -i s/a/b/ f\n",
+		"clusterN": "sed -n -i s/a/b/p f\n",
+	} {
+		if got := sedInPlaceLines(text); len(got) != 1 {
+			t.Errorf("%s: want one finding, got %v", name, got)
+		}
+	}
+	for name, text := range map[string]string{
+		"comment":  "# never sed -i\n",
+		"stream":   "sed -n 's/a/b/p' f\n",
+		"expr":     "sed -e 's/a/b/' f > g\n",
+		"pipeline": "echo x | sed s/x/y/\n",
+	} {
+		if got := sedInPlaceLines(text); len(got) != 0 {
+			t.Errorf("%s: want none, got %v", name, got)
+		}
+	}
+}
+
+// TestNoSedInPlace: no tracked shell script, workflow or Makefile calls
+// `sed -i`; a file is edited with a script or the edit tool, which runs the
+// same on the BSD and GNU tools.
+func TestNoSedInPlace(t *testing.T) {
+	root := repoRoot(t)
+	out, err := exec.Command("git", "-C", root, "ls-files", "-z").Output()
+	if err != nil {
+		t.Fatalf("no git listing: %v", err)
+	}
+	scanned := 0
+	for _, rel := range strings.Split(string(out), "\x00") {
+		base := filepath.Base(rel)
+		isWorkflow := strings.HasPrefix(rel, ".github/workflows/") && (strings.HasSuffix(rel, ".yml") || strings.HasSuffix(rel, ".yaml"))
+		if !strings.HasSuffix(rel, ".sh") && base != "Makefile" && !strings.HasSuffix(rel, ".mk") && !isWorkflow {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+		if err != nil {
+			continue
+		}
+		scanned++
+		lines := strings.Split(string(b), "\n")
+		for _, n := range sedInPlaceLines(string(b)) {
+			t.Errorf("%s:%d: `sed -i` differs between BSD and GNU sed; edit with a script (python, perl -i is no better) or write to a temp file and move it\n  %s", rel, n, strings.TrimSpace(lines[n-1]))
+		}
+	}
+	if scanned == 0 {
+		t.Fatal("the guard read no script: it reads nothing")
 	}
 }
