@@ -57,7 +57,7 @@ func TestPlanGateWorkflowNeverRunsPRCode(t *testing.T) {
 		t.Error("plan-gate.yml: must run scripts/pr-triage.sh, outside any skill directory")
 	}
 	if strings.Contains(body, "skills/") {
-		t.Error("plan-gate.yml: depends on a skill path: CI must not break when a skill is renamed (D992)")
+		t.Error("plan-gate.yml: depends on a skill path: CI must not break when a skill is renamed (D-new-two-dev-clients)")
 	}
 	if regexp.MustCompile(`pull_request\.head|pull_request\[\s*['"]head|github\.head_ref|refs/pull/|merge_commit_sha`).MatchString(body) {
 		t.Error("plan-gate.yml: references the PR head or its merge commit: only the base branch tip may be checked out")

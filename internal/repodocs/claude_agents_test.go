@@ -11,8 +11,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// The repository's subagents live only in `.claude/agents/` (D992): development
-// targets Claude Code alone. What still matters there is that each one pins a
+// The role bodies of the repository's subagents live only in `.claude/agents/`
+// (D-new-two-dev-clients); the second client's definitions are generated from them
+// (kiroagents.go). What still matters in a body's frontmatter is that each one pins a
 // Claude model, so a coordinator never hands a mandate to whatever the session
 // default is, and that the reviewers, the readers and the auditors cannot edit.
 var claudeModelID = regexp.MustCompile(`^claude-[a-z]+-\d+-\d+$`)
@@ -167,5 +168,82 @@ func TestKiroAgentsAreGeneratedFromTheClaudeOnes(t *testing.T) {
 			}
 			t.Errorf("%s has no .claude/agents source. Run `%s` or delete it.", rel, fix)
 		}
+	}
+}
+
+func TestGenerateKiroAgent(t *testing.T) {
+	md := func(model, tools string) []byte {
+		fm := "---\nname: cartographer-x\ndescription: d\nmodel: " + model + "\n"
+		if tools != "" {
+			fm += "tools: " + tools + "\n"
+		}
+		return []byte(fm + "---\nbody\n")
+	}
+	cases := []struct {
+		name, model, tools, wantErr string
+		wantContains                []string
+		wantAbsent                  []string
+	}{
+		{name: "model spelling and tool table", model: "claude-sonnet-5-5", tools: "Read, Grep, Glob, Bash",
+			wantContains: []string{`"claude-sonnet-5.5"`, `"shell"`}, wantAbsent: []string{"fs_write", `"write"`, `"code"`, "CONTRIBUTING.md"}},
+		{name: "write and edit are one tool", model: "claude-haiku-5-5", tools: "Read, Edit, Write",
+			wantContains: []string{`"claude-haiku-5.5"`, "fs_write", `"code"`, "CONTRIBUTING.md"}},
+		{name: "no tools", model: "claude-sonnet-5-5",
+			wantContains: []string{`"write"`, `"glob"`, "fs_write"}},
+		{name: "unknown tool", model: "claude-sonnet-5-5", tools: "Read, WebFetch", wantErr: "WebFetch"},
+		{name: "bad model", model: "sonnet", wantErr: "model"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			out, err := GenerateKiroAgent("cartographer-x", md(c.model, c.tools))
+			if c.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), c.wantErr) {
+					t.Fatalf("err = %v, want one naming %q", err, c.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, s := range c.wantContains {
+				if !strings.Contains(string(out), s) {
+					t.Errorf("output lacks %s:\n%s", s, out)
+				}
+			}
+			for _, s := range c.wantAbsent {
+				if strings.Contains(string(out), s) {
+					t.Errorf("output has %s:\n%s", s, out)
+				}
+			}
+			if strings.Contains(string(out), "allowedTools") || strings.Contains(string(out), "toolsSettings") {
+				t.Error("a V2-only key was written")
+			}
+		})
+	}
+}
+
+// AC-P6-9: the table of CONTRIBUTING.md names exactly the declared development
+// clients, and each has a test of its definitions.
+func TestContributingTableNamesTheDeclaredClients(t *testing.T) {
+	root := repoRoot(t)
+	var header []string
+	for _, line := range strings.Split(readFile(t, root, "CONTRIBUTING.md"), "\n") {
+		if strings.HasPrefix(line, "| Difference |") {
+			for _, c := range strings.Split(strings.Trim(line, "| "), "|") {
+				header = append(header, strings.TrimSpace(c))
+			}
+			break
+		}
+	}
+	var want []string
+	src := readFile(t, root, "internal/repodocs/claude_agents_test.go")
+	for _, c := range DevelopmentClients {
+		want = append(want, c.Name)
+		if !strings.Contains(src, "func "+c.DefinitionsTest+"(") {
+			t.Errorf("%s is a declared development client but %s does not exist in claude_agents_test.go", c.Name, c.DefinitionsTest)
+		}
+	}
+	if len(header) != len(want)+1 || strings.Join(header[1:], ",") != strings.Join(want, ",") {
+		t.Errorf("the table in CONTRIBUTING.md §Working with an agent client has the columns %q, want Difference then %q", header, want)
 	}
 }

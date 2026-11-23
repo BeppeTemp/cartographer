@@ -33,14 +33,18 @@ var kiroToolOf = map[string]string{
 // kiroDefaultTools is the set of a definition that lists no `tools`.
 var kiroDefaultTools = []string{"read", "write", "shell", "grep", "glob"}
 
-// kiroPrompt is the one prompt of every role; %s is the role's name. It does not
-// mention where the clients differ in a command.
+// kiroPrompt is the prompt of every role; %s is the role's name. A role that can
+// write also gets kiroCommands, which sends it to the table of CONTRIBUTING.md for
+// this client's commands. A read-only role does not: it would read that table from
+// the worktree it reviews, which is the change under review.
 const kiroPrompt = "Your definition is the repository file `.claude/agents/%s.md`, loaded as a resource and resolved against the folder this session was started in. " +
 	"When it is not in your context, read it with the read tool from that folder; if it does not exist there, stop and report `definition not found: .claude/agents/%s.md`. " +
 	"Follow its body to the letter and ignore its frontmatter: your model and tools come from this file. " +
 	"Every command runs in the worktree the mandate names. " +
-	"Before editing under a directory, read the `AGENTS.md` of that directory and of each parent up to the root: this client does not load them on its own. " +
+	"%sBefore editing under a directory, read the `AGENTS.md` of that directory and of each parent up to the root: this client does not load them on its own. " +
 	"Your final report is the one the definition prescribes."
+
+const kiroCommands = "Where `CONTRIBUTING.md` §Working with an agent client gives this client a different command, use that one. "
 
 type kiroPermission struct {
 	Tool   string `json:"tool"`
@@ -102,10 +106,14 @@ func GenerateKiroAgent(name string, md []byte) ([]byte, error) {
 	if contains(tools, "write") {
 		tools = append(tools, "code")
 	}
+	commands := ""
+	if contains(tools, "write") {
+		commands = kiroCommands
+	}
 	a := kiroAgent{
 		Name: name, Description: fm.Description, Model: m[1] + "." + m[2],
 		Tools: tools, Resources: []string{"file://.claude/agents/" + name + ".md"},
-		Prompt: fmt.Sprintf(kiroPrompt, name, name),
+		Prompt: fmt.Sprintf(kiroPrompt, name, name, commands),
 	}
 	// No pre-approval the Claude source does not have: the shell is never auto-allowed.
 	a.Permissions.Rules = []kiroPermission{{"fs_read", "allow"}}
@@ -129,4 +137,12 @@ func contains(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// DevelopmentClients are the clients this repository is developed with, in the
+// column order of the table in CONTRIBUTING.md §Working with an agent client,
+// each with the test that checks its agent definitions.
+var DevelopmentClients = []struct{ Name, DefinitionsTest string }{
+	{"Claude Code", "TestClaudeSubagentsPinAModelAndReadOnlyOnesCannotEdit"},
+	{"Kiro CLI", "TestKiroAgentsAreGeneratedFromTheClaudeOnes"},
 }

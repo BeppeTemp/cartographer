@@ -58,6 +58,7 @@ Rules to keep the code consistent. New code should resemble the existing code.
 
 - Tests use the stdlib `testing` package, alongside the code (`*_test.go`).
 - Tests that use `git` must `t.Skip` if `git` is not in the PATH.
+- An absolute path in a test is built with `t.TempDir()` or `filepath.Join`, never a POSIX literal: the Windows leg of `make check-hosted` runs the test.
 - Server tests feed `Run` via `io.Pipe`/buffer with JSON-RPC sequences.
 - In `internal/mcpserver`, `internal/kb` and `internal/lint` a top-level test
   starts with `t.Parallel()` (D786): their tests spawn git, and run serially

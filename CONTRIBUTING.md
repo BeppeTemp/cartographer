@@ -63,19 +63,38 @@ run is not a gate.
 
 ## Working with an agent client
 
-This repository is developed with **Claude Code** only (D992). `AGENTS.md` is the
-canonical instruction file and `CLAUDE.md` is a one-line `@AGENTS.md` import (an
-import rather than a symlink, because git does not materialise symlinks on a
+This repository is developed with two clients, **Claude Code** and **Kiro CLI** (D2323).
+`AGENTS.md` is the canonical instruction file and `CLAUDE.md` is a one-line `@AGENTS.md`
+import (an import rather than a symlink, because git does not materialise symlinks on a
 Windows checkout without Developer Mode). Every directory with an `AGENTS.md` has
-its own one-line `CLAUDE.md` import, which Claude loads on its first read of a
-file there (D213). The skills are real directories in `.claude/skills/` and the
-subagents are the files in `.claude/agents/`.
+its own one-line `CLAUDE.md` import (D213). The skills are the directories of `.claude/skills/`
+and the role bodies the files of `.claude/agents/`; the second client's definitions,
+`.kiro/agents/<name>.json`, are generated from them (`make kiro-agents`), hold a pointer to the
+body and are never edited. What differs between the two:
+
+| Difference | Claude Code | Kiro CLI |
+|---|---|---|
+| Area `AGENTS.md` files | loaded on the first read of a file in the directory | not loaded unless the session starts at or below the directory: the mandate tells the role to read them |
+| Role definitions | `.claude/agents/<name>.md` | `.kiro/agents/<name>.json`, generated, pointing at the same body |
+| Skills | loaded from `.claude/skills/` | read as a procedure: the coordinator opens `.claude/skills/<name>/SKILL.md` |
+| Where a session starts | the main clone or a worktree | the main clone, on `main`: workspace agents are found in the folder the session starts in and a resource path resolves against it, so the definitions read are `main`'s |
+| Model of a subagent | the definition's `model` | the generated `model`; the coordinator's model is passed explicitly when the session starts, else the client's default is used |
+| Sending a correction round | the same subagent is resumed | a subagent cannot be resumed: a new one gets the findings mandate; commits are added, never amended, on both |
+| Read-only roles | no edit tool | no write tool; the shell remains on both, and the definition is what forbids a write |
+| The check before reporting | an implementer: the targeted tests of the packages it touched (`go test ./<pkg> -run`, on the build host when there is one), never `make check-hosted`; the coordinator: `make check-hosted` on the tip | the same; a coordinator that works as a helper of another runs the local `make check` instead (the hosted check polls the API, whose hourly quota the account shares) |
+| Who queues | a maintainer's coordinator, one lander at a time | the same; a coordinator that works as a helper of another pushes its branch and does not queue |
+| Commit trailer | the client's `Co-Authored-By` | the client's `Co-Authored-By` |
+
+The Kiro CLI column is the design of the generated definitions; the maintainer's probe of the
+client (listed workspace agents, a read-only role spawned, the pinned model in the client's log)
+is recorded here with its date and the client version when it is done.
+
 A maintainer's agent iterates on the targeted tests of the packages it touched and never runs `make check-hosted`: the coordinator starts one (GitHub-hosted, in parallel with every other agent's, with a Windows leg) on the tip when it starts the review, never a check that waits for a shared build host (D2040, D2311). Queueing waits for it to be green: a fix that changes any non-test, non-doc file gets one more hosted check; the change is queued only after a green hosted check of the last such commit (a doc is a Markdown file under `docs/`; a test is a test file).
 
-With another agent, have it read `AGENTS.md` and follow `.claude/skills/<name>/SKILL.md`
+With any other client, have it read `AGENTS.md` and follow `.claude/skills/<name>/SKILL.md`
 as a plain procedure, spawning a subagent from the body of `.claude/agents/<name>.md`
 where it can and doing the step itself where it cannot. The repository keeps no tested
-path for it. This concerns how the repository is developed; the clients the product
+path for a client other than the two. This concerns how the repository is developed; the clients the product
 supports are in `docs/harnesses.md`.
 
 ### Roles: contributor and maintainer

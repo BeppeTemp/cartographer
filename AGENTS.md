@@ -131,7 +131,7 @@ Not duplicated here:
 | Doc map + reading paths | `docs/index.md` (read first, then only the relevant pages) |
 | Project status and planned work | GitHub issues, pull requests and releases (links in `docs/index.md`) |
 | Why behind a choice (`D<n>`) | One file per decision: `ls docs/decisions/D<n>-*`; generated list: `docs/decisions.md` |
-| Working with an agent client (D992) | `CONTRIBUTING.md` §Working with an agent client |
+| Working with an agent client | `CONTRIBUTING.md` §Working with an agent client |
 | List of MCP tools | `docs/control-plane.md` §MCP API |
 | Env vars, YAML config, deploy | `docs/deployment.md` |
 | Client subcommands | `docs/configurator.md` |

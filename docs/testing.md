@@ -463,7 +463,8 @@ otherwise silent — no client, compiler or linter reports any of them:
 - the second development client's agent definitions: `.kiro/agents/cartographer-<role>.json` is
   generated from `.claude/agents/<role>.md` (`make kiro-agents`, the test run with `-update`) and
   holds a pointer to the body, never a copy; a hand edit, a missing twin or an orphan fails
-  `TestKiroAgentsAreGeneratedFromTheClaudeOnes`;
+  `TestKiroAgentsAreGeneratedFromTheClaudeOnes`; the table of differences in `CONTRIBUTING.md` has one
+  column per declared development client (`TestContributingTableNamesTheDeclaredClients`);
 - no file outside `docs/decisions/` and `CHANGELOG.md` describes the build host as the
   train gate (`TestNoFileDescribesTheBuildHostAsTheGate`: comment markers and backticks
   dropped, lines joined, so a wrapped phrase is found too);
@@ -498,7 +499,7 @@ otherwise silent — no client, compiler or linter reports any of them:
   client uses, and satisfies the strictest client's rules (D207), the skills being real directories in
   `.claude/skills/`;
 - each subagent in `.claude/agents/` pins a Claude model, and the read-only ones
-  (reviewers, plan writer, source reader) carry no `Edit` or `Write` tool (D992);
+  (reviewers, plan writer, source reader) carry no `Edit` or `Write` tool (D2323);
 - the tool table of `docs/control-plane.md` §MCP API agrees with the registry both ways, markers and parameters (D1125), and the tool-name scan reads the bundled skills, `.claude/` and the area `AGENTS.md` files too;
 - the `deployment.md` environment-variable table lists exactly the Schema's variables, plus the reasoned few that are not Schema keys, with the flag the Schema declares; every `CARTOGRAPHER_*` name in a string literal of non-test Go is documented in a current-state page, removed in `config.Retired`, or allow-listed with a reason (`internal/config/envdocs_test.go`, D1126);
 - current-state pages carry no history phrase (`used to`, `previously`, `removed by D<n>`,
