@@ -951,7 +951,7 @@ func StripGeneratedBlocks(content string) string {
 // decisionRef matches this repository's reference convention: the bare `D<n>`,
 // no path, so a reworded title does not break it. Nothing about it is checked by
 // the compiler, which is why CitedDecisions exists.
-var decisionRef = regexp.MustCompile(`\bD([0-9]{1,3})\b`)
+var decisionRef = regexp.MustCompile(`\bD([0-9]+)\b`)
 
 // CitedDecisions returns every decision number referenced from the corpus, with
 // the files that reference it, so a reference that no longer resolves can be

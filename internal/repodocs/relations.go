@@ -21,9 +21,8 @@ var (
 	// Read as nothing, the same typo on both records would pass in silence.
 	nearMissKey = regexp.MustCompile(`(?i)^\s*(supersedes|amends|superseded[-_]by|amended[-_]by)\s*:`)
 	relationID  = regexp.MustCompile(`^D(?:[1-9][0-9]*|-new-[a-z0-9-]+)$`)
-	// relationRef is a citation of any record, numbered or pending. Unlike
-	// decisionRef it reads every length of number: most relations name a
-	// four-digit record.
+	// relationRef is a citation of any record, numbered or pending: decisionRef
+	// reads the same numbers, but not the pending ids.
 	relationRef = regexp.MustCompile(`\bD(?:[0-9]+|-new-[a-z0-9-]+)\b`)
 )
 

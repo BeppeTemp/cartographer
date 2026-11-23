@@ -8,7 +8,7 @@ import (
 )
 
 // maxMentions caps the mentions a move reports; the rest is counted in
-// `mentions_omitted` (D1070).
+// `mentions_omitted`.
 const maxMentions = 50
 
 // mentionOut is one plain-text occurrence of a moved concept's old ID.

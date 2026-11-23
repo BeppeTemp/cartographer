@@ -153,7 +153,7 @@ func fenceKindsOf(lines []string) []LineKind {
 // cannot disagree with the rewrite (D149). Newlines are kept and every other
 // byte of a target becomes a space, so line numbers and byte offsets survive.
 // A link label and everything else stay visible: it is how a caller scans for
-// a plain mention of an ID that the link rewrite does not own (D1070).
+// a plain mention of an ID that the link rewrite does not own.
 func MaskLinks(text string) string {
 	masked := MaskCodeSpans(text)
 	b := []byte(text)

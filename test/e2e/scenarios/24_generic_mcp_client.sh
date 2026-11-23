@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # scenarios/24_generic_mcp_client.sh — OPERATOR scenario: an MCP host with no
-# Cartographer client side (D1102).
+# Cartographer client side (D1096, D1097, D1100, D1101).
 #
 # A real server, driven with curl and python3 only: no `cartographer
 # connect/sync`, no bridge, no client config, no skill, no hook, no HOME
