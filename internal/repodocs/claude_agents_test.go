@@ -247,3 +247,56 @@ func TestContributingTableNamesTheDeclaredClients(t *testing.T) {
 		t.Errorf("the table in CONTRIBUTING.md §Working with an agent client has the columns %q, want Difference then %q", header, want)
 	}
 }
+
+// Anyone can comment on a public issue, and anyone can write its body: an
+// agent definition or skill that reads an issue's or a PR's text through `gh`
+// must keep only the maintainer associations, or a stranger's text reaches the
+// agent as the maintainer's decision. A read of non-text fields only (state,
+// labels, the author association itself) is free.
+func TestGhIssueCommentReadsFilterByAuthorAssociation(t *testing.T) {
+	root := repoRoot(t)
+	var files []string
+	for _, pat := range []string{
+		filepath.Join(".claude", "agents", "*.md"),
+		filepath.Join(".claude", "skills", "*", "SKILL.md"),
+		filepath.Join(".claude", "skills", "*", "references", "*.md"),
+	} {
+		m, _ := filepath.Glob(filepath.Join(root, pat))
+		files = append(files, m...)
+	}
+	if len(files) == 0 {
+		t.Fatal("no agent definition or skill found")
+	}
+	span := regexp.MustCompile("`gh (?:issue view|pr view|api)\\b[^`]*`")
+	apiText := regexp.MustCompile(`gh api\s+\S*/(?:issues|pulls)/`)
+	assoc := regexp.MustCompile(`select\([^` + "`" + `]*\b(?:authorAssociation|author_association)\b[^` + "`" + `]*\bOWNER\b[^` + "`" + `]*\bMEMBER\b[^` + "`" + `]*\bCOLLABORATOR\b`)
+	readsText := func(m string) bool {
+		if strings.HasPrefix(m, "`gh api") {
+			if !apiText.MatchString(m) {
+				return false
+			}
+			// `--jq .author_association`: a non-text field, no select needed.
+			if strings.Contains(m, "--jq") && !strings.Contains(m, "body") && !strings.Contains(m, "/comments") {
+				return false
+			}
+			return true
+		}
+		i := strings.Index(m, "--json")
+		if i < 0 {
+			return true // a bare `gh issue view` prints the body
+		}
+		fields := m[i:]
+		return strings.Contains(fields, "body") || strings.Contains(fields, "comments")
+	}
+	for _, f := range files {
+		raw, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range span.FindAllString(string(raw), -1) {
+			if readsText(m) && !assoc.MatchString(m) {
+				t.Errorf("%s: %s reads issue or PR text without a select on the OWNER, MEMBER and COLLABORATOR association", f, m)
+			}
+		}
+	}
+}
