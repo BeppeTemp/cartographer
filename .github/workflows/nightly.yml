@@ -1,0 +1,292 @@
+# The acceptance lanes that need no private machine, run on main every night: a red night is
+# known the next morning, not when the release candidate is cut. No job calls a model and none
+# holds a credential beyond the run's own token: the lanes are scripts and tests, and
+# the usage test with a headless agent stays with the coordinator's own session.
+#
+#   range:      the commits since the last green nightly (none: since the newest stable tag);
+#               none landed, and the run is green with every lane skipped.
+#   build:      the release-shaped Linux binary (GoReleaser, no cache: D1020), handed to the lanes.
+#   battery:    lane B, `make e2e-nightly` and test/smoke/http.sh on that binary.
+#   quarantine: the quarantined Go tests, outside the verdict (test/quarantine.tsv, D2294).
+#   upgrade:    lane A, a client upgraded from the previous stable release (`make e2e-upgrade`).
+#   report:     the one job with `issues: write`; it checks out nothing.
+#
+# The jobs run on the upstream repository only: a fork has the file and no night to watch. Only a run
+# of every lane (a scheduled one, or a dispatch that names them all) closes the `nightly-red` issue;
+# the base of the next range is the last green scheduled run, never a dispatch: a partial dispatch
+# never clears a red night.
+#
+# A dispatch runs the file of the branch it is started on, so every job starts by refusing a ref
+# other than main: a branch's code never runs beside the token of `report` or the history of
+# `range`. Runs on main coalesce, none is cancelled.
+name: nightly
+
+on:
+  schedule:
+    - cron: "43 2 * * *"
+  workflow_dispatch:
+    inputs:
+      lanes:
+        description: "Lanes to run, comma separated: battery, quarantine, upgrade; all when empty"
+        required: false
+        default: "all"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  range:
+    name: range
+    if: github.repository == 'BeppeTemp/cartographer'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      range: ${{ steps.range.outputs.range }}
+      battery: ${{ steps.range.outputs.battery }}
+      quarantine: ${{ steps.range.outputs.quarantine }}
+      upgrade: ${{ steps.range.outputs.upgrade }}
+      build: ${{ steps.range.outputs.build }}
+      full: ${{ steps.range.outputs.full }}
+    steps:
+      - name: Refuse a ref other than main
+        run: |
+          [ "$GITHUB_REF" = refs/heads/main ] || { echo "::error::the nightly runs on main only, not on $GITHUB_REF"; exit 1; }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the range and the previous release's tag
+          persist-credentials: false
+      # Which lanes run, and since when. A dispatch always runs what it asks for; a scheduled run
+      # with no commit since the last green run runs nothing and stays green.
+      - name: The range and the lanes
+        id: range
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          LANES: ${{ inputs.lanes }}
+        run: |
+          set -euo pipefail
+          # The lanes asked for, validated: an unknown name fails the run here, naming it.
+          sel=$(scripts/nightly-lanes.sh)
+          lane() { grep -qx "$1=true" <<<"$sel"; }
+          # The base is the last green SCHEDULED run, which runs every lane: a green partial dispatch
+          # proved less, so it is never the base.
+          base=$(gh run list -R "$REPO" --workflow nightly.yml --branch main --event schedule --status success --limit 1 --json headSha -q '.[0].headSha // empty')
+          if [ -z "$base" ] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            base=$(git tag --list 'v[0-9]*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)
+          fi
+          if [ -n "$base" ]; then n=$(git rev-list --count "${base}..HEAD"); else n=1; base="the start of history"; fi
+          run=true
+          if [ "$EVENT" != workflow_dispatch ] && [ "$n" -eq 0 ]; then run=false; fi
+          for l in battery quarantine upgrade; do
+            if [ "$run" = true ] && lane "$l"; then echo "$l=true" >> "$GITHUB_OUTPUT"; else echo "$l=false" >> "$GITHUB_OUTPUT"; fi
+          done
+          if [ "$run" = true ] && { lane battery || lane upgrade; }; then echo build=true >> "$GITHUB_OUTPUT"; else echo build=false >> "$GITHUB_OUTPUT"; fi
+          grep -x 'full=.*' <<<"$sel" >> "$GITHUB_OUTPUT"
+          echo "range=$base..$(git rev-parse --short HEAD) ($n commits)" >> "$GITHUB_OUTPUT"
+          if [ "$run" = false ]; then echo "nothing landed since $base: every lane is skipped" >> "$GITHUB_STEP_SUMMARY"; fi
+
+  build:
+    name: build
+    needs: range
+    if: github.repository == 'BeppeTemp/cartographer' && needs.range.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Refuse a ref other than main
+        run: |
+          [ "$GITHUB_REF" = refs/heads/main ] || { echo "::error::the nightly runs on main only, not on $GITHUB_REF"; exit 1; }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          install-only: true
+      # The release's own build of the Linux target (same flags and version stamp as a release),
+      # unpublished.
+      - name: GoReleaser snapshot build of the Linux binary
+        run: goreleaser build --snapshot --clean --single-target --output dist/cartographer
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: cartographer-linux
+          path: dist/cartographer
+          if-no-files-found: error
+          retention-days: 3
+
+  battery:
+    name: battery
+    needs: [range, build]
+    if: github.repository == 'BeppeTemp/cartographer' && needs.range.outputs.battery == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Refuse a ref other than main
+        run: |
+          [ "$GITHUB_REF" = refs/heads/main ] || { echo "::error::the nightly runs on main only, not on $GITHUB_REF"; exit 1; }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: cartographer-linux
+          path: bin
+      # 32_secrets_lifecycle needs sops and age-keygen on PATH. sops is pinned by version and by
+      # the sha256 of the file, as syft in release.yml (D1020); a bump is a reviewed edit of both.
+      - name: Install sops and age
+        env:
+          SOPS_VERSION: v3.9.4
+          SOPS_SHA256: 5488e32bc471de7982ad895dd054bbab3ab91c417a118426134551e9626e4e85
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y age
+          file="sops-${SOPS_VERSION}.linux.amd64"
+          curl -fsSL -o "$file" "https://github.com/getsops/sops/releases/download/${SOPS_VERSION}/${file}"
+          echo "${SOPS_SHA256}  ${file}" | sha256sum -c -
+          sudo install -m 0755 "$file" /usr/local/bin/sops
+          rm "$file"
+          python3 --version
+      # run.sh rebuilds bin/cartographer with `make build` unless E2E_PREBUILT=1: set, it runs the
+      # release-shaped binary downloaded above. test/smoke/http.sh is called directly because
+      # `make smoke-http` depends on `build` and would replace the binary under test as well.
+      - name: The e2e scenarios and the optional ones
+        env:
+          E2E_PREBUILT: "1"
+        run: |
+          chmod +x bin/cartographer
+          make e2e-nightly
+      - name: The HTTP smoke test
+        run: test/smoke/http.sh
+
+  quarantine:
+    name: quarantine
+    needs: range
+    if: github.repository == 'BeppeTemp/cartographer' && needs.range.outputs.quarantine == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      summary: ${{ steps.run.outputs.summary }}
+    steps:
+      - name: Refuse a ref other than main
+        run: |
+          [ "$GITHUB_REF" = refs/heads/main ] || { echo "::error::the nightly runs on main only, not on $GITHUB_REF"; exit 1; }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Configure git for tests
+        run: |
+          git config --global user.name ci
+          git config --global user.email ci@local
+          git config --global init.defaultBranch master
+      # Never red for a quarantined test that fails: only for a list that does not parse (exit 2),
+      # which fails the step on either call.
+      - name: Run the quarantined tests
+        id: run
+        run: |
+          set -euo pipefail
+          out=$(scripts/quarantine.sh --run 2>quarantine.err) || { cat quarantine.err >&2; exit 1; }
+          expired=$(scripts/quarantine.sh --expired)
+          { echo '```'; echo "$out"; [ -z "$expired" ] || printf 'expired (back in the gate):\n%s\n' "$expired"; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "summary=$(printf '%s\n' "$out" | tail -n 1)" >> "$GITHUB_OUTPUT"
+
+  upgrade:
+    name: upgrade
+    needs: [range, build]
+    if: github.repository == 'BeppeTemp/cartographer' && needs.range.outputs.upgrade == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Refuse a ref other than main
+        run: |
+          [ "$GITHUB_REF" = refs/heads/main ] || { echo "::error::the nightly runs on main only, not on $GITHUB_REF"; exit 1; }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the previous release is the newest stable tag
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: cartographer-linux
+          path: bin
+      # As the release PR's upgrade-e2e job (ci.yml), which stays where it is.
+      - name: A client upgraded from the previous release
+        env:
+          E2E_PREBUILT: "1"
+          E2E_UPGRADE_ONLINE: "1"
+        run: |
+          chmod +x bin/cartographer
+          make e2e-upgrade
+
+  # The table of the run, and the `nightly-red` issue: opened, or commented on, while a lane is red;
+  # closed by the first run of every lane where each is green or skipped (never by a partial dispatch). It checks out nothing, and the
+  # lane results reach the script through the environment only, never its text (as main-status).
+  report:
+    name: report
+    needs: [range, build, battery, quarantine, upgrade]
+    if: ${{ !cancelled() && github.repository == 'BeppeTemp/cartographer' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Refuse a ref other than main
+        run: |
+          [ "$GITHUB_REF" = refs/heads/main ] || { echo "::error::the nightly runs on main only, not on $GITHUB_REF"; exit 1; }
+      - name: The table and the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          NEEDS_JSON: ${{ toJSON(needs) }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          # A dispatch whose lanes input is refused fails `range` and no lane: not a red night.
+          red=$(jq -r --arg ev "$EVENT" '[to_entries[] | select((.value.result == "failure" or .value.result == "cancelled") and (.key != "range" or $ev != "workflow_dispatch")) | .key] | join(", ")' <<<"$NEEDS_JSON")
+          full=$(jq -r '.range.outputs.full // "false"' <<<"$NEEDS_JSON")
+          range=$(jq -r '.range.outputs.range // "unknown"' <<<"$NEEDS_JSON")
+          qsum=$(jq -r '.quarantine.outputs.summary // ""' <<<"$NEEDS_JSON")
+          {
+            echo "| lane | verdict | link |"
+            echo "|---|---|---|"
+            jq -r --arg run "$RUN" 'to_entries[] | "| \(.key) | \(.value.result) | [run](\($run)) |"' <<<"$NEEDS_JSON"
+            [ -z "$qsum" ] || printf '\nQuarantined tests, outside the verdict: %s\n' "$qsum"
+            printf '\nRange: %s\n' "$range"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          open=$(gh issue list -R "$REPO" --label nightly-red --state open --json number -q '.[0].number // empty')
+          if [ -n "$red" ]; then
+            body=$(printf 'The nightly is red on: %s\n\nRange: %s\nRun: %s\n\nFound-by: nightly' "$red" "$range" "$RUN")
+            if [ -n "$open" ]; then
+              gh issue comment "$open" -R "$REPO" -b "$body"
+            else
+              gh label create nightly-red -R "$REPO" -c B60205 -d "the nightly acceptance run is red" 2>/dev/null || true
+              gh issue create -R "$REPO" -t "nightly is red" -l nightly-red -b "$body"
+            fi
+          elif [ -n "$open" ] && [ "$full" = true ]; then
+            gh issue close "$open" -R "$REPO" -c "Green again: $RUN"
+          fi

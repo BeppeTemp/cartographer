@@ -264,7 +264,7 @@ and never as a required check. By hand, from the repository root, with Docker:
 test of the repository, or `tester` for what only an agent can judge. The rows no existing test covered
 are the scenarios of `test/e2e/optional/` (`31_adversarial_protocol`, `32_secrets_lifecycle`,
 `33_update_check_candidates`, `34_server_down_exit_codes`, and the upgrade of the section below).
-`make e2e-nightly` (`./test/e2e/run.sh --optional`) runs `scenarios/` and then `optional/` without
+`make e2e-nightly` (`./test/e2e/run.sh --optional`, run every night by `nightly.yml` on a release-shaped binary, `E2E_PREBUILT=1`) runs `scenarios/` and then `optional/` without
 `26_upgrade_from_previous`; `make e2e` and the train gate are unchanged. `32` needs `sops` and `age-keygen`
 on `PATH`, `33` needs `python3` and Go, and `33` builds a binary with a release version because a `dev`
 build never checks for updates. `TestAcceptanceBattery` (`internal/repodocs`) fails when a row names a path
@@ -1175,6 +1175,7 @@ a `# vX.Y.Z` comment.
   `make test-install` are POSIX `sh` scripts (`test/smoke/`, `test/e2e/`,
   `test/install/`) driving a launchd/systemd install path, so they run on the
   ubuntu leg only; `make test-linux` (`test/linux/`, Docker) is a heavy leg of its own.
+- Anything that needs an agent or a model: `nightly.yml` runs the scripted lanes only (the all-in-one battery, the upgrade, the quarantined tests); the scripted usage test, the sandbox tester and the docs auditor are run by the coordinator's session before a candidate.
 - Registering a real Scheduled Task, or setting the real named shutdown event: both
   change state outside the test's temp directory. The command sequences and the XML
   are asserted; that Task Scheduler accepts the document is verified by an actual
@@ -1481,6 +1482,7 @@ GOOS=windows GOARCH=amd64 go vet ./...
 ## Before a release
 
 - The release candidate (`release-train.yml` with `action: rc` dispatches `preview.yml`, tag `v<next>-rc.<YYYYMMDD>.<n>`, D1384, D2312) has passed both image smokes (server and Surveyor) before its first push (D995, D1440) and has run on a real deployment, and its pre-release binaries have been installed as native service and client on a machine that is not the build host (`CARTOGRAPHER_INSTALL_TAG`, `CONTRIBUTING.md` §Releases); only then is the `rc-ok` label added to the release PR. A publishing step that only `release.yml` runs cannot be rehearsed by the candidate (0.29.0 stayed a draft because "Attest the chart" had no registry login, #2272): `TestReleaseOnlyStepsAreDeclared` maps each job of `release.yml` to its twin in `preview.yml`, or to the reason it has none, and each step of a twinned job to the twin or to a declared reason, so adding one is a reviewed choice.
+- The nightly (`nightly.yml`) is green, or its `nightly-red` issue is closed: the battery and the upgrade have run on `main`'s head; what stays for the candidate is what needs a machine or an agent.
 - CI is green on the release commit, including `make e2e-web` in the `web` job.
 - `make e2e-upgrade` is green on the release PR (the `upgrade-e2e` job): a client of the previous release upgrades and converges.
 - `make smoke` succeeds for the packaged/local stdio path.

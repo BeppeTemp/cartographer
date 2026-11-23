@@ -76,8 +76,15 @@ trap cleanup EXIT
 echo "[run] lib/assert.sh self-test..."
 bash "${E2E_DIR}/lib/selftest.sh" || { echo "[run] FAIL — lib/assert.sh self-test"; exit 1; }
 
-echo "[run] build..."
-make -C "$REPO_ROOT" build
+# E2E_PREBUILT=1 runs the binary already at bin/cartographer (the nightly's release-shaped build)
+# instead of replacing it with a plain `go build`.
+if [[ "${E2E_PREBUILT:-}" == "1" ]]; then
+    [[ -x "${REPO_ROOT}/bin/cartographer" ]] || { echo "[ERROR] E2E_PREBUILT=1 and no executable bin/cartographer" >&2; exit 1; }
+    echo "[run] E2E_PREBUILT=1: using the existing bin/cartographer"
+else
+    echo "[run] build..."
+    make -C "$REPO_ROOT" build
+fi
 
 SCENARIOS_DIR="${E2E_DIR}/scenarios"
 TOTAL=0

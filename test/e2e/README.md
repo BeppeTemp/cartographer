@@ -17,7 +17,8 @@ make e2e-upgrade
 ```
 
 `--keep` preserves the temporary directory for debugging. `E2E_HTTP_PORT`
-overrides the default base port.
+overrides the default base port. `E2E_PREBUILT=1` runs the binary already at `bin/cartographer` (the
+nightly's release-shaped build) instead of rebuilding it with `make build`.
 
 A failed scenario is named in the report, after the totals, one line each:
 `E2E FAILED: <scenario>: <first [FAIL] line>` (a scenario that died without a
