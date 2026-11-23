@@ -258,7 +258,7 @@ func inRotScope(rel string) bool {
 		return true
 	case strings.HasPrefix(rel, "internal/skillbundle/bundled/"):
 		return true
-	case strings.HasPrefix(rel, "internal/") && path.Base(rel) == "AGENTS.md":
+	case (strings.HasPrefix(rel, "internal/") || strings.HasPrefix(rel, "web/")) && path.Base(rel) == "AGENTS.md":
 		return true
 	case strings.HasPrefix(rel, ".claude/skills/"):
 		return true
