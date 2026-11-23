@@ -1,4 +1,4 @@
-package repodocs
+package landertest
 
 import (
 	"bytes"
@@ -186,7 +186,7 @@ func TestEvalCaseListsAndAddsTheEscapes(t *testing.T) {
 		"found in review":         {fixReview, "says review"},
 		"unknown origin":          {fixUnknown, "unknown names no change"},
 		"a light change":          {fixLight, "reviewed light"},
-		"a tier of no known name": {fixOdd, "none of light, standard, full"},
+		"a tier of no known name": {fixOdd, "none of light, standard, fast, full"},
 		"not a fix":               {introFull, "is not a fix"},
 		"not on origin/main":      {offMain, "not on origin/main"},
 		"not a commit":            {"nothing-here", "is not a commit"},

@@ -13,7 +13,7 @@ make run             # stdio with demo KB
 make run-http        # HTTP on :39273 with demo KB
 make e2e             # HTTP/CLI end-to-end scenarios
 
-make ready MSG=<file>              # maintainer: queue the change, the lander lands it
+make ready MSG=<file> REVIEW="<tier>, <n> rounds"   # maintainer: queue it, the lander lands it
 make decisions-new SLUG=my-choice TOPIC=control-plane   # D-new-<slug>, numbered on landing
 make worktree-add SLUG=my-change   # isolated worktree for a plan branch
 make worktree-rm  SLUG=my-change   # remove it (discards uncommitted work)

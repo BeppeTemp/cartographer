@@ -1,4 +1,4 @@
-package repodocs
+package landertest
 
 import (
 	"bytes"
@@ -142,7 +142,7 @@ func TestPRTriageTracesTheCriteriaInBranchModeOnly(t *testing.T) {
 
 	m := filepath.Join(e.tmp, "msg")
 	e.write(m, msg)
-	if out, _, code := e.acScript("ready.sh", []string{"MSG=" + m, "READY_NO_LANDER=1"}); code != 0 || e.refs("ready/") != "traced" {
+	if out, _, code := e.acScript("ready.sh", []string{"MSG=" + m, "READY_NO_LANDER=1", "REVIEW=full, 1 rounds"}); code != 0 || e.refs("ready/") != "traced" {
 		t.Fatalf("a criterion without a test must not stop make ready: exit %d, queue %q\n%s", code, e.refs("ready/"), out)
 	}
 

@@ -1,4 +1,4 @@
-package repodocs
+package landertest
 
 import (
 	"context"
@@ -279,6 +279,7 @@ func (e *landEnv) git(args ...string) string { e.t.Helper(); return e.run(e.work
 // msg, committed at date (the queue's order).
 func (e *landEnv) queue(slug, msg, date string, files map[string]string) {
 	e.t.Helper()
+	msg = e.withReview(msg)
 	e.git("fetch", "-q", "origin")
 	e.git("checkout", "-q", "-B", "work-"+slug, "origin/main")
 	for p, body := range files {
@@ -391,8 +392,8 @@ func TestLanderLandsATrainInOrderAndNumbersItsDecisions(t *testing.T) {
 	if body := e.trainBody(); !strings.Contains(body, "- review: full, 2 rounds\n") || strings.Contains(body, "smuggled") {
 		t.Errorf("the train PR names the review make ready recorded:\n%s", body)
 	}
-	if one := e.upGit("log", "-1", "--format=%B", "main~1"); strings.Contains(one, "Review:") {
-		t.Errorf("a change queued without a Review trailer lands without one:\n%s", one)
+	if one := e.upGit("log", "-1", "--format=%B", "main~1"); strings.Count(one, "Review:") != 1 || !strings.Contains(one, "Review: full, 1 rounds") {
+		t.Errorf("a change queued with the review record make ready appends lands with it, once:\n%s", one)
 	}
 	// Only the slug stays, for make worktree-clean (a train PR is not the PR of feat/<slug>).
 	for _, slug := range []string{"one", "two"} {
@@ -1272,7 +1273,7 @@ func TestReadyQueuesOneCommitWithTheMessage(t *testing.T) {
 		e.write(m, msg)
 		cmd := exec.Command("bash", filepath.Join(e.work, "scripts", "ready.sh"))
 		cmd.Dir = e.work
-		cmd.Env = append(append([]string{}, e.env...), append([]string{"MSG=" + m, "READY_NO_LANDER=1"}, extra...)...)
+		cmd.Env = append(append([]string{}, e.env...), append([]string{"MSG=" + m, "READY_NO_LANDER=1", "REVIEW=full, 1 rounds"}, extra...)...)
 		out, err := cmd.CombinedOutput()
 		return string(out), err == nil
 	}
@@ -1357,7 +1358,7 @@ func TestReadyAfterAPredecessorThatLanded(t *testing.T) {
 		e.write(m, msg)
 		cmd := exec.Command("bash", filepath.Join(e.work, "scripts", "ready.sh"))
 		cmd.Dir = e.work
-		cmd.Env = append(append([]string{}, e.env...), append([]string{"MSG=" + m, "READY_NO_LANDER=1"}, extra...)...)
+		cmd.Env = append(append([]string{}, e.env...), append([]string{"MSG=" + m, "READY_NO_LANDER=1", "REVIEW=full, 1 rounds"}, extra...)...)
 		out, err := cmd.CombinedOutput()
 		return string(out), err == nil
 	}
@@ -1801,7 +1802,7 @@ func TestLanderMapsAnEditOfALandedPendingDecisionOntoItsNumberedFile(t *testing.
 	e.git("checkout", "-q", "-B", "work-b", "origin/ready/a")
 	e.write(filepath.Join(e.work, dec, "D-new-x.md"), strings.Replace(body, "# D-new-x — X", "# D-new-x — X again", 1)+"Two.\n")
 	e.git("add", ".")
-	e.git("commit", "-q", "-m", "fix(client): b\n")
+	e.git("commit", "-q", "-m", "fix(client): b\n", "-m", "Review: full, 1 rounds")
 	e.git("push", "-q", "--force", "origin", "HEAD:refs/heads/ready/b")
 	e.git("checkout", "-q", "main")
 	// Only a is landed first: b is queued after it.
@@ -1912,7 +1913,7 @@ func TestLanderMapsAnEditButNotInTestFiles(t *testing.T) {
 	e.write(filepath.Join(e.work, dec, "D-new-x.md"), body+"Two.\n")
 	e.write(filepath.Join(e.work, "x_test.go"), "// D-new-x\n// more D-new-x\n")
 	e.git("add", ".")
-	e.git("commit", "-q", "-m", "fix(client): b\n")
+	e.git("commit", "-q", "-m", "fix(client): b\n", "-m", "Review: full, 1 rounds")
 	e.git("push", "-q", "--force", "origin", "HEAD:refs/heads/ready/b")
 	e.git("checkout", "-q", "main")
 	e.git("fetch", "-q", "origin")
@@ -1943,7 +1944,7 @@ func TestLanderMapsAnEditButNotInTestdata(t *testing.T) {
 	e.write(filepath.Join(e.work, dec, "D-new-x.md"), body+"Two.\n")
 	e.write(filepath.Join(e.work, fx), "// D-new-x\n// more D-new-x\n")
 	e.git("add", ".")
-	e.git("commit", "-q", "-m", "fix(client): b\n")
+	e.git("commit", "-q", "-m", "fix(client): b\n", "-m", "Review: full, 1 rounds")
 	e.git("push", "-q", "--force", "origin", "HEAD:refs/heads/ready/b")
 	e.git("checkout", "-q", "main")
 	e.git("fetch", "-q", "origin")
@@ -2357,6 +2358,22 @@ func TestLanderForcedDoesNotWaitOnATrain(t *testing.T) {
 // queueAfter pushes ready/<slug> as `make ready AFTER=<after>` does: one commit on the queued
 // commit of <after> adding files, with message msg and the Lander-After trailer, added as
 // ready.sh adds it (git interpret-trailers: in msg's trailer block, when it ends with one).
+// withReview adds the review record the lander requires (`Review: full, 1 rounds`, as make ready
+// REVIEW= writes it) to a queued message that has none.
+func (e *landEnv) withReview(msg string) string {
+	e.t.Helper()
+	if regexp.MustCompile(`(?im)^review\s*:`).MatchString(msg) {
+		return msg
+	}
+	tr := exec.Command("git", "interpret-trailers", "--trailer", "Review: full, 1 rounds")
+	tr.Dir, tr.Env, tr.Stdin = e.work, e.env, strings.NewReader(msg)
+	b, err := tr.Output()
+	if err != nil {
+		e.t.Fatalf("interpret-trailers: %v", err)
+	}
+	return string(b)
+}
+
 func (e *landEnv) queueAfter(slug, after, msg, date string, files map[string]string) {
 	e.t.Helper()
 	tr := exec.Command("git", "interpret-trailers", "--trailer", "Lander-After: "+after)
@@ -2365,7 +2382,7 @@ func (e *landEnv) queueAfter(slug, after, msg, date string, files map[string]str
 	if err != nil {
 		e.t.Fatalf("interpret-trailers: %v", err)
 	}
-	msg = string(b)
+	msg = e.withReview(string(b))
 	e.git("fetch", "-q", "origin")
 	e.git("checkout", "-q", "-B", "work-"+slug, "origin/ready/"+after)
 	for p, body := range files {
@@ -2679,7 +2696,7 @@ esac
 			e.write(m, "feat(kb): b\n")
 			cmd := exec.Command("bash", filepath.Join(e.work, "scripts", "ready.sh"))
 			cmd.Dir = e.work
-			cmd.Env = append(append([]string{}, e.env...), "MSG="+m, "READY_NO_LANDER=1", "AFTER=a")
+			cmd.Env = append(append([]string{}, e.env...), "MSG="+m, "READY_NO_LANDER=1", "REVIEW=full, 1 rounds", "AFTER=a")
 			if fails {
 				cmd.Env = append(cmd.Env, "FAKE_CANCEL_FAILS=1")
 			}
@@ -2847,7 +2864,7 @@ func TestReadyWarnsOfACitationNothingBeforeItAdds(t *testing.T) {
 		e.write(m, msg)
 		cmd := exec.Command("bash", filepath.Join(e.work, "scripts", "ready.sh"))
 		cmd.Dir = e.work
-		cmd.Env = append(append([]string{}, e.env...), "MSG="+m, "READY_NO_LANDER=1")
+		cmd.Env = append(append([]string{}, e.env...), "MSG="+m, "READY_NO_LANDER=1", "REVIEW=full, 1 rounds")
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("ready %s: %v\n%s", slug, err, out)
@@ -2886,7 +2903,7 @@ func TestLanderRebuildsTheBundleOfARemappedChangeCitingUnderWeb(t *testing.T) {
 	e.write(filepath.Join(e.work, dec, "D-new-x.md"), body+"Two.\n")
 	e.write(filepath.Join(e.work, "web/src/a.ts"), "// D-new-x\n")
 	e.git("add", ".")
-	e.git("commit", "-q", "-m", "feat(atlas): b\n")
+	e.git("commit", "-q", "-m", "feat(atlas): b\n", "-m", "Review: full, 1 rounds")
 	e.git("push", "-q", "--force", "origin", "HEAD:refs/heads/ready/b")
 	e.git("checkout", "-q", "main")
 	e.git("fetch", "-q", "origin")
@@ -2949,7 +2966,7 @@ func TestLanderRemapsAnEditWhenMainChangedTheNumberedFileElsewhere(t *testing.T)
 	e.git("checkout", "-q", "-B", "work-b", "origin/ready/a")
 	e.write(filepath.Join(e.work, dec, "D-new-x.md"), lines("first edited", "last"))
 	e.git("add", ".")
-	e.git("commit", "-q", "-m", "fix(client): b\n")
+	e.git("commit", "-q", "-m", "fix(client): b\n", "-m", "Review: full, 1 rounds")
 	e.git("push", "-q", "--force", "origin", "HEAD:refs/heads/ready/b")
 	e.git("checkout", "-q", "main")
 	e.git("fetch", "-q", "origin")
@@ -3097,7 +3114,7 @@ func (e *landEnv) requeue(slug string, extra ...string) (string, bool) {
 	e.t.Helper()
 	cmd := exec.Command("bash", filepath.Join(e.work, "scripts", "requeue.sh"))
 	cmd.Dir = e.work
-	cmd.Env = append(append([]string{}, e.env...), append([]string{"SLUG=" + slug, "READY_NO_LANDER=1"}, extra...)...)
+	cmd.Env = append(append([]string{}, e.env...), append([]string{"SLUG=" + slug, "READY_NO_LANDER=1", "REVIEW=full, 1 rounds"}, extra...)...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err == nil
 }
@@ -3113,7 +3130,7 @@ func (e *landEnv) queueChild(slug, after, date string, files map[string]string) 
 	e.git("add", ".")
 	cmd := exec.Command("git", "commit", "-q", "-F", "-")
 	cmd.Dir, cmd.Env = e.work, append(append([]string{}, e.env...), "GIT_COMMITTER_DATE="+date, "GIT_AUTHOR_DATE="+date)
-	cmd.Stdin = strings.NewReader("fix(kb): " + slug + "\n\nLander-After: " + after + "\n")
+	cmd.Stdin = strings.NewReader(e.withReview("fix(kb): " + slug + "\n\nLander-After: " + after + "\n"))
 	if out, err := cmd.CombinedOutput(); err != nil {
 		e.t.Fatalf("commit: %v\n%s", err, out)
 	}

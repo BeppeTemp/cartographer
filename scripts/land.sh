@@ -343,6 +343,8 @@ trailer() { g log -1 --format=%B "$2" | git interpret-trailers --parse | sed -n 
 # The review record of a queued commit: its LAST `Review` trailer, the one `make ready REVIEW=`
 # appended. ready.sh strips only `Review: ` with a space from the message, so an earlier
 # `Review:light` survives there and interpret-trailers normalises it into a trailer.
+# tier_rank <tier>: light 1, fast 2, standard 3, full 4; 0 for anything else.
+tier_rank() { case "$1" in light) echo 1 ;; fast) echo 2 ;; standard) echo 3 ;; full) echo 4 ;; *) echo 0 ;; esac; }
 review_of() { g log -1 --format=%B "$1" | git interpret-trailers --parse | sed -n "s/^Review: *//p" | tail -n 1; }
 title() { g log -1 --format=%s "$1"; }
 
@@ -1455,6 +1457,31 @@ while :; do
     fi
     tip=$(trailer Lander-Tip "$sha")
     review=$(review_of "$sha")
+    # The recorded review must be at least the tier MAIN's triage computes for this change (light <
+    # fast < standard < full): `make ready` ran the branch's own triage, which nothing else re-derives,
+    # so a change that was full tier cannot land with a lighter record. Read from the
+    # pick, HEAD against its parent, with main's script and profiles; a change with no record, or a record that names
+    # no tier, is refused; a triage that fails to answer rejects nothing (the lander stops, the queue untouched).
+    if [ -z "$review" ]; then
+      reject_member "$s" "$sha" "it carries no Review record: queue it with make ready REVIEW=\"<tier>, <n> rounds\""
+      continue
+    else
+      rtier=$(tr -d ' ' <<<"${review%%,*}")
+      ctier=$({ TRIAGE_ROLE=maintainer TRIAGE_BASE=HEAD^ TRIAGE_BODY=$(git log -1 --format=%B "$sha") "$here/pr-triage.sh" 2>/dev/null || true; } | awk '/^Tier: / { print $2; exit }')
+      rrank=$(tier_rank "$rtier") crank=$(tier_rank "$ctier")
+      if [ "$crank" = 0 ]; then
+        # Nothing is rejected: the queue is untouched. A transient failure is gone on the next pass; one that
+        # persists (a malformed profiles.tsv, a change main's triage cannot read) stops every pass at this
+        # change until it is set aside, which the message says how to do.
+        die "main's triage could not compute the review tier of $s (scripts/pr-triage.sh failed or printed no Tier): the queue is untouched; if it fails again set $s aside with: git push origin --delete refs/heads/ready/$s (or make requeue SLUG=$s)"
+      elif [ "$rrank" = 0 ]; then
+        reject_member "$s" "$sha" "its recorded review tier '$rtier' is none of light, fast, standard, full"
+        continue
+      elif [ "$rrank" -lt "$crank" ]; then
+        reject_member "$s" "$sha" "its recorded review tier ($rtier) is lower than the tier main's triage computes ($ctier): review it as $ctier and queue it again"
+        continue
+      fi
+    fi
     # Every `Review` line goes, with or without the space and in any case (`review :x` is a
     # trailer to git too): the record is the one value read above.
     msg=$(git log -1 --format=%B | grep -vE '^Lander-[A-Za-z]+: ' | grep -viE '^review[[:space:]]*:' || true)

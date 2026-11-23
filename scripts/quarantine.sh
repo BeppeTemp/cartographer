@@ -53,9 +53,9 @@ esac
 here=$(cd "$(dirname "$0")" && pwd)
 list=$here/../test/quarantine.tsv
 [ -f "$list" ] && [ -r "$list" ] || { echo "quarantine: cannot read test/quarantine.tsv" >&2; exit 2; }
-# The top-level tests of internal/repodocs, beside the list (none in a tree without it): " A B ".
+# The top-level tests of internal/repodocs and of its landertest subpackage, beside the list (none in a tree without it): " A B ".
 pinned=" "
-pins=("$here"/../internal/repodocs/*_test.go)
+pins=("$here"/../internal/repodocs/*_test.go "$here"/../internal/repodocs/landertest/*_test.go)
 if [ -e "${pins[0]}" ]; then
   pinned=$(awk '/^func Test[A-Za-z0-9_]*\(/ { sub(/^func /, ""); sub(/\(.*/, ""); s = s " " $0 } END { print s " " }' "${pins[@]}")
 fi

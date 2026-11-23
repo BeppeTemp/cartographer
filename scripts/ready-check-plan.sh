@@ -17,7 +17,7 @@
 # The legs are the ones the build host's `make check` does not run and that turned trains
 # red: the lander reads the verdict on a unit's tip and gates a red unit alone instead
 # (scripts/land.sh).
-# internal/repodocs/ready_check_test.go pins the table. Plain bash 3.2.
+# internal/repodocs/landertest/ready_check_test.go pins the table. Plain bash 3.2.
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)

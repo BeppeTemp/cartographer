@@ -39,10 +39,12 @@ if [ "${1:-}" = --changed ]; then
 fi
 
 # Every test that reads repository files outside its own package: the repodocs
-# checks read docs, scripts, workflows and the Makefile; internal/mcpserver checks
+# checks read docs, scripts, workflows and the Makefile, and internal/repodocs/landertest (the
+# tests of the lander, signoff, ready, status and the triage, apart from repodocs so that the
+# two run in parallel) the scripts and workflows; internal/mcpserver checks
 # the tool names the markdown cites; internal/webui hashes web/.
-repo_readers="internal/repodocs"
-md_readers="internal/repodocs internal/mcpserver internal/docskb"
+repo_readers="internal/repodocs internal/repodocs/landertest"
+md_readers="internal/repodocs internal/repodocs/landertest internal/mcpserver internal/docskb"
 # Every test that scans the source of the whole tree: internal/procattr
 # (TestEveryChildProcessIsHidden), internal/repodocs and internal/boundaries (the
 # import graph of every package) read every package, so a Go file changed anywhere
@@ -50,7 +52,7 @@ md_readers="internal/repodocs internal/mcpserver internal/docskb"
 # behaviour (Windows console windows), so --code keeps it; the import graph is not,
 # so --code leaves boundaries out like repodocs.
 guards_code="internal/procattr"
-guards_reader="internal/repodocs internal/boundaries"
+guards_reader="internal/repodocs internal/repodocs/landertest internal/boundaries"
 
 all=false
 seeds="" readers="" guards=""
@@ -89,10 +91,11 @@ if [ "$all" = true ]; then
   echo "./..."
   exit 0
 fi
-# --code: no readers, and never internal/repodocs, which checks the repository's
-# documents wherever it runs (test-shard.sh leaves it out of the Windows CI too).
+# --code: no readers, and never internal/repodocs or its landertest subpackage, which check the
+# repository's documents and scripts wherever they run (test-shard.sh leaves them out of the
+# Windows CI too).
 drop=
-[ "${1:-}" != --code ] || { readers=; drop=./internal/repodocs; }
+[ "${1:-}" != --code ] || { readers=; drop='./internal/repodocs|./internal/repodocs/landertest'; }
 
 if [ "${1:-}" = --seeds ]; then
   for s in $seeds $guards $readers; do echo "./$s"; done | awk '!seen[$0]++'
@@ -115,4 +118,4 @@ go list -test -f '{{if .ForTest}}{{else}}{{.ImportPath}} {{join .Deps " "}}{{end
       if (hit) print "./" substr(pkg, length(mod) + 2)
     }
     END { n = split(readers, r, " "); for (i = 1; i <= n; i++) print "./" r[i] }' readers="$guards $readers" |
-  { grep -vxF "${drop:-./-none-}" || true; } | sort -u
+  { grep -vxE "${drop:-./-none-}" || true; } | sort -u

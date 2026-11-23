@@ -1,4 +1,4 @@
-package repodocs
+package landertest
 
 import (
 	"errors"

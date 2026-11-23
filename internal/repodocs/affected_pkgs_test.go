@@ -43,17 +43,17 @@ func TestAffectedPackagesSeedTable(t *testing.T) {
 		paths []string
 		want  string
 	}{
-		{"go file also selects the tree-scanning guards", []string{"internal/kb/kb.go"}, "./internal/kb ./internal/procattr ./internal/repodocs ./internal/boundaries"},
-		{"test file", []string{"internal/audit/audit_test.go"}, "./internal/audit ./internal/procattr ./internal/repodocs ./internal/boundaries"},
+		{"go file also selects the tree-scanning guards", []string{"internal/kb/kb.go"}, "./internal/kb ./internal/procattr ./internal/repodocs ./internal/repodocs/landertest ./internal/boundaries"},
+		{"test file", []string{"internal/audit/audit_test.go"}, "./internal/audit ./internal/procattr ./internal/repodocs ./internal/repodocs/landertest ./internal/boundaries"},
 		{"testdata belongs to its package", []string{"internal/kb/testdata/x/y.md"}, "./internal/kb"},
 		{"embedded skill belongs to the embedding package", []string{"internal/skillbundle/bundled/cartographer-ops/SKILL.md"}, "./internal/skillbundle"},
-		{"nested command", []string{"internal/webui/gen/main.go"}, "./internal/webui/gen ./internal/procattr ./internal/repodocs ./internal/boundaries"},
+		{"nested command", []string{"internal/webui/gen/main.go"}, "./internal/webui/gen ./internal/procattr ./internal/repodocs ./internal/repodocs/landertest ./internal/boundaries"},
 		{"frontend is hashed by webui", []string{"web/src/lib/health.ts"}, "./internal/webui"},
-		{"markdown is read by repodocs, the tool-citation check and the docs KB gate", []string{"docs/testing.md"}, "./internal/repodocs ./internal/mcpserver ./internal/docskb"},
-		{"scripts and workflows are read by repodocs", []string{"scripts/signoff.sh", ".github/workflows/ci.yml", "Makefile"}, "./internal/repodocs"},
+		{"markdown is read by repodocs, the tool-citation check and the docs KB gate", []string{"docs/testing.md"}, "./internal/repodocs ./internal/repodocs/landertest ./internal/mcpserver ./internal/docskb"},
+		{"scripts and workflows are read by repodocs and by the lander tests", []string{"scripts/signoff.sh", ".github/workflows/ci.yml", "Makefile"}, "./internal/repodocs ./internal/repodocs/landertest"},
 		{"the module selects everything", []string{"docs/testing.md", "go.sum"}, "./..."},
-		{"duplicates collapse", []string{"internal/kb/a.go", "internal/kb/b.go"}, "./internal/kb ./internal/procattr ./internal/repodocs ./internal/boundaries"},
-		{"a deleted package still selects the guards", []string{"internal/gone-for-good/x.go"}, "./internal/procattr ./internal/repodocs ./internal/boundaries"},
+		{"duplicates collapse", []string{"internal/kb/a.go", "internal/kb/b.go"}, "./internal/kb ./internal/procattr ./internal/repodocs ./internal/repodocs/landertest ./internal/boundaries"},
+		{"a deleted package still selects the guards", []string{"internal/gone-for-good/x.go"}, "./internal/procattr ./internal/repodocs ./internal/repodocs/landertest ./internal/boundaries"},
 		{"nothing in, nothing out", nil, ""},
 	}
 	for _, c := range cases {
@@ -101,13 +101,40 @@ func affected(t *testing.T, paths []string, args ...string) string {
 	return strings.Join(strings.Fields(string(out)), " ")
 }
 
+// AC-P7-7: a change to a script selects the package of the lander tests, which `go test` runs in
+// parallel with internal/repodocs, and the Windows leg (--code) leaves it out like repodocs.
+func TestAffectedPackagesSelectsTheLanderTestsForAScript(t *testing.T) {
+	needBash(t)
+	for _, p := range []string{"scripts/land.sh", "scripts/signoff.sh", "scripts/pr-triage.sh", "scripts/profiles.tsv"} {
+		got := " " + affected(t, []string{p}) + " "
+		if !strings.Contains(got, " ./internal/repodocs/landertest ") || !strings.Contains(got, " ./internal/repodocs ") {
+			t.Errorf("%s selects %q, want internal/repodocs and internal/repodocs/landertest", p, got)
+		}
+	}
+	got := " " + affected(t, []string{"scripts/land.sh", "internal/execbit/execbit.go"}, "--code") + " "
+	if strings.Contains(got, "/repodocs") {
+		t.Errorf("--code must leave the repodocs packages out, got%s", got)
+	}
+}
+
+// The lander tests read agent definitions and eval cases (markdown) and copy the Go files of
+// internal/changelog: a markdown change or a Go change anywhere selects them too.
+func TestAffectedPackagesSelectsTheLanderTestsForMarkdownAndGo(t *testing.T) {
+	needBash(t)
+	for _, p := range []string{".claude/agents/cartographer-contract-reviewer.md", ".claude/skills/cartographer-review-pr/evals/cases.md", "internal/changelog/changelog.go"} {
+		if got := " " + affected(t, []string{p}) + " "; !strings.Contains(got, " ./internal/repodocs/landertest ") {
+			t.Errorf("%s selects %q, want internal/repodocs/landertest", p, got)
+		}
+	}
+}
+
 // A reader seed selects only itself: a changed document changes what its test reads,
 // not what the importers of its package run (a docs-only change used to pull every
 // importer of internal/mcpserver into the Windows leg). --code, the Windows leg's
 // selection, leaves the readers out.
 func TestAffectedPackagesDoesNotExpandReaders(t *testing.T) {
 	needBash(t)
-	if got := affected(t, []string{"docs/testing.md", "scripts/land.sh"}); got != "./internal/docskb ./internal/mcpserver ./internal/repodocs" {
+	if got := affected(t, []string{"docs/testing.md", "scripts/land.sh"}); got != "./internal/docskb ./internal/mcpserver ./internal/repodocs ./internal/repodocs/landertest" {
 		t.Errorf("docs and scripts select %q, want only their readers", got)
 	}
 	if got := affected(t, []string{"docs/testing.md", "web/src/lib/health.ts"}, "--code"); got != "" {

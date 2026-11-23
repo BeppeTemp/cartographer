@@ -56,10 +56,16 @@ test-rerun:
 	go test -count=1 -timeout 20m $(if $(RERUN_RACE),-race -run '$(RACE_RUN)') $(QUARANTINE_SKIP) $(subst $(comma), ,$(RERUN_PKGS))
 
 vet: ## Run go vet (also for Windows, macOS and 32-bit ARM, the targets of .goreleaser.yaml: the platform jobs skip PRs outside platform-specific code, so a PR catches its compile errors here)
-	go vet ./...
-	GOOS=windows go vet ./...
-	GOOS=darwin go vet ./...
-	GOOS=linux GOARCH=arm GOARM=7 go vet ./...
+	@# The four platforms are independent, so they vet in parallel (a serial run was minutes of the
+	@# Linux leg); the recipe fails if any of them fails. internal/repodocs/vet_targets_test.go reads these lines.
+	@rc=0; d=$$(mktemp -d); \
+	go vet ./... >$$d/linux 2>&1 & p1=$$!; \
+	GOOS=windows go vet ./... >$$d/windows 2>&1 & p2=$$!; \
+	GOOS=darwin go vet ./... >$$d/darwin 2>&1 & p3=$$!; \
+	GOOS=linux GOARCH=arm GOARM=7 go vet ./... >$$d/linux-arm 2>&1 & p4=$$!; \
+	i=0; for p in $$p1 $$p2 $$p3 $$p4; do i=$$((i+1)); n=$$(echo linux windows darwin linux-arm | cut -d' ' -f$$i); \
+	  wait $$p || { rc=1; echo "vet $$n failed:"; sed "s/^/vet $$n: /" $$d/$$n; }; done; \
+	rm -rf $$d; exit $$rc
 
 fmt: ## Format the code with gofmt
 	@gofmt -w $(GO_DIRS)
@@ -310,7 +316,7 @@ signoff-platform:
 # A maintainer's path to main (D1706): queue the finished change as one commit,
 # the lander lands it in a train with one gate. scripts/ready.sh and scripts/land.sh
 # have the rules.
-ready: ## Maintainer only: queue this branch (MSG=<message file> [AFTER=<slug>] [HOLD=1] [NOW=1] [REVIEW="<tier>, <n> rounds"] [PROFILE=live]) and start the lander
+ready: ## Maintainer only: queue this branch (MSG=<message file> [AFTER=<slug>] [HOLD=1] [NOW=1] REVIEW="<tier>, <n> rounds" [PROFILE=live]) and start the lander
 	@MSG="$(MSG)" AFTER="$(AFTER)" HOLD="$(HOLD)" NOW="$(NOW)" REVIEW="$(REVIEW)" PROFILE="$(PROFILE)" ./scripts/ready.sh
 
 # GATE counts only on the make command line: make imports the environment, and an exported

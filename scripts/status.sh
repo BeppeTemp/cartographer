@@ -21,6 +21,7 @@
 # opens or edits an issue; its fetch (and the one of land.sh --status) updates remote-tracking
 # refs, as every fetch does. Plain bash 3.2 (the macOS default).
 set -uo pipefail
+export LC_ALL=C # bytes, never characters: a path with an invalid UTF-8 byte is listed, not an error
 
 here=$(cd "$(dirname "$0")" && pwd)
 cd "$(git rev-parse --show-toplevel)" || exit 0
@@ -57,7 +58,7 @@ if [ -r "$here/profiles.tsv" ]; then
       mb=$(git merge-base refs/remotes/origin/main "$br" 2>/dev/null) || continue
       # Production paths only, as the triage counts them (pr-triage.sh --kinds); a failing --kinds
       # is unavailable, not an empty diff.
-      if ! kinds=$(git diff --name-only "$mb" "$br" 2>/dev/null | "$here/pr-triage.sh" --kinds 2>/dev/null); then
+      if ! kinds=$(git diff --name-only -z "$mb" "$br" 2>/dev/null | "$here/pr-triage.sh" --kinds 2>/dev/null); then
         bad="pr-triage.sh --kinds failed for $slug"; continue
       fi
       prod=$(awk -F'\t' '$1 == "production" { print $2 }' <<<"$kinds")

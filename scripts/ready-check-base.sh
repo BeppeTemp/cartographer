@@ -20,7 +20,7 @@
 # verdict, so the lander gates the unit alone. A plain cherry-pick: a pick the lander
 # rescues (an edit of a pending decision main holds numbered, a conflict in the Atlas bundle)
 # is red here too, and costs the unit a gate of its own, not a rejection.
-# internal/repodocs/ready_check_test.go pins it. Plain bash 3.2.
+# internal/repodocs/landertest/ready_check_test.go pins it. Plain bash 3.2.
 set -euo pipefail
 
 # The checkout below can rewrite this very file while bash reads it (and on Windows an open

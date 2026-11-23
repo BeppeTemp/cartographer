@@ -111,3 +111,25 @@ func TestVetCoversEveryReleaseTarget(t *testing.T) {
 		}
 	}
 }
+
+// The four vets run in parallel (a serial run was minutes of the Linux leg), and the recipe still
+// fails when any of them does: each is started in the background and waited for, its status kept.
+func TestVetRunsInParallelAndFailsIfAnyFails(t *testing.T) {
+	mk := readFile(t, repoRoot(t), "Makefile")
+	i := strings.Index(mk, "\nvet:")
+	if i < 0 {
+		t.Fatal("no vet target in the Makefile")
+	}
+	recipe := mk[i+1:]
+	if j := strings.Index(recipe, "\n\n"); j >= 0 {
+		recipe = recipe[:j]
+	}
+	if n := strings.Count(recipe, "go vet ./... >"); n < 4 {
+		t.Errorf("the vet recipe starts %d background vets, want one per platform (4)", n)
+	}
+	for _, want := range []string{"wait $$p || {", "rc=1", "vet $$n failed:", "exit $$rc"} {
+		if !strings.Contains(recipe, want) {
+			t.Errorf("the vet recipe lacks %q: a failing vet must fail the target\n%s", want, recipe)
+		}
+	}
+}
