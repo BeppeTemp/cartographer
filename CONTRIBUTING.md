@@ -268,7 +268,7 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
     several units takes only those whose tip is green, and a red one is gated alone. The lander waits up to
     10 minutes (or for 4 green changes) before composing so that changes queued meanwhile share a train
     (`make ready NOW=1` skips the wait). `make land-status` shows the queue by unit with each pre-check
-    verdict and a red one's failed jobs; `make land` runs the lander in the foreground (`DRY=1` prints the next train).
+    verdict and a red one's failed jobs; `make requeue SLUG=<slug>` rebuilds a queued or rejected change and the ones after it on the current `main`, keeping messages and queue places, in one atomic push (`FIRST=1`: first in the queue); `make land` runs the lander in the foreground (`DRY=1` prints the next train).
     Queued changes have no cap: a train holds at most 8 changes, and a longer chain is gated alone. On macOS the
     lander keeps the machine from idle sleep while it runs (`caffeinate -i`); a closed lid still stops it.
 - **No open PR depends on another open PR**: a contributor's dependent work goes in the same

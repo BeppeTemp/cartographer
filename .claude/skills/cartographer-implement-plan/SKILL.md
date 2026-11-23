@@ -205,7 +205,10 @@ Maintainer mode only.
    not added). Rebase the branch on `origin/main` in its worktree, fix (through the
    implementer for a red gate, with the failing tests from the gate log), `make check`,
    then `make ready` again. A rejection blocks the whole chain: its other changes stay
-   queued, and land with it once it is queued again. A conflict that is not a clean append →
+   queued, and land with it once it is queued again. A rejection or a stale pre-check that
+   needs no code change (`main` moved, a flaky red) is `make requeue SLUG=<slug>` (`FIRST=1`: first
+   in the queue, no window): it rebuilds the change and every change after it on the current
+   `main`, same message and queue place, and a fresh pre-check. A conflict that is not a clean append →
    **STOP** and surface it to the user.
 
 ## 5 — Close-out

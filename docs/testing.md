@@ -1417,6 +1417,13 @@ rejected <slug>`, `held`, `frozen`, or `pre-check: ok | running | red | none | u
 with its failed jobs) and, while the window is open, when it closes. The hosted signoff reads the log
 of a failed job up to `SIGNOFF_LOG_TRIES` (5) times while it is empty, so the failing Go tests are
 named even when GitHub serves the log late.
+`make requeue SLUG=<slug> [FIRST=1]` (`scripts/requeue.sh`, maintainer only) rebuilds a queued change, or the commit a
+rejected one was queued as, and every queued change that follows it through `Lander-After`, on the current `main`: in a
+scratch worktree of the lander's state directory, message and author and committer dates kept (the queue place), each
+onto the rebuilt one before it, then one atomic push with a lease on each ref's sha (the `failed/<slug>` it started from
+is deleted in it) and the lander started. `FIRST=1` dates the chain before the oldest queue entry and adds
+`Lander-Now: yes` to its first change. A change that does not apply, one already on `main`, an unknown slug and a lease
+that fails push nothing. The new commits get a fresh pre-check, the tip's included.
 `internal/repodocs/ready_check_test.go` pins the plan, the replay on temporary repositories
 and the replay step after each job's checkout.
 `internal/repodocs/land_test.go` runs the lander against a local bare repository with fake

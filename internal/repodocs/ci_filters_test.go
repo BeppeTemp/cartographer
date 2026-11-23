@@ -163,7 +163,7 @@ func TestEveryMakeTargetIsRunByCIOrDeclaredLocal(t *testing.T) {
 		// and takes it out of this list.
 		"e2e-nightly": true,
 		// The lander queues and lands from a maintainer's machine (scripts/land.sh).
-		"ready": true, "land": true, "land-status": true,
+		"ready": true, "land": true, "land-status": true, "requeue": true,
 		// The docker job builds with buildx (layer cache in the GitHub cache) and
 		// runs test/smoke/image.sh itself; these two are the same checks by hand.
 		// docker-surveyor(-smoke) are the Surveyor image's, built and smoked by the
