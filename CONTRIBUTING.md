@@ -451,7 +451,7 @@ dispatched by hand with one of three actions.
   with the repository alone: static readiness (`cartographer-docs-auditor` over the range and the
   checks of `docs/testing.md` §Before a release), an all-in-one instance in an isolated HOME tried by
   `cartographer-acceptance-sandbox`, and a usage test with a headless agent. A finding is a `bug`
-  issue; a new round is a new candidate. Lanes on a maintainer's own machines are outside the repository.
+  issue; a new round is a new candidate. Lanes on a maintainer's own machines are outside the repository. The scripted lanes (the battery and the upgrade) also run on `main` every night (`nightly.yml`): a red night opens the `nightly-red` issue.
 
 ## Experiment branches (`exp/*`)
 
@@ -500,6 +500,7 @@ change who acts:
 | `size-exception` | Maintainer-granted exception to the 500-line cap |
 | `good first issue` | Small, self-contained, suitable for a first contribution: set at triage on the easiest accepted issues, and dropped when nobody takes one for a while |
 | `ci-red` | Opened by CI when `main` is red |
+| `nightly-red` | Opened by `nightly.yml` when a lane of the nightly acceptance run is red, closed by the next green night; never set by hand |
 | `process` | A change to the development process itself: scripts, CI, skills, agents, the lander; worked in the process week (§Releases). The weekly `Escape report` issue carries it too |
 | `rc-ok` | Set by a maintainer after trying the release candidate: `release-train` with `action: release` merges the release PR only with it (§Releases) |
 | `vuln-scan` | Created by `security.yml` when a vulnerability scan fails; never set by hand |

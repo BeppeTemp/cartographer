@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -255,7 +256,7 @@ func TestCodeQLLeavesThePRAndSecurityKeepsTheDependencyScan(t *testing.T) {
 // Runs on main coalesce (one running, the newest pending): only a pull_request
 // may cancel a run in flight.
 func TestRunsOnMainAreNeverCancelled(t *testing.T) {
-	for _, name := range []string{"ci.yml", "codeql.yml", "security.yml", "docs.yml"} {
+	for _, name := range []string{"ci.yml", "codeql.yml", "security.yml", "docs.yml", "nightly.yml"} {
 		wf, _ := loadWorkflow(t, name)
 		c := strings.Join(strings.Fields(fmt.Sprint(wf.Concurrency.Cancel)), " ")
 		if c != "false" && c != "${{ github.event_name == 'pull_request' }}" {
@@ -316,5 +317,145 @@ func TestWorktreeAddFetchesWithoutTags(t *testing.T) {
 	}
 	if !regexp.MustCompile(`git fetch --no-tags \$\$base main\b`).MatchString(m[1]) {
 		t.Errorf("worktree-add must run `git fetch --no-tags $$base main` (a bare fetch also fetches tags and stops on a moved release candidate tag):\n%s", m[1])
+	}
+}
+
+// AC-P4-14, AC-P4-15, AC-P4-16, AC-P4-17 (the static half of the run-time ones): the nightly runs on a schedule and on dispatch only, reads the repository and
+// holds no secret or environment; `report` alone may write issues and it checks out nothing; every
+// job refuses a ref other than main first, since a dispatch runs the file of its own branch.
+func TestNightlyRunsOnScheduleReadOnlyAndHoldsNoSecret(t *testing.T) {
+	var wf struct {
+		On          map[string]any    `yaml:"on"`
+		Permissions map[string]string `yaml:"permissions"`
+		Jobs        map[string]struct {
+			Permissions map[string]string `yaml:"permissions"`
+			Environment any               `yaml:"environment"`
+			Secrets     any               `yaml:"secrets"`
+			If          string            `yaml:"if"`
+			Steps       []struct {
+				Uses string `yaml:"uses"`
+				Run  string `yaml:"run"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	raw := readFile(t, repoRoot(t), ".github/workflows/nightly.yml")
+	if err := yaml.Unmarshal([]byte(raw), &wf); err != nil {
+		t.Fatal(err)
+	}
+	var triggers []string
+	for k := range wf.On {
+		triggers = append(triggers, k)
+	}
+	sort.Strings(triggers)
+	if got := strings.Join(triggers, ","); got != "schedule,workflow_dispatch" {
+		t.Errorf("nightly.yml triggers = %s, want schedule,workflow_dispatch only", got)
+	}
+	if len(wf.Permissions) != 1 || wf.Permissions["contents"] != "read" {
+		t.Errorf("top-level permissions = %v, want contents: read only", wf.Permissions)
+	}
+	secretRef := regexp.MustCompile(`\bsecrets\.`)
+	for i, line := range strings.Split(raw, "\n") {
+		if code, _, _ := strings.Cut(line, "#"); secretRef.MatchString(code) {
+			t.Errorf("nightly.yml:%d names a secret: the nightly holds none", i+1)
+		}
+	}
+	if len(wf.Jobs) == 0 {
+		t.Fatal("nightly.yml has no jobs")
+	}
+	for name, job := range wf.Jobs {
+		if job.Environment != nil {
+			t.Errorf("job %s declares an environment", name)
+		}
+		// `secrets: inherit` hands a called workflow every secret without naming one.
+		if job.Secrets != nil {
+			t.Errorf("job %s passes secrets to a called workflow: the nightly holds none", name)
+		}
+		if !strings.Contains(job.If, "github.repository == ") {
+			t.Errorf("job %s: its `if` must restrict it to the upstream repository, a fork has no night to watch", name)
+		}
+		if len(job.Steps) == 0 || !strings.Contains(job.Steps[0].Run, "GITHUB_REF") || !strings.Contains(job.Steps[0].Run, "refs/heads/main") {
+			t.Errorf("job %s: its first step must refuse a ref other than main", name)
+		}
+		_, writes := job.Permissions["issues"]
+		if writes != (name == "report") {
+			t.Errorf("job %s: only report may hold issues: write", name)
+		}
+		for _, s := range job.Steps {
+			if strings.Contains(s.Run, "${{") {
+				t.Errorf("job %s: an expression is interpolated in a run text; pass it through env", name)
+			}
+			if name == "report" && strings.HasPrefix(s.Uses, "actions/checkout@") {
+				t.Error("report checks out the repository: it holds the issues token and must run nothing of the branch")
+			}
+		}
+	}
+	// AC-P4-14: a dispatch runs the lanes it names whatever the range holds, and the lanes exist.
+	// AC-P4-15: a scheduled run with no commit since the last green one skips them.
+	for _, want := range []string{`"$EVENT" != workflow_dispatch ] && [ "$n" -eq 0 ]`, "make e2e-nightly", "test/smoke/http.sh", "make e2e-upgrade"} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("nightly.yml lacks %q", want)
+		}
+	}
+	// A partial dispatch never clears a red night: the base of the range is a scheduled run, and only a
+	// run of every lane closes the issue.
+	for _, want := range []string{"--event schedule", `"$full" = true`, "scripts/nightly-lanes.sh"} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("nightly.yml lacks %q", want)
+		}
+	}
+	// AC-P4-17: a red lane opens or comments the nightly-red issue, a green night closes it, and a
+	// quarantined failure stays out of the verdict (the quarantine job fails only on exit 2).
+	for _, want := range []string{"--label nightly-red", "gh issue create", "gh issue comment", "gh issue close", "Found-by: nightly"} {
+		if !strings.Contains(raw, want) {
+			t.Errorf("nightly.yml lacks %q", want)
+		}
+	}
+	// The battery and the upgrade judge the release-shaped binary, which run.sh keeps only when told.
+	if !strings.Contains(raw, "E2E_PREBUILT") || !strings.Contains(readFile(t, repoRoot(t), "test/e2e/run.sh"), "E2E_PREBUILT") {
+		t.Error("the nightly and run.sh must agree on E2E_PREBUILT, or run.sh replaces the binary under test")
+	}
+}
+
+// The lanes input of a nightly dispatch: names split on commas and trimmed, an unknown one refused
+// naming it, and only a run of every lane is `full` (it alone may close the nightly-red issue).
+func TestNightlyLanesInput(t *testing.T) {
+	script := filepath.Join(repoRoot(t), "scripts", "nightly-lanes.sh")
+	run := func(lanes string) (string, string, error) {
+		cmd := exec.Command("bash", script)
+		cmd.Env = append(os.Environ(), "LANES="+lanes)
+		var stdout, stderr strings.Builder
+		cmd.Stdout, cmd.Stderr = &stdout, &stderr
+		err := cmd.Run()
+		return stdout.String(), stderr.String(), err
+	}
+	for _, c := range []struct {
+		lanes string
+		want  string
+	}{
+		{"", "battery=true quarantine=true upgrade=true full=true"},
+		{"all", "battery=true quarantine=true upgrade=true full=true"},
+		{"battery", "battery=true quarantine=false upgrade=false full=false"},
+		{" battery , upgrade ", "battery=true quarantine=false upgrade=true full=false"},
+		{"upgrade,battery,quarantine", "battery=true quarantine=true upgrade=true full=true"},
+		{"battery,", "battery=true quarantine=false upgrade=false full=false"},
+	} {
+		out, errOut, err := run(c.lanes)
+		if err != nil {
+			t.Errorf("lanes %q: %v: %s", c.lanes, err, errOut)
+			continue
+		}
+		if got := strings.Join(strings.Fields(out), " "); got != c.want {
+			t.Errorf("lanes %q: got %q, want %q", c.lanes, got, c.want)
+		}
+	}
+	for _, lanes := range []string{"battery,uprade", "everything", "rehearsal"} {
+		_, errOut, err := run(lanes)
+		if err == nil {
+			t.Errorf("lanes %q: want a refusal", lanes)
+		}
+		bad := lanes[strings.LastIndex(lanes, ",")+1:]
+		if !strings.Contains(errOut, "'"+bad+"'") {
+			t.Errorf("lanes %q: the refusal must name %q, got %q", lanes, bad, errOut)
+		}
 	}
 }
