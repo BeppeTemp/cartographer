@@ -1467,7 +1467,8 @@ while :; do
       continue
     else
       rtier=$(tr -d ' ' <<<"${review%%,*}")
-      ctier=$({ TRIAGE_ROLE=maintainer TRIAGE_BASE=HEAD^ TRIAGE_BODY=$(git log -1 --format=%B "$sha") "$here/pr-triage.sh" 2>/dev/null || true; } | awk '/^Tier: / { print $2; exit }')
+      tri=$({ TRIAGE_ROLE=maintainer TRIAGE_BASE=HEAD^ TRIAGE_BODY=$(git log -1 --format=%B "$sha") "$here/pr-triage.sh" 2>/dev/null || true; })
+      ctier=$(awk '/^Tier: / { print $2; exit }' <<<"$tri")
       rrank=$(tier_rank "$rtier") crank=$(tier_rank "$ctier")
       if [ "$crank" = 0 ]; then
         # Nothing is rejected: the queue is untouched. A transient failure is gone on the next pass; one that
@@ -1479,6 +1480,13 @@ while :; do
         continue
       elif [ "$rrank" -lt "$crank" ]; then
         reject_member "$s" "$sha" "its recorded review tier ($rtier) is lower than the tier main's triage computes ($ctier): review it as $ctier and queue it again"
+        continue
+      fi
+      # The usage test: a change on main's usage list carries the record `make ready USAGE=` writes (a
+      # pass or a waiver). `make ready` refuses without it, and this is the same check on what was queued.
+      need=$(grep -m1 '^Usage-test: required' <<<"$tri" || true)
+      if [ -n "$need" ] && [ -z "$(git log -1 --format=%B "$sha" | git interpret-trailers --parse | sed -n 's/^Usage-test: *//p' | tail -n 1)" ]; then
+        reject_member "$s" "$sha" "it carries no Usage-test record and ${need#Usage-test: required — } is on main's usage list: try it on its binary and queue it with make ready USAGE=\"pass, <n> entries\" (or USAGE=\"waived: <reason>\")"
         continue
       fi
     fi

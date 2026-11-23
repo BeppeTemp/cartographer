@@ -234,5 +234,15 @@ coordinator's: it starts `make check-hosted` on the branch beside round 1, and a
    The `plan-gate` check runs the same script on the PR.
 2. Spawn the reviewers of the tier (§3) on your own worktree (tier from the triage, PR number
    "not opened yet", the base the triage measured from), fix or answer each finding, in rounds as in §5.
-3. Fill the PR template; its `## Self-review` section says what the review found
+3. A maintainer's change whose triage prints `Usage-test: required — <paths>` (the CLI, a client, the
+   provisioning, an installer or a bundled skill) is tried before it is queued: build the worktree's
+   binary (`make build`), spawn `cartographer-acceptance-sandbox` with a usage mandate (the skill
+   `cartographer-acceptance`, lane F) whose entries are the scenario of the issue the change closes, or
+   the acceptance criteria of the plan's work packages in the change; and when it alters tools,
+   instructions or bundled skills also run `make usage-test BIN=<that binary>` in your own session
+   (`docs/testing.md` §Usage test). The verdict is the tester's table: a FAIL goes back to the
+   author like a review finding and counts as a round. The record is `make ready USAGE="pass, <n> entries"`;
+   a change that cannot be tried says why with `USAGE="waived: <reason>"`, and `make ready` refuses one
+   on the list with neither. A chain is tried once, on its tip. A pull request is not concerned.
+4. Fill the PR template; its `## Self-review` section says what the review found
    and what you did with it.

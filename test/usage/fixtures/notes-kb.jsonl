@@ -1,0 +1,7 @@
+{"tool":"map_create","arguments":{"name":"dev","title":"Dev"}}
+{"tool":"map_create","arguments":{"name":"ops","title":"Ops"}}
+{"tool":"concept_write","arguments":{"id":"dev/session-store","frontmatter":{"type":"note","title":"Session store","status":"active"},"body":"# Session store\n\nSessions live in a table called `sessions`, one row per login, with an expiry timestamp.\n","index_entry":true}}
+{"tool":"concept_write","arguments":{"id":"dev/auth-flow","frontmatter":{"type":"note","title":"Auth flow","status":"active"},"body":"# Auth flow\n\nA login creates a session, see [[dev/session-store]]. The session cookie lives for eight hours.\n","index_entry":true}}
+{"tool":"concept_write","arguments":{"id":"dev/token-rotation","frontmatter":{"type":"note","title":"Token rotation","status":"active"},"body":"# Token rotation\n\nService tokens are rotated every ninety days. A rotated token stops working after a week, see [[dev/auth-flow]] for how a session is checked.\n","index_entry":true}}
+{"tool":"concept_write","arguments":{"id":"dev/old-auth-notes","frontmatter":{"type":"note","title":"Old auth notes","status":"active"},"body":"# Old auth notes\n\nEarly draft of the login design, superseded by [[dev/auth-flow]].\n","index_entry":true}}
+{"tool":"concept_write","arguments":{"id":"ops/backup-policy","frontmatter":{"type":"note","title":"Backup policy","status":"active"},"body":"# Backup policy\n\nNightly backups, kept for thirty days. Restores are tried every quarter. See [[dev/old-auth-notes]] for nothing in particular.\n","index_entry":true}}

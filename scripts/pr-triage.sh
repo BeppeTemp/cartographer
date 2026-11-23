@@ -29,6 +29,11 @@ FAST_CAP=150      # production lines added, at most, by a change of the fast lan
 # in the freeze, whether a standing approval may queue it) is data: scripts/profiles.tsv, read
 # below, where the invariant areas and the supply-chain files are rows.
 PROFILES=$(dirname "$0")/profiles.tsv
+# The production paths whose change is tried before it is queued (`make ready USAGE=`,
+# docs/testing.md §Usage test): what a user types, the clients it writes into, the installers and the bundled
+# skills. By path and across the profiles (a `fix` and a `feat` both owe it), so not a profiles.tsv
+# column. internal/mcpserver/ is left out: most changes touch it and few change what an agent reads.
+USAGE_PATHS='^(cmd/cartographer/|internal/configurator/|internal/provisioning/|internal/skillbundle/bundled/|install\.sh$|install\.ps1$)'
 
 kind() { # production | test | docs | generated
   case "$1" in
@@ -284,6 +289,13 @@ elif [ -n "$fast" ]; then tier=fast
 else tier=standard
 fi
 echo "Tier: $tier$tierlist"
+# A maintainer's change on the usage list is tried on a built binary before `make ready` (a
+# contributor's PR is not concerned: it is the maintainer's queue that records the trial).
+# An unreadable role (branch mode, gh failed) fails closed: the line is printed.
+if [ "$role" = maintainer ] || [ -n "$perm_unread" ]; then
+  usage_hit=$(grep -E -e "$USAGE_PATHS" <<<"$prod_paths" | tr '\n' ' ' || true)
+  [ -z "$usage_hit" ] || echo "Usage-test: required — ${usage_hit% }"
+fi
 # The standing no of the process row: today's warning (no standing approval covers a supply-chain file).
 [ -z "$process_hit" ] || echo "WARN: supply-chain files changed — the user reads those hunks and decides the merge; no standing approval covers it"
 

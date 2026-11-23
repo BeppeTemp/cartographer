@@ -253,6 +253,9 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
     `AFTER=<slug>` lands it after another queued change (a branch built on that change's
     branch is queued with its own diff only, also once that change has landed; a slug neither queued
     nor landed is refused), `HOLD=1` keeps it queued. `REVIEW=` is required: it records the review, and the lander checks it against the tier its own triage computes.
+    `USAGE="pass, <n> entries"` (or `USAGE="waived: <reason>"`) is required when the triage prints `Usage-test: required`
+    (a change to the CLI, a client, provisioning, an installer or a bundled skill): it records that the change was tried on
+    its built binary (`docs/testing.md` §Usage test), `make ready` refuses without it, and the lander rejects a queued change that lacks it.
   - **A chain is one unit.** Changes linked by `AFTER=` (a plan's chain) are one unit, a change
     with no link a unit of its own: a unit lands whole, in one train, or not at all, and its verdict is
     the pre-check of its tip, the change no other follows. A held member,

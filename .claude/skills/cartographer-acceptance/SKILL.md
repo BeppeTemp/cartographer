@@ -55,8 +55,10 @@ repository.
 - **Lane B, all-in-one in an isolated HOME.** `cartographer-acceptance-sandbox` with the battery of `references/battery.md` (its rows with a path are run by CI: the train gate, and the nightly from the `nightly-acceptance` change on, until then `make e2e-nightly` by hand; the tester takes the `tester` rows and the matrix entries): the base battery on
   the first round of a version; on later rounds the smoke battery plus the entries the fixes touched. An
   optional second instance runs the adversarial battery, on other ports.
-- **Lane F, usage test with a headless agent.** the usage-test harness of the repository, when it has one, for the fixed tasks; the tester with a
-  usage mandate for the entries of the matrix.
+- **Lane F, usage test with a headless agent.** `make usage-test BIN=<binary>` for the seven fixed tasks
+  (`docs/testing.md` §Usage test: the verdict comes from assertions on the transcript and the KB; exit 75
+  is `NOT RUN`, not a failure of the binary); the tester with a usage mandate for the entries of the
+  matrix. Both run in this session, never in a workflow.
 
 ## The mandate to the tester
 

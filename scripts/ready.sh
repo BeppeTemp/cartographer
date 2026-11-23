@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ready.sh — a maintainer hands a finished, reviewed change to the lander (D1706).
 #
-#   make ready MSG=<file> [AFTER=<slug>] [HOLD=1] [NOW=1] REVIEW="<tier>, <n> rounds" [PROFILE=<name>]
+#   make ready MSG=<file> [AFTER=<slug>] [HOLD=1] [NOW=1] REVIEW="<tier>, <n> rounds" [USAGE=<record>] [PROFILE=<name>]
 #
 # In the change's worktree: squashes the branch onto its merge-base with main into ONE
 # commit whose message is MSG (a conventional title, changelog body lines on one line
@@ -34,6 +34,11 @@
 # `Lander-Tip: <the branch head squashed>` (added here), which `make worktree-clean`
 # reads, and the `Review` added here (the last one: the lander drops every other
 # `Review` line); any copy of them in the message is dropped first.
+#
+# USAGE=<record> is the record of the usage test (docs/testing.md §Usage test): `pass, <n> entries`
+# or `waived: <reason>`, written as the `Usage-test:` trailer next to `Review:`. A change whose
+# production paths are on the triage's usage list (`Usage-test: required`) is refused without it;
+# a change off the list needs none, and one given anyway is written.
 #
 # PROFILE=<name> declares a row of scripts/profiles.tsv that no title type selects (today `live`):
 # the message then carries `Profile: <name>`, which reaches main. Any other name is refused,
@@ -113,7 +118,7 @@ fi
 
 full=$(mktemp "${TMPDIR:-/tmp}/ready-msg.XXXXXX")
 trap 'rm -f "$full"' EXIT
-grep -vE '^(Lander-[A-Za-z]+|Review|Profile): ' "$MSG" >"$full" || true
+grep -vE '^(Lander-[A-Za-z]+|Review|Profile|Usage-test): ' "$MSG" >"$full" || true
 "$here/commit-lint.sh" "$full" || die "the message does not pass the title and body rules"
 if [ -n "${PROFILE:-}" ]; then
   declared=$(tr -d '\r' <"$here/profiles.tsv" | awk -F'\t' '!/^#/ && $1 != "" && $2 == "-" { print $1 }')
@@ -137,6 +142,19 @@ args+=(--trailer "Lander-Tip: $(git rev-parse HEAD)")
 triage=$(TRIAGE_BODY=$(cat "$full") TRIAGE_BASE=$base "$here/pr-triage.sh" 2>&1) || die "the triage did not run: $triage"
 if blocks=$(grep '^BLOCK' <<<"$triage" | grep -v 'CI is red'); then
   die "the change does not pass the triage: $blocks"
+fi
+
+# A maintainer must be readable to queue: the triage reads the role itself, and an answer it could not
+# read (gh failed there) must never read as a contributor's change, which has no usage test to owe.
+grep -q '^Role: maintainer$' <<<"$triage" || die "the triage did not read you as a maintainer (gh could not answer): queue again when it does"
+# The usage test: a change on the triage's list is tried on a built binary before it is queued,
+# and the commit carries the record (a pass, or a waiver with its reason).
+if [ -n "${USAGE:-}" ]; then
+  [[ "$USAGE" != *$'\n'* && "$USAGE" =~ ^(pass,\ [0-9]+\ entr(y|ies)|waived:\ [^[:space:]].*)$ ]] ||
+    die "USAGE=\"pass, <n> entries\" or USAGE=\"waived: <reason>\" (one line): $USAGE"
+  git interpret-trailers --in-place --trailer "Usage-test: $USAGE" "$full"
+elif need=$(grep '^Usage-test: required' <<<"$triage"); then
+  die "the change touches ${need#Usage-test: required — }, which is tried on a built binary before it is queued: build this worktree's binary and run the usage test (skill cartographer-review-pr, \"Before opening your own PR, or queuing a change\"), then make ready USAGE=\"pass, <n> entries\"; a change that cannot be tried says why: USAGE=\"waived: <reason>\""
 fi
 
 # A pending decision this change cites that nothing before it adds: the lander numbers a train's
