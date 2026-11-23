@@ -332,6 +332,8 @@ func TestNightlyRunsOnScheduleReadOnlyAndHoldsNoSecret(t *testing.T) {
 			Environment any               `yaml:"environment"`
 			Secrets     any               `yaml:"secrets"`
 			If          string            `yaml:"if"`
+			Uses        string            `yaml:"uses"`
+			With        map[string]any    `yaml:"with"`
 			Steps       []struct {
 				Uses string `yaml:"uses"`
 				Run  string `yaml:"run"`
@@ -373,8 +375,31 @@ func TestNightlyRunsOnScheduleReadOnlyAndHoldsNoSecret(t *testing.T) {
 		if !strings.Contains(job.If, "github.repository == ") {
 			t.Errorf("job %s: its `if` must restrict it to the upstream repository, a fork has no night to watch", name)
 		}
+		if job.Uses != "" {
+			// AC-P4-21: the rehearsal is the one job that calls a workflow. A caller must grant what
+			// the called jobs declare, so it holds the write permissions of preview.yml and has no
+			// step of its own: what keeps it from publishing is the condition on each step there.
+			if name != "rehearsal" || job.Uses != "./.github/workflows/preview.yml" || len(job.Steps) != 0 {
+				t.Errorf("job %s: only rehearsal may call a workflow, preview.yml, with no step of its own", name)
+			}
+			if !strings.Contains(job.If, "refs/heads/main") {
+				t.Errorf("job %s: its `if` must hold the main guard (it has no first step)", name)
+			}
+			if len(job.Permissions) != 2 || job.Permissions["contents"] != "write" || job.Permissions["packages"] != "write" {
+				t.Errorf("job %s: permissions = %v, want exactly contents: write and packages: write", name, job.Permissions)
+			}
+			if job.With["rehearsal"] != true {
+				t.Errorf("job %s: it must call preview.yml with rehearsal: true", name)
+			}
+			continue
+		}
 		if len(job.Steps) == 0 || !strings.Contains(job.Steps[0].Run, "GITHUB_REF") || !strings.Contains(job.Steps[0].Run, "refs/heads/main") {
 			t.Errorf("job %s: its first step must refuse a ref other than main", name)
+		}
+		for perm, level := range job.Permissions {
+			if level == "write" && (name != "report" || perm != "issues") {
+				t.Errorf("job %s holds %s: write; only report holds issues: write", name, perm)
+			}
 		}
 		_, writes := job.Permissions["issues"]
 		if writes != (name == "report") {
@@ -432,12 +457,13 @@ func TestNightlyLanesInput(t *testing.T) {
 		lanes string
 		want  string
 	}{
-		{"", "battery=true quarantine=true upgrade=true full=true"},
-		{"all", "battery=true quarantine=true upgrade=true full=true"},
-		{"battery", "battery=true quarantine=false upgrade=false full=false"},
-		{" battery , upgrade ", "battery=true quarantine=false upgrade=true full=false"},
-		{"upgrade,battery,quarantine", "battery=true quarantine=true upgrade=true full=true"},
-		{"battery,", "battery=true quarantine=false upgrade=false full=false"},
+		{"", "battery=true quarantine=true upgrade=true rehearsal=true full=true"},
+		{"all", "battery=true quarantine=true upgrade=true rehearsal=true full=true"},
+		{"battery", "battery=true quarantine=false upgrade=false rehearsal=false full=false"},
+		{" battery , upgrade ", "battery=true quarantine=false upgrade=true rehearsal=false full=false"},
+		{"upgrade,battery,quarantine", "battery=true quarantine=true upgrade=true rehearsal=false full=false"},
+		{"rehearsal,upgrade,battery,quarantine", "battery=true quarantine=true upgrade=true rehearsal=true full=true"},
+		{"battery,", "battery=true quarantine=false upgrade=false rehearsal=false full=false"},
 	} {
 		out, errOut, err := run(c.lanes)
 		if err != nil {
@@ -448,7 +474,7 @@ func TestNightlyLanesInput(t *testing.T) {
 			t.Errorf("lanes %q: got %q, want %q", c.lanes, got, c.want)
 		}
 	}
-	for _, lanes := range []string{"battery,uprade", "everything", "rehearsal"} {
+	for _, lanes := range []string{"battery,uprade", "everything", "rehearsals"} {
 		_, errOut, err := run(lanes)
 		if err == nil {
 			t.Errorf("lanes %q: want a refusal", lanes)

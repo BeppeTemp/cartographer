@@ -9,6 +9,8 @@
 #   battery:    lane B, `make e2e-nightly` and test/smoke/http.sh on that binary.
 #   quarantine: the quarantined Go tests, outside the verdict (test/quarantine.tsv, D2294).
 #   upgrade:    lane A, a client upgraded from the previous stable release (`make e2e-upgrade`).
+#   rehearsal:  lane A, preview.yml (the candidate pipeline) with nothing published; the only job that
+#               declares write permissions, because a caller must grant what the called jobs declare.
 #   report:     the one job with `issues: write`; it checks out nothing.
 #
 # The jobs run on the upstream repository only: a fork has the file and no night to watch. Only a run
@@ -16,9 +18,9 @@
 # the base of the next range is the last green scheduled run, never a dispatch: a partial dispatch
 # never clears a red night.
 #
-# A dispatch runs the file of the branch it is started on, so every job starts by refusing a ref
-# other than main: a branch's code never runs beside the token of `report` or the history of
-# `range`. Runs on main coalesce, none is cancelled.
+# A dispatch runs the file of the branch it is started on, so every job but `rehearsal` starts by
+# refusing a ref other than main (`rehearsal` only calls preview.yml, has no step, and is skipped by
+# its `if`): a branch's code never runs beside the token of `report` or the history of `range`. Runs on main coalesce, none is cancelled.
 name: nightly
 
 on:
@@ -27,7 +29,7 @@ on:
   workflow_dispatch:
     inputs:
       lanes:
-        description: "Lanes to run, comma separated: battery, quarantine, upgrade; all when empty"
+        description: "Lanes to run, comma separated: battery, quarantine, upgrade, rehearsal; all when empty"
         required: false
         default: "all"
 
@@ -52,6 +54,7 @@ jobs:
       battery: ${{ steps.range.outputs.battery }}
       quarantine: ${{ steps.range.outputs.quarantine }}
       upgrade: ${{ steps.range.outputs.upgrade }}
+      rehearsal: ${{ steps.range.outputs.rehearsal }}
       build: ${{ steps.range.outputs.build }}
       full: ${{ steps.range.outputs.full }}
     steps:
@@ -85,7 +88,7 @@ jobs:
           if [ -n "$base" ]; then n=$(git rev-list --count "${base}..HEAD"); else n=1; base="the start of history"; fi
           run=true
           if [ "$EVENT" != workflow_dispatch ] && [ "$n" -eq 0 ]; then run=false; fi
-          for l in battery quarantine upgrade; do
+          for l in battery quarantine upgrade rehearsal; do
             if [ "$run" = true ] && lane "$l"; then echo "$l=true" >> "$GITHUB_OUTPUT"; else echo "$l=false" >> "$GITHUB_OUTPUT"; fi
           done
           if [ "$run" = true ] && { lane battery || lane upgrade; }; then echo build=true >> "$GITHUB_OUTPUT"; else echo build=false >> "$GITHUB_OUTPUT"; fi
@@ -241,12 +244,31 @@ jobs:
           chmod +x bin/cartographer
           make e2e-upgrade
 
+  # The candidate pipeline of preview.yml with `rehearsal: true`: both images built and smoked, the chart
+  # checked and packaged, the binaries built and their version smoked; nothing is logged in to, pushed,
+  # deleted or created (each such step of preview.yml carries the condition, a test holds it), and the
+  # film is left to film-check.yml. A caller must grant what the called jobs declare, so this is the one
+  # job of the file with write permissions; it has no step of its own, which is why it has no guard step
+  # and holds the main guard in its `if`. The tag is not of the candidate shape, so release-train.yml
+  # never counts a rehearsal as a candidate.
+  rehearsal:
+    name: rehearsal
+    needs: range
+    if: github.repository == 'BeppeTemp/cartographer' && github.ref == 'refs/heads/main' && needs.range.outputs.rehearsal == 'true'
+    permissions:
+      contents: write
+      packages: write
+    uses: ./.github/workflows/preview.yml
+    with:
+      tag: v0.0.0-nightly.${{ github.run_number }}
+      rehearsal: true
+
   # The table of the run, and the `nightly-red` issue: opened, or commented on, while a lane is red;
   # closed by the first run of every lane where each is green or skipped (never by a partial dispatch). It checks out nothing, and the
   # lane results reach the script through the environment only, never its text (as main-status).
   report:
     name: report
-    needs: [range, build, battery, quarantine, upgrade]
+    needs: [range, build, battery, quarantine, upgrade, rehearsal]
     if: ${{ !cancelled() && github.repository == 'BeppeTemp/cartographer' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10

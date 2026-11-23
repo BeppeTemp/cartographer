@@ -155,6 +155,81 @@ func TestPreviewWorkflowSmokesBeforePush(t *testing.T) {
 	}
 }
 
+// AC-P4-21, AC-P4-22, AC-P4-23: preview.yml is also called by the nightly with `rehearsal: true`, and
+// then it builds, smokes and packages everything and publishes nothing. A step that logs in to a
+// registry, pushes, or runs `gh release` or `gh api -X DELETE` carries the `rehearsal` condition, and so
+// does the film job; a publishing step added without it fails here. A dispatch is never a rehearsal:
+// the input is false there, so the condition holds and the run is what it was.
+func TestPreviewRehearsalPublishesNothing(t *testing.T) {
+	raw := readFile(t, repoRoot(t), ".github/workflows/preview.yml")
+	var wf struct {
+		On struct {
+			Call struct {
+				Inputs map[string]struct {
+					Type    string `yaml:"type"`
+					Default any    `yaml:"default"`
+				} `yaml:"inputs"`
+			} `yaml:"workflow_call"`
+			Dispatch struct {
+				Inputs map[string]any `yaml:"inputs"`
+			} `yaml:"workflow_dispatch"`
+		} `yaml:"on"`
+		Jobs map[string]struct {
+			If    string `yaml:"if"`
+			Steps []struct {
+				Name string                 `yaml:"name"`
+				Uses string                 `yaml:"uses"`
+				Run  string                 `yaml:"run"`
+				If   string                 `yaml:"if"`
+				With map[string]interface{} `yaml:"with"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(raw), &wf); err != nil {
+		t.Fatalf("preview.yml: %v", err)
+	}
+	if in := wf.On.Call.Inputs["rehearsal"]; in.Type != "boolean" || in.Default != false {
+		t.Errorf("preview.yml: workflow_call input rehearsal = %+v, want a boolean defaulting to false", in)
+	}
+	if _, ok := wf.On.Call.Inputs["tag"]; !ok {
+		t.Error("preview.yml: workflow_call has no tag input")
+	}
+	if _, ok := wf.On.Dispatch.Inputs["rehearsal"]; ok || len(wf.On.Dispatch.Inputs) != 1 {
+		t.Errorf("preview.yml: workflow_dispatch inputs = %v, want the tag only: a dispatch is never a rehearsal", wf.On.Dispatch.Inputs)
+	}
+	if !strings.Contains(wf.Jobs["film"].If, "!inputs.rehearsal") {
+		t.Error("preview.yml: the film job must not run in a rehearsal (its `if` must be the negated form !inputs.rehearsal)")
+	}
+	// What publishes: a login, a push of any kind, a release or tag created, changed or deleted, any write
+	// through the API (the method as -X DELETE, -XDELETE, --method DELETE or --method=DELETE; -f and
+	// --input make gh api a POST), and a write to the build cache. Broad on purpose: a step that is not one
+	// of these and publishes is the case the test cannot see.
+	publishes := regexp.MustCompile(`helm registry login|helm push|docker (buildx )?(push|build\b.*--push)|git push|gh release (create|delete|upload|edit)|gh api\b.*(-X ?|--method[ =])(DELETE|POST|PUT|PATCH)|gh api\b.* (-f|-F|--field|--raw-field|--input)\b`)
+	n := 0
+	for name, job := range wf.Jobs {
+		for i, s := range job.Steps {
+			publishing := strings.HasPrefix(s.Uses, "docker/login-action@") || publishes.MatchString(s.Run)
+			if p, ok := s.With["push"]; ok && p != false && p != "false" {
+				publishing = true
+			}
+			// The cache entry is written by the step itself: its value must hold the condition.
+			if c, ok := s.With["cache-to"].(string); ok && strings.TrimSpace(c) != "" && !strings.Contains(c, "!inputs.rehearsal") {
+				publishing = true
+			}
+			if !publishing {
+				continue
+			}
+			n++
+			if !strings.Contains(s.If, "!inputs.rehearsal") {
+				t.Errorf("preview.yml: job %s step %d (%q) logs in, pushes, deletes, creates or caches without the negated rehearsal condition !inputs.rehearsal", name, i+1, s.Name+s.Uses)
+			}
+		}
+	}
+	if n < 5 {
+		t.Errorf("preview.yml: found %d publishing steps, want at least the login, two pushes, the chart push and the release", n)
+	}
+}
+
 // A film that cannot render blocks the release candidate and so the train (D1068): the film job of preview.yml
 // must not tolerate failure, film.yml must not swallow one anywhere in its path, the job that runs the checked-out code is read-only and
 // the one that writes (only on main) runs none of it.

@@ -235,7 +235,7 @@ func TestWriteTokenJobsRestoreNoSharedCache(t *testing.T) {
 					t.Errorf("%s: %s", where, msg)
 				}
 				for _, k := range []string{"cache-from", "cache-to"} {
-					if v, ok := st.With[k].(string); ok && strings.Contains(v, "type=gha") && !strings.Contains(v, "scope=${{ github.run_id }}") {
+					if v, ok := st.With[k].(string); ok && strings.Contains(v, "type=gha") && !strings.Contains(v, "scope=${{ github.run_id }}") && !strings.Contains(v, "scope={0}', github.run_id") {
 						t.Errorf("%s: %s: %s is not scoped to the run", where, k, v)
 					}
 				}

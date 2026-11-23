@@ -9,7 +9,7 @@
 # the next range is a green scheduled run, never a dispatch). An unknown name fails (exit 1) naming it, on stderr as a workflow error.
 set -euo pipefail
 
-all="battery quarantine upgrade"
+all="battery quarantine upgrade rehearsal"
 IFS=',' read -r -a parts <<<"${LANES:-all}"
 sel=" "
 for p in ${parts[@]+"${parts[@]}"}; do
@@ -18,7 +18,7 @@ for p in ${parts[@]+"${parts[@]}"}; do
   [ -n "$p" ] || continue
   case "$p" in
     all) sel="$sel$all " ;;
-    battery | quarantine | upgrade) sel="$sel$p " ;;
+    battery | quarantine | upgrade | rehearsal) sel="$sel$p " ;;
     *)
       echo "::error::unknown lane '$p' in the lanes input (known: ${all// /, }, all)" >&2
       exit 1
