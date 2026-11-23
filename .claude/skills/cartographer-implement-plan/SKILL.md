@@ -179,6 +179,10 @@ subagent's report — report text can be garbled or compressed.
   it, its lows fixed in one pass, then the triage on the whole change again: still `fast`, the coordinator reads
   `<reviewed commit>..HEAD` and queues (§4); no longer (a supply-chain path, a decision, over 150 lines) or a verified
   `high` or `medium`, the change leaves the lane and gets the rounds of its tier.
+- **The usage test**: a triage line `Usage-test: required — <paths>` on the tip (the CLI, a client, the
+  provisioning, an installer or a bundled skill) means the change is tried on its built binary after the
+  last review round and before it is queued: `cartographer-review-pr` §Before opening your own PR, or
+  queuing a change, step 3 (a chain once, on its tip); a FAIL goes to the implementer like a finding.
 - **What the coordinator reads**: the triage, the verified findings, the ranges of
   the reviewer's invariants line (full tier), and supply-chain hunks whole.
 - After the last round the coordinator records the review: `REVIEW="<tier>, <n> rounds"`
@@ -196,7 +200,9 @@ Maintainer mode only.
 1. Read the message file (§2): the title, the why, the body lines and `Closes`/`Refs`.
    A change over the size cap that cannot be split carries a `Size exception: <why>` line.
    `make ready` refuses a `fix` without its `Found-by:` and `Introduced-by:` lines, and a `Cost:` line of another shape (`scripts/trailers-lint.sh`).
-2. `make -C .worktrees/<slug> ready MSG=<message file> REVIEW="<tier>, <n> rounds"`, plus
+2. `make -C .worktrees/<slug> ready MSG=<message file> REVIEW="<tier>, <n> rounds"` (and
+   `USAGE="pass, <n> entries"` or `USAGE="waived: <reason>"` when the triage says `Usage-test: required`,
+   §3), plus
    `AFTER=<predecessor slug>` in a chain (queue the predecessor first; a predecessor queued
    again means its successors are queued again too). It squashes the branch into one commit,
    checks it as `pr-title` and `plan-gate` would, pushes `ready/<slug>` and starts the

@@ -271,6 +271,59 @@ build never checks for updates. `TestAcceptanceBattery` (`internal/repodocs`) fa
 that does not exist, when a file of `test/e2e/optional/` is named by no row, or when the base table lacks the
 row of the upgrade scenario: a scenario and its row land in the same change.
 
+### Usage test (`make usage-test`)
+
+`make usage-test [BIN=<binary>] [TASKS=<names>] [MODEL=<id>] [KEEP=1]` answers one question: can an agent
+that has only the MCP server do a user's seven tasks on this binary. `test/usage/run.sh` runs a headless
+agent (`claude -p`, the CLI installed and logged in on the machine; `USAGE_AGENT_CMD` replaces it) once per
+task file of `test/usage/tasks/` and takes the verdict from assertions, not from a second model: cold start,
+orientation in an unknown KB, ingest of a note, an update that must not break links, a question that spans
+several pages, a cleanup, a task opened and closed. A task file has a header (`turns`, `tool-errors`, `model`,
+`seed`) and a prompt written as a user would write it, never naming a tool; `<nn>_<name>.check.sh` asserts on
+the KB afterwards through the binary (`lib.sh`: the lint is clean, the expected pages exist, no link broke), and
+`fixtures/<seed>.jsonl` seeds a KB with the tool calls of the binary itself.
+
+- **Isolation.** Every command of the binary runs under `env -i` with `HOME` and the four XDG directories under
+  a scratch directory, and the agent's only MCP server is that binary serving a KB with no remote. A first run
+  must show a session that lists only that server: no other tool, no skill or slash command (the run passes
+  `--disable-slash-commands`), no plugin but the CLI's built-in ones and no hook on an event other than
+  `SessionStart` (the user's settings are left out by `--setting-sources local`; the built-in plugins run
+  `SessionStart` hooks that cannot be told from a user's, so one of those is the limit of this check);
+  otherwise the whole run fails as `isolation` before a task is paid for. The agent CLI keeps its own login, so
+  it is the one process that writes the real `HOME` (its session files); the harness writes only the scratch
+  directory, which a pass removes unless `KEEP=1`.
+- **A task fails** when its check fails, when the transcript calls a tool the server did not list, when the
+  tool errors or the turns pass its ceilings, or when the agent ends with an error. The turn ceiling is the
+  agent's `--max-turns`, and `USAGE_BUDGET_USD` (a number, default 2) is its `--max-budget-usd`. A run starts
+  one isolation run and one run per task, each tried twice at most when the service is unavailable, so the
+  worst case is (1 + tasks) x 2 x the cap (32 dollars for the seven tasks at the default: 8 x 2 x 2). A task file may
+  name only a model pinned in `.claude/agents/cartographer-source-reader.md` or
+  `cartographer-contract-reviewer.md`; the run keeps no session on disk (`--no-session-persistence`). The agent
+  is `USAGE_AGENT=<path>` when set, else the first `claude` on `PATH` whose first line is not a shell shebang
+  (a `#!/usr/bin/env node` file or a binary is the CLI; a wrapper script is not), else the first one at all.
+- **Output.** One line per task (`PASS` or `FAIL`, calls, errors, recoveries, tokens in and out, seconds, the
+  reason), the same as a Markdown table in `$GITHUB_STEP_SUMMARY` when it is set, and the CLI's version. The
+  default model is the one pinned in `.claude/agents/cartographer-source-reader.md`.
+- **Exit.** 0 every task passed; 1 a task or the isolation failed; 2 a wrong invocation (no `jq`, `git` or
+  binary, a budget that is no number, a task naming a model off the allowlist, no task matched); 75 the agent could not be started or the
+  model was unavailable after one retry: the lane is `NOT RUN`, which says nothing about the binary.
+- **Never in CI.** A maintainer's coordinator runs it in its own agent session: at a release candidate (lane F
+  of `cartographer-acceptance`) and before queuing a change. `TestNoWorkflowCallsTheUsageTest` fails when a file
+  under `.github/` names it, and `TestUsageHarnessVerdicts` runs the harness with a fake agent that replays
+  canned transcripts (a pass, an unknown tool, an isolation breach, an unavailable model).
+
+**Before `make ready`.** `scripts/pr-triage.sh` prints `Usage-test: required — <paths>` for a maintainer's
+change whose production paths are `cmd/cartographer/`, `internal/configurator/`, `internal/provisioning/`,
+`internal/skillbundle/bundled/`, `install.sh` or `install.ps1` (`USAGE_PATHS`; `internal/mcpserver/` is left
+out: a change to a tool description or to the instructions is tried because its plan or issue says so). Such a
+change is tried on its built binary, and `make ready USAGE="pass, <n> entries"` writes the `Usage-test:` trailer
+next to `Review:`; `USAGE="waived: <reason>"` is accepted and written as given, and `make ready` refuses a
+change on the list with neither, and the lander re-runs main's triage on what was queued and rejects a change on
+the list that has no `Usage-test:` trailer, as it does for a missing `Review:`. A role the triage could not read
+counts as a maintainer's for this line, and `make ready` refuses to queue unless the triage read it. A change off
+the list queues as before, and a record given anyway is written.
+The procedure is `cartographer-review-pr` §Before opening your own PR, or queuing a change.
+
 ### Client upgrade from the previous release (#1173)
 
 `test/e2e/optional/26_upgrade_from_previous.sh` starts from the state a previous

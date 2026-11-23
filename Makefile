@@ -1,4 +1,4 @@
-.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke docker-surveyor docker-surveyor-smoke clean e2e e2e-nightly e2e-upgrade demo-image demo-smoke demo-worker-test demo-tf-check helm-check test-install test-linux worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap runs-where settings-example openapi web web-test web-perf web-check e2e-web hero vulncheck lint-workflows signoff signoff-platform web-gate check check-run check-hosted ready land land-status requeue status test-rerun
+.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke docker-surveyor docker-surveyor-smoke clean e2e e2e-nightly e2e-upgrade usage-test demo-image demo-smoke demo-worker-test demo-tf-check helm-check test-install test-linux worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap runs-where settings-example openapi web web-test web-perf web-check e2e-web hero vulncheck lint-workflows signoff signoff-platform web-gate check check-run check-hosted ready land land-status requeue status test-rerun
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
 # gofmt takes paths, and `gofmt -l .` walks every hidden directory — including
@@ -220,6 +220,9 @@ e2e-nightly: ## The e2e scenarios plus the optional ones (not the upgrade, make 
 e2e-upgrade: ## Upgrade a client from the previous stable release to this build and sync (E2E_UPGRADE_FROM=<ref>, E2E_UPGRADE_ONLINE=1)
 	@./test/e2e/run.sh --only 26_upgrade_from_previous
 
+usage-test: ## Run a headless agent through seven tasks on a binary, the verdict from assertions (BIN=<binary> TASKS=<names> MODEL=<id> KEEP=1); a maintainer's session, never CI
+	@BIN="$(BIN)" TASKS="$(TASKS)" MODEL="$(MODEL)" KEEP="$(KEEP)" ./test/usage/run.sh
+
 test-install: ## Run the network-free install.sh/Cask upgrade-repair suite and the .goreleaser.yaml guard
 	@./test/install/run.sh
 	@./test/install/goreleaser_guard.sh
@@ -316,8 +319,8 @@ signoff-platform:
 # A maintainer's path to main (D1706): queue the finished change as one commit,
 # the lander lands it in a train with one gate. scripts/ready.sh and scripts/land.sh
 # have the rules.
-ready: ## Maintainer only: queue this branch (MSG=<message file> [AFTER=<slug>] [HOLD=1] [NOW=1] REVIEW="<tier>, <n> rounds" [PROFILE=live]) and start the lander
-	@MSG="$(MSG)" AFTER="$(AFTER)" HOLD="$(HOLD)" NOW="$(NOW)" REVIEW="$(REVIEW)" PROFILE="$(PROFILE)" ./scripts/ready.sh
+ready: ## Maintainer only: queue this branch (MSG=<message file> [AFTER=<slug>] [HOLD=1] [NOW=1] REVIEW="<tier>, <n> rounds" [USAGE="pass, <n> entries"|"waived: <reason>"] [PROFILE=live]) and start the lander
+	@MSG="$(MSG)" AFTER="$(AFTER)" HOLD="$(HOLD)" NOW="$(NOW)" REVIEW="$(REVIEW)" USAGE="$(USAGE)" PROFILE="$(PROFILE)" ./scripts/ready.sh
 
 # GATE counts only on the make command line: make imports the environment, and an exported
 # GATE=host would put the lander on the build host without anyone choosing it that day.

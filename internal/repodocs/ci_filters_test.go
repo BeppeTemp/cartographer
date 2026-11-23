@@ -159,6 +159,9 @@ func TestEveryMakeTargetIsRunByCIOrDeclaredLocal(t *testing.T) {
 		"test-rerun": true,
 		// The fast tier: what an implementer runs while iterating; make gate is CI's.
 		"check": true, "check-run": true, "check-hosted": true,
+		// The usage test: a headless agent in a maintainer's own session, never a workflow
+		// (TestNoWorkflowCallsTheUsageTest).
+		"usage-test": true,
 		// The lander queues and lands from a maintainer's machine (scripts/land.sh).
 		"ready": true, "land": true, "land-status": true, "requeue": true, "status": true,
 		// The docker job builds with buildx (layer cache in the GitHub cache) and
