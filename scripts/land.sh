@@ -9,10 +9,17 @@
 #                      default: ci.yml on GitHub) or host (the build host, `make land GATE=host`)
 #
 # The queue is `refs/heads/ready/<slug>` on origin (scripts/ready.sh pushes them), oldest
-# first. A train is main plus at most LAND_MAX (8) changes, cherry-picked in queue order
-# after their `Lander-After:` change; a held change (`Lander-Hold: yes`), one waiting on a
-# held or rejected change, and while the freeze is open (scripts/freeze-open.sh, D1384) a
-# feat/perf/refactor or breaking change stay queued. Each pending decision a change adds
+# first, and it lands by unit. The `Lander-After:` trailer of a queued change, or of the
+# commit a rejected one was queued as (`failed/<slug>^`), links it to that change when that
+# one is queued or rejected (one that landed links nothing); a unit is a set of
+# changes so linked, a change with no link a unit of one. A unit lands whole or not at all, its
+# members in their Lander-After order (ties by queue order), the units by their oldest member;
+# its tips are the members no other member follows. No member of a unit is picked while one is
+# rejected (blocked), carries `Lander-Hold: yes` (held), or, while the freeze is open
+# (scripts/freeze-open.sh, D1384), is a feat/perf/refactor or breaking change (frozen); a
+# change queued again after its rejection is queued, its failed/ ref no longer counts. A train
+# is main plus whole units, at most LAND_MAX (8) changes in all; a unit that does not fit waits
+# for the next train, one larger than LAND_MAX is gated alone. Each pending decision a change adds
 # (`docs/decisions/D-new-<slug>.md`) gets the next number above both the highest on the
 # tree and the newest issue or PR number (a contributor's decision takes its PR's number,
 # D672: numbers above the counter keep the two apart and in time order), and every
@@ -37,8 +44,10 @@
 # issue, up to LAND_INFRA_TRIES gates in a row; a host that stays down stops the lander with
 # the queue untouched. Any other red: one re-run of the same tree; green then means a flaky
 # test, so the train lands and a `bug` issue names the tests. Red twice: bisection over the
-# train's prefixes finds the first failing change, which is rejected, and the green prefix
-# before it lands; when the signoff confirmed the failure on named Go tests, each prefix runs only those
+# train's prefixes that end at a unit's boundary finds the first failing unit, whose last tip
+# in queue order is rejected (`the train gate is red with the chain <first>..<tip> and green
+# without it`; a unit of one is the change), its other members staying queued, and the green
+# prefix before it lands; when the signoff confirmed the failure on named Go tests, each prefix runs only those
 # tests' packages (`signoff.sh --probe`, D1878) and the green prefix then gets
 # one full gate before it lands. Green: one PR, title
 # `chore(dev): train <id>, <k> changes`, rebase-merged so every change stays its own
@@ -56,15 +65,20 @@
 #
 # Each queued change has a hosted pre-check (.github/workflows/ready-check.yml, run on the
 # push of its ready/ ref, D1877): the Windows tests of the packages it can
-# break and the frontend's unit tests, the legs `make check` does not run. A train of several
-# changes takes only changes whose pre-check is green (or has no verdict: none started within
-# LAND_PRECHECK_START, still running past LAND_PRECHECK_WAIT, cancelled, or GitHub did not
-# answer). When none is, the oldest change whose pre-check is still running is gated alone,
-# else the oldest red one: no gate waits on a pre-check, and a change that
-# breaks a leg costs one gate of its own instead of a red train and its bisection.
+# break and the frontend's unit tests, the legs `make check` does not run. A unit's verdict is
+# its tips' pre-checks (the others' are not read): red if one is red, else running if one runs,
+# else green (green, or no verdict: none started within LAND_PRECHECK_START, still running past
+# LAND_PRECHECK_WAIT, cancelled, or GitHub did not answer). A train of several units takes only
+# green ones. When none is, the oldest unit whose verdict is running is gated alone, else the
+# oldest red one: no gate waits on a pre-check, and a unit that breaks a leg costs one gate of
+# its own instead of a red train and its bisection.
 #
 # A rejected change moves to `refs/heads/failed/<slug>`: a commit on top of it whose
-# message is the reason, readable from any clone (`git log -1 origin/failed/<slug>`).
+# message is the reason, readable from any clone (`git log -1 origin/failed/<slug>`). A member
+# rejected at its pick (a conflict, a decision) takes its unit out of the train: the train is
+# reset to the commit before the unit's first pick, the numbers it took are forgotten, only
+# that member moves to failed/ (its reason ends `(chain <first>..<tip>)`) and the others stay
+# queued, blocked until it is queued again.
 # One lander at a time: per machine a lock in the state dir, across machines an open PR
 # whose head is `train/*`. A lander that finds one of the repository's own built on the current
 # main adopts it (the same merge, the same rerun-once rule) and goes on with the queue; one
@@ -101,7 +115,8 @@
 #   SIGNOFF_GATE is set by the lander (its --gate); the other SIGNOFF_* are passed to
 #   signoff.sh unchanged.
 #
-# Plain bash 3.2 (the macOS default): no associative arrays.
+# Plain bash 3.2 (the macOS default): no associative arrays. No pending decision is cited in
+# this file: the tests queue copies of it, and a citation nothing in their queue adds is rejected.
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -383,7 +398,7 @@ reject() {
   log "rejected $1: $3"
   $dry && return 0
   local f
-  f=$(git -C "$main_repo" commit-tree "$2^{tree}" -p "$2" -m "lander: $3" -m "Fix it on the branch and run make ready again; this ref is replaced then.")
+  f=$(git -C "$main_repo" commit-tree "$2^{tree}" -p "$2" -m "lander: $3" -m "Fix it on the branch and run make ready again: once the slug is queued again this ref is ignored, and it is deleted when the change lands.")
   g push -q --force origin "$f:refs/heads/failed/$1" "--force-with-lease=refs/heads/ready/$1:$2" ":refs/heads/ready/$1" ||
     log "warning: could not move ready/$1 to failed/$1"
 }
@@ -444,55 +459,149 @@ precheck() {
   esac
 }
 
-# compose: selects the train into TRAIN (lines "<slug> <sha>"), in landing order: the
-# changes whose pre-check is green, else one change alone (see the header).
+# units <queue> <rejected slugs>: the units of the queue (see the header) into plain arrays (bash
+# 3.2). Node i is a queued change, in queue order, or after them a rejected one (the commit it was
+# queued as, failed/<slug>^): N_SLUG, N_SHA, N_REJ (1: rejected), N_PRED (the node its
+# Lander-After names, -1 when that change landed or there is none) and N_COMP (its unit: the
+# lowest node in it, so units sort by their oldest queued member).
+units() {
+  local s sha i j a n pass changed
+  N_SLUG=() N_SHA=() N_REJ=() N_PRED=() N_COMP=()
+  while read -r s sha; do
+    [ -n "$s" ] || continue
+    N_SLUG+=("$s") N_SHA+=("$sha") N_REJ+=(0)
+  done <<<"$1"
+  while read -r s; do
+    [ -n "$s" ] || continue
+    # Queued again after its rejection: the queued commit is the change, its failed/ ref is
+    # stale (the lander deletes it once the change lands), so it blocks nothing.
+    if grep -q "^$s " <<<"$1"; then continue; fi
+    sha=$(g rev-parse -q --verify "refs/remotes/origin/failed/$s^" 2>/dev/null) || continue
+    N_SLUG+=("$s") N_SHA+=("$sha") N_REJ+=(1)
+  done <<<"$2"
+  n=${#N_SLUG[@]}
+  for ((i = 0; i < n; i++)); do
+    N_PRED[i]=-1 N_COMP[i]=$i
+    a=$(trailer Lander-After "${N_SHA[i]}")
+    [ -n "$a" ] || continue
+    for ((j = 0; j < n; j++)); do
+      if [ "$j" != "$i" ] && [ "${N_SLUG[j]}" = "$a" ]; then N_PRED[i]=$j; break; fi
+    done
+  done
+  # Each pass gives both ends of every edge the lower label: n passes connect any component.
+  for ((pass = 0; pass < n; pass++)); do
+    changed=false
+    for ((i = 0; i < n; i++)); do
+      j=${N_PRED[i]}
+      if [ "$j" -lt 0 ] || [ "${N_COMP[j]}" = "${N_COMP[i]}" ]; then continue; fi
+      if [ "${N_COMP[j]}" -lt "${N_COMP[i]}" ]; then N_COMP[i]=${N_COMP[j]}; else N_COMP[j]=${N_COMP[i]}; fi
+      changed=true
+    done
+    $changed || break
+  done
+}
+
+# unit_name <u>: the slug of a unit of one, `the chain <first>..<tip>` of a longer one.
+unit_name() {
+  if [ "${U_SIZE[$1]}" = 1 ]; then echo "${U_FIRST[$1]}"; else echo "the chain ${U_FIRST[$1]}..${U_TIP[$1]%% *}"; fi
+}
+
+# compose: selects the train into TRAIN (lines "<slug> <sha> <unit>"), in landing order: whole
+# units, the members of each in their Lander-After order; U_SIZE, U_FIRST (the first member's
+# slug) and U_TIP (the last tip in queue order, "<slug> <sha>") describe each unit by number.
+# A blocked, held or frozen unit is not taken, nor one whose Lander-After lines loop; of the
+# others, the units whose tips' pre-checks are green, as many as LAND_MAX changes hold, else
+# one unit alone (see the header). The pre-checks of the members that are not tips are not read.
 compose() {
-  local q freeze=false failed s sha
+  local q freeze=false failed n c i j p size order done_ found tip state v total ok_units= wait_unit= red_unit= u=0 lines
   q=$(queue)
   TRAIN=
+  U_SIZE=() U_FIRST=() U_TIP=() U_LINES=()
   [ -n "$q" ] || return 0
   if GH_REPO=$repo "$here/freeze-open.sh" >/dev/null 2>&1; then freeze=true; fi
   failed=$(g for-each-ref --format='%(refname:lstrip=4)' refs/remotes/origin/failed/)
-  VERDICTS=
-  while read -r s sha; do
-    [ -n "$s" ] || continue
-    VERDICTS=$VERDICTS"$s $(precheck "$sha")"$'\n'
-  done <<<"$q"
-  pick ok "$max"
+  units "$q" "$failed"
+  n=${#N_SLUG[@]}
+  for ((c = 0; c < n; c++)); do
+    # A unit is visited at its label, its lowest node; one of rejected changes only has nothing to land.
+    if [ "${N_COMP[c]}" != "$c" ] || [ "${N_REJ[c]}" = 1 ]; then continue; fi
+    size=0 state=
+    for ((i = 0; i < n; i++)); do
+      [ "${N_COMP[i]}" = "$c" ] || continue
+      if [ "${N_REJ[i]}" = 1 ]; then state=blocked; continue; fi
+      size=$((size + 1))
+      [ -n "$state" ] || [ -z "$(trailer Lander-Hold "${N_SHA[i]}")" ] || state=held
+      if [ -z "$state" ] && $freeze && breaking "${N_SHA[i]}"; then state=frozen; fi
+    done
+    [ -z "$state" ] || continue
+    # The landing order: the oldest queued member whose predecessor is already placed, each time.
+    order= done_=" "
+    for ((p = 0; p < size; p++)); do
+      found=-1
+      for ((i = 0; i < n; i++)); do
+        if [ "${N_COMP[i]}" != "$c" ]; then continue; fi
+        case "$done_" in *" $i "*) continue ;; esac
+        j=${N_PRED[i]}
+        if [ "$j" = -1 ]; then found=$i; break; fi
+        case "$done_" in *" $j "*) found=$i; break ;; esac
+      done
+      [ "$found" -ge 0 ] || break
+      done_="$done_$found "
+      order=${order:+$order$'\n'}"${N_SLUG[found]} ${N_SHA[found]} $u"
+    done
+    if [ "$(grep -c . <<<"$order")" != "$size" ]; then
+      log "${N_SLUG[c]}: its unit's Lander-After lines form a loop: not landable"
+      continue
+    fi
+    # Its tips (no member follows them) decide its verdict; the last of them is its tip.
+    v=ok tip=
+    for ((i = 0; i < n; i++)); do
+      [ "${N_COMP[i]}" = "$c" ] || continue
+      for ((j = 0; j < n; j++)); do [ "${N_PRED[j]}" != "$i" ] || continue 2; done
+      tip="${N_SLUG[i]} ${N_SHA[i]}"
+      case "$v:$(precheck "${N_SHA[i]}")" in
+        *:red) v=red ;;
+        ok:wait) v=wait ;;
+      esac
+    done
+    U_SIZE[u]=$size U_FIRST[u]=${order%% *} U_TIP[u]=$tip U_LINES[u]=$order
+    case "$v" in
+      ok) ok_units="$ok_units $u" ;;
+      wait) [ -n "$wait_unit" ] || wait_unit=$u ;;
+      red) [ -n "$red_unit" ] || red_unit=$u ;;
+    esac
+    u=$((u + 1))
+  done
+  total=0
+  for u in $ok_units; do
+    size=${U_SIZE[u]}
+    if [ "$size" -gt "$max" ]; then
+      [ "$total" = 0 ] || continue
+      log "$(unit_name "$u") has $size changes, more than LAND_MAX ($max): gated alone"
+      TRAIN=${U_LINES[u]}
+      return 0
+    fi
+    [ $((total + size)) -le "$max" ] || continue
+    TRAIN=${TRAIN:+$TRAIN$'\n'}${U_LINES[u]}
+    total=$((total + size))
+  done
   [ -z "$TRAIN" ] || return 0
-  pick wait 1
-  if [ -n "$TRAIN" ]; then
-    log "${TRAIN%% *}: its hosted pre-check is still running and nothing else is ready: gated alone"
+  if [ -n "$wait_unit" ]; then
+    TRAIN=${U_LINES[wait_unit]}
+    if [ "${U_SIZE[wait_unit]}" = 1 ]; then
+      log "${U_FIRST[wait_unit]}: its hosted pre-check is still running and nothing else is ready: gated alone"
+    else
+      log "$(unit_name "$wait_unit") (${U_SIZE[wait_unit]} changes): the hosted pre-check of its tip is still running and nothing else is ready: gated alone"
+    fi
     return 0
   fi
-  pick red 1
-  [ -z "$TRAIN" ] || log "${TRAIN%% *}: its hosted pre-check is red: gated alone"
-}
-
-# pick <verdict> <n>: adds to TRAIN, in queue order and after their Lander-After change, up
-# to n changes in all whose pre-check verdict is <verdict>. Reads compose's q, freeze, failed.
-pick() {
-  local pass changed s sha after
-  for pass in 1 2 3 4 5 6 7 8; do
-    changed=false
-    while read -r s sha; do
-      [ -n "$s" ] || continue
-      grep -qx "$s $sha" <<<"$TRAIN" && continue
-      [ "$(printf '%s\n' "$TRAIN" | grep -c .)" -lt "$2" ] || break
-      grep -qx "$s $1" <<<"$VERDICTS" || continue
-      [ -z "$(trailer Lander-Hold "$sha")" ] || continue
-      if $freeze && breaking "$sha"; then continue; fi
-      after=$(trailer Lander-After "$sha")
-      if [ -n "$after" ]; then
-        # Waits while the change it follows is queued and not yet in this train, or rejected.
-        if grep -q "^$after " <<<"$q" && ! grep -q "^$after " <<<"$TRAIN"; then continue; fi
-        if grep -qx "$after" <<<"$failed"; then continue; fi
-      fi
-      TRAIN=${TRAIN:+$TRAIN$'\n'}"$s $sha"
-      changed=true
-    done <<<"$q"
-    $changed || break
-  done
+  [ -n "$red_unit" ] || return 0
+  TRAIN=${U_LINES[red_unit]}
+  if [ "${U_SIZE[red_unit]}" = 1 ]; then
+    log "${U_FIRST[red_unit]}: its hosted pre-check is red: gated alone"
+  else
+    log "$(unit_name "$red_unit") (${U_SIZE[red_unit]} changes): the hosted pre-check of its tip is red: gated alone"
+  fi
 }
 
 # build_bundle <slug> <what>: builds the Atlas bundle again in the worktree (`make -s web`,
@@ -1038,7 +1147,7 @@ while :; do
   fi
   compose
   if [ -z "$TRAIN" ]; then
-    [ -n "$(queue)" ] && log "nothing landable: every queued change is held, frozen or waits on another" || log "the queue is empty"
+    [ -n "$(queue)" ] && log "nothing landable: every queued change is held, frozen or in a chain with a rejected change" || log "the queue is empty"
     exit 0
   fi
 
@@ -1056,11 +1165,30 @@ while :; do
   # The newest issue or PR number: pending decisions are numbered above it.
   FLOOR=$(gh api "repos/$repo/issues?state=all&sort=created&direction=desc&per_page=1" --jq '.[0].number // 0' 2>/dev/null || true)
   [[ "$FLOOR" =~ ^[0-9]+$ ]] || FLOOR=0
-  landed= commits=()
-  while read -r s sha; do
+  landed= commits=() cunit=() cur= skip=
+  # reject_member <slug> <sha> <reason>: a member of the unit being picked is rejected. The unit
+  # goes whole: the train is reset to the commit before its first pick, the numbers it took and
+  # its earlier members are forgotten, and only this member moves to failed/; the others stay
+  # queued, and that ref blocks their unit until it is queued again.
+  reject_member() {
+    git cherry-pick --abort >/dev/null 2>&1 || true
+    git reset -q --hard "$ustart"
+    git clean -qfd # what a partial bundle build left would join the next change
+    MAP=$umap landed=$ulanded skip=$cur
+    if [ "$un" = 0 ]; then commits=() cunit=(); else commits=("${commits[@]:0:un}") cunit=("${cunit[@]:0:un}"); fi
+    if [ "${U_SIZE[cur]}" = 1 ]; then reject "$1" "$2" "$3"; else reject "$1" "$2" "$3 ($(unit_name "$cur" | sed 's/^the //'))"; fi
+  }
+  while read -r s sha u; do
+    if [ "$u" != "$cur" ]; then
+      cur=$u ustart=$(git rev-parse HEAD) umap=$MAP ulanded=$landed un=${#commits[@]}
+    fi
+    [ "$u" != "$skip" ] || continue
+    # A member main already holds is dequeued; its unit goes on without it.
     if landed_on_main "$s" "$sha"; then
       log "$s is already on main (a commit there carries its Lander-Slug and Lander-Tip): dequeued"
       $dry || dequeue "$s" "$sha" || log "warning: could not delete ready/$s"
+      # A rejection left from an earlier version would block a later change queued AFTER=<slug>.
+      $dry || g push -q origin --delete "failed/$s" >/dev/null 2>&1 || true
       continue
     fi
     if ! git cherry-pick --allow-empty "$sha" >/dev/null 2>&1 && ! bundle_pick "$s"; then
@@ -1074,13 +1202,14 @@ while :; do
         if [ "$(g cherry "$main_ref" "$sha" "$sha^" 2>/dev/null | cut -c1)" = - ]; then
           log "$s is already on main: dequeued"
           $dry || dequeue "$s" "$sha" || log "warning: could not delete ready/$s"
+          $dry || g push -q origin --delete "failed/$s" >/dev/null 2>&1 || true
           continue
         fi
         hint= # grep without -q reads all of git log: an early exit would fail it under pipefail
         if g log --format=%s "$sha^..$main_ref" | grep -xF "$(title "$sha")" >/dev/null; then
           hint=" (main already holds a commit with its title: landed, its decision numbered?)"
         fi
-        reject "$s" "$sha" "conflict: it does not apply on main plus the changes before it in the train$hint"
+        reject_member "$s" "$sha" "conflict: it does not apply on main plus the changes before it in the train$hint"
         continue
       fi
     fi
@@ -1099,18 +1228,13 @@ while :; do
     [ -z "$tip" ] || targs+=(--trailer "Lander-Tip: $tip")
     [ -z "$review" ] || targs+=(--trailer "Review: $review")
     printf '%s\n' "$msg" | git interpret-trailers "${targs[@]}" | git commit -q --amend --allow-empty -F -
-    premap=$MAP # a rejected change leaves no number behind for the later ones
-    number_decisions
+    number_decisions # a rejected unit leaves no number behind for the later ones (reject_member)
     if [ -n "$DUP" ]; then
-      MAP=$premap
-      git reset -q --hard HEAD~1
-      reject "$s" "$sha" "$DUP"
+      reject_member "$s" "$sha" "$DUP"
       continue
     fi
     if [ -n "$LEFT" ]; then
-      MAP=$premap
-      git reset -q --hard HEAD~1
-      reject "$s" "$sha" "it cites a pending decision that is neither on main nor earlier in the train: $LEFT"
+      reject_member "$s" "$sha" "it cites a pending decision that is neither on main nor earlier in the train: $LEFT"
       continue
     fi
     # The numbering rewrote a citation under web/ after the author ran `make web`: the committed
@@ -1119,16 +1243,13 @@ while :; do
     # reads all of the diff: an early exit would SIGPIPE git show and fail it under pipefail.
     if git show "$sha" -- web/ ':(exclude)*_test.go' ':(exclude)*/testdata/*' | grep '^+.*D-new-' >/dev/null; then
       if ! build_bundle "$s" "it cites a pending decision under web/, and"; then
-        MAP=$premap
-        git reset -q --hard HEAD~1
-        git clean -qfd internal/webui/dist # what a partial build left would join the next change
-        reject "$s" "$sha" "it cites a pending decision under web/ and the bundle could not be rebuilt (see $state/bundle-$s.log)"
+        reject_member "$s" "$sha" "it cites a pending decision under web/ and the bundle could not be rebuilt (see $state/bundle-$s.log)"
         continue
       fi
       git add -A internal/webui/dist && git commit -q --amend --no-edit --allow-empty
     fi
     landed=${landed:+$landed$'\n'}"$s $sha"
-    commits+=("$(git rev-parse HEAD)")
+    commits+=("$(git rev-parse HEAD)") cunit+=("$u")
   done <<<"$TRAIN"
   k=${#commits[@]}
   if [ "$k" = 0 ]; then
@@ -1181,7 +1302,13 @@ while :; do
       fi
       issue_flaky "${fails_lines:-the gate of a train}" "failed once and passed on a re-run" "$issue_body"
     else
-      lo=0 hi=$k good=
+      # The prefixes end at a unit's boundary: ends[m] is how many changes the first m units
+      # hold, so a probe or a gate runs on a unit's last commit and no prefix splits a unit.
+      ends=(0)
+      for ((i = 1; i < k; i++)); do [ "${cunit[i]}" = "${cunit[i - 1]}" ] || ends+=("$i"); done
+      ends+=("$k")
+      nu=$((${#ends[@]} - 1))
+      lo=0 hi=$nu good=
       # The confirmed tests alone (their packages, a minute or two) find the change that
       # breaks them; the green prefix still gets its full gate below. Without a confirmed
       # retry, or with its machine gone, each prefix gets a full gate.
@@ -1189,14 +1316,14 @@ while :; do
       if [ -n "$probe" ]; then
         log "bisecting with the confirmed tests only: $probe"
         while [ $((hi - lo)) -gt 1 ]; do
-          m=$(( (lo + hi) / 2 ))
-          git reset -q --hard "${commits[m - 1]}"
+          m=$(( (lo + hi) / 2 )) c=${ends[m]}
+          git reset -q --hard "${commits[c - 1]}"
           r=0
           # shellcheck disable=SC2086  # the probe is three words on purpose, checked by probe_of
           (cd "$wt" && "$here/signoff.sh" --probe $probe) >>"$glog.probe" 2>&1 || r=$?
           if [ "$r" = 75 ]; then
             log "the probe's machine is unavailable: bisecting with full gates"
-            probe= lo=0 hi=$k
+            probe= lo=0 hi=$nu
             break
           fi
           if [ "$r" = 0 ]; then lo=$m; else hi=$m; fi
@@ -1204,22 +1331,33 @@ while :; do
       fi
       if [ -z "$probe" ]; then
         while [ $((hi - lo)) -gt 1 ]; do
-          m=$(( (lo + hi) / 2 ))
-          git reset -q --hard "${commits[m - 1]}"
+          m=$(( (lo + hi) / 2 )) c=${ends[m]}
+          git reset -q --hard "${commits[c - 1]}"
           r=0; gate "$glog.p$m" || r=$?
           [ "$r" != 2 ] || die "the gate of a prefix of $branch failed for a reason that is not a test: the queue is untouched"
           if [ "$r" = 0 ]; then lo=$m; good=$(git rev-parse HEAD); else hi=$m; fi
         done
       fi
-      bad=$(sed -n "${hi}p" <<<"$landed")
-      reject "${bad%% *}" "${bad#* }" "the train gate is red with it and green without it (tests: ${fails:-see the gate log})"
+      # The first red unit: a unit of one is rejected as a change; of a longer one, its last tip
+      # in queue order (the last member picked, if main held that tip), and the rest stays queued.
+      first=${ends[hi - 1]} c=${ends[hi]}
+      slice=$(sed -n "$((first + 1)),${c}p" <<<"$landed")
+      if [ $((c - first)) = 1 ]; then
+        bad=$slice
+        reject "${bad%% *}" "${bad#* }" "the train gate is red with it and green without it (tests: ${fails:-see the gate log})"
+      else
+        bu=${cunit[first]}
+        bad=$(grep -xF "${U_TIP[bu]}" <<<"$slice" || tail -n 1 <<<"$slice")
+        reject "${bad%% *}" "${bad#* }" "the train gate is red with the chain ${slice%% *}..${bad%% *} and green without it (tests: ${fails:-see the gate log})"
+      fi
       if [ "$lo" = 0 ]; then
         g push -q origin --delete "$branch" >/dev/null 2>&1 || true
         continue
       fi
       if [ -z "$good" ]; then
-        # Found by the probe: the prefix before the rejected change lands on a full gate.
-        git reset -q --hard "${commits[lo - 1]}"
+        # Found by the probe: the prefix before the rejected unit lands on a full gate.
+        c=${ends[lo]}
+        git reset -q --hard "${commits[c - 1]}"
         r=0; gate "$glog.p$lo" || r=$?
         [ "$r" != 2 ] || die "the gate of a prefix of $branch failed for a reason that is not a test: the queue is untouched"
         if [ "$r" != 0 ]; then
@@ -1231,8 +1369,8 @@ while :; do
       fi
       git reset -q --hard "$good"
       g push -q --force origin "$good:refs/heads/$branch"
-      landed=$(head -n "$lo" <<<"$landed")
-      k=$lo
+      k=${ends[lo]}
+      landed=$(head -n "$k" <<<"$landed")
     fi
   fi
 

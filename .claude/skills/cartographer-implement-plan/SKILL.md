@@ -136,6 +136,8 @@ Canonical mandate (self-contained — the subagent never sees this conversation)
 Once per plan, on its tip (D2040): a chain of changes is reviewed and
 checked (`make check-hosted`) once, over the range from the chain's base, never change by
 change; a fix round adds commits to the change it concerns and the chain is rebased on it.
+A defect is fixed in the change where the review asks, the last one included: the chain lands
+together, as one unit judged by its tip's pre-check (D2304).
 `scripts/pr-triage.sh` run in the tip's worktree (branch mode; `TRIAGE_BASE=<chain's base>`)
 gives the
 tier; the procedure is `cartographer-review-pr` §3–§5 on the branch, with the coordinator on the verifying
@@ -174,15 +176,17 @@ Maintainer mode only.
    checks it as `pr-title` and `plan-gate` would, pushes `ready/<slug>` and starts the
    lander if none runs here. No rebase by hand: the lander cherry-picks onto the `main` of
    the moment, numbers the pending decisions, holds `feat`/`perf`/`refactor` and breaking
-   changes in the release freeze (D1384), and gates the train once.
+   changes in the release freeze (D1384), and gates the train once. A chain lands whole,
+   in one train: a held or frozen change holds all of it.
 3. Follow it with `make land-status` when the user asks, never in a loop: the lander runs
    in the background and its log is in its state directory.
 4. A change the lander rejects is on `failed/<slug>`: `git log -1 origin/failed/<slug>` says
    why (a conflict with `main`, a red gate the bisection pinned on it, a decision cited but
    not added). Rebase the branch on `origin/main` in its worktree, fix (through the
    implementer for a red gate, with the failing tests from the gate log), `make check`,
-   then `make ready` again. A conflict that is not a clean append → **STOP** and surface it
-   to the user.
+   then `make ready` again. A rejection blocks the whole chain: its other changes stay
+   queued, and land with it once it is queued again. A conflict that is not a clean append →
+   **STOP** and surface it to the user.
 
 ## 5 — Close-out
 

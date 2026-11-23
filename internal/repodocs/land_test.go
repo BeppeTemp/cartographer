@@ -1871,7 +1871,8 @@ func TestLanderStopsOnARequiredCheckInStartupFailure(t *testing.T) {
 
 // A rejected change leaves no number behind: a change adding two decisions, the second of a
 // landed slug, is rejected whole, and a later change citing the first is rejected too (its
-// decision never landed) instead of getting a number nothing holds.
+// decision never landed) instead of getting a number nothing holds. The two are units of one:
+// a member of a chain is never picked after its predecessor's rejection.
 func TestLanderForgetsTheNumbersOfARejectedChange(t *testing.T) {
 	e := newLandEnv(t)
 	dec := "docs/" + "decisions/"
@@ -1883,7 +1884,7 @@ func TestLanderForgetsTheNumbersOfARejectedChange(t *testing.T) {
 		dec + "D-new-a.md": "---\ntopic: x\n---\n\n# D-new-a\n",
 		dec + "D-new-z.md": "---\ntopic: x\n---\n\n# D-new-z again\n",
 	})
-	e.queue("cites", "fix(kb): cites\n\nLander-After: two\n", "2026-01-01T11:00:00Z", map[string]string{"c.txt": "see D-new-a\n"})
+	e.queue("cites", "fix(kb): cites\n", "2026-01-01T11:00:00Z", map[string]string{"c.txt": "see D-new-a\n"})
 	out, ok := e.land()
 	if !ok {
 		t.Fatalf("land failed\n%s", out)
@@ -2346,5 +2347,294 @@ func TestLanderForcedDoesNotWaitOnATrain(t *testing.T) {
 	}
 	if got := strings.Join(e.mainSubjects(), " | "); got != "fix(kb): a" {
 		t.Errorf("main holds %q\n%s", got, out)
+	}
+}
+
+// queueAfter pushes ready/<slug> as `make ready AFTER=<after>` does: one commit on the queued
+// commit of <after> adding files, with message msg and the Lander-After trailer, added as
+// ready.sh adds it (git interpret-trailers: in msg's trailer block, when it ends with one).
+func (e *landEnv) queueAfter(slug, after, msg, date string, files map[string]string) {
+	e.t.Helper()
+	tr := exec.Command("git", "interpret-trailers", "--trailer", "Lander-After: "+after)
+	tr.Dir, tr.Env, tr.Stdin = e.work, e.env, strings.NewReader(msg)
+	b, err := tr.Output()
+	if err != nil {
+		e.t.Fatalf("interpret-trailers: %v", err)
+	}
+	msg = string(b)
+	e.git("fetch", "-q", "origin")
+	e.git("checkout", "-q", "-B", "work-"+slug, "origin/ready/"+after)
+	for p, body := range files {
+		e.write(filepath.Join(e.work, p), body)
+	}
+	e.git("add", ".")
+	cmd := exec.Command("git", "commit", "-q", "-F", "-")
+	cmd.Dir, cmd.Env = e.work, append(append([]string{}, e.env...), "GIT_COMMITTER_DATE="+date, "GIT_AUTHOR_DATE="+date)
+	cmd.Stdin = strings.NewReader(msg)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		e.t.Fatalf("commit: %v\n%s", err, out)
+	}
+	e.git("push", "-q", "--force", "origin", "HEAD:refs/heads/ready/"+slug)
+	e.git("checkout", "-q", "main")
+}
+
+// queueChain queues a -> b -> c, a minute apart from 10:00, each adding its own file.
+func (e *landEnv) queueChain(msgs map[string]string) {
+	e.t.Helper()
+	msg := func(s string) string {
+		if m, ok := msgs[s]; ok {
+			return m
+		}
+		return "fix(kb): " + s + "\n"
+	}
+	e.queue("a", msg("a"), "2026-01-01T10:00:00Z", map[string]string{"qa.txt": "a\n"})
+	e.queueAfter("b", "a", msg("b"), "2026-01-01T10:01:00Z", map[string]string{"qb.txt": "b\n"})
+	e.queueAfter("c", "b", msg("c"), "2026-01-01T10:02:00Z", map[string]string{"qc.txt": "c\n"})
+}
+
+// A chain is one unit: its verdict is its tip's pre-check, so a chain whose first two changes'
+// pre-checks are red and whose tip's is green lands in one train, and the pre-checks of the
+// members that are not tips are never read (the plan is checked and reviewed on its tip).
+func TestLanderLandsAChainOnItsTipsPrecheck(t *testing.T) {
+	e := newLandEnv(t)
+	e.queueChain(nil)
+	a, b, c := e.upGit("rev-parse", "ready/a"), e.upGit("rev-parse", "ready/b"), e.upGit("rev-parse", "ready/c")
+	out, ok := e.land("FAKE_PRECHECK_RED=" + a + " " + b)
+	if !ok {
+		t.Fatalf("land failed\n%s", out)
+	}
+	if got := strings.Join(e.mainSubjects(), " | "); got != "fix(kb): a | fix(kb): b | fix(kb): c" {
+		t.Fatalf("main holds %q, want the chain in one train\n%s", got, out)
+	}
+	if n := strings.Count(e.makeLog(), "-k gate"); n != 1 || !strings.Contains(out, "3 change(s): a b c") {
+		t.Errorf("one train, one gate: %d gates\n%s", n, out)
+	}
+	gh := e.log()
+	if strings.Contains(gh, "--commit "+a) || strings.Contains(gh, "--commit "+b) || !strings.Contains(gh, "--commit "+c) {
+		t.Errorf("only the tip's pre-check is read:\n%s", gh)
+	}
+}
+
+// A chain whose tip's pre-check is red is gated alone, as a unit of three, after the green
+// unit queued later.
+func TestLanderGatesAChainWithARedTipAloneAsAUnit(t *testing.T) {
+	e := newLandEnv(t)
+	e.queueChain(nil)
+	e.queue("x", "fix(kb): x\n", "2026-01-01T11:00:00Z", map[string]string{"qx.txt": "x\n"})
+	out, ok := e.land("FAKE_PRECHECK_RED=" + e.upGit("rev-parse", "ready/c"))
+	if !ok {
+		t.Fatalf("land failed\n%s", out)
+	}
+	if got := strings.Join(e.mainSubjects(), " | "); got != "fix(kb): x | fix(kb): a | fix(kb): b | fix(kb): c" {
+		t.Fatalf("main holds %q, want x, then the chain alone\n%s", got, out)
+	}
+	if !strings.Contains(out, "the chain a..c (3 changes): the hosted pre-check of its tip is red: gated alone") {
+		t.Errorf("the lander must say why the chain is alone:\n%s", out)
+	}
+	if n := strings.Count(e.makeLog(), "-k gate"); n != 2 {
+		t.Errorf("one gate for x, one for the chain: %d\n%s", n, e.makeLog())
+	}
+}
+
+// A held tip holds its whole chain: no train lands a strict prefix of a unit.
+func TestLanderKeepsAChainWithAHeldTipQueued(t *testing.T) {
+	e := newLandEnv(t)
+	e.queueChain(map[string]string{"c": "fix(kb): c\n\nLander-Hold: yes\n"})
+	e.queue("x", "fix(kb): x\n", "2026-01-01T11:00:00Z", map[string]string{"qx.txt": "x\n"})
+	out, ok := e.land()
+	if !ok {
+		t.Fatalf("land failed\n%s", out)
+	}
+	if got := strings.Join(e.mainSubjects(), " | "); got != "fix(kb): x" {
+		t.Fatalf("main holds %q, want only x\n%s", got, out)
+	}
+	if got := strings.Join(strings.Fields(e.refs("ready/")), " "); got != "a b c" {
+		t.Errorf("the held chain stays queued whole, got %q", got)
+	}
+}
+
+// A member that does not apply rejects that member only: the unit leaves the train, its other
+// members stay queued and are blocked by the rejected one (a second run gates nothing of it),
+// and once it is queued again (its failed/ ref still there) the unit lands whole.
+func TestLanderRejectsOnlyTheConflictingMemberOfAChain(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"qa.txt": "a\n"})
+	e.queueAfter("b", "a", "fix(kb): b\n", "2026-01-01T10:01:00Z", map[string]string{"a.txt": "mine\n"})
+	e.queueAfter("c", "b", "fix(kb): c\n", "2026-01-01T10:02:00Z", map[string]string{"qc.txt": "c\n"})
+	e.git("checkout", "-q", "-B", "move", "origin/main")
+	e.write(filepath.Join(e.work, "a.txt"), "theirs\n")
+	e.git("commit", "-q", "-am", "fix: move a")
+	e.git("push", "-q", "origin", "move:main")
+	e.git("checkout", "-q", "main")
+	for run := 1; run <= 2; run++ {
+		out, ok := e.land()
+		if !ok {
+			t.Fatalf("run %d: land failed\n%s", run, out)
+		}
+		if got := strings.Join(e.mainSubjects(), " | "); got != "fix: move a" {
+			t.Fatalf("run %d: main holds %q, want nothing of the chain\n%s", run, got, out)
+		}
+		if e.refs("failed/") != "b" || strings.Join(strings.Fields(e.refs("ready/")), " ") != "a c" {
+			t.Fatalf("run %d: b alone is rejected, a and c stay queued: failed=%q ready=%q\n%s", run, e.refs("failed/"), e.refs("ready/"), out)
+		}
+		if strings.Contains(e.makeLog(), "-k gate") {
+			t.Fatalf("run %d: nothing of the unit is gated\n%s", run, e.makeLog())
+		}
+	}
+	if r := e.upGit("log", "-1", "--format=%s", "failed/b"); !strings.HasPrefix(r, "lander: conflict") || !strings.HasSuffix(r, " (chain a..c)") {
+		t.Errorf("the reason is the conflict, with the chain, got %q", r)
+	}
+	e.queueAfter("b", "a", "fix(kb): b\n", "2026-01-01T13:00:00Z", map[string]string{"qb.txt": "b\n"})
+	out, ok := e.land()
+	if !ok {
+		t.Fatalf("land failed\n%s", out)
+	}
+	if got := strings.Join(e.mainSubjects(), " | "); got != "fix: move a | fix(kb): a | fix(kb): b | fix(kb): c" {
+		t.Fatalf("main holds %q, want the chain once b is queued again\n%s", got, out)
+	}
+	if e.refs("failed/") != "" || e.refs("ready/") != "" {
+		t.Errorf("the queue and the rejection are gone: failed=%q ready=%q", e.refs("failed/"), e.refs("ready/"))
+	}
+}
+
+// A red train is bisected over units: [x, a -> b, y] with b breaking the gate splits only at
+// unit boundaries, so a never lands without b; b, the chain's tip, is rejected with the chain
+// sentence, x lands, y lands in the next train and a stays queued. With full gates and with
+// the probe of confirmed tests alike.
+func TestLanderBisectsAtUnitBoundaries(t *testing.T) {
+	for _, tc := range []struct {
+		marker string
+		gates  int
+	}{{"BAD", 5}, {"CONFIRMED", 3}} {
+		t.Run(tc.marker, func(t *testing.T) {
+			e := newLandEnv(t)
+			e.queue("x", "fix(kb): x\n", "2026-01-01T10:00:00Z", map[string]string{"qx.txt": "x\n"})
+			e.queue("a", "fix(kb): a\n", "2026-01-01T11:00:00Z", map[string]string{"qa.txt": "a\n"})
+			e.queueAfter("b", "a", "fix(kb): b\n", "2026-01-01T11:01:00Z", map[string]string{tc.marker: "x\n"})
+			e.queue("y", "fix(kb): y\n", "2026-01-01T12:00:00Z", map[string]string{"qy.txt": "y\n"})
+			out, ok := e.land()
+			if !ok {
+				t.Fatalf("land failed\n%s", out)
+			}
+			if got := strings.Join(e.mainSubjects(), " | "); got != "fix(kb): x | fix(kb): y" {
+				t.Fatalf("main holds %q, want x then y\n%s", got, out)
+			}
+			if e.refs("failed/") != "b" || e.refs("ready/") != "a" {
+				t.Fatalf("b is rejected, a stays queued: failed=%q ready=%q\n%s", e.refs("failed/"), e.refs("ready/"), out)
+			}
+			if r := e.upGit("log", "-1", "--format=%s", "failed/b"); !strings.HasPrefix(r, "lander: the train gate is red with the chain a..b and green without it (tests: ") {
+				t.Errorf("the reason names the chain, got %q", r)
+			}
+			if n := strings.Count(e.makeLog(), "-k gate"); n != tc.gates {
+				t.Errorf("%d full gates, want %d\n%s", n, tc.gates, e.makeLog())
+			}
+		})
+	}
+}
+
+// LAND_MAX counts changes and a train takes whole units: with LAND_MAX=2 and units of 1, 2 and
+// 1 changes the first train is the two units of one; a unit longer than LAND_MAX is gated alone.
+func TestLanderComposesWholeUnitsWithinLandMax(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("p", "fix(kb): p\n", "2026-01-01T09:00:00Z", map[string]string{"qp.txt": "p\n"})
+	e.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"qa.txt": "a\n"})
+	e.queueAfter("b", "a", "fix(kb): b\n", "2026-01-01T10:01:00Z", map[string]string{"qb.txt": "b\n"})
+	e.queue("q", "fix(kb): q\n", "2026-01-01T11:00:00Z", map[string]string{"qq.txt": "q\n"})
+	out, ok := e.land("LAND_MAX=2")
+	if !ok {
+		t.Fatalf("land failed\n%s", out)
+	}
+	if got := strings.Join(e.mainSubjects(), " | "); got != "fix(kb): p | fix(kb): q | fix(kb): a | fix(kb): b" {
+		t.Fatalf("main holds %q, want p and q, then the chain\n%s", got, out)
+	}
+	if !strings.Contains(out, "2 change(s): p q [gate") || !strings.Contains(out, "2 change(s): a b [gate") {
+		t.Errorf("two trains of two changes each:\n%s", out)
+	}
+	e2 := newLandEnv(t)
+	e2.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"qa.txt": "a\n"})
+	e2.queueAfter("b", "a", "fix(kb): b\n", "2026-01-01T10:01:00Z", map[string]string{"qb.txt": "b\n"})
+	out, ok = e2.land("LAND_MAX=1")
+	if !ok || !strings.Contains(out, "the chain a..b has 2 changes, more than LAND_MAX (1): gated alone") ||
+		!strings.Contains(out, "2 change(s): a b [gate") {
+		t.Fatalf("a unit longer than LAND_MAX is one train (ok=%v)\n%s", ok, out)
+	}
+}
+
+// A member of a chain rejected after its numbering (a decision whose slug main holds) takes its
+// whole unit out of the train with the numbers the unit took: the earlier member's decision is
+// not numbered, the unit stays queued but the rejected member, and the next unit's decision
+// takes the first free number.
+func TestLanderForgetsTheNumbersOfARejectedChain(t *testing.T) {
+	e := newLandEnv(t)
+	dec := "docs/" + "decisions/"
+	e.queue("z", "feat(client): z\n", "2026-01-01T09:00:00Z", map[string]string{dec + "D-new-z.md": "---\ntopic: x\n---\n\n# D-new-z\n"})
+	if out, ok := e.land(); !ok {
+		t.Fatalf("land z failed\n%s", out)
+	}
+	e.queue("a", "feat(client): a\n", "2026-01-01T10:00:00Z", map[string]string{dec + "D-new-a.md": "---\ntopic: x\n---\n\n# D-new-a\n"})
+	e.queueAfter("b", "a", "feat(client): b\n", "2026-01-01T10:01:00Z", map[string]string{dec + "D-new-z.md": "---\ntopic: x\n---\n\n# D-new-z again\n"})
+	e.queue("x", "feat(client): x\n", "2026-01-01T11:00:00Z", map[string]string{dec + "D-new-x.md": "---\ntopic: x\n---\n\n# D-new-x\n"})
+	out, ok := e.land()
+	if !ok {
+		t.Fatalf("land failed\n%s", out)
+	}
+	if e.refs("failed/") != "b" || e.refs("ready/") != "a" {
+		t.Fatalf("b alone is rejected, a stays queued: failed=%q ready=%q\n%s", e.refs("failed/"), e.refs("ready/"), out)
+	}
+	if r := e.upGit("log", "-1", "--format=%s", "failed/b"); !strings.HasSuffix(r, " (chain a..b)") {
+		t.Errorf("the reason names the chain, got %q", r)
+	}
+	if got := strings.Join(e.mainSubjects(), " | "); got != "feat(client): z | feat(client): x" {
+		t.Fatalf("main holds %q, want z then x\n%s", got, out)
+	}
+	if files := e.upGit("ls-tree", "--name-only", "main", dec); !strings.Contains(files, dec+"D12-x.md") || strings.Contains(files, "-a.md") {
+		t.Errorf("x takes D12, the number a gave back:\n%s", files)
+	}
+}
+
+// A feat at the tip of a chain freezes the whole chain while the freeze is open: its fix
+// members stay queued with it, and a fix queued alone lands.
+func TestLanderKeepsAFrozenChainQueued(t *testing.T) {
+	e := newLandEnv(t)
+	e.queueChain(map[string]string{"c": "feat(kb): c\n"})
+	e.queue("x", "fix(kb): x\n", "2026-01-01T11:00:00Z", map[string]string{"qx.txt": "x\n"})
+	out, ok := e.land("FAKE_FREEZE=0")
+	if !ok {
+		t.Fatalf("land failed\n%s", out)
+	}
+	if got := strings.Join(e.mainSubjects(), " | "); got != "fix(kb): x" {
+		t.Fatalf("main holds %q, want only x\n%s", got, out)
+	}
+	if got := strings.Join(strings.Fields(e.refs("ready/")), " "); got != "a b c" {
+		t.Errorf("the frozen chain stays queued whole, got %q", got)
+	}
+}
+
+// A queued change that main already holds is dequeued with any rejection of its slug left on
+// failed/ (an earlier version of it), which would otherwise block a change queued AFTER it: by
+// its diff and by its Lander-Slug and Lander-Tip trailers alike.
+func TestLanderDeletesTheRejectionOfAChangeAlreadyOnMain(t *testing.T) {
+	for _, tc := range []struct{ name, msg, log string }{
+		{"diff", "fix(kb): a\n", "a is already on main: dequeued"},
+		{"trailers", "fix(kb): a\n\nLander-Slug: a\nLander-Tip: 1111111111111111111111111111111111111111\n", "a is already on main (a commit there carries its Lander-Slug and Lander-Tip): dequeued"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newLandEnv(t)
+			e.queue("a", tc.msg, "2026-01-01T10:00:00Z", map[string]string{"qa.txt": "a\n"})
+			e.landByHand("a")
+			old := e.upGit("commit-tree", "ready/a^{tree}", "-p", "ready/a", "-m", "lander: conflict")
+			e.upGit("update-ref", "refs/heads/failed/a", old)
+			out, ok := e.land()
+			if !ok || !strings.Contains(out, tc.log) {
+				t.Fatalf("a is dequeued (ok=%v)\n%s", ok, out)
+			}
+			if q, f := e.refs("ready/"), e.refs("failed/"); q != "" || f != "" {
+				t.Fatalf("queue %q and failed %q must be empty\n%s", q, f, out)
+			}
+			e.queue("c", "fix(kb): c\n\nLander-After: a\n", "2026-01-01T11:00:00Z", map[string]string{"qc.txt": "c\n"})
+			if out, ok := e.land(); !ok || strings.Join(e.mainSubjects(), " | ") != "fix(kb): a | fix(kb): c" {
+				t.Fatalf("c, queued after a, lands (ok=%v): main %q\n%s", ok, strings.Join(e.mainSubjects(), " | "), out)
+			}
+		})
 	}
 }

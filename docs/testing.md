@@ -1243,7 +1243,7 @@ retry for either (`internal/repodocs/gate_names_test.go`).
 
 A maintainer's queued changes (`make ready`, `CONTRIBUTING.md` §Pull requests) are gated by
 the lander as a **train**: `scripts/land.sh` runs `scripts/signoff.sh` once on `main` plus up
-to 8 changes, in the lander's gate mode: hosted (`ci.yml`, see above) unless it was started with `--gate host`
+to 8 changes, whole units of them (a chain lands together: below), in the lander's gate mode: hosted (`ci.yml`, see above) unless it was started with `--gate host`
 (`make land GATE=host`; a `GATE` only in the environment is ignored), which runs the gate on the build host. The option is the only way to choose it: the
 lander unsets `SIGNOFF_HOSTED` and exports `SIGNOFF_GATE` itself, so a variable a shell exported cannot put it
 on the build host (one holding `SIGNOFF_GATE=host` gets the log line `the environment asks for the build host,
@@ -1287,8 +1287,9 @@ hex digits (a commit link) gets a `_` after it. The cut to 60 characters is part
 a cut can leave a hex run with no `_` after it (a 60-character name ending `_deadbeef`), so the longest prefix that is
 inert once defused is kept. The lines copied from the log into the body (the first failing
 line of each e2e scenario) are printable ASCII without `@`, in an indented code block. Red again, the lander
-bisects over the train's prefixes (one signoff each) and rejects the first change whose
-prefix is red. When the signoff confirmed the failure on named Go tests, its `signoff: probe:`
+bisects over the train's prefixes that end at a unit's boundary (one signoff each, below) and rejects the
+first unit whose prefix is red: a unit of one as a change, a longer one by its last tip in queue order (`the train
+gate is red with the chain <first>..<tip> and green without it`), its other members staying queued. When the signoff confirmed the failure on named Go tests, its `signoff: probe:`
 line names their packages and platform; the signoff also writes those words to the file the lander passes it in
 `SIGNOFF_PROBE_FILE` (a file of that gate, `gate-<id>.log.probefile`, made empty by the lander before the gate), and the
 lander reads the probe from that file only, never from the log: the log holds the change's own output, and a test can
@@ -1302,7 +1303,7 @@ if the signoff's own exit was the red one (1). The words are used only if they a
 comma-separated lists of `[A-Za-z0-9_./-]` words, none starting with `-`, or `-`;
 no file, an empty one, one without the token or another shape is no probe and the bisection runs full gates. Each bisection step runs only those
 packages (`scripts/signoff.sh --probe`, a minute or two instead of a full signoff, D1878);
-the prefix before the rejected change then gets one full signoff before it lands (red: the
+the prefix before the rejected unit then gets one full signoff before it lands (red: the
 train is composed again), and a probe whose machine is unavailable, or whose wrapper failed with an exit that is not the platform's
 own (make's 2, the Windows retry's 1: ssh's 255, a signal), reports 75 and falls back to full gates. A gate that fails for a reason that is not a test (the signoff stops before
 the targets) stops the lander and leaves the queue untouched. A gate whose signoff exits 69 (`the build host
@@ -1354,14 +1355,32 @@ could not be listed in full (a failed call, or as many PRs as the limit of 1000)
 gate, whose train branch is on origin during the whole gate: on the build host it reaches origin only after
 the gate.
 
+A queue of changes lands by **unit** (D2304): the `Lander-After` trailer
+(`make ready AFTER=<slug>`) of a queued change, or of the commit a rejected one was queued as
+(`failed/<slug>^`), links it to the change it names while that one is queued or rejected (a change
+that landed links nothing); changes so linked are one unit, a change with no link a unit of one. A
+unit lands whole, in one train, or not at all: its members in their `Lander-After` order (ties by
+queue order), the units by their oldest member; its tips are the members no other member follows. No
+member is picked while one is rejected (blocked), carries `Lander-Hold: yes` (held), or, while the
+freeze is open, is a `feat`, `perf`, `refactor` or breaking change (frozen). A change queued again
+after its rejection is queued: its `failed/` ref, deleted once it lands, no longer counts.
+`LAND_MAX` counts changes: a train takes whole units in order, a unit that does not fit waits for a
+later train while a later one that fits is taken, and a unit larger than `LAND_MAX` is gated alone
+(a log line says so). A member rejected at its pick (a conflict, a pending decision, a bundle that
+cannot be rebuilt) takes its unit out of the train: the train is reset to the commit before the
+unit's first pick, the decision numbers the unit took are forgotten, only that member moves to
+`failed/` (its reason ends `(chain <first>..<tip>)`), and the others stay queued, blocked, so a
+second run of the lander gates nothing of the unit.
+
 Each queued change also has a **hosted pre-check** (`.github/workflows/ready-check.yml`, on
 the push of its `ready/<slug>` ref, D1877): the Windows tests of the packages
 it can break (`scripts/ready-check-plan.sh`: `affected-pkgs.sh --code`, one to four shards by
 weight) and, when it touches `web/` or `internal/webui/`, `make web-check web-test`, the legs
-`make check` does not run. A train of several changes takes only changes whose pre-check is
-green or has no verdict (none started within `LAND_PRECHECK_START`, 5 minutes, still running
-past `LAND_PRECHECK_WAIT`, 20 minutes, cancelled, or GitHub did not answer); when none is,
-the oldest change whose pre-check is still running is gated alone, else the oldest red one.
+`make check` does not run. A unit's verdict is the pre-check of its tips, the others' are not
+read: red if one is red, else running if one runs, else green (green or no verdict: none started
+within `LAND_PRECHECK_START`, 5 minutes, still running past `LAND_PRECHECK_WAIT`, 20 minutes,
+cancelled, or GitHub did not answer). A train of several units takes only green ones; when none
+is, the oldest unit whose verdict is running is gated alone, else the oldest red one.
 `internal/repodocs/ready_check_test.go` pins the plan.
 `internal/repodocs/land_test.go` runs the lander against a local bare repository with fake
 `make` and `gh`.

@@ -1,7 +1,7 @@
 ---
 topic: project-governance
 amends: D672, D1610
-amended_by: D1755, D2293
+amended_by: D1755, D2293, D2304
 ---
 
 # D1706 — A maintainer's changes land in trains: queued as one commit each, gated once per train
