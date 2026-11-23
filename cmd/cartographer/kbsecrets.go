@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
+	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/config"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
@@ -92,6 +93,10 @@ func cmdKBSecretsInit(args []string) int {
 	cfg = &localCfg
 	token := resolveToken(cfg)
 	health, err := client.New(cfg.ServerURL, token).WithInsecureHTTP(cfg.InsecureHTTPAllowed()).Health(probeTimeout)
+	if err != nil && errors.Is(err, client.ErrUnauthorized) {
+		fmt.Fprintln(os.Stderr, "kb secrets init:", secretsUnauthorized(err, token != ""))
+		return 1
+	}
 	if err != nil {
 		// Only a refused connection proves no service runs (an answer, a 401
 		// included, or a timeout does not): then the rule is written in the
@@ -113,8 +118,39 @@ func cmdKBSecretsInit(args []string) int {
 		return 1
 	}
 	dir, _ := os.Getwd()
-	c := repairCaller(cfg, token, targets[0], dir, os.Stderr)
+	c := &unauthorizedHintCaller{toolCaller: repairCaller(cfg, token, targets[0], dir, os.Stderr), sent: token != ""}
 	return runKBSecretsInit(c, name, strings.TrimSpace(*recipient), *keyFile, credDir, *force, os.Stdout, os.Stderr)
+}
+
+// secretsUnauthorized words a 401 of kb secrets init with the source the token
+// was read from: this command reads auth/token of the client config, never
+// $CARTOGRAPHER_TOKENS (the server's own variable), and a 401 that names only
+// "the env var" sends the operator to the wrong place (#2284).
+func secretsUnauthorized(err error, sent bool) string {
+	src := "the client config"
+	if dir, derr := clientconfig.TargetDir(); derr == nil {
+		src = clientconfig.Path(dir)
+	}
+	state := "no bearer token was sent"
+	if sent {
+		state = "the bearer token was rejected"
+	}
+	return fmt.Sprintf("%s: the token is read from auth/token of %s, not from $CARTOGRAPHER_TOKENS (%v)", state, src, err)
+}
+
+// unauthorizedHintCaller rewrites a 401 of the tool call like the health
+// probe's (secretsUnauthorized).
+type unauthorizedHintCaller struct {
+	toolCaller
+	sent bool
+}
+
+func (u *unauthorizedHintCaller) Invoke(tool string, args any) (json.RawMessage, error) {
+	raw, err := u.toolCaller.Invoke(tool, args)
+	if err != nil && errors.Is(err, client.ErrUnauthorized) {
+		return nil, errors.New(secretsUnauthorized(err, u.sent))
+	}
+	return raw, err
 }
 
 // secretsRuleSubject is the commit subject of the creation rule, the one the
@@ -141,6 +177,11 @@ func (d *directRuleCaller) Invoke(tool string, args any) (json.RawMessage, error
 	force, _ := m["force"].(bool)
 
 	root := filepath.Join(d.dataDir, d.name)
+	if _, err := os.Stat(filepath.Join(root, "data", "index.md")); err != nil {
+		// Like the server path: an unknown name says so and lists the KBs of
+		// the data dir (#2284).
+		return nil, noLocalKBError(d.name, d.dataDir)
+	}
 	k, err := kb.Open(root)
 	if err != nil {
 		return nil, fmt.Errorf("%s is not an OKF KB: %v", root, err)

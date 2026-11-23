@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
@@ -106,7 +107,7 @@ func TestKBSecretsInitDirectRefusalsWriteNothing(t *testing.T) {
 		if err := os.RemoveAll(e.root); err != nil {
 			t.Fatal(err)
 		}
-		if code, _, errOut := e.run(secretsRecipA, false); code != 1 || !strings.Contains(errOut, "not an OKF KB") {
+		if code, _, errOut := e.run(secretsRecipA, false); code != 1 || !strings.Contains(errOut, `no KB named "kb-a" in `) {
 			t.Fatalf("code %d err %q", code, errOut)
 		}
 	})
@@ -207,5 +208,45 @@ func TestKBSecretsInitDirectRerunCommitsARuleLeftUncommitted(t *testing.T) {
 	}
 	if got := e.commits(t); got != reauthorAda+"|"+secretsRuleSubject {
 		t.Fatalf("the rerun did not commit the rule: %q", got)
+	}
+}
+
+// #2284 item 1: an unknown KB on the direct path answers like the server path,
+// naming the KB and listing the KBs of the data dir.
+func TestKBSecretsInitDirectUnknownKBListsTheKnownOnes(t *testing.T) {
+	e := newDirectEnv(t, "127.0.0.1:0")
+	scfg, err := loadReauthorConfig(e.config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	d := &directRuleCaller{name: "nope", dataDir: e.data, cfg: scfg, errOut: &errOut}
+	code := runKBSecretsInit(d, "nope", secretsRecipA, "", filepath.Join(e.base, "credentials"), false, &out, &errOut)
+	if code == 0 || !strings.Contains(errOut.String(), `no KB named "nope" in `+e.data+`; mounted: kb-a`) || strings.Contains(errOut.String(), "not an OKF KB") {
+		t.Fatalf("code %d err %q", code, errOut.String())
+	}
+}
+
+// #2284 item 2: a 401 names the source the token was read from and says the
+// env var is not read by this command.
+func TestKBSecretsInitUnauthorizedNamesTheTokenSource(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	}))
+	t.Cleanup(srv.Close)
+	clientPointingAt(t, "http://127.0.0.1:1")
+	t.Setenv("CARTOGRAPHER_TOKENS", "placeholder-token")
+	data := t.TempDir()
+	cfg := filepath.Join(t.TempDir(), "srv.yaml")
+	if err := os.WriteFile(cfg, []byte("http: "+strings.TrimPrefix(srv.URL, "http://")+"\ndata: "+filepath.ToSlash(data)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var code int
+	stderr := withStderr(t, func() {
+		code = cmdKBSecretsInit([]string{"kb-a", "--recipient", secretsRecipA, "--config", cfg, "--data", data, "--local"})
+	})
+	dir, _ := clientconfig.TargetDir()
+	if code == 0 || !strings.Contains(stderr, "no bearer token was sent") || !strings.Contains(stderr, clientconfig.Path(dir)) || !strings.Contains(stderr, "not from $CARTOGRAPHER_TOKENS") {
+		t.Errorf("code=%d stderr=%q", code, stderr)
 	}
 }
