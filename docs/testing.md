@@ -1393,7 +1393,16 @@ warning line when GitHub refuses): that change is no longer its unit's tip. A un
 read: red if one is red, else running if one runs, else green (green or no verdict: none started
 within `LAND_PRECHECK_START`, 5 minutes, still running past `LAND_PRECHECK_WAIT`, 20 minutes,
 cancelled, or GitHub did not answer). A train of several units takes only green ones; when none
-is, the oldest unit whose verdict is running is gated alone, else the oldest red one.
+is, the oldest unit whose verdict is running is gated alone, else the oldest red one (the log names
+its failed jobs). Before composing, the lander waits (**collection window**) while fewer than
+`LAND_WINDOW_MIN` (4) landable changes are green, the oldest landable one was queued less than
+`LAND_WINDOW` (600 s) ago and none carries `Lander-Now: yes` (`make ready NOW=1`): it logs
+`collecting: ...` once and looks again every `LAND_POLL`, so a change queued meanwhile joins the
+train; `LAND_WINDOW=0` turns it off. `make land-status` prints each unit with its state (`waits on
+rejected <slug>`, `held`, `frozen`, or `pre-check: ok | running | red | none | unknown`, a red one
+with its failed jobs) and, while the window is open, when it closes. The hosted signoff reads the log
+of a failed job up to `SIGNOFF_LOG_TRIES` (5) times while it is empty, so the failing Go tests are
+named even when GitHub serves the log late.
 `internal/repodocs/ready_check_test.go` pins the plan, the replay on temporary repositories
 and the replay step after each job's checkout.
 `internal/repodocs/land_test.go` runs the lander against a local bare repository with fake

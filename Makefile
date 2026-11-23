@@ -307,8 +307,8 @@ signoff-platform:
 # A maintainer's path to main (D1706): queue the finished change as one commit,
 # the lander lands it in a train with one gate. scripts/ready.sh and scripts/land.sh
 # have the rules.
-ready: ## Maintainer only: queue this branch (MSG=<message file> [AFTER=<slug>] [HOLD=1] [REVIEW="<tier>, <n> rounds"]) and start the lander
-	@MSG="$(MSG)" AFTER="$(AFTER)" HOLD="$(HOLD)" REVIEW="$(REVIEW)" ./scripts/ready.sh
+ready: ## Maintainer only: queue this branch (MSG=<message file> [AFTER=<slug>] [HOLD=1] [NOW=1] [REVIEW="<tier>, <n> rounds"]) and start the lander
+	@MSG="$(MSG)" AFTER="$(AFTER)" HOLD="$(HOLD)" NOW="$(NOW)" REVIEW="$(REVIEW)" ./scripts/ready.sh
 
 # GATE counts only on the make command line: make imports the environment, and an exported
 # GATE=host would put the lander on the build host without anyone choosing it that day.

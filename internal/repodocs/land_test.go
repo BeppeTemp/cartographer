@@ -59,7 +59,7 @@ func newLandEnv(t *testing.T) *landEnv {
 		"SIGNOFF_MAKE="+filepath.Join(e.bin, "fakemake"), "SIGNOFF_POLL=0",
 		// A hosted gate (land.sh without --gate host): every job of the dispatched ci.yml run green.
 		"FAKE_GH_JOBS="+hostedRun("completed", "completed success", nil),
-		"LAND_STATE="+filepath.Join(tmp, "lander"), "LAND_POLL=0", "LAND_INFRA_WAIT=0", "LAND_MERGE_TRIES=3",
+		"LAND_STATE="+filepath.Join(tmp, "lander"), "LAND_POLL=0", "LAND_WINDOW=0", "LAND_INFRA_WAIT=0", "LAND_MERGE_TRIES=3",
 		// The scripts of this clone, not origin/main's (the tests of that path set LAND_SELF=).
 		"LAND_SELF=1",
 		"PATH="+e.bin+string(os.PathListSeparator)+os.Getenv("PATH"),
@@ -169,8 +169,12 @@ case "$1 $2" in
         if [ "$n" = 0 ]; then echo '[]'; else echo "[{\"databaseId\":$((6 + n))}]"; fi | out ;;
       *ready-check.yml*)
         c=; prev=; for a in "$@"; do [ "$prev" = --commit ] && c=$a; prev=$a; done
+        # FAKE_SECOND_REF: a change is queued while the lander reads the first pre-check (once).
+        if [ -n "${FAKE_SECOND_REF:-}" ] && [ ! -e "$FAKE_STATE.second" ]; then
+          touch "$FAKE_STATE.second"; git --git-dir="$FAKE_UP" update-ref refs/heads/ready/second "$FAKE_SECOND_REF"
+        fi
         if [[ " ${FAKE_PRECHECK_RUNNING:-} " == *" $c "* ]]; then echo '[{"status":"in_progress","conclusion":""}]'
-        elif [[ " ${FAKE_PRECHECK_RED:-} " == *" $c "* ]]; then echo '[{"status":"completed","conclusion":"failure"}]'
+        elif [[ " ${FAKE_PRECHECK_RED:-} " == *" $c "* ]]; then echo '[{"databaseId":55,"status":"completed","conclusion":"failure"}]'
         else echo '[{"status":"completed","conclusion":"success"}]'; fi | out ;;
       *--status*failure*)
         # The failed run completes only after FAKE_FAILED_RUNS_AFTER listings (a failed job of a run in progress).
@@ -2979,5 +2983,111 @@ func TestLanderRemapsAnEditWhenMainChangedTheNumberedFileElsewhere(t *testing.T)
 	}
 	if final := e.upGit("show", "main:"+dec+num); !strings.Contains(final, "first edited") || !strings.Contains(final, "last on main") {
 		t.Errorf("both edits are in the numbered file:\n%s", final)
+	}
+}
+
+// nowDate is a committer date for a change queued just now.
+func nowDate() string { return time.Now().UTC().Format("2006-01-02T15:04:05Z") }
+
+// AC-P3-12: a change queued alone is composed once the collection window has run, no later than
+// LAND_WINDOW after it was queued, and the lander says it collects. AC-P3-13: a second change
+// queued inside the window lands in the same train.
+func TestLanderWaitsForCompanyBeforeComposing(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("first", "fix(kb): first\n", nowDate(), map[string]string{"f.txt": "f\n"})
+	e.queue("second", "fix(kb): second\n", nowDate(), map[string]string{"s.txt": "s\n"})
+	second := e.upGit("rev-parse", "ready/second")
+	e.upGit("update-ref", "-d", "refs/heads/ready/second")
+	// A wide window that closes on the second green change, not on the clock: a loaded gate
+	// cannot close it before the second change is queued, and the test waits no longer.
+	out, ok := e.land("LAND_WINDOW=600", "LAND_WINDOW_MIN=2", "LAND_POLL=1", "FAKE_SECOND_REF="+second)
+	if !ok {
+		t.Fatalf("land failed\n%s", out)
+	}
+	if !strings.Contains(out, "collecting: 1 queued, 1 green: composing at ") || strings.Count(out, "collecting:") != 1 {
+		t.Errorf("one collecting line is logged:\n%s", out)
+	}
+	if got := strings.Join(e.mainSubjects(), " | "); !strings.Contains(got, "fix(kb): first") || !strings.Contains(got, "fix(kb): second") || strings.Contains(e.refs("ready/"), "first") {
+		t.Errorf("both changes land: %q\n%s", got, out)
+	}
+	if n := strings.Count(e.log(), "pr create"); n != 1 {
+		t.Errorf("one train, got %d\n%s", n, out)
+	}
+}
+
+// A change queued before the window, one that asks for no wait (Lander-Now) and a queue holding
+// LAND_WINDOW_MIN green changes compose at once.
+func TestLanderComposesAtOnceWhenTheWindowIsClosed(t *testing.T) {
+	for _, c := range []struct {
+		name, msg, date string
+		extra           []string
+	}{
+		{"queued before the window", "fix(kb): x\n", "2026-01-01T10:00:00Z", nil},
+		{"Lander-Now", "fix(kb): x\n\nLander-Now: yes\n", "", nil},
+		{"enough green changes", "fix(kb): x\n", "", []string{"LAND_WINDOW_MIN=1"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newLandEnv(t)
+			d := c.date
+			if d == "" {
+				d = nowDate()
+			}
+			e.queue("x", c.msg, d, map[string]string{"x.txt": "x\n"})
+			out, ok := e.land(append([]string{"LAND_WINDOW=600", "LAND_POLL=1"}, c.extra...)...)
+			if !ok || strings.Contains(out, "collecting:") || !strings.Contains(strings.Join(e.mainSubjects(), "|"), "fix(kb): x") {
+				t.Errorf("composes at once (ok=%v):\n%s", ok, out)
+			}
+		})
+	}
+}
+
+// AC-P3-14: --status shows each unit's state, with the failed jobs of a red pre-check, a chain's
+// members under its first, a unit waiting on a rejected change, and the window's closing time.
+func TestLanderStatusShowsThePrecheckVerdicts(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("green", "fix(kb): green\n", "2026-01-01T10:00:00Z", map[string]string{"g.txt": "g\n"})
+	e.queue("b", "fix(kb): b\n", "2026-01-01T10:01:00Z", map[string]string{"qb.txt": "b\n"})
+	e.queueAfter("c", "b", "fix(kb): c\n", "2026-01-01T10:02:00Z", map[string]string{"qc.txt": "c\n"})
+	e.queue("x", "fix(kb): x\n", "2026-01-01T10:03:00Z", map[string]string{"x.txt": "x\n"})
+	e.queueAfter("y", "x", "fix(kb): y\n", "2026-01-01T10:04:00Z", map[string]string{"qy.txt": "y\n"})
+	x := e.upGit("rev-parse", "ready/x")
+	rej := e.upGit("commit-tree", x+"^{tree}", "-p", x, "-m", "fix(kb): rejected: a conflict")
+	e.upGit("update-ref", "refs/heads/failed/x", rej)
+	e.upGit("update-ref", "-d", "refs/heads/ready/x")
+	out, rc := e.landArgs([]string{"--status"}, "FAKE_PRECHECK_RED="+e.upGit("rev-parse", "ready/c"),
+		"FAKE_GH_JOBS="+hostedRun("completed", "completed success", map[string]string{"test-windows": "completed failure", "web": "completed failure"}))
+	if rc != 0 {
+		t.Fatalf("--status exits %d\n%s", rc, out)
+	}
+	for _, want := range []string{
+		"  green: fix(kb): green [pre-check: ok]\n",
+		"  b: fix(kb): b [pre-check: red (failed jobs: test-windows, web)]\n    c: fix(kb): c (after b)\n",
+		"  y: fix(kb): y (after x) [waits on rejected x]\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("--status lacks %q:\n%s", want, out)
+		}
+	}
+	// A gh that fails everywhere: the status still prints, with unknown verdicts.
+	e.write(filepath.Join(e.bin, "gh"), "#!/bin/sh\nexit 1\n")
+	if out, rc := e.landArgs([]string{"--status"}); rc != 0 || !strings.Contains(out, "[pre-check: unknown]") {
+		t.Errorf("--status never fails (rc=%d):\n%s", rc, out)
+	}
+	// A queued change inside the window: the time it closes.
+	e = newLandEnv(t)
+	e.queue("fresh", "fix(kb): fresh\n", nowDate(), map[string]string{"fr.txt": "f\n"})
+	if out, _ := e.landArgs([]string{"--status"}, "LAND_WINDOW=600"); !strings.Contains(out, "collecting until ") {
+		t.Errorf("the window's closing time is shown:\n%s", out)
+	}
+}
+
+// The lander names the failed jobs of a red pre-check when it gates that unit alone.
+func TestLanderLogsTheFailedJobsOfARedPrecheck(t *testing.T) {
+	e := newLandEnv(t)
+	e.queue("r", "fix(kb): r\n", "2026-01-01T10:00:00Z", map[string]string{"r.txt": "r\n"})
+	out, _ := e.land("FAKE_PRECHECK_RED="+e.upGit("rev-parse", "ready/r"),
+		"FAKE_GH_JOBS="+hostedRun("completed", "completed success", map[string]string{"test-windows": "completed failure"}))
+	if !strings.Contains(out, "its hosted pre-check is red (failed jobs: test-windows): gated alone") {
+		t.Errorf("the log names the failed jobs:\n%s", out)
 	}
 }

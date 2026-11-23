@@ -3,7 +3,9 @@
 #
 #   land.sh            land trains until the queue holds nothing landable, then exit
 #   land.sh --daemon   the same, detached (nohup, log in the state dir), unless one runs
-#   land.sh --status   the queue, the open train PR, the rejected changes and a running lander's gate
+#   land.sh --status   the queue by unit with each unit's state (pre-check verdict, failed jobs of a red
+#                      one, the window's closing time), the open train PR, the rejected changes and a
+#                      running lander's gate
 #   land.sh --dry-run  compose the next train and print it: nothing gated, pushed or opened
 #   --gate hosted|host with any of them but --status: where the train gate runs, hosted (the
 #                      default: ci.yml on GitHub) or host (the build host, `make land GATE=host`)
@@ -67,6 +69,12 @@
 # gate or before the merge: the PR is closed and the train composed and gated again. On macOS the
 # lander holds `caffeinate -i` while it runs: an idle Mac on battery would sleep through it.
 #
+# Collection window: before composing, the lander waits while fewer than LAND_WINDOW_MIN (4)
+# landable changes have a green pre-check verdict, the oldest landable change was queued (committer
+# time) less than LAND_WINDOW (600 s) ago and none carries `Lander-Now: yes` (`make ready NOW=1`):
+# it logs `collecting: ...` once, sleeps LAND_POLL and looks again, so a change queued meanwhile
+# lands in the same train. LAND_WINDOW=0 turns it off; a dry run never waits.
+#
 # Each queued change has a hosted pre-check (.github/workflows/ready-check.yml, run on the
 # push of its ready/ ref, D1877): the Windows tests of the packages it can
 # break and the frontend's unit tests, the legs `make check` does not run, on its queued chain
@@ -113,6 +121,7 @@
 # one instead (the tests, a lander change tried before it lands).
 #
 #   LAND_INFRA_TRIES (3)  LAND_INFRA_WAIT (120 s)
+#   LAND_WINDOW (600 s)  LAND_WINDOW_MIN (4 green changes)
 #   LAND_MAX (8)  LAND_POLL (30 s)  LAND_MERGE_TRIES (90 polls)  LAND_OPEN_TRIES (120 polls)  LAND_STATE (state dir)
 #   LAND_TRAIN_STALE (21600 s: a train's tip keeps its composition time through the gate, the
 #     re-run of a red one and a full bisection, several gates in all)  LAND_FORCE  LAND_SELF
@@ -157,6 +166,8 @@ state=${LAND_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/cartographer-lander/$k
 mkdir -p "$state"
 max=${LAND_MAX:-8}
 poll=${LAND_POLL:-30}
+window=${LAND_WINDOW:-600}
+wmin=${LAND_WINDOW_MIN:-4}
 
 # The checkout $state/src is reset by one starting lander at a time. The lock is a symlink,
 # made atomically with its content, `<pid of its holder>.<epoch when taken>`; it covers the
@@ -335,29 +346,11 @@ trailer() { g log -1 --format=%B "$2" | git interpret-trailers --parse | sed -n 
 review_of() { g log -1 --format=%B "$1" | git interpret-trailers --parse | sed -n "s/^Review: *//p" | tail -n 1; }
 title() { g log -1 --format=%s "$1"; }
 
-if [ "$action" = --status ]; then
-  fetch || true
-  echo "queue:"; queue | while read -r s sha; do
-    extra=; a=$(trailer Lander-After "$sha"); [ -z "$a" ] || extra=" (after $a)"
-    [ -z "$(trailer Lander-Hold "$sha")" ] || extra="$extra (held)"
-    echo "  $s: $(title "$sha")$extra"
-  done
-  echo "open train PR:"; open_trains | cut -d' ' -f1,2 | sed 's/^/  #/' || true
-  echo "rejected:"; g for-each-ref --format='%(refname:lstrip=4) %(contents:subject)' refs/remotes/origin/failed/ | sed 's/^/  /'
-  [ ! -s "$state/blocked" ] || echo "stopped: $(cat "$state/blocked")"
-  if running; then
-    echo "lander: running (pid $(cat "$state/pid")), log $state/log"
-    echo "gate: $(running_gate)"
-  else
-    echo "lander: not running"
-  fi
-  exit 0
-fi
 dry=false
 [ "$action" != --dry-run ] || dry=true
 
-# One lander per machine and repository.
-if ! $dry; then
+# One lander per machine and repository (--status reads, and starts nothing).
+if ! $dry && [ "$action" != --status ]; then
   if running && [ "$(cat "$state/pid")" != $$ ]; then already_running; exit 0; fi
   # The pid is already this one's when this lander ran main's new scripts between two trains.
   again=false
@@ -388,14 +381,16 @@ if ! $dry; then
   [ -n "$perm" ] || die "GitHub did not answer the permission read of $repo: try again"
   case "$perm" in ADMIN | MAINTAIN | WRITE) ;; *) die "permission on $repo is $perm: only a maintainer lands" ;; esac
 fi
-if [ "$gate_mode" = hosted ]; then
+if [ "$action" = --status ]; then
+  :
+elif [ "$gate_mode" = hosted ]; then
   hosted_jobs=$("$here/signoff.sh" --hosted-jobs 2>/dev/null) || hosted_jobs=
   read -r -a hosted_legs <<<"$hosted_jobs" || true
   log "gate: hosted, ci.yml, ${#hosted_legs[@]} legs"
 else
   log "gate: host, the build host"
 fi
-if [ "$env_gate" = host ] && ! $gate_given; then
+if [ "$action" != --status ] && [ "$env_gate" = host ] && ! $gate_given; then
   log "the environment asks for the build host, the lander gates hosted: pass --gate host to use it"
 fi
 
@@ -449,20 +444,44 @@ breaking() { # a feat, perf or refactor title, or a breaking change: held while 
     g log -1 --format=%B "$1" | grep -q '^BREAKING CHANGE'
 }
 
-# precheck <sha>: the verdict of the hosted pre-check of a queued change: ok, red or wait.
-# An accelerator, never a gate: anything unreadable is ok, and the train gate proves it.
+# precheck <sha>: the hosted pre-check of a queued change, as "<ok|red|wait> <run id or -> <state>":
+# the verdict (ok, red or wait) and the state of the newest ready-check.yml run, success, failed,
+# running, cancelled, none or unknown (--status shows it). An accelerator, never a gate: anything
+# unreadable is ok, and the train gate proves it.
 precheck() {
-  local age v
+  local age v id
   age=$(($(date +%s) - $(g log -1 --format=%ct "$1")))
-  v=$(gh run list -R "$repo" --workflow ready-check.yml --commit "$1" --limit 1 --json status,conclusion \
-    --jq 'if length == 0 then "none" else .[0].status + " " + (.[0].conclusion // "") end' 2>/dev/null) || { echo ok; return 0; }
+  v=$(gh run list -R "$repo" --workflow ready-check.yml --commit "$1" --limit 1 --json databaseId,status,conclusion \
+    --jq 'if length == 0 then "none" else .[0].status + " " + (.[0].conclusion // "") + " " + ((.[0].databaseId // "-") | tostring) end' 2>/dev/null) || { echo "ok - unknown"; return 0; }
+  id=${v##* }
   case "$v" in
-    "completed success") echo ok ;;
-    "completed failure" | "completed timed_out" | "completed startup_failure") echo red ;;
-    completed*) echo ok ;; # cancelled or skipped: no verdict
-    none) if [ "$age" -lt "${LAND_PRECHECK_START:-300}" ]; then echo wait; else echo ok; fi ;;
-    *) if [ "$age" -lt "${LAND_PRECHECK_WAIT:-1200}" ]; then echo wait; else echo ok; fi ;;
+    "completed success "*) echo "ok $id success" ;;
+    "completed failure "* | "completed timed_out "* | "completed startup_failure "*) echo "red $id failed" ;;
+    completed*) echo "ok $id cancelled" ;; # cancelled or skipped: no verdict
+    none) if [ "$age" -lt "${LAND_PRECHECK_START:-300}" ]; then echo "wait - none"; else echo "ok - none"; fi ;;
+    *) if [ "$age" -lt "${LAND_PRECHECK_WAIT:-1200}" ]; then echo "wait $id running"; else echo "ok $id running"; fi ;;
   esac
+}
+
+# failed_jobs <run id>: the names of the failed jobs of a pre-check run, comma separated; nothing when
+# the id is "-" or GitHub does not answer.
+failed_jobs() {
+  [ "$1" != - ] || return 0
+  gh run view "$1" -R "$repo" --json jobs --jq '[.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out") | .name] | join(", ")' 2>/dev/null || true
+}
+
+# utc_of <epoch>: HH:MM:SS UTC (GNU date, then BSD).
+utc_of() { date -u -d "@$1" +%H:%M:%S 2>/dev/null || date -u -r "$1" +%H:%M:%S; }
+
+# window_close <oldest queued epoch> <green changes> <Lander-Now seen: non-empty>: the epoch at which
+# the collection window closes, nothing when it is closed or off (LAND_WINDOW=0). It is open while
+# fewer than LAND_WINDOW_MIN changes have a green verdict, the oldest landable change was queued
+# less than LAND_WINDOW seconds ago and none carries `Lander-Now: yes`.
+window_close() {
+  if [ "$window" -gt 0 ] && [ -z "$3" ] && [ "$2" -lt "$wmin" ] && [ $(($(date +%s) - $1)) -lt "$window" ]; then
+    echo $(($1 + window))
+  fi
+  return 0
 }
 
 # units <queue> <rejected slugs>: the units of the queue (see the header) into plain arrays (bash
@@ -518,11 +537,15 @@ unit_name() {
 # A blocked, held or frozen unit is not taken, nor one whose Lander-After lines loop; of the
 # others, the units whose tips' pre-checks are green, as many as LAND_MAX changes hold, else
 # one unit alone (see the header). The pre-checks of the members that are not tips are not read.
+# While the collection window is open (window_close) it composes nothing and sets WINDOW_OPEN, with
+# WIN_QUEUED and WIN_GREEN (the landable and the green changes) and WIN_CLOSE (an epoch).
 compose() {
-  local q freeze=false failed n c i j p size order done_ found tip state v total ok_units= wait_unit= red_unit= u=0 lines
+  local q freeze=false failed n c i j p size order done_ found tip state v pv total ok_units= wait_unit= red_unit= u=0 lines rid ct
+  local win_n=0 win_ok=0 win_old= win_now=
   q=$(queue)
   TRAIN=
-  U_SIZE=() U_FIRST=() U_TIP=() U_LINES=()
+  U_SIZE=() U_FIRST=() U_TIP=() U_LINES=() U_RID=()
+  WINDOW_OPEN=false
   [ -n "$q" ] || return 0
   if GH_REPO=$repo "$here/freeze-open.sh" >/dev/null 2>&1; then freeze=true; fi
   failed=$(g for-each-ref --format='%(refname:lstrip=4)' refs/remotes/origin/failed/)
@@ -560,17 +583,23 @@ compose() {
       continue
     fi
     # Its tips (no member follows them) decide its verdict; the last of them is its tip.
-    v=ok tip=
+    v=ok tip= rid=-
     for ((i = 0; i < n; i++)); do
       [ "${N_COMP[i]}" = "$c" ] || continue
+      ct=$(g log -1 --format=%ct "${N_SHA[i]}")
+      if [ -z "$win_old" ] || [ "$ct" -lt "$win_old" ]; then win_old=$ct; fi
+      [ -z "$(trailer Lander-Now "${N_SHA[i]}")" ] || win_now=yes
       for ((j = 0; j < n; j++)); do [ "${N_PRED[j]}" != "$i" ] || continue 2; done
       tip="${N_SLUG[i]} ${N_SHA[i]}"
-      case "$v:$(precheck "${N_SHA[i]}")" in
-        *:red) v=red ;;
+      pv=$(precheck "${N_SHA[i]}")
+      case "$v:${pv%% *}" in
+        *:red) v=red rid=$(cut -d' ' -f2 <<<"$pv") ;;
         ok:wait) v=wait ;;
       esac
     done
-    U_SIZE[u]=$size U_FIRST[u]=${order%% *} U_TIP[u]=$tip U_LINES[u]=$order
+    win_n=$((win_n + size))
+    [ "$v" != ok ] || win_ok=$((win_ok + size))
+    U_SIZE[u]=$size U_FIRST[u]=${order%% *} U_TIP[u]=$tip U_LINES[u]=$order U_RID[u]=$rid
     case "$v" in
       ok) ok_units="$ok_units $u" ;;
       wait) [ -n "$wait_unit" ] || wait_unit=$u ;;
@@ -578,6 +607,14 @@ compose() {
     esac
     u=$((u + 1))
   done
+  # The window: a train waits a little for company (not in a dry run, which composes at once).
+  if ! $dry && [ "$u" -gt 0 ]; then
+    WIN_CLOSE=$(window_close "$win_old" "$win_ok" "$win_now")
+    if [ -n "$WIN_CLOSE" ]; then
+      WINDOW_OPEN=true WIN_QUEUED=$win_n WIN_GREEN=$win_ok
+      return 0
+    fi
+  fi
   total=0
   for u in $ok_units; do
     size=${U_SIZE[u]}
@@ -603,10 +640,12 @@ compose() {
   fi
   [ -n "$red_unit" ] || return 0
   TRAIN=${U_LINES[red_unit]}
+  rid=$(failed_jobs "${U_RID[red_unit]}")
+  rid=${rid:+ (failed jobs: $rid)}
   if [ "${U_SIZE[red_unit]}" = 1 ]; then
-    log "${U_FIRST[red_unit]}: its hosted pre-check is red: gated alone"
+    log "${U_FIRST[red_unit]}: its hosted pre-check is red$rid: gated alone"
   else
-    log "$(unit_name "$red_unit") (${U_SIZE[red_unit]} changes): the hosted pre-check of its tip is red: gated alone"
+    log "$(unit_name "$red_unit") (${U_SIZE[red_unit]} changes): the hosted pre-check of its tip is red$rid: gated alone"
   fi
 }
 
@@ -1168,8 +1207,86 @@ adopt_train() {
   return 0
 }
 
+# show_queue: the queue by unit for --status: one line per change, the members of a chain
+# indented under its first, and the unit's state on the first line: `waits on rejected <slug>`,
+# `held`, `frozen`, or the verdict of its tips' pre-checks (`pre-check: ok | running | red | none |
+# unknown`, a red one with its failed jobs). While the collection window is open, the time it
+# closes. A read that fails says `unknown`; nothing here fails.
+show_queue() {
+  local q failed freeze=false n c i j size state v pv st rid rank best best_rank first extra a ct
+  local win_n=0 win_ok=0 win_old= win_now= close
+  q=$(queue)
+  [ -n "$q" ] || return 0
+  if GH_REPO=$repo "$here/freeze-open.sh" >/dev/null 2>&1; then freeze=true; fi
+  failed=$(g for-each-ref --format='%(refname:lstrip=4)' refs/remotes/origin/failed/)
+  units "$q" "$failed"
+  n=${#N_SLUG[@]}
+  for ((c = 0; c < n; c++)); do
+    if [ "${N_COMP[c]}" != "$c" ] || [ "${N_REJ[c]}" = 1 ]; then continue; fi
+    size=0 state= first=true
+    for ((i = 0; i < n; i++)); do
+      [ "${N_COMP[i]}" = "$c" ] || continue
+      if [ "${N_REJ[i]}" = 1 ]; then state="waits on rejected ${N_SLUG[i]}"; continue; fi
+      size=$((size + 1))
+      [ -n "$state" ] || [ -z "$(trailer Lander-Hold "${N_SHA[i]}")" ] || state=held
+      if [ -z "$state" ] && $freeze && breaking "${N_SHA[i]}"; then state=frozen; fi
+    done
+    if [ -z "$state" ]; then
+      v=ok best=ok best_rank=-1 rid=-
+      for ((i = 0; i < n; i++)); do
+        [ "${N_COMP[i]}" = "$c" ] || continue
+        ct=$(g log -1 --format=%ct "${N_SHA[i]}" 2>/dev/null || echo 0)
+        if [ -z "$win_old" ] || [ "$ct" -lt "$win_old" ]; then win_old=$ct; fi
+        [ -z "$(trailer Lander-Now "${N_SHA[i]}")" ] || win_now=yes
+        for ((j = 0; j < n; j++)); do [ "${N_PRED[j]}" != "$i" ] || continue 2; done
+        pv=$(precheck "${N_SHA[i]}")
+        st=${pv##* }
+        case "$st" in success) st=ok rank=0 ;; none | cancelled) st=none rank=1 ;; unknown) rank=2 ;; running) rank=3 ;; *) st=red rank=4 ;; esac
+        case "${pv%% *}" in red) v=red ;; wait) [ "$v" = red ] || v=wait ;; esac
+        if [ "$rank" -gt "$best_rank" ]; then best=$st best_rank=$rank rid=$(cut -d' ' -f2 <<<"$pv"); fi
+      done
+      state="pre-check: $best"
+      if [ "$best" = red ]; then
+        rid=$(failed_jobs "$rid")
+        state="$state (failed jobs: ${rid:-unknown})"
+      fi
+      win_n=$((win_n + size))
+      [ "$v" != ok ] || win_ok=$((win_ok + size))
+    fi
+    for ((i = 0; i < n; i++)); do
+      [ "${N_COMP[i]}" = "$c" ] && [ "${N_REJ[i]}" = 0 ] || continue
+      extra= a=$(trailer Lander-After "${N_SHA[i]}"); [ -z "$a" ] || extra=" (after $a)"
+      [ -z "$(trailer Lander-Hold "${N_SHA[i]}")" ] || extra="$extra (held)"
+      if $first; then
+        echo "  ${N_SLUG[i]}: $(title "${N_SHA[i]}")$extra [$state]"; first=false
+      else
+        echo "    ${N_SLUG[i]}: $(title "${N_SHA[i]}")$extra"
+      fi
+    done
+  done
+  if [ -n "$win_old" ]; then
+    close=$(window_close "$win_old" "$win_ok" "$win_now")
+    if [ -n "$close" ]; then echo "  collecting until $(utc_of "$close") UTC or $wmin green ($win_n queued, $win_ok green)"; fi
+  fi
+}
+
+if [ "$action" = --status ]; then
+  fetch || true
+  echo "queue:"; show_queue || true
+  echo "open train PR:"; open_trains | cut -d' ' -f1,2 | sed 's/^/  #/' || true
+  echo "rejected:"; g for-each-ref --format='%(refname:lstrip=4) %(contents:subject)' refs/remotes/origin/failed/ | sed 's/^/  /'
+  [ ! -s "$state/blocked" ] || echo "stopped: $(cat "$state/blocked")"
+  if running; then
+    echo "lander: running (pid $(cat "$state/pid")), log $state/log"
+    echo "gate: $(running_gate)"
+  else
+    echo "lander: not running"
+  fi
+  exit 0
+fi
+
 wt=$state/train
-waited=0 fwaited=0 fwaiting=
+waited=0 fwaited=0 fwaiting= collecting=false
 while :; do
   fetch || die "cannot fetch origin"
   # Main's scripts changed since this lander started (a lander change landed): between two
@@ -1245,6 +1362,13 @@ while :; do
     fwaiting= waited=0 # each wait starts with its full budget
   fi
   compose
+  if $WINDOW_OPEN; then
+    # The window is open: wait for company, and look again (an open or a foreign train is seen first).
+    $collecting || log "collecting: $WIN_QUEUED queued, $WIN_GREEN green: composing at $(utc_of "$WIN_CLOSE") UTC or at $wmin green"
+    collecting=true
+    sleep "$poll"; continue
+  fi
+  collecting=false
   if [ -z "$TRAIN" ]; then
     [ -n "$(queue)" ] && log "nothing landable: every queued change is held, frozen or in a chain with a rejected change" || log "the queue is empty"
     exit 0

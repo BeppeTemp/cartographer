@@ -265,8 +265,10 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
   - **Pre-check and status.** Each queued change gets a hosted pre-check
     (`ready-check.yml`: its Windows tests and, for `web/`, the frontend unit tests, on its chain,
     the changes it follows through `AFTER=`, replayed on the current `main`): a train of
-    several units takes only those whose tip is green, and a red one is gated alone. `make land-status`
-    shows the queue; `make land` runs the lander in the foreground (`DRY=1` prints the next train).
+    several units takes only those whose tip is green, and a red one is gated alone. The lander waits up to
+    10 minutes (or for 4 green changes) before composing so that changes queued meanwhile share a train
+    (`make ready NOW=1` skips the wait). `make land-status` shows the queue by unit with each pre-check
+    verdict and a red one's failed jobs; `make land` runs the lander in the foreground (`DRY=1` prints the next train).
     Queued changes have no cap: a train holds at most 8 changes, and a longer chain is gated alone. On macOS the
     lander keeps the machine from idle sleep while it runs (`caffeinate -i`); a closed lid still stops it.
 - **No open PR depends on another open PR**: a contributor's dependent work goes in the same

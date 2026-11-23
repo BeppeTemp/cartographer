@@ -30,6 +30,7 @@
 #                 steps 4b and 7), which scripts/land.sh copies into the train PR.
 #                 `signoff.sh --hosted-jobs` prints HOSTED_JOBS and exits.
 #   SIGNOFF_HOSTED  non-empty: the same as SIGNOFF_GATE=hosted (older setups).
+#   SIGNOFF_LOG_TRIES (5)  the reads of a failed hosted job's log, SIGNOFF_POLL apart, while it is empty.
 #   SIGNOFF_MAKE  with SIGNOFF_GATE=host, the command that runs make targets, split on whitespace (default
 #                 `make`). A command that takes make's arguments and runs them on
 #                 another machine from the same tree (for instance a wrapper that
@@ -296,10 +297,18 @@ hosted_verdict() {
 
 # hosted_failures <run JSON>: the `--- FAIL:` lines of the run's failed jobs, without the job,
 # step and time columns of `gh run view --log`, so the lander's failing() names the tests.
+# A job's log is not served for a moment after the job fails: the read is repeated up to
+# SIGNOFF_LOG_TRIES (5) times, SIGNOFF_POLL apart, while it returns no line at all; a log with
+# lines and no `--- FAIL:` is final (the failure is not a Go test).
 hosted_failures() {
-  local jid tab=$'\t' # BSD sed reads no \t in a regular expression
+  local jid log try tab=$'\t' # BSD sed reads no \t in a regular expression
   for jid in $(printf '%s' "$1" | jq -r '.jobs[] | select(.status == "completed" and .conclusion == "failure") | .databaseId' 2>/dev/null); do
-    gh run view -R "$slug" --job "$jid" --log 2>/dev/null |
+    for try in $(seq 1 "${SIGNOFF_LOG_TRIES:-5}"); do
+      log=$(gh run view -R "$slug" --job "$jid" --log 2>/dev/null) || log=
+      [ -z "$log" ] || break
+      [ "$try" = "${SIGNOFF_LOG_TRIES:-5}" ] || sleep "${SIGNOFF_POLL:-15}"
+    done
+    printf '%s\n' "$log" |
       sed -E "s/^[^$tab]*$tab[^$tab]*$tab[^ ]+ //" | grep -E '^--- FAIL: ' | head -n 20 >&2 || true
   done
 }
