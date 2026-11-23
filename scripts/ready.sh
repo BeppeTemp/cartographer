@@ -123,6 +123,18 @@ if blocks=$(grep '^BLOCK' <<<"$triage" | grep -v 'CI is red'); then
   die "the change does not pass the triage: $blocks"
 fi
 
+# A pending decision this change cites that nothing before it adds: the lander numbers a train's
+# decisions once, so a citation of one added by a later change of the same chain is legal, but one
+# that no queued change adds is rejected when the train is composed. Only a warning: the change
+# that adds it may not be queued yet. HEAD's tree holds the chain it follows (each queued commit
+# is the predecessor's plus its own).
+for ph in $(git diff -U0 "$base" HEAD -- . ':(exclude)*_test.go' ':(exclude)*/testdata/*' | sed -n 's/^+//p' |
+  grep -oE 'D-new-[a-z0-9][a-z0-9-]*' | sort -u || true); do
+  git cat-file -e "HEAD:docs/decisions/$ph.md" 2>/dev/null && continue
+  git ls-tree --name-only origin/main docs/decisions/ | grep -E "^docs/decisions/D[0-9]+-${ph#D-new-}\.md\$" >/dev/null && continue
+  echo "ready: warning: it cites $ph, which nothing queued before it adds: queue the change that adds it AFTER=$slug, or the lander rejects this one" >&2
+done
+
 sha=$(git commit-tree "$(git rev-parse 'HEAD^{tree}')" -p "$parent" -F "$full")
 out=$(git push -q --force origin "$sha:refs/heads/ready/$slug" 2>&1) || die "the push of ready/$slug failed: $out"
 echo "ready: $branch queued as ready/$slug (${sha:0:12}): $(head -n 1 "$full")"

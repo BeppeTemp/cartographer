@@ -19,11 +19,15 @@
 # (scripts/freeze-open.sh, D1384), is a feat/perf/refactor or breaking change (frozen); a
 # change queued again after its rejection is queued, its failed/ ref no longer counts. A train
 # is main plus whole units, at most LAND_MAX (8) changes in all; a unit that does not fit waits
-# for the next train, one larger than LAND_MAX is gated alone. Each pending decision a change adds
-# (`docs/decisions/D-new-<slug>.md`) gets the next number above both the highest on the
-# tree and the newest issue or PR number (a contributor's decision takes its PR's number,
-# D672: numbers above the counter keep the two apart and in time order), and every
-# `D-new-<slug>` citation is rewritten, in the change's own commit. A citation of one whose
+# for the next train, one larger than LAND_MAX is gated alone. Pending decisions are numbered once,
+# after the last pick (D2304): the picks keep the `D-new-<slug>` placeholders; a citation must be
+# numbered on main or added by a member of the change's own unit (earlier or later) or by an
+# earlier unit, else that change is rejected and the queue composed again. Then each pending
+# decision a change adds (`docs/decisions/D-new-<slug>.md`) gets the next number above both the
+# highest on the tree and the newest issue or PR number (a contributor's decision takes its PR's
+# number, D672: numbers above the counter keep the two apart and in time order), in commit order,
+# and every `D-new-<slug>` citation is rewritten, each commit of the train being created again
+# with its own tree (same message, author and dates). A citation of one whose
 # change already landed (main holds `D<n>-<slug>.md`) reads as `D<n>`; an edit of its
 # `D-new-<slug>.md` is applied to `D<n>-<slug>.md`; a change adding a `D-new-<slug>.md` whose
 # slug main holds is rejected, naming the file.
@@ -78,7 +82,7 @@
 # A rejected change moves to `refs/heads/failed/<slug>`: a commit on top of it whose
 # message is the reason, readable from any clone (`git log -1 origin/failed/<slug>`). A member
 # rejected at its pick (a conflict, a decision) takes its unit out of the train: the train is
-# reset to the commit before the unit's first pick, the numbers it took are forgotten, only
+# reset to the commit before the unit's first pick, only
 # that member moves to failed/ (its reason ends `(chain <first>..<tip>)`) and the others stay
 # queued, blocked until it is queued again.
 # One lander at a time: per machine a lock in the state dir, across machines an open PR
@@ -647,7 +651,7 @@ landed_decision() {
 # remap_pick <sha>: cherry-picks a change that edits docs/decisions/D-new-<slug>.md although
 # main holds that decision as D<n>-<slug>.md (its first change landed and was numbered): the
 # patch is applied to the numbered file, D-new-<slug> read as D<n> everywhere in it, as
-# number_decisions rewrites a citation. 1 when no edit is of that kind or the patch does not apply.
+# number_train rewrites a citation. 1 when no edit is of that kind or the patch does not apply.
 remap_pick() {
   local f s num pairs= patch ph pair
   for f in $(git diff-tree --no-commit-id --name-only -r "$1" | grep -E '^docs/decisions/D-new-[a-z0-9-]+\.md$' || true); do
@@ -661,7 +665,7 @@ remap_pick() {
   git diff "$1^" "$1" >"$patch"
   for pair in $pairs; do
     ph=${pair%%=*}
-    PH=$ph NUM=${pair#*=} perl -pi -e 'BEGIN { ($s = $ENV{PH}) =~ s/^D-new-//; } $t = m{^diff --git .*(_test\.go|/testdata/.*)$} if /^diff --git /; next if $t; s/\Q$ENV{PH}\E(?=\.md(?![a-z0-9-]))/$ENV{NUM}-$s/g; s/\Q$ENV{PH}\E(?![a-z0-9-])/$ENV{NUM}/g' "$patch"
+    PH=$ph NUM=${pair#*=} perl -pi -e 'BEGIN { ($s = $ENV{PH}) =~ s/^D-new-//; } $t = m{^diff --git .*(_test\.go|/testdata/.*)$} if /^diff --git /; next if $t; s/\Q$ENV{PH}\E(?=\.md(?![a-z0-9-]))/$ENV{NUM}-$s/g; s/\Q$ENV{PH}\E(?![a-z0-9-])/$ENV{NUM}/g' -- "$patch"
   done
   if git apply --index "$patch" >/dev/null 2>&1; then
     rm -f "$patch"
@@ -673,65 +677,158 @@ remap_pick() {
   return 1
 }
 
-# number_decisions: in the train worktree, after a cherry-pick, numbers the pending decisions
-# the commit adds and rewrites the known placeholders (MAP: "<placeholder>=D<n>" words) in
-# the files the commit touches. Text already on main is never rewritten, and test files and
-# anything under a testdata/ directory are left alone (fixtures may spell a placeholder). LEFT is set to a placeholder the
-# commit still cites that is neither on main nor earlier in the train. A citation of a
-# pending decision that main holds as D<n>-<slug>.md (its change landed in an earlier train) reads
-# as D<n>; a pending decision whose slug main already holds sets DUP to the reason. Not run in a
-# subshell: MAP carries the numbers to the later changes of the train.
-number_decisions() {
-  local f ph n pair num touched landed
+# Pending decisions are numbered once, when the whole train is picked (D2304 amended): a pick
+# never meets a renumbered line, so two changes editing a paragraph around a citation, or a later
+# change editing an earlier one's D-new-<slug>.md, apply as written. Never rewrite fixtures: test
+# files and anything under a testdata/ directory may spell a placeholder and are left alone. Not run
+# in a subshell: PEND, MAP and CADDS carry state from the picks to the numbering.
+
+# train_adds <sha>: the pending decisions (D-new-<slug> words) the commit adds.
+train_adds() {
+  git diff-tree --no-commit-id --name-only --diff-filter=A -r "$1" | sed -nE 's#^docs/decisions/(D-new-[a-z0-9-]+)\.md$#\1#p'
+}
+
+# train_touched <sha>: the files the commit touches that numbering may rewrite (not _test.go, not
+# testdata/).
+train_touched() {
+  git diff-tree --no-commit-id --name-only -r "$1" | grep -vE '_test\.go$|(^|/)testdata/' || true
+}
+
+# pending_dup: after a cherry-pick, the only numbering check of the pick: sets DUP to the reason
+# when the commit adds a pending decision whose slug main holds, or an earlier change of the train
+# added; PEND lists the placeholders the picks so far added.
+pending_dup() {
+  local ph landed
   DUP=
-  # Filtered once: every loop below (numbering, citations, rewrite, LEFT) walks only these files.
-  touched=$(git diff-tree --no-commit-id --name-only -r HEAD | grep -vE '_test\.go$|(^|/)testdata/' || true)
-  for f in $(grep -E '^docs/decisions/D-new-[a-z0-9-]+\.md$' <<<"$touched" || true); do
-    [ -f "$f" ] || continue
-    ph=$(basename "$f" .md)
+  for ph in $(train_adds HEAD); do
     landed=$(landed_decision "${ph#D-new-}")
     if [ -n "$landed" ]; then
-      DUP="it adds $f, but main already holds docs/decisions/$landed-${ph#D-new-}.md (two decisions with one slug)"
+      DUP="it adds docs/decisions/$ph.md, but main already holds docs/decisions/$landed-${ph#D-new-}.md (two decisions with one slug)"
       return 0
     fi
-    case " $MAP " in *" $ph="*)
-      DUP="it adds $f, but an earlier change of the train added a decision with that slug"
+    case " $PEND " in *" $ph "*)
+      DUP="it adds docs/decisions/$ph.md, but an earlier change of the train added a decision with that slug"
       return 0 ;;
     esac
-    n=$(ls docs/decisions | sed -nE 's/^D([0-9]+)-.*/\1/p' | sort -n | tail -n 1)
-    n=${n:-0}
-    [ "${FLOOR:-0}" -le "$n" ] || n=$FLOOR
-    n=$((n + 1))
-    git mv "$f" "docs/decisions/D$n-${ph#D-new-}.md"
-    touched=$(printf '%s\n' "$touched" | sed "s#^$f\$#docs/decisions/D$n-${ph#D-new-}.md#")
-    MAP="$MAP $ph=D$n"
   done
-  # A citation of a pending decision that main holds numbered: the same rewrite.
-  while IFS= read -r ph; do
-    [ -n "$ph" ] || continue
-    case " $MAP " in *" $ph="*) continue ;; esac
-    landed=$(landed_decision "${ph#D-new-}")
-    [ -z "$landed" ] || MAP="$MAP $ph=$landed"
-  done < <(while IFS= read -r f; do
-    [ -n "$f" ] && [ -f "$f" ] || continue
-    grep -ohE 'D-new-[a-z0-9][a-z0-9-]*' "$f" || true
-  done <<<"$touched" | sort -u)
-  for pair in $MAP; do
-    ph=${pair%%=*} num=${pair#*=}
+  PEND="$PEND $(train_adds HEAD | tr '\n' ' ')"
+}
+
+# reject_at <i> <reason>: the member commits[i] of a composed train is rejected after the picks:
+# only it moves to failed/ (reason ending with its chain), the rest of its unit stays queued and
+# blocked. The caller composes again.
+reject_at() {
+  local u=${cunit[$1]} l
+  l=$(sed -n "$(($1 + 1))p" <<<"$landed")
+  if [ "${U_SIZE[u]}" = 1 ]; then reject "${l%% *}" "${l#* }" "$2"; else reject "${l%% *}" "${l#* }" "$2 ($(unit_name "$u" | sed 's/^the //'))"; fi
+}
+
+# citation_check: after the last pick, a pending decision a commit cites in the files it touches
+# must be on main as D<n>-<slug>.md, or added by a member of the commit's own unit (earlier or
+# later) or by an earlier unit. Sets CADDS (the placeholders each commit adds) and BAD ("<i> <where>"
+# of the first commit of each unit that cites another, one per line).
+citation_check() {
+  local i j last allowed c f line ph n unit_done=
+  CADDS=() BAD=
+  for ((i = 0; i < k; i++)); do CADDS[i]=$(train_adds "${commits[i]}" | tr '\n' ' '); done
+  for ((i = 0; i < k; i++)); do
+    case " $unit_done " in *" ${cunit[i]} "*) continue ;; esac
+    last=$i
+    while [ $((last + 1)) -lt "$k" ] && [ "${cunit[last + 1]}" = "${cunit[i]}" ]; do last=$((last + 1)); done
+    allowed=
+    for ((j = 0; j <= last; j++)); do allowed="$allowed ${CADDS[j]}"; done
+    c=${commits[i]}
     while IFS= read -r f; do
-      [ -n "$f" ] && [ -f "$f" ] || continue
-      # The file name D-new-<slug>.md becomes D<n>-<slug>.md, so the path form (a link) is
-      # rewritten first; then the bare word. A placeholder is a whole word: the one for
-      # slug `a` must not rewrite the one for `ab`.
-      PH=$ph NUM=$num perl -pi -e 'BEGIN { ($s = $ENV{PH}) =~ s/^D-new-//; } s/\Q$ENV{PH}\E(?=\.md(?![a-z0-9-]))/$ENV{NUM}-$s/g; s/\Q$ENV{PH}\E(?![a-z0-9-])/$ENV{NUM}/g' "$f"
-    done <<<"$touched"
+      [ -n "$f" ] && git cat-file -e "$c:$f" 2>/dev/null || continue
+      while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        n=${line%%:*} ph=${line#*:}
+        case " $allowed " in *" $ph "*) continue ;; esac
+        [ -z "$(landed_decision "${ph#D-new-}")" ] || continue
+        BAD="${BAD:+$BAD$'\n'}$i $f:$n:$ph"
+        unit_done="$unit_done ${cunit[i]}"
+        break 2
+      done < <(git show "$c:$f" | grep -noE 'D-new-[a-z0-9][a-z0-9-]*' || true)
+    done < <(train_touched "$c")
   done
-  git add -A
-  git diff --cached --quiet || git commit -q --amend --no-edit --allow-empty
-  LEFT=$(while IFS= read -r f; do
-    [ -n "$f" ] && [ -f "$f" ] || continue
-    grep -noE 'D-new-[a-z0-9][a-z0-9-]*' "$f" | sed "s#^#$f:#" | head -n 1
-  done <<<"$touched" | head -n 1 || true) # grep finds nothing: pipefail would end the lander
+}
+
+# number_train: the pending decisions of the whole train, in commit order then file order, each the
+# next number above the highest on the tree and FLOOR; then every commit is created again in order
+# (same message, author and dates; parent the previous re-created one) with its own tree, every
+# pending file the train added so far renamed and the placeholders rewritten (the path form first,
+# then the whole word: the one for slug `a` must not rewrite the one for `ab`) in the files the
+# train touched so far. A citation of a decision main holds numbered reads as that number. The
+# Atlas bundle is built again for a commit whose own diff adds a citation under web/ (WEBC, noted at
+# the pick: remap_pick may have rewritten it already, and the bundle is stale all the same,
+# TestBundleMatchesSource) and, after the first such commit, for each later one that touches web/
+# or the bundle; the others take the previous commit's. commits holds the re-created commits. BUILD_FAIL is the
+# index of the commit whose bundle could not be built (the worktree is then unusable: the caller
+# composes again).
+number_train() {
+  local i j n ph c f pair num prev sofar rebuilt=false need slug newc cited
+  BUILD_FAIL=
+  MAP= newc=()
+  n=$(ls docs/decisions | sed -nE 's/^D([0-9]+)-.*/\1/p' | sort -n | tail -n 1)
+  n=${n:-0}
+  [ "${FLOOR:-0}" -le "$n" ] || n=$FLOOR
+  for ((i = 0; i < k; i++)); do
+    for ph in ${CADDS[i]}; do n=$((n + 1)); MAP="$MAP $ph=D$n"; done
+  done
+  cited=$(for ((i = 0; i < k; i++)); do
+    while IFS= read -r f; do
+      [ -n "$f" ] && git cat-file -e "${commits[i]}:$f" 2>/dev/null || continue
+      git show "${commits[i]}:$f" | grep -ohE 'D-new-[a-z0-9][a-z0-9-]*' || true
+    done < <(train_touched "${commits[i]}")
+  done | sort -u)
+  for ph in $cited; do
+    case " $MAP " in *" $ph="*) continue ;; esac
+    num=$(landed_decision "${ph#D-new-}")
+    [ -z "$num" ] || MAP="$MAP $ph=$num"
+  done
+  [ -n "$MAP" ] || [ -n "$WEBC" ] || return 0 # nothing to number, rewrite or build: the picked commits stand
+  prev=$base sofar=
+  for ((i = 0; i < k; i++)); do
+    c=${commits[i]}
+    git reset -q --hard "$c"
+    sofar="$sofar"$'\n'"$(train_touched "$c")"
+    for pair in $MAP; do
+      ph=${pair%%=*} num=${pair#*=}
+      while IFS= read -r f; do
+        # A committed symlink is not followed (perl -pi would rewrite its target).
+        [ -n "$f" ] && [ -f "$f" ] && [ ! -L "$f" ] || continue
+        PH=$ph NUM=$num perl -pi -e 'BEGIN { ($s = $ENV{PH}) =~ s/^D-new-//; } s/\Q$ENV{PH}\E(?=\.md(?![a-z0-9-]))/$ENV{NUM}-$s/g; s/\Q$ENV{PH}\E(?![a-z0-9-])/$ENV{NUM}/g' -- "$f"
+      done <<<"$sofar"
+    done
+    for ((j = 0; j <= i; j++)); do
+      for ph in ${CADDS[j]}; do
+        [ -f "docs/decisions/$ph.md" ] || continue
+        num=$(tr ' ' '\n' <<<"$MAP" | sed -n "s/^$ph=//p")
+        git mv "docs/decisions/$ph.md" "docs/decisions/$num-${ph#D-new-}.md"
+      done
+    done
+    need=false
+    case " $WEBC " in
+      *" $i "*) rebuilt=true need=true ;;
+      *) if $rebuilt && git diff-tree --no-commit-id --name-only -r "$c" | grep -E '^(web/|internal/webui/dist/)' >/dev/null; then need=true; fi ;;
+    esac
+    if $need; then
+      slug=$(sed -n "$((i + 1))p" <<<"$landed"); slug=${slug%% *}
+      build_bundle "$slug" "it cites a pending decision under web/, and" || { BUILD_FAIL=$i; return 0; }
+    elif $rebuilt; then
+      if [ -L internal/webui ] || [ -L internal/webui/dist ]; then
+        log "internal/webui or its dist is a symlink: the bundle is not replaced"
+        BUILD_FAIL=$i; return 0
+      fi
+      rm -rf internal/webui/dist && git checkout -q "$prev" -- internal/webui/dist
+    fi
+    git add -A
+    git reset -q --soft "$prev"
+    git commit -q --allow-empty -C "$c"
+    prev=$(git rev-parse HEAD)
+    newc+=("$prev")
+  done
+  commits=("${newc[@]}")
 }
 
 # The signoff's exit code for a wrapper that failed (ssh or rsync dropped: exit 255, or any exit
@@ -1163,26 +1260,26 @@ while :; do
   git checkout -q -B "$branch" "$main_ref"
   $dry || echo "$branch" >>"$state/branch" # this machine's train, until it is cleaned up (never by the exit trap)
   base=$(git rev-parse HEAD) # the main this train is gated on, and the only one it merges onto
-  MAP=
+  MAP= PEND= WEBC=
   # The newest issue or PR number: pending decisions are numbered above it.
   FLOOR=$(gh api "repos/$repo/issues?state=all&sort=created&direction=desc&per_page=1" --jq '.[0].number // 0' 2>/dev/null || true)
   [[ "$FLOOR" =~ ^[0-9]+$ ]] || FLOOR=0
-  landed= commits=() cunit=() cur= skip=
+  landed= commits=() cunit=() cur= skip= upend= uweb=
   # reject_member <slug> <sha> <reason>: a member of the unit being picked is rejected. The unit
-  # goes whole: the train is reset to the commit before its first pick, the numbers it took and
-  # its earlier members are forgotten, and only this member moves to failed/; the others stay
+  # goes whole: the train is reset to the commit before its first pick, its earlier members leave
+  # the train, and only this member moves to failed/; the others stay
   # queued, and that ref blocks their unit until it is queued again.
   reject_member() {
     git cherry-pick --abort >/dev/null 2>&1 || true
     git reset -q --hard "$ustart"
     git clean -qfd # what a partial bundle build left would join the next change
-    MAP=$umap landed=$ulanded skip=$cur
+    PEND=$upend WEBC=$uweb landed=$ulanded skip=$cur
     if [ "$un" = 0 ]; then commits=() cunit=(); else commits=("${commits[@]:0:un}") cunit=("${cunit[@]:0:un}"); fi
     if [ "${U_SIZE[cur]}" = 1 ]; then reject "$1" "$2" "$3"; else reject "$1" "$2" "$3 ($(unit_name "$cur" | sed 's/^the //'))"; fi
   }
   while read -r s sha u; do
     if [ "$u" != "$cur" ]; then
-      cur=$u ustart=$(git rev-parse HEAD) umap=$MAP ulanded=$landed un=${#commits[@]}
+      cur=$u ustart=$(git rev-parse HEAD) upend=$PEND uweb=$WEBC ulanded=$landed un=${#commits[@]}
     fi
     [ "$u" != "$skip" ] || continue
     # A member main already holds is dequeued; its unit goes on without it.
@@ -1230,30 +1327,41 @@ while :; do
     [ -z "$tip" ] || targs+=(--trailer "Lander-Tip: $tip")
     [ -z "$review" ] || targs+=(--trailer "Review: $review")
     printf '%s\n' "$msg" | git interpret-trailers "${targs[@]}" | git commit -q --amend --allow-empty -F -
-    number_decisions # a rejected unit leaves no number behind for the later ones (reject_member)
+    pending_dup # a rejected unit leaves nothing behind for the later ones (reject_member)
     if [ -n "$DUP" ]; then
       reject_member "$s" "$sha" "$DUP"
       continue
     fi
-    if [ -n "$LEFT" ]; then
-      reject_member "$s" "$sha" "it cites a pending decision that is neither on main nor earlier in the train: $LEFT"
-      continue
-    fi
-    # The numbering rewrote a citation under web/ after the author ran `make web`: the committed
-    # bundle is stale (TestBundleMatchesSource), so it is built again (D2040).
-    # The files number_decisions rewrites only (not _test.go, not testdata/); grep without -q
-    # reads all of the diff: an early exit would SIGPIPE git show and fail it under pipefail.
+    # The queued diff adds a citation under web/ (the files numbering rewrites only, not _test.go
+    # or testdata/): its bundle is built again after the numbering. Read from the queued commit,
+    # not from what the numbering rewrites: remap_pick has already rewritten a landed citation.
+    # grep without -q reads all of the diff: an early exit would SIGPIPE git show under pipefail.
     if git show "$sha" -- web/ ':(exclude)*_test.go' ':(exclude)*/testdata/*' | grep '^+.*D-new-' >/dev/null; then
-      if ! build_bundle "$s" "it cites a pending decision under web/, and"; then
-        reject_member "$s" "$sha" "it cites a pending decision under web/ and the bundle could not be rebuilt (see $state/bundle-$s.log)"
-        continue
-      fi
-      git add -A internal/webui/dist && git commit -q --amend --no-edit --allow-empty
+      WEBC="$WEBC ${#commits[@]}"
     fi
     landed=${landed:+$landed$'\n'}"$s $sha"
     commits+=("$(git rev-parse HEAD)") cunit+=("$u")
   done <<<"$TRAIN"
   k=${#commits[@]}
+  # After the picks: the citation check, then the numbers, once for the whole train. A rejection
+  # here leaves the worktree as it is: the queue is composed again without the unit's member.
+  if [ "$k" != 0 ]; then
+    citation_check
+    if [ -n "$BAD" ]; then
+      while IFS=' ' read -r i where; do
+        reject_at "$i" "it cites a pending decision that is neither on main nor earlier in the train: $where"
+      done <<<"$BAD"
+      if $dry; then log "dry run: the train would be composed again without the rejected changes"; exit 0; fi
+      continue
+    fi
+    number_train
+    if [ -n "$BUILD_FAIL" ]; then
+      l=$(sed -n "$((BUILD_FAIL + 1))p" <<<"$landed")
+      reject_at "$BUILD_FAIL" "it cites a pending decision under web/ and the bundle could not be rebuilt (see $state/bundle-${l%% *}.log)"
+      if $dry; then log "dry run: the train would be composed again without the rejected change"; exit 0; fi
+      continue
+    fi
+  fi
   if [ "$k" = 0 ]; then
     # A dry run moves nothing out of the queue: composing again would find the same train.
     if $dry; then log "dry run: no queued change applies on main"; exit 0; fi
