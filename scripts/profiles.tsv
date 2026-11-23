@@ -1,6 +1,7 @@
-# profiles.tsv — the process profiles: what a kind of change owes, as data. Four scripts read it:
+# profiles.tsv — the process profiles: what a kind of change owes, as data. Five scripts read it:
 # scripts/pr-triage.sh (types, paths, tier, standing), scripts/trailers-lint.sh (types, trailers),
-# scripts/land.sh (types, freeze) and scripts/ready.sh (the declarable rows: types `-`).
+# scripts/land.sh (types, freeze), scripts/ready.sh (the declarable rows: types `-`) and
+# scripts/status.sh (paths and standing).
 #
 # Format: seven TAB-separated columns per row; blank lines and lines starting with # are
 # ignored (the conventions of doc-owners.tsv).
@@ -23,7 +24,8 @@
 # with another number of fields, or an unknown value in a column the script reads, makes
 # pr-triage.sh (tier, freeze, standing, a path pattern that is no ERE), trailers-lint.sh (an
 # unknown trailer name) and land.sh (the freeze column) exit 2, naming the row. ready.sh reads
-# the name and types columns only and refuses an undeclared PROFILE.
+# the name and types columns only and refuses an undeclared PROFILE; status.sh is read-only and
+# always exits 0: a row it cannot read, or a pattern that is no ERE, prints `to read: unavailable`.
 #
 # security: packages whose invariants are written down outside the code (an area AGENTS.md) or
 # are about security and concurrency. process: what runs on, or gets installed into, users'

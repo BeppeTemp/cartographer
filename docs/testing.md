@@ -1431,6 +1431,13 @@ takes the tier as the higher of the size rule and the floors, `trailers-lint.sh`
 selects (the message then carries `Profile: live`). Every row whose types and paths both match applies, the strictest
 value of each column wins (a `fix` in an invariant area is `fix + security`); a missing file or a malformed row makes
 `pr-triage.sh` and `trailers-lint.sh` exit 2 naming the row, and stops the lander (`internal/repodocs/profiles_test.go`).
+`make status` (`scripts/status.sh`, read-only, always exit 0) prints what waits for the maintainer, a section only when it has
+lines: `rejected:` (each `failed/<slug>` with its reason), `queue:` (the view of `make land-status`: units with pre-check
+verdicts, the open train, the gate mode, the lander's state), `to read:` (the `feat/*` and `exp/*` worktrees not queued whose
+diff touches a production path of a profile with a path pattern and standing `no`, with the count of distinct files; a row or pattern the script cannot read makes the section `unavailable`), `main:` (the newest `ci.yml` run on `main` and the open
+`ci-red` issues), `triage:` (the open issues without `accepted`) and `plans:` (the output of `STATUS_PLANS`, a command the
+maintainer points at their own lister: plans live outside the repository). A read of GitHub that fails prints `<section>:
+unavailable`. It never pushes, writes a ref on origin or opens an issue (its fetch updates remote-tracking refs, as every fetch does), and keeps no registry: the state is the `ready/` and `failed/` refs and their trailers (`internal/repodocs/status_test.go`).
 `internal/repodocs/ready_check_test.go` pins the plan, the replay on temporary repositories
 and the replay step after each job's checkout.
 `internal/repodocs/land_test.go` runs the lander against a local bare repository with fake
