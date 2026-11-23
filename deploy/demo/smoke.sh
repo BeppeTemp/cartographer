@@ -94,7 +94,7 @@ done
 # internal/docskb/links.go): an exact release or release candidate is its version
 # tag, any other build (v0.0.0-ci, dev, a git describe string) is main.
 version=$(docker run --rm "$image" version | awk 'NR == 1 { print $NF }')
-if printf '%s\n' "$version" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$'; then
+if printf '%s\n' "$version" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+(\.[0-9]+)?)?$'; then
   want=v${version#v}
 else
   want=main

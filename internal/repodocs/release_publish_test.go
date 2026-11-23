@@ -154,6 +154,120 @@ func TestReleaseIsPublishedLast(t *testing.T) {
 	}
 }
 
+// A publishing step that only release.yml runs is first executed on release day: 0.29.0
+// stayed a draft because "Attest the chart" had no registry login (#2272), and the
+// candidate pipeline could not have rehearsed it. Adding such a step must be a visible
+// choice, so every job of release.yml is mapped to its twin in preview.yml (or to the
+// reason it has none), and every step of a twinned job is in the twin or declared here
+// with its reason.
+func TestReleaseOnlyStepsAreDeclared(t *testing.T) {
+	// AC-P4-5: passes on main with the tables filled from the current files.
+	// AC-P4-6: a step added to a twinned job alone, a new job or a stale entry fails it.
+	root := repoRoot(t)
+	type wfile struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				Uses string `yaml:"uses"`
+				Name string `yaml:"name"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	load := func(file string) wfile {
+		var wf wfile
+		if err := yaml.Unmarshal([]byte(readFile(t, root, ".github/workflows/"+file)), &wf); err != nil {
+			t.Fatalf("%s: %v", file, err)
+		}
+		return wf
+	}
+	// A step's signature: the action without its @<sha> for a `uses:` step, the name for a `run:` step.
+	sigs := func(wf wfile, job string) map[string]bool {
+		out := map[string]bool{}
+		for _, st := range wf.Jobs[job].Steps {
+			if st.Uses != "" {
+				out[strings.SplitN(st.Uses, "@", 2)[0]] = true
+			} else {
+				out[st.Name] = true
+			}
+		}
+		return out
+	}
+	twin := map[string]string{"goreleaser": "binaries", "docker": "docker", "chart": "chart"}
+	noTwin := map[string]string{
+		"prerelease-flag":   "flags a stable 0.x release; a candidate is born a pre-release",
+		"publish":           "un-drafts the stable release",
+		"cask":              "pushes the Homebrew cask, stable only",
+		"latest":            "moves :latest, stable only",
+		"demo":              "stable release only: refreshes the public demo",
+		"hero":              "stable release only: refreshes the hero asset",
+		"mcp-registry":      "stable release only: the registry entry",
+		"candidate-cleanup": "deletes the candidates of the shipped version, so it has nothing to rehearse",
+	}
+	releaseOnly := map[string]map[string]string{
+		"goreleaser": {
+			"Check the release is still a draft": "the stable release is a draft release-please made; a candidate has none",
+			"Install syft":                       "the SBOMs: no syft for a candidate",
+			"actions/attest-build-provenance":    "a candidate is not attested (D1022)",
+			"actions/upload-artifact":            "keeps the generated cask for the cask job",
+		},
+		"docker": {
+			"actions/attest-build-provenance": "a candidate is not attested (D1022)",
+		},
+		"chart": {
+			"actions/attest-build-provenance": "a candidate is not attested (D1022)",
+			"docker/login-action":             "the registry login in front of the attestation; the candidate chart is pushed with the job's own login",
+		},
+	}
+	const hint = "rehearse the step in preview.yml, or declare it with its reason in this test (#2272: a release-only step first runs on release day)"
+	rel, prev := load("release.yml"), load("preview.yml")
+	for job := range rel.Jobs {
+		_, hasTwin := twin[job]
+		_, hasReason := noTwin[job]
+		if !hasTwin && !hasReason {
+			t.Errorf("release.yml: job %q is in neither table: %s", job, hint)
+		}
+	}
+	for job, reason := range noTwin {
+		if _, ok := rel.Jobs[job]; !ok {
+			t.Errorf("release.yml: %q (%s) no longer exists: drop its entry", job, reason)
+		}
+		if tw, ok := twin[job]; ok {
+			t.Errorf("job %q is in both tables (twin %q)", job, tw)
+		}
+	}
+	for job, tw := range twin {
+		if _, ok := rel.Jobs[job]; !ok {
+			t.Errorf("release.yml: twinned job %q no longer exists: drop its entry", job)
+			continue
+		}
+		if _, ok := prev.Jobs[tw]; !ok {
+			t.Errorf("preview.yml: the twin %q of %q no longer exists", tw, job)
+			continue
+		}
+		relSigs, twinSigs := sigs(rel, job), sigs(prev, tw)
+		for sig := range relSigs {
+			if twinSigs[sig] {
+				continue
+			}
+			if _, ok := releaseOnly[job][sig]; !ok {
+				t.Errorf("release.yml job %q: step %q is not in preview.yml job %q: %s", job, sig, tw, hint)
+			}
+		}
+		for sig, reason := range releaseOnly[job] {
+			switch {
+			case !relSigs[sig]:
+				t.Errorf("release-only step %q (%s) no longer exists in release.yml job %q: drop its entry", sig, reason, job)
+			case twinSigs[sig]:
+				t.Errorf("release-only step %q is now in preview.yml job %q: drop its entry", sig, tw)
+			}
+		}
+	}
+	for job := range releaseOnly {
+		if _, ok := twin[job]; !ok {
+			t.Errorf("release-only steps are declared for %q, which has no twin", job)
+		}
+	}
+}
+
 // The docker job publishes two images, each attested on its own digest (D1440).
 // Attesting the Surveyor with the server's digest (a copy-paste of the step) is
 // the trap: the signature would vouch for the wrong image.

@@ -38,6 +38,11 @@ func TestFreezeOpenFromTheCandidate(t *testing.T) {
 		{"stable still a draft", ptr("v0.9.0-rc.20260101:false v0.9.0:true v0.8.0:false"), true, "v0.9.0-rc.20260101"},
 		{"numeric, not lexical", ptr("v0.10.0-rc.20260101:false v0.9.0:false"), true, "v0.10.0-rc.20260101"},
 		{"two candidates of one version", ptr("v0.9.0-rc.20260103:false v0.9.0-rc.20260101:false v0.8.0:false"), true, "v0.9.0-rc.20260101"},
+		// AC-P4-2: the oldest candidate across both shapes, the counter numeric.
+		{"two candidates of one day", ptr("v0.9.0-rc.20260101.2:false v0.9.0-rc.20260101.1:false v0.8.0:false"), true, "v0.9.0-rc.20260101.1"},
+		{"old shape before .1 of its day", ptr("v0.9.0-rc.20260101.1:false v0.9.0-rc.20260101:false v0.8.0:false"), true, "v0.9.0-rc.20260101"},
+		{"an older day first, whatever the counter", ptr("v0.9.0-rc.20260102.1:false v0.9.0-rc.20260101.7:false v0.8.0:false"), true, "v0.9.0-rc.20260101.7"},
+		{"nine before ten", ptr("v0.9.0-rc.20260101.10:false v0.9.0-rc.20260101.9:false v0.8.0:false"), true, "v0.9.0-rc.20260101.9"},
 		{"candidate of a lower version", ptr("v0.8.0-rc.20260101:false v0.9.0:false"), false, ""},
 	}
 	for _, c := range cases {

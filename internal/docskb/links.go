@@ -27,7 +27,7 @@ var (
 	wikiLinkRe  = regexp.MustCompile(`\[\[[^\[\]]*\]\]`)
 	listItemRe  = regexp.MustCompile(`^\s*(?:[-*+]|\d+[.)])\s`)
 	decisionNum = regexp.MustCompile(`\bD(\d+)\b`)
-	releaseRe   = regexp.MustCompile(`^v\d+\.\d+\.\d+(-rc\.\d+)?$`)
+	releaseRe   = regexp.MustCompile(`^v\d+\.\d+\.\d+(-rc\.\d+(\.\d+)?)?$`)
 	schemeRe    = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]*:`)
 )
 

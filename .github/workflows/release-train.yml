@@ -159,8 +159,19 @@ jobs:
             echo "::error::cannot read the version from the release PR title '$title'" >&2
             exit 1
           fi
-          # Must match the pre-release rule of preview.yml (vX.Y.Z-<suffix>).
-          tag="v${version}-rc.$(date -u +%Y%m%d)"
+          # One tag per candidate: vX.Y.Z-rc.<YYYYMMDD>.<n>, <n> one more than the highest of
+          # today's runs of preview.yml, whatever their conclusion. A build that failed made
+          # no tag and no release: its run title (the tag, preview.yml's run-name) is the
+          # only record of it, so a read of the runs that fails stops here, dispatching
+          # nothing, rather than reuse a number. Must match the pre-release rule of
+          # preview.yml (vX.Y.Z-<suffix>).
+          today=$(date -u +%Y%m%d)
+          if ! runs=$(gh run list --workflow preview.yml --limit 50 --json displayTitle --jq '.[].displayTitle'); then
+            echo "::error::cannot read the runs of preview.yml (gh run list): no candidate dispatched, so that no tag is reused" >&2
+            exit 1
+          fi
+          last=$(printf '%s\n' "$runs" | grep -E -- "-rc\.${today}\.[0-9]+$" | grep -F -- "v${version}-rc." | sed 's/.*\.//' | sort -n | tail -n 1 || true)
+          tag="v${version}-rc.${today}.$(( 10#${last:-0} + 1 ))"
           gh workflow run preview.yml -f tag="$tag"
           # One comment for every candidate of the PR, edited in place: the marker finds it,
           # the tags of the earlier candidates are read back from its own lines.
@@ -213,13 +224,13 @@ jobs:
           # Only a release candidate counts, not any preview of main: run-name carries the tag.
           read -r rc_sha rc_at < <(gh run list --workflow preview.yml --branch main --status success --limit 20 \
             --json headSha,updatedAt,displayTitle \
-            --jq '[.[] | select(.displayTitle | test("-rc\\.[0-9]{8}$"))][0] | "\(.headSha) \(.updatedAt)"') || true
+            --jq '[.[] | select(.displayTitle | test("-rc\\.[0-9]{8}(\\.[0-9]+)?$"))][0] | "\(.headSha) \(.updatedAt)"') || true
           if [ -z "${rc_sha:-}" ] || [ "$rc_sha" != "$head_sha" ]; then
             # Name the cause: a candidate whose build or smoke failed (D995) also
             # leaves no successful run, and "not the head of main" hid it.
             failed_url=$(gh run list --workflow preview.yml --branch main --limit 20 \
               --json conclusion,displayTitle,url \
-              --jq '[.[] | select(.displayTitle | test("-rc\\.[0-9]{8}$"))][0] | select(.conclusion == "failure") | .url') || true
+              --jq '[.[] | select(.displayTitle | test("-rc\\.[0-9]{8}(\\.[0-9]+)?$"))][0] | select(.conclusion == "failure") | .url') || true
             if [ -n "${failed_url:-}" ]; then
               skip "the last release candidate build (or the README film) failed (${failed_url}). Fix it, run \`release-train\` by hand with \`action: rc\`, try the new candidate, then remove and add \`rc-ok\` again."
             fi
