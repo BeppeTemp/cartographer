@@ -85,7 +85,7 @@ state; the plans are read by the subagents that implement them.
    of plans that only share files (A says "before B", B says "before A"). That is
    not a hard dependency: pick one order and state it in the wave plan.
 3. Build the graph, two edge types:
-   - **Hard code dependency** — a plan uses code a sibling introduces (a new client method, a new helper). These form **chains**: the next change's worktree branches from its predecessor's branch as soon as that one is committed (the review runs once, on the chain's tip, §3), and is queued with `AFTER=<predecessor slug>`.
+   - **Hard code dependency** — a plan uses code a sibling introduces (a new client method, a new helper). These form **chains**: each change keeps its own branch and worktree (`make ready` takes the slug from the branch and squashes it), each stacked on its predecessor's branch, the worktree of change n+1 created from `feat/<n>` once change n is committed (only the coordinator creates worktrees: it does so from the main working copy, by absolute path, and sends the path to the same implementer with `SendMessage`). One implementer may write the changes in order, continuing in each new worktree, with its own commit series and message file per change. The chain is reviewed once over `<chain base>..<tip>`, checked once on the tip (§3) and queued in order with `AFTER=<predecessor slug>` (§4).
    - **Shared file** — plans touching the same code or the same current-state page can conflict at merge. A decision is not a shared file: one decision is one `docs/decisions/D<n>-<slug>.md`, so two plans adding two decisions never conflict there. The **generated index** is the exception: it is regenerated, not merged (see §4).
 4. Plans that share a **hot file** (one touched by three or more plans, e.g. `internal/lint/lint.go` or `internal/mcpserver/conformance.go`) go in **one sequential chain**, not in parallel waves: each rebase there is a real conflict, and resolving it costs more than the time saved.
 5. Emit **waves**: independent roots with disjoint code file-sets run in parallel; dependency chains run internally sequential but in parallel with each other when their file-sets are disjoint. One change per entry of the plan's `## Changes` section; entries of one plan that depend on each other run as a chain.
@@ -93,30 +93,31 @@ state; the plans are read by the subagents that implement them.
 
 ## 2 — Delegate each plan to a coding subagent
 
-One change entry of a plan → one coding subagent → one worktree; the spawn prompt names the entry and the mandate implements the WPs of that entry only. **No client gives isolation for
+One change entry of a plan → one coding subagent → one worktree (a chain's entries may go to one subagent, in order, each in its own worktree: the spawn prompt names the entries, and the coordinator sends each next worktree's path when it creates it); the mandate implements the WPs of the entries named only. **No client gives isolation for
 free**: every one of them shares the filesystem with its own subagents, so the
 coordinator creates the worktree first and puts its absolute path in the
 mandate.
 
 ```bash
 make worktree-add SLUG=<slug>     # fetches upstream (origin when there is no upstream remote), branches feat/<slug> from its main
-# a chain's next change: git worktree add .worktrees/<slug> -b feat/<slug> feat/<predecessor>
+# a chain's next change, once its predecessor is committed (absolute path, from the main working copy):
+# git worktree add <repo>/.worktrees/<slug> -b feat/<slug> feat/<predecessor>
 ```
 
 `.worktrees/` is git-ignored, so a worktree never shows up as untracked noise.
 Never run two subagents in the same working copy. Worktrees branch from fresh
 `upstream/main` (`origin/main` without an `upstream` remote), or from the predecessor's
-reviewed branch in a chain, so each subagent sees the code it builds on.
+branch once its change is committed, in a chain, so each subagent sees the code it builds on.
 
 Spawn the `cartographer-plan-implementer` subagent (`.claude/agents/`) with `Agent`
 and `subagent_type: cartographer-plan-implementer`, in the background: it already carries the mandate below and a fixed
 ≤10-line report, so the spawn prompt is just the absolute plan file path with the words
-`maintainer mode, plan file given by the user`, and the absolute worktree path. `isolation: "worktree"` is available, but pass the `make worktree-add` path
+`maintainer mode, plan file given by the user`, and the absolute worktree path (a chain's first change; the next ones are sent to the implementer as they are created). `isolation: "worktree"` is available, but pass the `make worktree-add` path
 explicitly. Without the agent, pass the mandate inline.
 
 Canonical mandate (self-contained — the subagent never sees this conversation):
 
-- Work **only** inside `<absolute-worktree-path>`; every command runs there. The tools inherit no working directory from this conversation, so pass it explicitly: `git -C <path>`, `make -C <path>`. Sibling subagents are active on other worktrees: never revert or touch their files.
+- Work **only** inside the worktrees named in this mandate; every command runs there. The tools inherit no working directory from this conversation, so pass it explicitly: `git -C <path>`, `make -C <path>`. Sibling subagents are active on other worktrees: never revert or touch their files.
 - Without the words `maintainer mode, plan file given by the user` in this mandate stop: nothing is implemented.
 - Read the plan file.
 - First resolve every anchor of the change (a file path plus a symbol in it) to `file:line` on the worktree's base, then implement **all** WPs exactly, from those lines; do not re-explore from scratch. An anchor that does not resolve is a stale plan: implement what is still unambiguous, then stop and name the anchor in the report; never guess. A plan may still carry `file:line` pointers and criteria without a kind or an id: such a pointer is the anchor of the symbol on that line at the commit the plan's `Verified against main: <sha>` line names (`git show <sha>:<file>`), found again on the base (no such line: an unresolved anchor); a criterion without a kind is `test`, and a criterion without an id is read as it is written (no `AC:` line for it).
@@ -127,22 +128,27 @@ Canonical mandate (self-contained — the subagent never sees this conversation)
 - Right after committing, run `scripts/pr-triage.sh` from the worktree (it measures committed state only; `TRIAGE_BASE=<predecessor>` in a chain, `TRIAGE_BODY` the message); past the size cap stop and propose a split by work package before you report. The coordinator's run on the tip (§3) stays.
 - Write the tests in the plan's "Tests" section; the test that proves a `test` criterion carries the criterion's id (`AC-<plan id>-<n>`) in a comment on or right above it.
 - **Same session**: update the docs per each line of the "Closing" section's docs delta that names this change (a line without a slug belongs to the plan's last change) and `docs/index.md` §Documentation maintenance rules, and, if the Closing section names one, add the pending decision file with `make decisions-new SLUG=<slug> TOPIC=<topic>` (`docs/decisions/D-new-<slug>.md`, cited as `D-new-<slug>`: the lander numbers both); never regenerate `docs/decisions.md` (the release PR does, D328). Every trap you hit is fixed where it bites: a test if it can be checked, a comment next to the code otherwise (D214).
-- The targeted tests of the packages it touches while iterating, never a check that waits for a shared build host. The plan's last change ends with one `make check-hosted` on the tip (GitHub-hosted, Linux and Windows), not one per change. Not `make gate` and not e2e: the lander gates the whole train once, in CI, every leg `main` runs (D2040).
+- The targeted tests of the packages it touches while iterating, never a check that waits for a shared build host. Never `make check-hosted`: the coordinator runs one on the tip beside the review (§3), and the report names the targeted runs. Not `make gate` and not e2e: the lander gates the whole train once, in CI, every leg `main` runs (D2040).
 - Commits on `feat/<slug>` (the branch already exists in the worktree), Co-Authored-By trailer; the coordinator squashes them into one when it queues the change. A review fix round **adds commits, it never amends**: the next round diffs `<reviewed commit>..HEAD`, and an amend rewrites the commit it names.
 - Write the change's commit message to `<worktree>/../<slug>.msg` (outside the tree): the title the plan gives (a conventional commit; its scope is one `scripts/pr-triage.sh --title-scopes` prints, or none), a body with the why (the plan stays private), one unwrapped `type(scope): ...` line per further WP, `Closes #<n>` for an issue the plan names and this change finishes, `Refs #<n>` for one a later change finishes, and in the trailer block (the last paragraph, after a blank line) one line per acceptance criterion of the change's WPs, `AC: <criterion id> <kind> <the sentence>`, at column 0.
   A `fix` ends with a `Found-by: <value>` line per defect (a value of `scripts/found-by.tsv`) and an `Introduced-by: <ref>` line per change that introduced one (`CONTRIBUTING.md` §Pull requests): as the plan or the mandate gives them; otherwise `Introduced-by:` is the commit `git log -S` or `git blame` on the defect's lines names, or `unknown`, never a guess, and a `Found-by:` nobody gave is asked for in the report. Never a `Cost:` line: the coordinator writes it.
   The message, commits and any test fixture carry placeholder names only —
   never a KB, host, user or project from a real setup (D259, `AGENTS.md`).
 - Never push, queue or open a PR: that is the coordinator's (§4).
-- Report `git diff --stat` vs the branch's base, the `make check` outcome, the message file path, `anchors: <n> resolved` (naming any that did not resolve) and `criteria without a test: <ids or none>`.
+- Report `git diff --stat` vs the branch's base, the targeted runs, the message file path, `anchors: <n> resolved` (naming any that did not resolve) and `criteria without a test: <ids or none>`.
 
 ## 3 — Review (coordinator GATE — never skip)
 
 Once per plan, on its tip (D2040): a chain of changes is reviewed and
 checked (`make check-hosted`) once, over the range from the chain's base, never change by
-change; a fix round adds commits to the change it concerns and the chain is rebased on it.
+change; a fix round adds commits on the branch of the change it concerns and its successors are rebased
+(`git rebase --onto <fixed branch> <old predecessor tip> <successor>`).
 A defect is fixed in the change where the review asks, the last one included: the chain lands
 together, as one unit judged by its tip's pre-check (D2304).
+The coordinator starts one `make -C .worktrees/<slug> check-hosted` on the tip, in the
+background, when it starts review round 1; the implementers never run it. A fix round runs
+targeted tests only; the rule, in one wording (the check of a fix starts when it lands and overlaps the coordinator's read):
+a fix that changes any non-test, non-doc file gets one more hosted check; the change is queued only after a green hosted check of the last such commit (a doc is a Markdown file under `docs/`; a test is a test file) (D2311). Queue (§4) only on it.
 `scripts/pr-triage.sh` run in the tip's worktree (branch mode; `TRIAGE_BASE=<chain's base>`)
 gives the
 tier; the procedure is `cartographer-review-pr` §3–§5 on the branch, with the coordinator on the verifying
@@ -156,8 +162,17 @@ subagent's report — report text can be garbled or compressed.
   **verified** findings — never the raw report — to the implementer that wrote
   the change with `SendMessage` to its agent id. The fix mandate: add commits on the branch,
   never amend; answer each finding; one report line per finding. Repeat per
-  `cartographer-review-pr` §5 (at most three rounds, later rounds read `<reviewed commit>..HEAD`).
-  The queue (§4) comes after the last round.
+  `cartographer-review-pr` §5: every verified finding that is cheap goes in ONE fix round,
+  whatever its severity; a second round (a reviewer on `<reviewed commit>..HEAD`) runs only if
+  round 1 had a verified `high` or `medium`, else the coordinator reads that range itself (the
+  shortcut is only on a maintainer's change, known from round 1's triage, not from the Role
+  line of a branch-mode run; every other PR, contributor or bot, gets the round. The coordinator
+  first runs `TRIAGE_BASE=<reviewed commit> scripts/pr-triage.sh` on the range: any
+  supply-chain or invariant-area file in it, or a tier above round 1's, means a reviewer round
+  runs anyway, with the security reviewer on full tier); round 3 only if round 2 still has a
+  verified `high` or `medium`, and a later round spawns only the reviewer(s) whose finding it
+  re-checks; at most three rounds. A `low` not fixed is a follow-up line in the message body or a `bug` issue
+  with `Found-by: review`. The queue (§4) comes after the last round.
 - **What the coordinator reads**: the triage, the verified findings, the ranges of
   the reviewer's invariants line (full tier), and supply-chain hunks whole.
 - After the last round the coordinator records the review: `REVIEW="<tier>, <n> rounds"`
