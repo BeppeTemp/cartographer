@@ -28,7 +28,7 @@ if [ -n "${BASH_REMATCH[3]}" ]; then
     grep -qx "$sc" <<<"$allowed" || { echo "commit-lint: scope '$sc' is not one of: $(tr '\n' ' ' <<<"$allowed")" >&2; exit 1; }
   done
 fi
-body=$(tail -n +2 "$msg" | grep -vE '^(Lander-[A-Za-z]+|Review): ' || true)
+body=$(tail -n +2 "$msg" | grep -viE '^(lander-[a-z]+|review)[[:space:]]*:' || true)
 if ! printf '%s' "$body" | (cd "$top" && go run ./internal/changelog/gen -check-body) >&2; then
   echo "commit-lint: a conventional line of the body is wrapped (keep each on one line)" >&2
   exit 1

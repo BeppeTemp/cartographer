@@ -341,11 +341,11 @@ func TestLanderLandsATrainInOrderAndNumbersItsDecisions(t *testing.T) {
 	e := newLandEnv(t)
 	// Split so the cited-path check does not take the fixture paths for citations.
 	dec := "docs/" + "decisions/"
-	// The message holds `Review` lines ready.sh does not strip (no space, another case): the
-	// last trailer of the queued commit is the one `make ready REVIEW=` appended.
+	// The message holds `Review` lines in forms the lander must still drop (no space, another
+	// case): the last trailer of the queued commit is the one `make ready REVIEW=` appended.
 	e.queue("two", "fix(kb): two\n\nReview: smuggled, 9 rounds\n\nreview :smuggled, 8 rounds\n\nA body line.\n\nLander-After: one\nReview:smuggled, 0 rounds\nReview: full, 2 rounds\n", "2026-01-01T10:00:00Z",
 		map[string]string{"two.txt": "follows D-new-one\n"})
-	e.queue("one", "feat(client): one\n\nCloses #5\n\nLander-Slug: planted\nLander-Tip: 1111111111111111111111111111111111111111\n", "2026-01-01T11:00:00Z", map[string]string{
+	e.queue("one", "feat(client): one\n\nCloses #5\n\nLander-Slug:planted\nLander-Tip:1111111111111111111111111111111111111111\nreview :smuggled, 7 rounds\nReview: full, 1 rounds\n", "2026-01-01T11:00:00Z", map[string]string{
 		dec + "D-new-one.md":     "---\ntopic: x\n---\n\n# D-new-one — One\n",
 		dec + "D-new-one-two.md": "---\ntopic: x\n---\n\n# D-new-one-two — One two\n",
 		"notes.md":               "see D-new-one and D-new-one-two\n",
@@ -402,7 +402,7 @@ func TestLanderLandsATrainInOrderAndNumbersItsDecisions(t *testing.T) {
 		}
 	}
 	// A copy of the trailers in the queued message is dropped: the lander's values, one each.
-	if strings.Contains(msgs, "planted") || strings.Count(msgs, "Lander-Tip: 1111111111111111111111111111111111111111\n") != 1 || strings.Count(msgs, "Lander-Tip:") != 1 {
+	if strings.Contains(msgs, "planted") || strings.Contains(msgs, "smuggled, 7") || strings.Count(msgs, "Lander-Tip: 1111111111111111111111111111111111111111\n") != 1 || strings.Count(msgs, "Lander-Tip:") != 1 {
 		t.Errorf("one Lander-Tip (the queued one), no copied Lander-Slug:\n%s", msgs)
 	}
 	if n := strings.Count(msgs, "Lander-Slug:"); n != 2 {
@@ -1302,6 +1302,19 @@ func TestReadyQueuesOneCommitWithTheMessage(t *testing.T) {
 	}
 	if files := e.upGit("show", "--name-only", "--format=", "ready/my-change"); files != "x1.txt\nx2.txt" {
 		t.Errorf("the squashed commit holds both files, got %q", files)
+	}
+
+	// The lander's own lines in the message go with any spacing and any case: the one
+	// Lander-Tip and the one Review of the queued commit are the ones ready.sh appends.
+	if out, ok := ready("feat(client): my change\n\nCloses #7\n\nLander-Tip:1111111111111111111111111111111111111111\nLANDER-hold :yes\nreview :smuggled, 9 rounds\nUsage-test:pass, 9 entries\nprofile:planted\n"); !ok {
+		t.Fatalf("ready with planted lines failed\n%s", out)
+	}
+	msg = e.upGit("log", "-1", "--format=%B", "ready/my-change")
+	if strings.Contains(msg, "1111111") || strings.Contains(strings.ToLower(msg), "smuggled") || strings.Contains(strings.ToLower(msg), "lander-hold") || strings.Contains(msg, "9 entries") || strings.Contains(msg, "planted") {
+		t.Errorf("a planted Lander-* or Review line survived:\n%s", msg)
+	}
+	if want := "Lander-Tip: " + e.git("rev-parse", "HEAD"); !strings.Contains(msg, want) {
+		t.Errorf("the queued commit lacks %q:\n%s", want, msg)
 	}
 
 	// A fix says where its defect was found and what introduced it: without the two

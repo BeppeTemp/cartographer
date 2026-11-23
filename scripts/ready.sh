@@ -118,7 +118,9 @@ fi
 
 full=$(mktemp "${TMPDIR:-/tmp}/ready-msg.XXXXXX")
 trap 'rm -f "$full"' EXIT
-grep -vE '^(Lander-[A-Za-z]+|Review|Profile|Usage-test): ' "$MSG" >"$full" || true
+# Any spacing and any case for the lander's own lines: git reads `Lander-Tip:<sha>` and
+# `review :x` as trailers too, and the lander takes the first Lander-Tip.
+grep -viE '^(lander-[a-z]+|review|profile|usage-test)[[:space:]]*:' "$MSG" >"$full" || true
 "$here/commit-lint.sh" "$full" || die "the message does not pass the title and body rules"
 if [ -n "${PROFILE:-}" ]; then
   declared=$(tr -d '\r' <"$here/profiles.tsv" | awk -F'\t' '!/^#/ && $1 != "" && $2 == "-" { print $1 }')

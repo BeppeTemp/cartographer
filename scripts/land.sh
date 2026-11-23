@@ -341,8 +341,7 @@ export SIGNOFF_GATE=$gate_mode
 queue() { g for-each-ref --sort=committerdate --format='%(refname:lstrip=4) %(objectname)' refs/remotes/origin/ready/; }
 trailer() { g log -1 --format=%B "$2" | git interpret-trailers --parse | sed -n "s/^$1: *//p" | head -n 1; }
 # The review record of a queued commit: its LAST `Review` trailer, the one `make ready REVIEW=`
-# appended. ready.sh strips only `Review: ` with a space from the message, so an earlier
-# `Review:light` survives there and interpret-trailers normalises it into a trailer.
+# appended; ready.sh dropped every other `Review` line of the message, any spacing and case.
 # tier_rank <tier>: light 1, fast 2, standard 3, full 4; 0 for anything else.
 tier_rank() { case "$1" in light) echo 1 ;; fast) echo 2 ;; standard) echo 3 ;; full) echo 4 ;; *) echo 0 ;; esac; }
 review_of() { g log -1 --format=%B "$1" | git interpret-trailers --parse | sed -n "s/^Review: *//p" | tail -n 1; }
@@ -1492,7 +1491,7 @@ while :; do
     fi
     # Every `Review` line goes, with or without the space and in any case (`review :x` is a
     # trailer to git too): the record is the one value read above.
-    msg=$(git log -1 --format=%B | grep -vE '^Lander-[A-Za-z]+: ' | grep -viE '^review[[:space:]]*:' || true)
+    msg=$(git log -1 --format=%B | grep -viE '^(lander-[a-z]+|review)[[:space:]]*:' || true)
     # The lander's other trailers stay off main; the slug and the branch head ready.sh
     # squashed stay, so `make worktree-clean` can tell that the work of a feat/<slug>
     # worktree landed (the train PR is not its PR), and so does the review record, readable
