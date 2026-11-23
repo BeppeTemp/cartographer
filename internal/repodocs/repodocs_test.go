@@ -954,3 +954,28 @@ func TestProductionCodeDoesNotImportTestSupport(t *testing.T) {
 		}
 	}
 }
+
+// decisionRef reads a number of any length: most records are numbered above 999,
+// and a pattern capped at three digits let every one of their citations go
+// unchecked. Pending ids and tokens that merely contain a D are not citations.
+func TestCitedDecisionsReadsEveryLength(t *testing.T) {
+	root := t.TempDir()
+	ids := []int{7, 999, 1000, 12345, 2040}
+	body := fmt.Sprintf("D%d D%d D%d D%d (D%d).\n", ids[0], ids[1], ids[2], ids[3], ids[4]) +
+		"pending D-new-some-slug is not a number; nor is AD1234, D12x or a hex ad1234D5.\n"
+	if err := os.WriteFile(filepath.Join(root, "a.md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cited, err := CitedDecisions(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cited) != 5 {
+		t.Errorf("want exactly %v, got %v", ids, cited)
+	}
+	for _, n := range ids {
+		if len(cited[n]) != 1 {
+			t.Errorf("D%d not read: %v", n, cited)
+		}
+	}
+}

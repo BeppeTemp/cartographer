@@ -44,7 +44,7 @@ import (
 const fixedCostBytesPerToken = 2.5
 
 // fixedCostProfiles are the three listings an agent connection can ask for:
-// the default agent profile, `?access=read` (D1144) and `?access=read-min`, the
+// the default agent profile, `?access=read` (D1018) and `?access=read-min`, the
 // 9-tool read profile (D1184). Ordered from largest to smallest.
 var fixedCostProfiles = []struct{ name, path string }{
 	{"agent", RoutedMountPath},

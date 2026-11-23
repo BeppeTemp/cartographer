@@ -1973,8 +1973,8 @@ type moveOptions struct {
 	// do not admit the concept's type, before anything is written (#921).
 	RefuseStrictType bool
 	// ReportMentions adds `mentions` / `mentions_omitted` to the result: the
-	// plain-text occurrences of an old ID that the link rewrite does not own
-	// (D1070). Off for kb_repair, which discards the result.
+	// plain-text occurrences of an old ID that the link rewrite does not own.
+	// Off for kb_repair, which discards the result.
 	ReportMentions bool
 	// MentionCandidates, when set, names the concept ids whose content holds
 	// one of the old IDs, so the mentions scan reads those files only; nil
