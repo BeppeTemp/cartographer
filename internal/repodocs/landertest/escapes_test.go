@@ -1,4 +1,4 @@
-package repodocs
+package landertest
 
 import (
 	"bytes"
@@ -165,7 +165,7 @@ func TestEscapesReportCountsTheFixesByPhase(t *testing.T) {
 		"| missing (fixes with no line) | 1 |",
 		"Median days from the introducing commit to the fix: 15 (7 resolved).",
 		"| review tier of the introducing change | defects | changes landed in the 60 days to 2026-01-20 |",
-		"| light | 1 | 1 |", "| standard | 0 | 0 |", "| full | 3 | 3 |", "| not recorded | 2 | 14 |",
+		"| light | 1 | 1 |", "| standard | 0 | 0 |", "| fast | 0 | 0 |", "| full | 3 | 3 |", "| not recorded | 2 | 14 |",
 		"| other (not a known tier) | 1 | 1 |")
 	wantRows(t, out, 3,
 		"| review | 8 | 7 |", "| gate | 7 | 5 |", "| main-ci | 5 | 4 |", "| nightly | 4 | 3 |", "| rc | 3 | 1 |",
@@ -181,7 +181,7 @@ func TestEscapesReportCountsTheFixesByPhase(t *testing.T) {
 		"- Last score in `evals/scores.md`: 2025-12-01, 50 days ago: run them (`cartographer-review-pr` §Changing the reviewer).")
 	wantRows(t, out, 6,
 		"3 of 14 changes of the window carry a `Cost:` line (`impl` and `review` in thousands of tokens; a `?` figure is left out of the medians).",
-		"| light | 0 | 0 | - | - |", "| standard | 0 | 0 | - | - |", "| full | 2 | 2 | 120k | 70k |",
+		"| light | 0 | 0 | - | - |", "| standard | 0 | 0 | - | - |", "| fast | 0 | 0 | - | - |", "| full | 2 | 2 | 120k | 70k |",
 		"| not recorded | 12 | 1 | 30k | - |",
 		"| 1 | 1 |", "| 2 | 1 |", "| 3 | 0 |", "| ? | 1 |")
 	wantRows(t, out, 7, "Open `process` issues: 2.")

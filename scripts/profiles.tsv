@@ -29,10 +29,12 @@
 #
 # security: packages whose invariants are written down outside the code (an area AGENTS.md) or
 # are about security and concurrency. process: what runs on, or gets installed into, users'
-# machines without being Go code, and the files agents execute (D857, D955): at any size a full
-# review, never a standing merge.
+# machines without being Go code, the files agents execute, the prompts a binary embeds (the
+# Surveyor's), the gate's quarantine list and .gitattributes (D857, D955): at any size a full review,
+# never a standing merge, and never the fast lane (scripts/pr-triage.sh: a change that matches no path row with a tier floor,
+# so no invariant area and no supply-chain file, is the only one that can be `fast`).
 security	*	^internal/(mcpserver|provisioning|auth|gitx|sops|service)/	full	-	-	no
-process	*	^(\.github/workflows/|install\.(sh|ps1)$|\.goreleaser\.yaml$|Dockerfile$|release-please-config\.json$|internal/skillbundle/bundled/|(.*/)?(AGENTS|CLAUDE)\.md$|SECURITY\.md$|CONTRIBUTING\.md$|\.agents/|\.claude/|\.kiro/|\.opencode/|\.github/agents/|\.github/ISSUE_TEMPLATE/|\.github/pull_request_template\.md$|Makefile$|scripts/)	full	-	-	no
+process	*	^(\.github/workflows/|install\.(sh|ps1)$|\.goreleaser\.yaml$|Dockerfile$|release-please-config\.json$|internal/skillbundle/bundled/|(.*/)?(AGENTS|CLAUDE)\.md$|SECURITY\.md$|CONTRIBUTING\.md$|\.agents/|\.claude/|\.kiro/|\.opencode/|\.github/agents/|\.github/ISSUE_TEMPLATE/|\.github/pull_request_template\.md$|Makefile$|scripts/|\.gitattributes$|test/quarantine\.tsv$|internal/surveyor/.*\.md$)	full	-	-	no
 fix	fix	-	-	Found-by,Introduced-by	-	-
 feature	feat,perf,refactor,breaking	-	-	-	held	-
 live	-	-	-	-	-	-

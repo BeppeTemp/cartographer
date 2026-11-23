@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ready.sh — a maintainer hands a finished, reviewed change to the lander (D1706).
 #
-#   make ready MSG=<file> [AFTER=<slug>] [HOLD=1] [NOW=1] [REVIEW="<tier>, <n> rounds"] [PROFILE=<name>]
+#   make ready MSG=<file> [AFTER=<slug>] [HOLD=1] [NOW=1] REVIEW="<tier>, <n> rounds" [PROFILE=<name>]
 #
 # In the change's worktree: squashes the branch onto its merge-base with main into ONE
 # commit whose message is MSG (a conventional title, changelog body lines on one line
@@ -57,6 +57,9 @@ slug=${branch#*/}
 [[ "$slug" =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "the branch name must end in a slug of lowercase letters, digits and dashes: $branch"
 [ -z "$(git status --porcelain)" ] || die "the tree is not clean: commit or drop the changes first"
 [ -n "${MSG:-}" ] && [ -s "$MSG" ] || die "MSG=<file> with the change's commit message is required"
+review_re='^(light|fast|standard|full), [0-9]+ rounds?$'
+[[ "${REVIEW:-}" =~ $review_re ]] ||
+  die "REVIEW=\"<tier>, <n> rounds\" is required (tier: light, fast, standard or full; e.g. REVIEW=\"full, 2 rounds\"): the lander checks the record against the tier its own triage computes"
 
 "$here/upstream-repo.sh" --require-remote >/dev/null || die "cannot tell the upstream repository"
 repo=$("$here/upstream-repo.sh")
@@ -123,7 +126,7 @@ args=()
 [ -z "${AFTER:-}" ] || args+=(--trailer "Lander-After: $AFTER")
 [ -z "${HOLD:-}" ] || args+=(--trailer "Lander-Hold: yes")
 [ -z "${NOW:-}" ] || args+=(--trailer "Lander-Now: yes")
-[ -z "${REVIEW:-}" ] || args+=(--trailer "Review: $REVIEW")
+args+=(--trailer "Review: $REVIEW")
 # The branch head this commit squashes: with the slug it lets `make worktree-clean` prove
 # the work of a worktree landed (a reused slug or a copied trailer has another head).
 args+=(--trailer "Lander-Tip: $(git rev-parse HEAD)")

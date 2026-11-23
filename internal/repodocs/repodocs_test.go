@@ -155,7 +155,7 @@ func TestNoDecisionFileKeepsATemplatePlaceholder(t *testing.T) {
 // and a current-state file that cites a superseded record names its successor
 // (`supersedes`/`superseded_by`, `amends`/`amended_by`). No guard against finding no
 // relation: a tree with none is valid, and the fixtures of
-// decision_relations_test.go prove the check bites.
+// internal/repodocs/landertest/decision_relations_test.go prove the check bites.
 func TestDecisionRelationsHold(t *testing.T) {
 	root := repoRoot(t)
 	decisions, err := LoadDecisions(root)

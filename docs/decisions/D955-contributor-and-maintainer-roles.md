@@ -1,6 +1,6 @@
 ---
 topic: project-governance
-amended_by: D1425, D1451
+amended_by: D1425, D1451, D2315
 ---
 
 # D955 — Contributor and maintainer roles: the approved-plan rule is enforced in CI

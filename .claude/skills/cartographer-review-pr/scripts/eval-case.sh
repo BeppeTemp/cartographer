@@ -149,9 +149,9 @@ pairs() {
     if [ -z "$c" ]; then why_not+="$ref names no commit of origin/main older than the fix; "; continue; fi
     t=$(tier "$c")
     case "$t" in
-      standard | full | "not recorded") ;;
+      standard | fast | full | "not recorded") ;;
       light) why_not+="$ref (${c:0:12}) was reviewed light, by no reviewer; "; continue ;;
-      *) why_not+="$ref (${c:0:12}) records the review tier '$t', none of light, standard, full; "; continue ;;
+      *) why_not+="$ref (${c:0:12}) records the review tier '$t', none of light, standard, fast, full; "; continue ;;
     esac
     if grep -qxF "$c"$'\t'"$fix" <<<"$known"; then why_not+="$ref (${c:0:12}) is already a row; "; continue; fi
     case "$found" in *"$c"*) continue ;; esac

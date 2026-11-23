@@ -168,11 +168,17 @@ subagent's report — report text can be garbled or compressed.
   shortcut is only on a maintainer's change, known from round 1's triage, not from the Role
   line of a branch-mode run; every other PR, contributor or bot, gets the round. The coordinator
   first runs `TRIAGE_BASE=<reviewed commit> scripts/pr-triage.sh` on the range: any
-  supply-chain or invariant-area file in it, or a tier above round 1's, means a reviewer round
+  supply-chain or invariant-area file in it, or a tier above round 1's (light < fast < standard < full), means a reviewer round
   runs anyway, with the security reviewer on full tier); round 3 only if round 2 still has a
   verified `high` or `medium`, and a later round spawns only the reviewer(s) whose finding it
   re-checks; at most three rounds. A `low` not fixed is a follow-up line in the message body or a `bug` issue
   with `Found-by: review`. The queue (§4) comes after the last round.
+- **Fast tier** (`scripts/pr-triage.sh` prints `Tier: fast`: a maintainer's change of 51 to 150 production lines that
+  matches no path row with a tier floor in the profiles, so no invariant area and no supply-chain file, touches nothing under `docs/decisions/`
+  and holds no binary file; `cartographer-review-pr` §1): one contract-reviewer round with the hosted check beside
+  it, its lows fixed in one pass, then the triage on the whole change again: still `fast`, the coordinator reads
+  `<reviewed commit>..HEAD` and queues (§4); no longer (a supply-chain path, a decision, over 150 lines) or a verified
+  `high` or `medium`, the change leaves the lane and gets the rounds of its tier.
 - **What the coordinator reads**: the triage, the verified findings, the ranges of
   the reviewer's invariants line (full tier), and supply-chain hunks whole.
 - After the last round the coordinator records the review: `REVIEW="<tier>, <n> rounds"`

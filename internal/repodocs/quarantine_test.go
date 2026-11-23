@@ -337,10 +337,13 @@ func TestQuarantineScript(t *testing.T) {
 			"internal/repodocs checks the documents and the process"},
 		{"a test of internal/repodocs in another package", "example.com/m/b\tTestPinnedCheck\t1\t2026-01-01\t2026-01-02",
 			"TestPinnedCheck is a test of internal/repodocs, which cannot be quarantined"},
+		{"a test of internal/repodocs/landertest in another package", "example.com/m/b\tTestLanderPinned\t1\t2026-01-01\t2026-01-02",
+			"TestLanderPinned is a test of internal/repodocs, which cannot be quarantined"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := quarantineTree(t, header+a+tc.line+"\n", map[string]string{
-				"internal/repodocs/pins_test.go": "package repodocs\r\n\r\nimport \"testing\"\r\n\r\nfunc TestPinnedCheck(t *testing.T) {}\r\n",
+				"internal/repodocs/pins_test.go":            "package repodocs\r\n\r\nimport \"testing\"\r\n\r\nfunc TestPinnedCheck(t *testing.T) {}\r\n",
+				"internal/repodocs/landertest/pins_test.go": "package landertest\r\n\r\nimport \"testing\"\r\n\r\nfunc TestLanderPinned(t *testing.T) {}\r\n",
 			})
 			for _, mode := range []string{"--skip", "--list", "--count", "--expired", "--run"} {
 				out, errOut, code := runQuarantine(t, dir, "2026-01-10", mode)

@@ -148,6 +148,12 @@ type prFile struct {
 	Deletions int    `json:"deletions"`
 }
 
+// prRenamed is a file the API lists with its old name.
+type prRenamed struct {
+	prFile
+	Previous string `json:"previous_filename"`
+}
+
 // The stand-in gh serves the PR's file list the way the API does and applies the
 // --jq expression it is given the way `gh api --jq` does (jq -r), so what the test
 // drives is the expression pr-triage.sh really passes. With RAW_ROWS set it prints
@@ -173,7 +179,7 @@ const ownersMap = "internal/a/*.go\tdocs/sync.md\trow a\n"
 // gatePR runs `pr-triage.sh --gate 1` on a PR served by the stand-in gh: files as
 // the API would list them, or rawRows (exact bytes) in their place when not empty.
 // It returns the report and the exit code.
-func gatePR(t *testing.T, files []prFile, rawRows string) (string, int) {
+func gatePR(t *testing.T, files any, rawRows string) (string, int) {
 	t.Helper()
 	bash := bashOrSkip(t)
 	dir := t.TempDir()
@@ -286,13 +292,14 @@ func TestPRTriageSkipsRowsWithANonNumericSize(t *testing.T) {
 		rows := fmt.Sprintf("12\t0\tinternal/a/real.go\na[$(touch %s)]\t0\tinternal/a/c.go\n0\ta[$(touch %s)]\tinternal/a/d.go\n", marker, marker)
 		out, code := gatePR(t, nil, rows)
 		noMarker(t, marker)
-		if code != 0 || !strings.Contains(out, "Size: production +12/-0 ") || !strings.Contains(out, "internal/a/*.go changed (+12/-0 production lines)") {
+		// A size field that is not a number is a file whose lines cannot be counted: it counts as over the cap.
+		if code != 1 || !strings.Contains(out, "BLOCK: over the size cap") || !strings.Contains(out, "Size: production +12/-0 ") || !strings.Contains(out, "internal/a/*.go changed (+12/-0 production lines)") {
 			t.Errorf("exit code %d\n%s", code, out)
 		}
 	})
 	t.Run("a negative size does not lower the production sum", func(t *testing.T) {
 		out, code := gatePR(t, nil, "900\t0\tinternal/big/gen.go\n-900\t0\tinternal/h/c.go\n0\t-900\tinternal/h/d.go\n")
-		if code != 1 || !strings.Contains(out, "BLOCK: over the size cap (900 > 500 production lines)") || !strings.Contains(out, "Size: production +900/-0 ") {
+		if code != 1 || !strings.Contains(out, "BLOCK: over the size cap (") || !strings.Contains(out, "Size: production +900/-0 ") {
 			t.Errorf("exit code %d\n%s", code, out)
 		}
 		if strings.Contains(out, "Tier: light") {
@@ -399,9 +406,20 @@ esac
 			if strings.Contains(string(out), "supply-chain") {
 				t.Errorf("the page printed before the 5xx must not reach the result:\n%s", out)
 			}
-			if n := strings.Count(readTmp(t, dir, "calls"), "x"); fmt.Sprint(n) != tc.calls {
+			callsLog, _ := os.ReadFile(filepath.Join(dir, "calls"))
+			if n := strings.Count(string(callsLog), "x"); fmt.Sprint(n) != tc.calls {
 				t.Errorf("the files read was made %d times, want %s\n%s", n, tc.calls, out)
 			}
 		})
+	}
+}
+
+// A renamed file is matched on both paths: one moved out of an invariant area keeps the full tier
+// by its previous name, which the API lists as previous_filename, as one moved into it does by
+// its new one.
+func TestPRTriageReadsThePreviousNameOfARenamedFile(t *testing.T) {
+	out, code := gatePR(t, []prRenamed{{prFile{Filename: "internal/kb/moved.go", Additions: 3}, "internal/mcpserver/moved.go"}}, "")
+	if code != 0 || !strings.Contains(out, "Tier: full — security: internal/mcpserver/moved.go") {
+		t.Errorf("a file renamed out of an invariant area is read by its previous name (exit %d)\n%s", code, out)
 	}
 }

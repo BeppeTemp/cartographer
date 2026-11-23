@@ -61,7 +61,8 @@ About 15 lines: size split into production, tests, docs and generated; areas;
 |---|---|---|
 | light | ≤ 50 production lines, outside the invariant areas | the coordinator reads the diff itself; no subagent |
 | standard | more, outside the invariant areas | `cartographer-contract-reviewer`, then §4 |
-| full | production code in `internal/{mcpserver,provisioning,auth,gitx,sops,service}`, or any supply-chain file (the `process` row of `scripts/profiles.tsv`, the one source of the invariant areas and of this list, with the tier floors, the trailers a kind of change owes and the freeze: the CI workflows, the installers, the release pipeline, the bundled skills, `AGENTS.md`/`CLAUDE.md`, `SECURITY.md`, `CONTRIBUTING.md`, `.claude/`, the Makefile, `scripts/`, the issue and PR templates) | `cartographer-contract-reviewer` and `cartographer-security-reviewer` in parallel, then §4 plus the coordinator reads the hunks the reviewer's invariants line names, against their `AGENTS.md` — not the whole area diff. Supply-chain hunks are read whole, by the user too: no standing approval merges them |
+| fast | a maintainer's change of 51 to 150 production lines that matches no path row with a tier floor in `scripts/profiles.tsv` (no invariant area, no supply-chain file), touches nothing under `docs/decisions/` and holds no binary file and no gitlink; the triage prints `Tier: fast` (D2315) | targeted tests while writing; `cartographer-contract-reviewer`, ONE round, with `make check-hosted` started alongside; its lows fixed in one pass, then the triage on the whole change (§5); no security reviewer; then `make ready` |
+| full | production code in `internal/{mcpserver,provisioning,auth,gitx,sops,service}`, or any supply-chain file: the `process` row of `scripts/profiles.tsv` (the one source of the invariant areas and of this list, with the tier floors, the trailers a kind of change owes and the freeze) lists the CI workflows, the installers, the release pipeline, the bundled skills, `AGENTS.md`/`CLAUDE.md`, `SECURITY.md`, `CONTRIBUTING.md`, `.claude/`, the Makefile, `scripts/`, the issue and PR templates, `.gitattributes`, `test/quarantine.tsv` and the embedded Surveyor prompts | `cartographer-contract-reviewer` and `cartographer-security-reviewer` in parallel, then §4 plus the coordinator reads the hunks the reviewer's invariants line names, against their `AGENTS.md` — not the whole area diff. Supply-chain hunks are read whole, by the user too: no standing approval merges them |
 
 ## 2 — Send back without reading the code
 
@@ -141,12 +142,17 @@ every finding costs the author a commit and the reviewer another round (D857):
   the coordinator otherwise reading `<reviewed commit>..HEAD` itself; every other PR, contributor
   or bot, gets the round (an author could draw only lows, then push unreviewed commits). Even on
   a maintainer's change, when `TRIAGE_BASE=<reviewed commit> scripts/pr-triage.sh` on that range
-  shows any supply-chain or invariant-area file, or a tier above round 1's, a reviewer round
+  shows any supply-chain or invariant-area file, or a tier above round 1's (light < fast < standard < full), a reviewer round
   runs, with the security reviewer on full tier. Round 3 runs only if round 2 still has a verified `high`
   or `medium`, and a later round spawns only the reviewer(s) whose finding it re-checks (plus
   the security reviewer when the range check above triggers). A `low` not fixed is recorded as a
   follow-up: a line in the message or PR body, or a `bug` issue with `Found-by: review`.
 - **Light tier: one round**, the coordinator's own read.
+- **Fast tier: one round** of `cartographer-contract-reviewer` (the hosted check runs beside it), its lows fixed in one
+  pass, then `TRIAGE_BASE=<base> scripts/pr-triage.sh` on the whole change with the fix applied: a change that is
+  still `fast` is read by the coordinator (`<reviewed>..HEAD`) and queued; one that no longer qualifies (it adds a
+  supply-chain path or a decision, or goes over 150 lines) leaves the lane and gets the rounds of its new tier, and so
+  does one with a verified `high` or `medium` in round 1.
 - A high or medium finding still open after round 3 says the approach is the
   problem, not the next fix: stop and hand it to the user (on a contributor's PR,
   `--request-changes` saying so).

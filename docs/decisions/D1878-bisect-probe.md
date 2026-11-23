@@ -14,4 +14,4 @@ amended_by: D2304
 - Bisect on hosted runners in parallel: every prefix at once is one gate's wall-clock time, but up to seven full gates against the account's 20 concurrent jobs, and the queued changes now get their risky legs pre-checked there already (D1877).
 - Probe web failures too: vitest and Playwright names do not map to a command the signoff can rerun alone today; the pre-check runs the frontend unit tests before a change joins a train.
 
-**Consequences.** A train red on a confirmed test costs at most one extra full gate besides the probes. The probe line is part of the signoff's output contract with the lander: `internal/repodocs/land_test.go` pins it through a fake `make`.
+**Consequences.** A train red on a confirmed test costs at most one extra full gate besides the probes. The probe line is part of the signoff's output contract with the lander: `internal/repodocs/landertest/land_test.go` pins it through a fake `make`.

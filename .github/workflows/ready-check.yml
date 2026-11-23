@@ -13,7 +13,7 @@ name: ready-check
 #
 # Only a maintainer can push a ready/ branch, so no pull request's code runs here; the jobs
 # hold no secret and only read the repository. What to run is decided by
-# scripts/ready-check-plan.sh, pinned by internal/repodocs/ready_check_test.go.
+# scripts/ready-check-plan.sh, pinned by internal/repodocs/landertest/ready_check_test.go.
 on:
   push:
     branches: ['ready/**']

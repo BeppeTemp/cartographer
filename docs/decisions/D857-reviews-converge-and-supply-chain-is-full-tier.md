@@ -1,6 +1,6 @@
 ---
 topic: project-governance
-amended_by: D2311
+amended_by: D2311, D2315
 ---
 
 # D857 — Reviews converge, and supply-chain files always get a full review

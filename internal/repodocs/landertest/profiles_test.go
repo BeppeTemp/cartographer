@@ -1,4 +1,4 @@
-package repodocs
+package landertest
 
 import (
 	"os"
@@ -184,7 +184,7 @@ func TestReadyReadsTheProfiles(t *testing.T) {
 	ready := func(msg string, extra ...string) (string, int) {
 		m := filepath.Join(e.tmp, "msg")
 		e.write(m, msg)
-		out, errb, code := e.acScript("ready.sh", append([]string{"MSG=" + m, "READY_NO_LANDER=1"}, extra...))
+		out, errb, code := e.acScript("ready.sh", append([]string{"MSG=" + m, "READY_NO_LANDER=1", "REVIEW=full, 1 rounds"}, extra...))
 		return out + errb, code
 	}
 	if out, code := ready("fix(mcp): x\n\nWhy.\n"); code == 0 || !strings.Contains(out, "Found-by") || e.refs("ready/") != "" {

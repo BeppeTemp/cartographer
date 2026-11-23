@@ -212,7 +212,8 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
     work package into PRs that land in order. The exception is a maintainer's
     decision: the label `size-exception` on the PR (only triage rights set it;
     a maintainer's own PR may instead have a body line starting `Size exception:`
-    that says why). A contributor's body line does not count;
+    that says why). A contributor's body line does not count. A production file whose lines cannot be counted
+    (a binary file, or one a `.gitattributes` marks `-diff`) counts as over the cap, so it needs that exception too;
   - the body follows `.github/pull_request_template.md`: its `Self-review`
     section reports an independent review run before opening — the
     `cartographer-contract-reviewer` subagent of the `cartographer-review-pr` skill, or your client's equivalent,
@@ -230,6 +231,14 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
     trailing comment (`uses: owner/repo@<40 hex> # v1.2.3`; resolve it with
     `gh api repos/<owner>/<repo>/git/ref/tags/<tag>`). `make gate` fails on any other
     reference (D1020); Dependabot keeps the pins current.
+- **The fast lane** (D2315): a maintainer's change of 51 to 150 production lines that matches no path row with a tier
+  floor in `scripts/profiles.tsv` (so no invariant area and no supply-chain file: nothing under `scripts/`, `.claude/`
+  or `.github/`, no Makefile, installer, `.gitattributes`, `test/quarantine.tsv` or embedded Surveyor prompt), touches
+  nothing under `docs/decisions/` and holds no binary file and no gitlink. `pr-triage.sh` prints `Tier: fast` from
+  paths, size, role and the kind of entry only (a rename is read by both paths); the review is one contract-reviewer
+  round with `make check-hosted` beside it, its lows fixed in one pass and the triage run again on the result, which
+  takes a change that no longer qualifies back to the rounds of its tier. `make ready` requires `REVIEW="<tier>, <n> rounds"`, and the lander re-runs main's triage on every queued
+  change and rejects one with no record or one recorded below its computed tier. The pre-check and the train gate are unchanged.
 - **What runs where** (D1592, D1610): a contributor's PR runs `test`, the web legs when the frontend changed, `pr-title`
   and `plan-gate`; a maintainer's PR is pushed with `make signoff`, whose `signoff` status `gate` looks for; a train is
   gated once and `main` runs its jobs again on the push. The required checks are `gate`, `pr-title` and `plan-gate`.
@@ -238,12 +247,12 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
   Which job runs on which event, and what each gate runs, is the generated table of `docs/testing.md` §Levels.
 - **A maintainer's change lands in a train** (D1706, D2304): finished and reviewed on its
   branch, it is queued with `make ready`, and the lander lands it with the changes it is chained to.
-  - **Queueing.** `make ready MSG=<message file>` queues it as **one commit** whose message
+  - **Queueing.** `make ready MSG=<message file> REVIEW="<tier>, <n> rounds"` queues it as **one commit** whose message
     is the changelog entry (a conventional title, body lines unwrapped, `Closes #n`; checked as
     `pr-title` and `plan-gate` would check a PR, `Size exception: <why>` included).
     `AFTER=<slug>` lands it after another queued change (a branch built on that change's
     branch is queued with its own diff only, also once that change has landed; a slug neither queued
-    nor landed is refused), `HOLD=1` keeps it queued, `REVIEW=` records the review.
+    nor landed is refused), `HOLD=1` keeps it queued. `REVIEW=` is required: it records the review, and the lander checks it against the tier its own triage computes.
   - **A chain is one unit.** Changes linked by `AFTER=` (a plan's chain) are one unit, a change
     with no link a unit of its own: a unit lands whole, in one train, or not at all, and its verdict is
     the pre-check of its tip, the change no other follows. A held member,

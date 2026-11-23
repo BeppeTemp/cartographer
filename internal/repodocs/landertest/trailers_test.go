@@ -1,6 +1,7 @@
-package repodocs
+package landertest
 
 import (
+	. "github.com/BeppeTemp/cartographer/internal/repodocs"
 	"os/exec"
 	"path/filepath"
 	"regexp"

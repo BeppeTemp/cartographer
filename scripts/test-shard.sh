@@ -13,7 +13,7 @@
 # shards run each test exactly once. The regex is per package because one
 # regex over the whole repository exceeds Windows' command-line limit.
 #
-# internal/repodocs is skipped: it checks the repository's documents, not
+# internal/repodocs and internal/repodocs/landertest are skipped: it checks the repository's documents, not
 # platform behaviour, and the ubuntu `test` job already runs it.
 #
 # The quarantined tests (test/quarantine.tsv, scripts/quarantine.sh) are dropped from the
@@ -32,7 +32,7 @@ trap 'rm -rf "$logs"' EXIT
 if [ "$index" = all ]; then
 	# The test binaries build once, here, rather than in every shard at the same time.
 	# shellcheck disable=SC2046
-	go test -list '.*' $(go list "${@:-./...}" | grep -v '/internal/repodocs$') >/dev/null 2>&1 || true
+	go test -list '.*' $(go list "${@:-./...}" | grep -Ev '/internal/repodocs(/landertest)?$') >/dev/null 2>&1 || true
 	# Each shard's log is printed whole after it ends, so the shards do not interleave.
 	pids=()
 	for ((i = 0; i < count; i++)); do
@@ -51,7 +51,7 @@ fi
 # parallel; each package's names come before its `ok <pkg>` line, in the
 # same order on every shard.
 # shellcheck disable=SC2046  # the package list is a word list on purpose
-go test -list '.*' $(go list "${@:-./...}" | grep -v '/internal/repodocs$') >"$logs/list"
+go test -list '.*' $(go list "${@:-./...}" | grep -Ev '/internal/repodocs(/landertest)?$') >"$logs/list"
 # The count's file comes through the environment: -v would read a backslash in the path as an escape.
 DROPPED_FILE="$logs/dropped" awk -v n="$count" -v i="$index" '
 	# The quarantine, <package> <Test> ...: by name, not FNR == NR, which an empty list (the usual
