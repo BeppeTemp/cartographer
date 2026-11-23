@@ -256,7 +256,7 @@ hosted() { # $1 = why the gate runs in CI, $2 = `fallback` when the build host w
   # failing Go tests of its failed jobs are printed for the lander's failing().
   for i in $(seq 1 "${SIGNOFF_GATE_TRIES:-240}"); do
     v=
-    run=$(gh run view "$id" -R "$slug" --json status,jobs 2>/dev/null) && v=$(printf '%s' "$run" | hosted_verdict) || true
+    run=$(gh run view "$id" -R "$slug" --json status,jobs,createdAt,updatedAt 2>/dev/null) && v=$(printf '%s' "$run" | hosted_verdict) || true
     [ -z "$v" ] || break
     sleep "${SIGNOFF_POLL:-15}"
   done
@@ -269,7 +269,13 @@ hosted() { # $1 = why the gate runs in CI, $2 = `fallback` when the build host w
     *) gh run cancel "$id" -R "$slug" >/dev/null 2>&1 || true
        die "the jobs of ci.yml run $id are unfinished after the wait: nothing posted" ;;
   esac
-  secs=$(( $(date +%s) - t0 ))
+  # The run's own clock (updatedAt - createdAt): a lander that slept while it waited would
+  # inflate this host's t0-based wait (one train reported 204m for a 14m run). Unreadable
+  # timestamps fall back to the wait.
+  secs=$(printf '%s' "$run" | jq -r '
+    def ts: sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601;
+    (.updatedAt | ts) - (.createdAt | ts) | if . >= 0 then floor else empty end' 2>/dev/null) || secs=
+  case "$secs" in ''|*[!0-9]*) secs=$(( $(date +%s) - t0 )) ;; esac
   post "gate=hosted$fb run=$id legs=${#jobs[@]} $(printf '%dm%02ds' $((secs / 60)) $((secs % 60))) - make $targets"
   echo "signoff: ${sha:0:12} on $branch signed off by ci.yml run $id"
   exit 0

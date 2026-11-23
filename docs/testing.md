@@ -1264,7 +1264,7 @@ kept as its synonym), dispatches `ci.yml` (below); `host` runs the targets on th
 private wrapper). The first line of every signoff names the mode, `signoff: gate: hosted` or `signoff: gate: host`,
 and the status description starts with it, so the 140-character cut can only lose its tail:
 `gate=hosted run=<id> legs=<n> <duration> - make <targets>` (`gate=hosted fallback=host-unavailable run=...` when the
-build host was asked for and answered 75), or `gate=host <platform> windows=<n>|none|unavailable web=yes|no
+build host was asked for and answered 75); a hosted `<duration>` is the run's own, `updatedAt - createdAt` of `gh run view`, so a lander that slept does not inflate it (the wait is the fallback when the timestamps cannot be read), or `gate=host <platform> windows=<n>|none|unavailable web=yes|no
 <duration>[ flaky=<n>] - make <targets>`, `windows=<n>` being the number of packages of the Windows leg. The
 platform is the one word of it the tree under test prints (its `signoff-platform` target), so it must be
 `<os>/<arch>` or the signoff stops. `signoff.sh --hosted-jobs` prints `HOSTED_JOBS`.
