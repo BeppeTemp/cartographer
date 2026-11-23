@@ -460,6 +460,10 @@ otherwise silent — no client, compiler or linter reports any of them:
   `make decisions-index`, `make codemap` and `make runs-where` do, so the
   writer and the checker cannot disagree about the format. The code map leaves
   out test-helper packages and `gen` commands by a rule (`IsHelperPackage`);
+- the second development client's agent definitions: `.kiro/agents/cartographer-<role>.json` is
+  generated from `.claude/agents/<role>.md` (`make kiro-agents`, the test run with `-update`) and
+  holds a pointer to the body, never a copy; a hand edit, a missing twin or an orphan fails
+  `TestKiroAgentsAreGeneratedFromTheClaudeOnes`;
 - no file outside `docs/decisions/` and `CHANGELOG.md` describes the build host as the
   train gate (`TestNoFileDescribesTheBuildHostAsTheGate`: comment markers and backticks
   dropped, lines joined, so a wrapped phrase is found too);

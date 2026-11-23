@@ -1,6 +1,7 @@
 package repodocs
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -91,6 +92,80 @@ func TestImplementerAgentsNeverRunCheckHosted(t *testing.T) {
 		rest = strings.ReplaceAll(rest, "the Windows leg of `make check-hosted` runs the test", "")
 		if strings.Contains(rest, "check-hosted") {
 			t.Errorf(".claude/agents/%s.md: `check-hosted` appears outside the \"never\" sentence: an implementer is not told to run it", name)
+		}
+	}
+}
+
+// AC-P6-4, AC-P6-5, AC-P6-6: the second client's definitions are generated from
+// the Claude ones, one file per role, and nothing else matches the prefix.
+func TestKiroAgentsAreGeneratedFromTheClaudeOnes(t *testing.T) {
+	root := repoRoot(t)
+	mds, _ := filepath.Glob(filepath.Join(root, ".claude", "agents", "cartographer-*.md"))
+	if len(mds) == 0 {
+		t.Fatal("no .claude/agents/cartographer-*.md: the check is not doing anything")
+	}
+	fix := "make kiro-agents"
+	want := map[string]bool{}
+	for _, md := range mds {
+		name := strings.TrimSuffix(filepath.Base(md), ".md")
+		raw, err := os.ReadFile(md)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gen, err := GenerateKiroAgent(name, raw)
+		if err != nil {
+			t.Error(err)
+			continue
+		}
+		rel := filepath.Join(".kiro", "agents", name+".json")
+		want[rel] = true
+		for _, line := range strings.Split(strings.SplitN(string(raw), "---\n", 3)[2], "\n") {
+			if len(line) >= 30 && strings.Contains(string(gen), line) {
+				t.Errorf("%s holds a line of the role's body: a definition carries a pointer, never a copy", rel)
+				break
+			}
+		}
+		if *update {
+			// Never write through a symlink: it could point outside the tree.
+			for _, p := range []string{filepath.Join(root, ".kiro"), filepath.Join(root, ".kiro", "agents"), filepath.Join(root, rel)} {
+				if fi, err := os.Lstat(p); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+					t.Fatalf("%s is a symlink: make kiro-agents refuses to write through it", p)
+				}
+			}
+			if err := os.MkdirAll(filepath.Join(root, ".kiro", "agents"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(root, rel), gen, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			continue
+		}
+		got, err := os.ReadFile(filepath.Join(root, rel))
+		if err != nil || string(got) != string(gen) {
+			t.Errorf("%s is missing or differs from its generator. Run `%s` and commit the result.", rel, fix)
+		}
+		var def kiroAgent
+		if err := json.Unmarshal(gen, &def); err != nil {
+			t.Fatal(err)
+		}
+		if readOnlyAgents[name] && (contains(def.Tools, "write") || contains(def.Tools, "code")) {
+			t.Errorf("%s: a read-only role has the write or the code tool (code can rewrite)", rel)
+		}
+		for _, r := range def.Permissions.Rules {
+			if r.Effect != "allow" || (r.Tool != "fs_read" && r.Tool != "fs_write") || (r.Tool == "fs_write" && !contains(def.Tools, "write")) {
+				t.Errorf("%s: the rule %+v is a pre-approval the .claude source does not have", rel, r)
+			}
+		}
+	}
+	existing, _ := filepath.Glob(filepath.Join(root, ".kiro", "agents", "cartographer-*.json"))
+	for _, f := range existing {
+		rel, _ := filepath.Rel(root, f)
+		if !want[rel] {
+			if *update {
+				_ = os.Remove(f)
+				continue
+			}
+			t.Errorf("%s has no .claude/agents source. Run `%s` or delete it.", rel, fix)
 		}
 	}
 }

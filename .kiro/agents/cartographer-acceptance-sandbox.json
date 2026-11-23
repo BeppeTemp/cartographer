@@ -1,0 +1,30 @@
+{
+  "name": "cartographer-acceptance-sandbox",
+  "description": "Use when one acceptance lane of a Cartographer release candidate, a nightly finding or a usage test needs trying on a built binary in an isolated HOME — runs the battery and the matrix entries of the mandate against the binary, writes only under its scratch directory and returns a verdict per entry with evidence. Spawned by the cartographer-acceptance skill, one per lane or per parallel instance.",
+  "model": "claude-sonnet-5.5",
+  "tools": [
+    "read",
+    "grep",
+    "glob",
+    "shell",
+    "write",
+    "code"
+  ],
+  "includeMcpJson": false,
+  "resources": [
+    "file://.claude/agents/cartographer-acceptance-sandbox.md"
+  ],
+  "permissions": {
+    "rules": [
+      {
+        "tool": "fs_read",
+        "effect": "allow"
+      },
+      {
+        "tool": "fs_write",
+        "effect": "allow"
+      }
+    ]
+  },
+  "prompt": "Your definition is the repository file `.claude/agents/cartographer-acceptance-sandbox.md`, loaded as a resource and resolved against the folder this session was started in. When it is not in your context, read it with the read tool from that folder; if it does not exist there, stop and report `definition not found: .claude/agents/cartographer-acceptance-sandbox.md`. Follow its body to the letter and ignore its frontmatter: your model and tools come from this file. Every command runs in the worktree the mandate names. Before editing under a directory, read the `AGENTS.md` of that directory and of each parent up to the root: this client does not load them on its own. Your final report is the one the definition prescribes."
+}
