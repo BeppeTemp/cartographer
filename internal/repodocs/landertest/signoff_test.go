@@ -644,7 +644,8 @@ func hostedRun(runStatus, def string, over map[string]string) string {
 		status, concl, _ := strings.Cut(st, " ")
 		jobs = append(jobs, fmt.Sprintf(`{"databaseId":%d,"name":%q,"status":%q,"conclusion":%q}`, 100+i, n, status, concl))
 	}
-	return fmt.Sprintf(`{"status":%q,"jobs":[%s]}`, runStatus, strings.Join(jobs, ","))
+	// The run's own clock: 14m07s apart, with fractional seconds on updatedAt (jq must strip them).
+	return fmt.Sprintf(`{"status":%q,"createdAt":"2026-01-01T10:00:00Z","updatedAt":"2026-01-01T10:14:07.123Z","jobs":[%s]}`, runStatus, strings.Join(jobs, ","))
 }
 
 // Exit 75 from SIGNOFF_MAKE (the probe or the targets) means the machine is
@@ -724,6 +725,37 @@ func TestSignoffGatesInCIWithEveryHostedJob(t *testing.T) {
 			// The lander's failing() reads the failed jobs' Go tests from the signoff's output.
 			if c.name == "a red job ends the wait" && !strings.Contains(out, "\n--- FAIL: TestTrayQuits") {
 				t.Errorf("the failed job's tests are printed without the log columns:\n%s", out)
+			}
+		})
+	}
+}
+
+// The duration of a hosted gate is the run's own (updatedAt - createdAt), not the time this
+// host waited: a lander whose machine slept in between must not inflate it (#2296). Without
+// readable timestamps it falls back to the wait.
+func TestSignoffHostedDurationIsTheRunsClock(t *testing.T) {
+	green := hostedRun("completed", "completed success", nil)
+	noClock := strings.Replace(green, `"createdAt":"2026-01-01T10:00:00Z","updatedAt":"2026-01-01T10:14:07.123Z",`, "", 1)
+	for _, c := range []struct{ name, jobs, want string }{
+		{"the run's timestamps", green, " 14m07s - make "},
+		{"no timestamps, the wait", noClock, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newSignoffEnv(t)
+			e.branch(e.work, "feat/x", "x.txt")
+			out, ok := e.signoff(e.work, `FAKE_GH_DISPATCHED=[{"databaseId":7}]`, "FAKE_GH_JOBS="+c.jobs, "SIGNOFF_GATE=hosted")
+			if !ok {
+				t.Fatalf("signoff failed:\n%s", out)
+			}
+			posts := e.posts()
+			if len(posts) != 1 {
+				t.Fatalf("one status expected: %v", posts)
+			}
+			if c.want != "" && !strings.Contains(posts[0], c.want) {
+				t.Errorf("the duration must be the run's (%q): %s", c.want, posts[0])
+			}
+			if c.want == "" && strings.Contains(posts[0], "14m07s") {
+				t.Errorf("without timestamps the wait is used: %s", posts[0])
 			}
 		})
 	}
