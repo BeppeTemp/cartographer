@@ -43,7 +43,7 @@ func probeFixture(t *testing.T, approvedHash string) {
 	probeSession = func(context.Context, mcpprobe.Target, time.Duration, func(string) string) (mcpprobe.Info, error) {
 		return mcpprobe.Info{Protocol: "2025-06-18", Server: "fake", Version: "1", Tools: []string{"a", "b"}}, nil
 	}
-	approveManifest = func(*clientconfig.Config) (contract.Manifest, error) {
+	approveManifest = func(*clientconfig.Config, string) (contract.Manifest, error) {
 		return contract.Manifest{Revision: "r", Artifacts: arts}, nil
 	}
 	probeLookupEnv = func(string) (string, bool) { return "", false }
@@ -147,7 +147,7 @@ func TestMCPProbe_RequiresWordsANetworkFault(t *testing.T) {
 	probeDial = func(context.Context, string, time.Duration) error { return context.DeadlineExceeded }
 	oldM := approveManifest
 	t.Cleanup(func() { approveManifest = oldM })
-	approveManifest = func(*clientconfig.Config) (contract.Manifest, error) {
+	approveManifest = func(*clientconfig.Config, string) (contract.Manifest, error) {
 		a := contract.Artifact{Kind: "mcp", Name: "svc", Source: "kb:kb-a", ContentHash: "h1", Files: []contract.ArtifactFile{{Path: "svc.json",
 			Content: []byte(`{"type":"http","url":"https://svc.example.com/mcp","headers":{"A":"${X}"},"requires":"vpn"}`)}}}
 		return contract.Manifest{Artifacts: []contract.Artifact{a}}, nil

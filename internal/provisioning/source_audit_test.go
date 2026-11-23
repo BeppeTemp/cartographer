@@ -21,7 +21,7 @@ var sourceSites = map[string]struct {
 }{
 	"cmd/cartographer/approve.go":                    {6, "KB approval paths: a plugin artifact has no pending state and never reaches them"},
 	"cmd/cartographer/approve_migration.go":          {1, "D1141 migration: InstalledBeforeApprovals refuses a non-KB source"},
-	"cmd/cartographer/clientsync.go":                 {6, "pullTarget rejects a served source that is not the bundle or the pulled KB; kb_options apply to kb: only"},
+	"cmd/cartographer/clientsync.go":                 {8, "pullTarget rejects a served source that is not the bundle or the pulled KB; kb_options apply to kb: only; kbShadowsBundle: a plugin artifact is not kb:, so it is dropped when a KB ships the same kind and name and never shadows anything"},
 	"cmd/cartographer/cliskill.go":                   {1, "bundle only"},
 	"cmd/cartographer/doctor.go":                     {2, "a plugin lock entry is a residue only when its plugin is no longer configured"},
 	"cmd/cartographer/doctor_mcpvars.go":             {2, "reads the approved KB descriptors and names their KB; a plugin descriptor has no approval entry and is skipped"},

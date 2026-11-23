@@ -21,7 +21,7 @@ import (
 // an approval to the server.
 // Seams for the tests: the manifest fetch needs a server and the prompt a terminal.
 var (
-	approveManifest    = fetchMergedManifest
+	approveManifest    = fetchMergedManifestFor
 	approveInteractive = isInteractive
 )
 
@@ -122,7 +122,7 @@ func cmdApprove(args []string) int {
 		}
 		return then(0)
 	}
-	m, err := approveManifest(cfg)
+	m, err := approveManifest(cfg, kbName)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
@@ -400,7 +400,7 @@ func cmdApprovePending(args []string) (code int, approved bool) {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2, false
 	}
-	m, err := approveManifest(cfg)
+	m, err := approveManifest(cfg, kbName)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2, false
@@ -475,4 +475,9 @@ func kbScope(kb string) string {
 		return ""
 	}
 	return " in KB " + escapeControl(kb)
+}
+
+// approveManifestAll is approveManifest without a KB: every projection judged.
+func approveManifestAll(cfg *clientconfig.Config) (contract.Manifest, error) {
+	return approveManifest(cfg, "")
 }
