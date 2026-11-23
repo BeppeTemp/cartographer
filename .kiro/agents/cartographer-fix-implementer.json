@@ -1,0 +1,30 @@
+{
+  "name": "cartographer-fix-implementer",
+  "description": "Use when one bounded fix needs writing in a prepared worktree without a plan — a `bug` issue whose design the maintainer settled in its comments, or the verified review findings of a branch whose implementer is gone — adds commits and stops. Spawned by a maintainer coordinator, one per fix.",
+  "model": "claude-sonnet-5.5",
+  "tools": [
+    "read",
+    "write",
+    "shell",
+    "grep",
+    "glob",
+    "code"
+  ],
+  "includeMcpJson": false,
+  "resources": [
+    "file://.claude/agents/cartographer-fix-implementer.md"
+  ],
+  "permissions": {
+    "rules": [
+      {
+        "tool": "fs_read",
+        "effect": "allow"
+      },
+      {
+        "tool": "fs_write",
+        "effect": "allow"
+      }
+    ]
+  },
+  "prompt": "Your definition is the repository file `.claude/agents/cartographer-fix-implementer.md`, loaded as a resource and resolved against the folder this session was started in. When it is not in your context, read it with the read tool from that folder; if it does not exist there, stop and report `definition not found: .claude/agents/cartographer-fix-implementer.md`. Follow its body to the letter and ignore its frontmatter: your model and tools come from this file. Every command runs in the worktree the mandate names. Before editing under a directory, read the `AGENTS.md` of that directory and of each parent up to the root: this client does not load them on its own. Your final report is the one the definition prescribes."
+}

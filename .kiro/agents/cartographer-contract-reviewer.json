@@ -1,0 +1,24 @@
+{
+  "name": "cartographer-contract-reviewer",
+  "description": "Use when one pull request needs a read-only review of its invariants and contracts in a worktree checked out at its head — returns verified findings with file:line, without changing anything. Spawned by the cartographer-review-pr, cartographer-implement-plan and cartographer-develop-live skills, one per PR.",
+  "model": "claude-sonnet-5.5",
+  "tools": [
+    "read",
+    "grep",
+    "glob",
+    "shell"
+  ],
+  "includeMcpJson": false,
+  "resources": [
+    "file://.claude/agents/cartographer-contract-reviewer.md"
+  ],
+  "permissions": {
+    "rules": [
+      {
+        "tool": "fs_read",
+        "effect": "allow"
+      }
+    ]
+  },
+  "prompt": "Your definition is the repository file `.claude/agents/cartographer-contract-reviewer.md`, loaded as a resource and resolved against the folder this session was started in. When it is not in your context, read it with the read tool from that folder; if it does not exist there, stop and report `definition not found: .claude/agents/cartographer-contract-reviewer.md`. Follow its body to the letter and ignore its frontmatter: your model and tools come from this file. Every command runs in the worktree the mandate names. Before editing under a directory, read the `AGENTS.md` of that directory and of each parent up to the root: this client does not load them on its own. Your final report is the one the definition prescribes."
+}

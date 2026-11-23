@@ -1,4 +1,4 @@
-.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke docker-surveyor docker-surveyor-smoke clean e2e e2e-nightly e2e-upgrade usage-test demo-image demo-smoke demo-worker-test demo-tf-check helm-check test-install test-linux worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap runs-where settings-example openapi web web-test web-perf web-check e2e-web hero vulncheck lint-workflows signoff signoff-platform web-gate check check-run check-hosted ready land land-status requeue status test-rerun
+.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke docker-surveyor docker-surveyor-smoke clean e2e e2e-nightly e2e-upgrade usage-test demo-image demo-smoke demo-worker-test demo-tf-check helm-check test-install test-linux worktree-add worktree-rm worktree-clean dev gate decisions-index kiro-agents changelog-areas decisions-new codemap runs-where settings-example openapi web web-test web-perf web-check e2e-web hero vulncheck lint-workflows signoff signoff-platform web-gate check check-run check-hosted ready land land-status requeue status test-rerun
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
 # gofmt takes paths, and `gofmt -l .` walks every hidden directory — including
@@ -361,6 +361,9 @@ decisions-index: ## Regenerate the decision index in docs/decisions.md
 # (D865); it is idempotent, so running it by hand on a grouped file changes nothing.
 changelog-areas: ## Group the newest CHANGELOG.md section by area (the release PR job runs it, D865)
 	@go run ./internal/changelog/gen -file CHANGELOG.md
+
+kiro-agents: ## Regenerate .kiro/agents/cartographer-*.json from .claude/agents (the second client's definitions)
+	@go test ./internal/repodocs -run TestKiroAgentsAreGeneratedFromTheClaudeOnes -count=1 -args -update
 
 codemap: ## Regenerate the code map in AGENTS.md from the package doc comments
 	@go test ./internal/repodocs -run TestCodeMapIsUpToDate -count=1 -args -update

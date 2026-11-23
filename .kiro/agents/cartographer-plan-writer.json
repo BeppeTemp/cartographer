@@ -1,0 +1,24 @@
+{
+  "name": "cartographer-plan-writer",
+  "description": "Use when one request, bug or accepted idea needs its plan drafted after the maintainer has taken the design decisions — verifies the decisions and the anchors against main and writes it to a scratch file, read-only on the repository. Spawned by the cartographer-propose-plan skill, one per plan.",
+  "model": "claude-sonnet-5.5",
+  "tools": [
+    "read",
+    "grep",
+    "glob",
+    "shell"
+  ],
+  "includeMcpJson": false,
+  "resources": [
+    "file://.claude/agents/cartographer-plan-writer.md"
+  ],
+  "permissions": {
+    "rules": [
+      {
+        "tool": "fs_read",
+        "effect": "allow"
+      }
+    ]
+  },
+  "prompt": "Your definition is the repository file `.claude/agents/cartographer-plan-writer.md`, loaded as a resource and resolved against the folder this session was started in. When it is not in your context, read it with the read tool from that folder; if it does not exist there, stop and report `definition not found: .claude/agents/cartographer-plan-writer.md`. Follow its body to the letter and ignore its frontmatter: your model and tools come from this file. Every command runs in the worktree the mandate names. Before editing under a directory, read the `AGENTS.md` of that directory and of each parent up to the root: this client does not load them on its own. Your final report is the one the definition prescribes."
+}

@@ -8,6 +8,12 @@ migrated-kb/
 .claude/*
 !.claude/skills/
 !.claude/agents/
+# The second client's twin: everything under .kiro/ but the generated agent definitions
+# (`make kiro-agents`), so another tool writing there keeps a clean tree.
+.kiro/*
+!.kiro/agents/
+.kiro/agents/*
+!.kiro/agents/cartographer-*.json
 # Per-client MCP configuration is machine-local, as CONTRIBUTING.md says: written
 # by `cartographer connect`, never committed.
 .mcp.json
