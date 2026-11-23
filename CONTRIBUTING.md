@@ -235,32 +235,41 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
   The train gate is hosted by default (D2040, D2293); `make land GATE=host` gates on the build host.
   `make check` (affected packages) and `make check-hosted` (on GitHub, with a Windows leg) are the tiers to iterate with.
   Which job runs on which event, and what each gate runs, is the generated table of `docs/testing.md` §Levels.
-- **A maintainer's change lands in a train** (D1706): finished and reviewed on its
-  branch, it is queued with `make ready MSG=<message file>` as **one commit** whose message
-  is the changelog entry (a conventional title, body lines unwrapped, `Closes #n`; checked as
-  `pr-title` and `plan-gate` would check a PR, `Size exception: <why>` included).
-  `AFTER=<slug>` lands it after another queued change (a branch built on that change's
-  branch is queued with its own diff only, also once that change has landed; a slug neither queued
-  nor landed is refused), `HOLD=1` keeps it queued, `REVIEW=`
-  records the review. The lander (`scripts/land.sh`, started by `make ready`, stopping when
-  nothing is landable) cherry-picks up to 8 queued changes onto `main`, numbers their pending
-  decisions, gates the train **once** with `make signoff` (the package of a named Go test that fails
-  runs once more inside it, and a pass is filed as flaky; red twice, or red on that retry: bisection rejects the
-  change that breaks it to `failed/<slug>`, whose last commit message says why), and opens one
-  PR `chore(dev): train <id>, <k> change(s)`, **rebase-merged** so each change stays its own
-  commit on `main`. The lander merges it itself, once its required checks pass and only while
-  `main` is still the commit the train was gated on (`main` does not require a branch to be
-  up to date): if `main` moved, during the gate or before the merge, the PR is closed and the
-  train composed and gated again. A required check that fails is rerun once before the
-  lander stops (one in `startup_failure` stops it at once: it will not turn green), and an open train PR on the current `main` that it did not open is adopted
-  (one on an older `main` is closed). Each queued change gets a hosted pre-check
-  (`ready-check.yml`: its Windows tests and, for `web/`, the frontend unit tests): a train of
-  several changes takes only the green ones, and a red one is gated alone. `make land-status` shows the queue; `make land` runs the lander in the
-  foreground (`DRY=1` prints the next train). Queued changes have no cap: the train is the
-  unit of gating, at most 8 changes each. On macOS the lander keeps the machine from idle
-  sleep while it runs (`caffeinate -i`); a closed lid still stops it.
+- **A maintainer's change lands in a train** (D1706, D2304): finished and reviewed on its
+  branch, it is queued with `make ready`, and the lander lands it with the changes it is chained to.
+  - **Queueing.** `make ready MSG=<message file>` queues it as **one commit** whose message
+    is the changelog entry (a conventional title, body lines unwrapped, `Closes #n`; checked as
+    `pr-title` and `plan-gate` would check a PR, `Size exception: <why>` included).
+    `AFTER=<slug>` lands it after another queued change (a branch built on that change's
+    branch is queued with its own diff only, also once that change has landed; a slug neither queued
+    nor landed is refused), `HOLD=1` keeps it queued, `REVIEW=` records the review.
+  - **A chain is one unit.** Changes linked by `AFTER=` (a plan's chain) are one unit, a change
+    with no link a unit of its own: a unit lands whole, in one train, or not at all, and its verdict is
+    the pre-check of its tip, the change no other follows. A held member,
+    or during the release freeze a `feat`, `perf`, `refactor` or breaking one, holds the whole chain; a
+    rejected member blocks the others, which stay queued until it is queued again.
+  - **The train.** The lander (`scripts/land.sh`, started by `make ready`, stopping when
+    nothing is landable) cherry-picks whole units onto `main`, up to 8 changes, numbers their pending
+    decisions, gates the train **once** with `make signoff` (the package of a named Go test that fails
+    runs once more inside it, and a pass is filed as flaky; red twice, or red on that retry: bisection over
+    whole units rejects the one that breaks it, its tip to `failed/<slug>`, whose last commit message says
+    why), and opens one PR `chore(dev): train <id>, <k> change(s)`, **rebase-merged** so each change stays
+    its own commit on `main`.
+  - **The merge.** The lander merges it itself, once its required checks pass and only while
+    `main` is still the commit the train was gated on (`main` does not require a branch to be
+    up to date): if `main` moved, during the gate or before the merge, the PR is closed and the
+    train composed and gated again. A required check that fails is rerun once before the
+    lander stops (one in `startup_failure` stops it at once: it will not turn green), and an open train
+    PR on the current `main` that it did not open is adopted (one on an older `main` is closed).
+  - **Pre-check and status.** Each queued change gets a hosted pre-check
+    (`ready-check.yml`: its Windows tests and, for `web/`, the frontend unit tests): a train of
+    several units takes only those whose tip is green, and a red one is gated alone. `make land-status`
+    shows the queue; `make land` runs the lander in the foreground (`DRY=1` prints the next train).
+    Queued changes have no cap: a train holds at most 8 changes, and a longer chain is gated alone. On macOS the
+    lander keeps the machine from idle sleep while it runs (`caffeinate -i`); a closed lid still stops it.
 - **No open PR depends on another open PR**: a contributor's dependent work goes in the same
-  PR, or waits for the merge. A maintainer's dependent change is queued with `AFTER=<slug>`.
+  PR, or waits for the merge. A maintainer's dependent change is queued with `AFTER=<slug>`
+  and lands with that change, in one train.
 - **A maintainer's queued `fix` says where its defect was found and what introduced it**, on
   lines of its message that start at column 0, anywhere in it (they need not be trailers:
   a `Closes #n` line beside them is fine). One `Found-by: <value>` line per defect it fixes,

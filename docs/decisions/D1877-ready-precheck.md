@@ -1,5 +1,6 @@
 ---
 topic: project-governance
+amended_by: D2304
 ---
 
 # D1877 — A queued change is pre-checked on hosted runners, and a red one is gated alone

@@ -1,5 +1,6 @@
 ---
 topic: project-governance
+amended_by: D2304
 ---
 
 # D1878 — A red train is bisected with the tests the signoff confirmed, then its green prefix gets one full gate
