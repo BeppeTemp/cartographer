@@ -65,7 +65,9 @@
 #
 # Each queued change has a hosted pre-check (.github/workflows/ready-check.yml, run on the
 # push of its ready/ ref, D1877): the Windows tests of the packages it can
-# break and the frontend's unit tests, the legs `make check` does not run. A unit's verdict is
+# break and the frontend's unit tests, the legs `make check` does not run, on its queued chain
+# replayed on the current main (scripts/ready-check-base.sh): the tip and the changes it
+# follows through Lander-After. A unit's verdict is
 # its tips' pre-checks (the others' are not read): red if one is red, else running if one runs,
 # else green (green, or no verdict: none started within LAND_PRECHECK_START, still running past
 # LAND_PRECHECK_WAIT, cancelled, or GitHub did not answer). A train of several units takes only

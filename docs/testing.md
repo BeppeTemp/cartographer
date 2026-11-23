@@ -1373,15 +1373,29 @@ unit's first pick, the decision numbers the unit took are forgotten, only that m
 second run of the lander gates nothing of the unit.
 
 Each queued change also has a **hosted pre-check** (`.github/workflows/ready-check.yml`, on
-the push of its `ready/<slug>` ref, D1877): the Windows tests of the packages
-it can break (`scripts/ready-check-plan.sh`: `affected-pkgs.sh --code`, one to four shards by
-weight) and, when it touches `web/` or `internal/webui/`, `make web-check web-test`, the legs
-`make check` does not run. A unit's verdict is the pre-check of its tips, the others' are not
+the push of its `ready/<slug>` ref, D1877). Each job first replays the change's **queued chain**
+on the current `main` (`scripts/ready-check-base.sh`): the commit, then the change its
+`Lander-After` trailer names while that one is queued, and so on, oldest first, each at its
+queued commit: its chain, the changes it follows through `Lander-After` (a unit with several
+tips is tested one path per tip; not `merge-base..HEAD`: a change queued after a
+predecessor that landed is a child of that predecessor's branch head). So a change queued before
+a fix landed on `main` is tested with the fix, and a chain that no longer applies fails with
+`ready-check: the chain does not apply on main: <files>`, a red verdict. The replay is a plain
+cherry-pick: a pick the lander rescues (an edit of a pending decision `main` holds numbered, a
+conflict in the Atlas bundle) is red here too, so the unit is gated alone. A commit that is not
+the tip of a `ready/*` ref in the checkout (the refs are missing, or the change was queued again)
+fails closed, never tested alone. On the replayed tree it runs the Windows tests of the packages
+the chain can break (`scripts/ready-check-plan.sh` reads the union of the paths of each queued
+commit's own diff: `affected-pkgs.sh --code`, one to four shards by weight) and, when the chain
+touches `web/` or `internal/webui/`, `make web-check web-test`, the legs `make check` does not
+run. `make ready AFTER=<slug>` cancels the run still going on `ready/<slug>`, best effort (one
+warning line when GitHub refuses): that change is no longer its unit's tip. A unit's verdict is the pre-check of its tips, the others' are not
 read: red if one is red, else running if one runs, else green (green or no verdict: none started
 within `LAND_PRECHECK_START`, 5 minutes, still running past `LAND_PRECHECK_WAIT`, 20 minutes,
 cancelled, or GitHub did not answer). A train of several units takes only green ones; when none
 is, the oldest unit whose verdict is running is gated alone, else the oldest red one.
-`internal/repodocs/ready_check_test.go` pins the plan.
+`internal/repodocs/ready_check_test.go` pins the plan, the replay on temporary repositories
+and the replay step after each job's checkout.
 `internal/repodocs/land_test.go` runs the lander against a local bare repository with fake
 `make` and `gh`.
 

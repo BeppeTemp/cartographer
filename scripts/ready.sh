@@ -21,7 +21,9 @@
 # landed (`ready/<slug>` is gone), AFTER=<slug> still works: the commit is squashed from the
 # `Lander-Tip` of the predecessor's landed commit (a child of that head, after checking the
 # landed commit is exactly that head's change). A slug neither queued nor
-# landed is refused, with the rebase to run.
+# landed is refused, with the rebase to run. When `ready/<slug>` is queued, its pre-check
+# still running is cancelled: that change is no longer its unit's tip, and this change's
+# pre-check replays the whole queued chain on the current main (scripts/ready-check-base.sh).
 #
 # Trailers the lander reads: `Lander-After: <slug>` (land after that change),
 # `Lander-Hold: yes` (queued, not landed until queued again without it) and
@@ -124,4 +126,16 @@ fi
 sha=$(git commit-tree "$(git rev-parse 'HEAD^{tree}')" -p "$parent" -F "$full")
 out=$(git push -q --force origin "$sha:refs/heads/ready/$slug" 2>&1) || die "the push of ready/$slug failed: $out"
 echo "ready: $branch queued as ready/$slug (${sha:0:12}): $(head -n 1 "$full")"
+if [ -n "${after:-}" ]; then
+  # ready/$AFTER is no longer its unit's tip: the lander never reads its pre-check, and this
+  # change's pre-check replays it too. Its run still going is cancelled to free the runners
+  # (the lander reads a cancelled run as no verdict); best effort.
+  cancelled=yes
+  if ids=$(gh run list -R "$repo" --workflow ready-check.yml --commit "$after" --json databaseId,status \
+    --jq '.[] | select(.status != "completed") | .databaseId' 2>/dev/null); then
+    for id in $ids; do gh run cancel -R "$repo" "$id" >/dev/null 2>&1 || cancelled=; done
+  else cancelled=; fi
+  [ -n "$cancelled" ] ||
+    echo "ready: warning: the pre-check of ready/$AFTER could not be cancelled: it runs on, and the lander does not read it" >&2
+fi
 [ -n "${READY_NO_LANDER:-}" ] || "$here/land.sh" --daemon
