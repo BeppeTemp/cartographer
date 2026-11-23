@@ -5,6 +5,7 @@
 #   pr-triage.sh --gate <pr>   the same report; exits 1 iff a BLOCK other than "CI is red"
 #                           was printed (the plan-gate workflow runs this, D955)
 #   pr-triage.sh --title-scopes  the scopes a PR title may use, as pr-title.yml lists them
+#   pr-triage.sh --kinds     the paths on stdin, as <kind><TAB><path> (production, test, docs, generated)
 #   pr-triage.sh               the current branch against upstream/main (origin/main when
 #                           there is no `upstream` remote), before opening a PR; TRIAGE_BODY
 #                           is the body it will carry (scripts/ready.sh passes the message),
@@ -46,6 +47,11 @@ title_scopes() {
   ' "$(dirname "$0")/../.github/workflows/pr-title.yml"
 }
 if [ "${1:-}" = "--title-scopes" ]; then title_scopes; exit 0; fi
+# --kinds: the paths on stdin, one per line, as `<kind><TAB><path>` (what scripts/status.sh counts production by).
+if [ "${1:-}" = "--kinds" ]; then
+  while IFS= read -r p; do [ -z "$p" ] || printf '%s\t%s\n' "$(kind "$p")" "$p"; done
+  exit 0
+fi
 
 GATE=0
 if [ "${1:-}" = "--gate" ]; then GATE=1; shift; fi

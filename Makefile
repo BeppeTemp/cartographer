@@ -1,4 +1,4 @@
-.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke docker-surveyor docker-surveyor-smoke clean e2e e2e-nightly e2e-upgrade demo-image demo-smoke demo-worker-test demo-tf-check helm-check test-install test-linux worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap runs-where settings-example openapi web web-test web-perf web-check e2e-web hero vulncheck lint-workflows signoff signoff-platform web-gate check check-run check-hosted ready land land-status requeue test-rerun
+.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke docker-surveyor docker-surveyor-smoke clean e2e e2e-nightly e2e-upgrade demo-image demo-smoke demo-worker-test demo-tf-check helm-check test-install test-linux worktree-add worktree-rm worktree-clean dev gate decisions-index changelog-areas decisions-new codemap runs-where settings-example openapi web web-test web-perf web-check e2e-web hero vulncheck lint-workflows signoff signoff-platform web-gate check check-run check-hosted ready land land-status requeue status test-rerun
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
 # gofmt takes paths, and `gofmt -l .` walks every hidden directory — including
@@ -320,6 +320,10 @@ land: ## Maintainer only: land the queue in the foreground until nothing is land
 
 land-status: ## The lander's queue, its open train PR, the rejected changes and the running lander's gate
 	@./scripts/land.sh --status
+
+# What waits for the maintainer in one read-only command (scripts/status.sh has the sections).
+status: ## What waits for the maintainer: rejected changes, the queue with verdicts, worktrees to read, main's CI, untriaged issues ([STATUS_PLANS=<command>] adds your plans)
+	@STATUS_PLANS="$(STATUS_PLANS)" ./scripts/status.sh
 
 # A queued or rejected change rebuilt on the current main, with the changes that follow it
 # (scripts/requeue.sh has the rules).
