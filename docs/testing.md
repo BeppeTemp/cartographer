@@ -257,6 +257,20 @@ and never as a required check. By hand, from the repository root, with Docker:
 
 `cmd/cartographer/plugin_visibility_test.go` pins what `status`, `agents` and `doctor` print about plugins: the snapshot of a plugin in each state (active, pending approval, disabled, not fetched, modified, invalid, store unavailable) and its JSON keys, `update available`, the pending-approval hint, the provider rows (connected / detected / not detected), each `doctor` finding with its fix text (`plugin-store`, `plugin-invalid`, `plugin-pending`, `plugin-collision`, `plugin-provider`), the escape of every plugin-supplied string, and that nothing at all is printed or encoded while no plugin is configured.
 
+### The acceptance battery (`make e2e-nightly`)
+
+`.claude/skills/cartographer-acceptance/references/battery.md` is the battery of lane B as three tables
+(base, adversarial, smoke), one row per item, the last column naming what automates it: a scenario or a Go
+test of the repository, or `tester` for what only an agent can judge. The rows no existing test covered
+are the scenarios of `test/e2e/optional/` (`31_adversarial_protocol`, `32_secrets_lifecycle`,
+`33_update_check_candidates`, `34_server_down_exit_codes`, and the upgrade of the section below).
+`make e2e-nightly` (`./test/e2e/run.sh --optional`) runs `scenarios/` and then `optional/` without
+`26_upgrade_from_previous`; `make e2e` and the train gate are unchanged. `32` needs `sops` and `age-keygen`
+on `PATH`, `33` needs `python3` and Go, and `33` builds a binary with a release version because a `dev`
+build never checks for updates. `TestAcceptanceBattery` (`internal/repodocs`) fails when a row names a path
+that does not exist, when a file of `test/e2e/optional/` is named by no row, or when the base table lacks the
+row of the upgrade scenario: a scenario and its row land in the same change.
+
 ### Client upgrade from the previous release (#1173)
 
 `test/e2e/optional/26_upgrade_from_previous.sh` starts from the state a previous

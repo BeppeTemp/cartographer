@@ -2,9 +2,11 @@
 # Deterministic end-to-end test orchestrator.
 #
 # Usage:
-#   ./test/e2e/run.sh [--only <scenario>] [--keep]
+#   ./test/e2e/run.sh [--only <scenario> | --optional] [--keep]
 #
-# The default loop runs scenarios/ only; --only also finds a scenario of optional/.
+# The default loop runs scenarios/ only; --only also finds a scenario of optional/;
+# --optional runs scenarios/ and then optional/ but 26_upgrade_from_previous (it needs
+# the tags and has its own target, make e2e-upgrade): make e2e-nightly.
 #
 # Every scenario drives the real binary through HTTP/CLI and asserts on
 # filesystem, git state, HTTP status or process exit codes. No LLM is involved.
@@ -18,6 +20,7 @@ export E2E_HTTP_PORT="${E2E_HTTP_PORT:-47821}"
 export REPO_ROOT
 
 ONLY_SCENARIO=""
+OPTIONAL=false
 KEEP=false
 
 while [[ $# -gt 0 ]]; do
@@ -26,6 +29,10 @@ while [[ $# -gt 0 ]]; do
             [[ $# -ge 2 ]] || { echo "[ERROR] --only requires a scenario" >&2; exit 2; }
             ONLY_SCENARIO="$2"
             shift 2
+            ;;
+        --optional)
+            OPTIONAL=true
+            shift
             ;;
         --keep)
             KEEP=true
@@ -37,6 +44,7 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+[[ -z "$ONLY_SCENARIO" || "$OPTIONAL" == false ]] || { echo "[ERROR] --only and --optional do not combine" >&2; exit 2; }
 
 export E2E_TMP_DIR
 E2E_TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/cartographer_e2e_XXXXXX")"
@@ -125,6 +133,13 @@ else
         [[ -f "$script" ]] || continue
         run_scenario "$script"
     done
+    if [[ "$OPTIONAL" == true ]]; then
+        for script in "${E2E_DIR}"/optional/*.sh; do
+            [[ -f "$script" ]] || continue
+            [[ "$(basename "$script" .sh)" == "26_upgrade_from_previous" ]] && continue
+            run_scenario "$script"
+        done
+    fi
 fi
 
 echo ""

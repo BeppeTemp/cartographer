@@ -52,7 +52,7 @@ repository.
 
 - **Lane A, static readiness.** `cartographer-docs-auditor` over `v<prev>..<candidate sha>`, plus the
   checks of `docs/testing.md` §Before a release.
-- **Lane B, all-in-one in an isolated HOME.** `cartographer-acceptance-sandbox` with the base battery on
+- **Lane B, all-in-one in an isolated HOME.** `cartographer-acceptance-sandbox` with the battery of `references/battery.md` (its rows with a path are run by CI: the train gate, and the nightly from the `nightly-acceptance` change on, until then `make e2e-nightly` by hand; the tester takes the `tester` rows and the matrix entries): the base battery on
   the first round of a version; on later rounds the smoke battery plus the entries the fixes touched. An
   optional second instance runs the adversarial battery, on other ports.
 - **Lane F, usage test with a headless agent.** the usage-test harness of the repository, when it has one, for the fixed tasks; the tester with a
