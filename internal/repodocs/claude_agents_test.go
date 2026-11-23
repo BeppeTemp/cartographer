@@ -71,3 +71,26 @@ func TestClaudeSubagentsPinAModelAndReadOnlyOnesCannotEdit(t *testing.T) {
 		}
 	}
 }
+
+// AC-P7-2: an implementer never runs the hosted check; the coordinator starts
+// one on the tip beside the review (D-new-fast-review-loop).
+func TestImplementerAgentsNeverRunCheckHosted(t *testing.T) {
+	root := repoRoot(t)
+	for _, name := range []string{"cartographer-plan-implementer", "cartographer-fix-implementer", "cartographer-live-implementer"} {
+		raw, err := os.ReadFile(filepath.Join(root, ".claude", "agents", name+".md"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(raw)
+		if !strings.Contains(strings.ToLower(text), "never `make check-hosted`") {
+			t.Errorf(".claude/agents/%s.md: it must say the implementer never runs `make check-hosted`", name)
+		}
+		// Whatever is left once the "never" sentence and the description of what
+		// the Windows leg runs are removed must not name the hosted check at all.
+		rest := regexp.MustCompile("(?i)never `make check-hosted`").ReplaceAllString(text, "")
+		rest = strings.ReplaceAll(rest, "the Windows leg of `make check-hosted` runs the test", "")
+		if strings.Contains(rest, "check-hosted") {
+			t.Errorf(".claude/agents/%s.md: `check-hosted` appears outside the \"never\" sentence: an implementer is not told to run it", name)
+		}
+	}
+}

@@ -88,7 +88,7 @@ git worktree add --detach .worktrees/pr-<pr> FETCH_HEAD
 ```
 
 Spawn `cartographer-contract-reviewer` with the PR number, the absolute worktree path, the tier and
-the plan issue number, the absolute path of a plan file or "none", and the round (§5), the triage's docs lines (`WARN` mentioning `not touched`, `Docs: none`) verbatim, and a `base` when the change is not against `origin/main` (default `origin/main`; §Changing the reviewer). It carries the rest. On the
+the plan issue number, the absolute path of a plan file or "none", and the round (§5), the triage's docs lines (`WARN` mentioning `not touched`, `Docs: none`) verbatim, and a `base` when the change is not against `origin/main` (default `origin/main`; §Changing the reviewer). It carries the rest; ask it to rank its findings and to list the non-blocking lows as one-line follow-ups. On the
 full tier spawn `cartographer-security-reviewer` too, in parallel on the same worktree with the
 same mandate: both are read-only. Standard and light tiers get no security pass,
 for cost. Several PRs can be reviewed in parallel, one worktree and one pair of
@@ -107,9 +107,9 @@ subagents each, in the background.
   discussion.
 - `cartographer-security-reviewer` findings are verified the same way. A verified high or
   medium one blocks the verdict and the merge, whatever standing approval exists;
-  the rounds rule of §5 applies to it unchanged.
-- Every verified finding is answered before the verdict: fixed, by a commit, or
-  dismissed with a one-line reason. A `pre-existing` finding does not block and
+  the rounds rule of §5 applies to it unchanged, and a verified high or medium of it makes round 2 run.
+- Every verified finding is answered before the verdict: fixed, by a commit, dismissed
+  with a one-line reason, or (a `low`) recorded as a follow-up (§5). A `pre-existing` finding does not block and
   is not fixed in this PR: it becomes one `bug` issue each, with the `accepted` label
   and a `Found-by: review` line (`Introduced-by: <ref>` too when `git blame` names the
   change; `CONTRIBUTING.md` §Issues), and is fixed in the same session when it is
@@ -134,6 +134,18 @@ every finding costs the author a commit and the reviewer another round (D857):
 - **At most three rounds** per PR. Round 1 reviews `origin/main...HEAD`. A later
   round gets the commit the previous round reviewed and its findings with their
   answers, reads only the new commits, and reports only what they introduce.
+- **One fix round, then a second review only for a high or medium** (D2311):
+  all verified findings that are cheap, of any severity, are fixed in one round. Only
+  on a maintainer's change (known from round 1's triage, not from the Role line of a branch-mode
+  run) does a second round by a reviewer run only if round 1 had a verified `high` or `medium`,
+  the coordinator otherwise reading `<reviewed commit>..HEAD` itself; every other PR, contributor
+  or bot, gets the round (an author could draw only lows, then push unreviewed commits). Even on
+  a maintainer's change, when `TRIAGE_BASE=<reviewed commit> scripts/pr-triage.sh` on that range
+  shows any supply-chain or invariant-area file, or a tier above round 1's, a reviewer round
+  runs, with the security reviewer on full tier. Round 3 runs only if round 2 still has a verified `high`
+  or `medium`, and a later round spawns only the reviewer(s) whose finding it re-checks (plus
+  the security reviewer when the range check above triggers). A `low` not fixed is recorded as a
+  follow-up: a line in the message or PR body, or a `bug` issue with `Found-by: review`.
 - **Light tier: one round**, the coordinator's own read.
 - A high or medium finding still open after round 3 says the approach is the
   problem, not the next fix: stop and hand it to the user (on a contributor's PR,
@@ -203,7 +215,8 @@ the coordinator, after `git fetch origin main`:
 
 The same procedure moves the review cost to the author, which is the point. A
 maintainer's change is reviewed this way on its branch, before `make ready`; the record
-is `REVIEW="<tier>, <n> rounds"`, and the steps below stop at step 2:
+is `REVIEW="<tier>, <n> rounds"`, and the steps below stop at step 2. The hosted check is the
+coordinator's: it starts `make check-hosted` on the branch beside round 1, and a fix that changes any non-test, non-doc file gets one more hosted check; the change is queued only after a green hosted check of the last such commit (a doc is a Markdown file under `docs/`; a test is a test file) (D2311):
 
 1. `scripts/pr-triage.sh` with no argument compares the current branch with `upstream/main`
    (`origin/main` without that remote) and prints your role; fix every `BLOCK`. A change with a

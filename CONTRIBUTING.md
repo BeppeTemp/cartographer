@@ -70,7 +70,7 @@ Windows checkout without Developer Mode). Every directory with an `AGENTS.md` ha
 its own one-line `CLAUDE.md` import, which Claude loads on its first read of a
 file there (D213). The skills are real directories in `.claude/skills/` and the
 subagents are the files in `.claude/agents/`.
-A maintainer's agent iterates on the targeted tests of the packages it touched and runs `make check-hosted` (GitHub-hosted, in parallel with every other agent's, with a Windows leg) once before it reports, never a check that waits for a shared build host (D2040).
+A maintainer's agent iterates on the targeted tests of the packages it touched and never runs `make check-hosted`: the coordinator starts one (GitHub-hosted, in parallel with every other agent's, with a Windows leg) on the tip when it starts the review, never a check that waits for a shared build host (D2040, D2311). Queueing waits for it to be green: a fix that changes any non-test, non-doc file gets one more hosted check; the change is queued only after a green hosted check of the last such commit (a doc is a Markdown file under `docs/`; a test is a test file).
 
 With another agent, have it read `AGENTS.md` and follow `.claude/skills/<name>/SKILL.md`
 as a plain procedure, spawning a subagent from the body of `.claude/agents/<name>.md`
@@ -234,7 +234,7 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
   and `plan-gate`; a maintainer's PR is pushed with `make signoff`, whose `signoff` status `gate` looks for; a train is
   gated once and `main` runs its jobs again on the push. The required checks are `gate`, `pr-title` and `plan-gate`.
   The train gate is hosted by default (D2040, D2293); `make land GATE=host` gates on the build host.
-  `make check` (affected packages) and `make check-hosted` (on GitHub, with a Windows leg) are the tiers to iterate with.
+  `make check` (affected packages) is the tier to iterate with and `make check-hosted` (on GitHub, with a Windows leg) the coordinator's, once on the tip beside the review.
   Which job runs on which event, and what each gate runs, is the generated table of `docs/testing.md` §Levels.
 - **A maintainer's change lands in a train** (D1706, D2304): finished and reviewed on its
   branch, it is queued with `make ready`, and the lander lands it with the changes it is chained to.
@@ -554,12 +554,22 @@ only the plan and the repo must be able to implement without asking questions.
   or `[<change slug>] none — <reason>`, which pairs with that change's `Docs: none - <reason>`
   message line (§Pull requests); a line without a slug belongs to the plan's last change.
 - A plan has a `## Changes` section that groups its work packages into the fewest changes
-  the size cap allows (each change is one queued commit, §Pull requests), by file-set and
+  the size cap allows (a change under about 150 production lines is merged into a neighbouring
+  change of the plan unless a code dependency or a web-bundle conflict forbids it) (each change
+  is one queued commit, §Pull requests), by file-set and
   dependency, with for each change its slug, its commit title, its WPs, the estimated
   production lines and the change it is queued after, if any; each WP is a body line
   `type(scope): ...` (one unwrapped line, §Pull requests body-line rule) so the changelog
   keeps one entry per WP, omitted when it equals the commit title (a second entry for one
   commit, #1670); `cartographer-plan-writer` reports it.
+- The changes that depend on each other form one **chain**: each keeps its own branch and
+  worktree (`make ready` takes the slug from the branch and squashes it), stacked on its
+  predecessor's, the worktree of change n+1 created from `feat/<n>` once change n is committed
+  (only the coordinator creates worktrees, and sends the path to the same implementer). One implementer
+  may write them in order, continuing in each new worktree, with a commit series and a message file per change;
+  the chain is reviewed and checked once on its tip and queued in order with `AFTER=`; a review
+  fix lands on the branch of the change it concerns and its successors are rebased
+  (`git rebase --onto`).
 - A single analysis may yield **several plans**: each one states the
   cross-plan execution order and which sibling plans touch the same files
   (those are built one on the other and queued in order, `AFTER=<slug>`).
@@ -620,7 +630,7 @@ test, a doc that contradicts the code — does not wait in a backlog: it becomes
 `bug` issue with its `Found-by:` line, and its `Introduced-by:` line when the session knows
 the change (§Issues), and when it is bounded the session that
 found it fixes it the same day through this path. A flaky or broken test met on the way —
-in a train gate, in the pre-check of `make ready`, or in an implementer's or coordinator's
+in a train gate, in the pre-check of `make ready`, or in a coordinator's
 own `make check-hosted` run — is `Found-by: gate`; `agent` is for a defect found by reading
 or using the code while working on something else. A rerun that turns a flaky test
 green is not a fix. A security one goes to a draft advisory instead, and the next

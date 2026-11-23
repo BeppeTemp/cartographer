@@ -112,16 +112,16 @@ numbers both).
 2. Closing mandate to one `cartographer-live-implementer` (or yourself): the docs named in
    `docs/index.md` §Documentation maintenance rules for what changed, the tests
    still missing, `make web` if `web/` changed (the bundle is committed), then
-   targeted tests until green, then `make check-hosted` once (D2040). The coordinator writes the decision file: it holds
+   targeted tests until green (never `make check-hosted`: that is the coordinator's, step 3). The coordinator writes the decision file: it holds
    the why.
-3. Review: `cartographer-review-pr` run on the branch (§Before opening your own PR, or queuing
+3. Start `make check-hosted` on the branch in the background beside the review: a fix that changes any non-test, non-doc file gets one more hosted check; the change is queued only after a green hosted check of the last such commit (a doc is a Markdown file under `docs/`; a test is a test file) (D2040, D2311). Review: `cartographer-review-pr` run on the branch (§Before opening your own PR, or queuing
    a change) — `scripts/pr-triage.sh` on the branch, the reviewers of the tier on the
    worktree, rounds per `cartographer-review-pr` §5, fixes by you or a
    `cartographer-live-implementer`. You have already read every step's diff (§2), so this pass
    is the independent read. The user tried the behaviour; nobody else has read
    the code. A review that returns no findings after no work has not happened: check that
    it read the diff before you count it.
-4. Write the record (below) to a message file outside the worktree. A `fix` record ends with
+4. Write the record (below) to a message file outside the worktree; queue only on a green hosted check (step 3). A `fix` record ends with
    a `Found-by: <value>` line per defect (a value of `scripts/found-by.tsv`) and an
    `Introduced-by: <ref>` line per change that introduced one (`CONTRIBUTING.md` §Pull requests):
    the commit `git log -S` or `git blame` on the defect's lines names, or `unknown`, never a

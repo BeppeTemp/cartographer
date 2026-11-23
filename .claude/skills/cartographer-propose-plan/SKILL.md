@@ -55,7 +55,10 @@ The WPs grouped into the fewest changes the size cap allows (a change is one que
 commit): for each its slug, its commit title, its WPs, the estimated production lines and
 the change it is queued after (`AFTER=<slug>`), if any. Each WP is a body line
 `type(scope): ...` (one unwrapped line), so the changelog keeps one entry per WP; a change
-with one WP omits the body line when it equals the title.
+with one WP omits the body line when it equals the title. A change estimated under about 150
+production lines is merged into a neighbouring change of the same plan, unless a code
+dependency or a web-bundle conflict forbids it; the changes that depend on each other form
+one chain, reviewed and checked once on its tip (`cartographer-implement-plan` §1).
 
 ## Closing
 
