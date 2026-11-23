@@ -1897,7 +1897,7 @@ func TestLanderForgetsTheNumbersOfARejectedChange(t *testing.T) {
 	}
 }
 
-// remap_pick leaves test files alone, as number_decisions does.
+// remap_pick leaves test files alone, as the numbering of a train does.
 func TestLanderMapsAnEditButNotInTestFiles(t *testing.T) {
 	e := newLandEnv(t)
 	dec := "docs/" + "decisions/"
@@ -2561,9 +2561,9 @@ func TestLanderComposesWholeUnitsWithinLandMax(t *testing.T) {
 }
 
 // A member of a chain rejected after its numbering (a decision whose slug main holds) takes its
-// whole unit out of the train with the numbers the unit took: the earlier member's decision is
-// not numbered, the unit stays queued but the rejected member, and the next unit's decision
-// takes the first free number.
+// whole unit out of the train: the earlier member leaves it, its decision gets no number, the
+// unit stays queued but the rejected member, and the next unit's decision takes the first free
+// number.
 func TestLanderForgetsTheNumbersOfARejectedChain(t *testing.T) {
 	e := newLandEnv(t)
 	dec := "docs/" + "decisions/"
@@ -2693,5 +2693,291 @@ esac
 				t.Errorf("warning printed %v, want %v:\n%s", warned, fails, out)
 			}
 		})
+	}
+}
+
+// decisionsOn lists the decision file names (no directory) on a ref of the upstream repository.
+func (e *landEnv) decisionsOn(ref string) []string {
+	e.t.Helper()
+	var names []string
+	for _, l := range strings.Fields(e.upGit("ls-tree", "--name-only", ref, "docs/"+"decisions/")) {
+		names = append(names, strings.TrimPrefix(l, "docs/"+"decisions/"))
+	}
+	return names
+}
+
+// AC-P3-10, AC-P3-11. The pending decisions of a train are numbered once, after the picks: a
+// later change of a chain that edits the lines around an earlier change's citation applies as
+// written (no pick meets a renumbered line), and every landed commit shows its own decision
+// numbered and no placeholder.
+func TestLanderNumbersTheTrainOnceAfterThePicks(t *testing.T) {
+	e := newLandEnv(t)
+	dec := "docs/" + "decisions/"
+	e.queue("a", "feat(client): a\n", "2026-01-01T10:00:00Z", map[string]string{
+		dec + "D-new-x.md": "---\ntopic: x\n---\n\n# D-new-x — X\n",
+		"notes.md":         "first line\ncites D-new-x here\nlast line\n",
+	})
+	e.queueAfter("b", "a", "fix(client): b\n", "2026-01-01T10:01:00Z", map[string]string{
+		"notes.md":         "first line edited\ncites D-new-x here\nlast line edited\n",
+		dec + "D-new-x.md": "---\ntopic: x\n---\n\n# D-new-x — X\n\nMore.\n",
+	})
+	out, ok := e.land()
+	if !ok || e.refs("failed/") != "" || e.refs("ready/") != "" {
+		t.Fatalf("the chain lands: ok=%v failed=%q ready=%q\n%s", ok, e.refs("failed/"), e.refs("ready/"), out)
+	}
+	if got := strings.Join(e.mainSubjects(), " | "); got != "feat(client): a | fix(client): b" {
+		t.Fatalf("main holds %q\n%s", got, out)
+	}
+	for _, ref := range []string{"main~1", "main"} {
+		var num string
+		for _, n := range e.decisionsOn(ref) {
+			if strings.HasSuffix(n, "-x.md") {
+				num = strings.TrimSuffix(n, "-x.md")
+			}
+			if strings.Contains(n, "D-new") {
+				t.Errorf("%s still holds a pending decision %s", ref, n)
+			}
+		}
+		if num == "" {
+			t.Fatalf("%s lacks the numbered decision: %v", ref, e.decisionsOn(ref))
+		}
+		if notes := e.upGit("show", ref+":notes.md"); strings.Contains(notes, "D-new") || !strings.Contains(notes, "cites "+num+" here") {
+			t.Errorf("%s: the citation reads %s:\n%s", ref, num, notes)
+		}
+	}
+	// The second commit edited the decision file the first added: the edit is in the numbered file.
+	for _, n := range e.decisionsOn("main") {
+		if strings.HasSuffix(n, "-x.md") && !strings.Contains(e.upGit("show", "main:"+dec+n), "More.") {
+			t.Errorf("the edit of b must be in %s", n)
+		}
+	}
+}
+
+// A citation of a pending decision a later change of the same chain adds lands, numbered; the
+// same citation across two units (the decision's change is in a later unit) is rejected with the
+// sentence of an unknown placeholder, and the later unit lands on its own.
+func TestLanderChecksAForwardCitationPerUnit(t *testing.T) {
+	dec := "docs/" + "decisions/"
+	t.Run("inside a chain", func(t *testing.T) {
+		e := newLandEnv(t)
+		e.queue("a", "fix(client): a\n", "2026-01-01T10:00:00Z", map[string]string{"notes.md": "cites D-new-y\n"})
+		e.queueAfter("b", "a", "fix(client): b\n", "2026-01-01T10:01:00Z", map[string]string{dec + "D-new-y.md": "---\ntopic: x\n---\n\n# D-new-y\n"})
+		out, ok := e.land()
+		if !ok || e.refs("failed/") != "" {
+			t.Fatalf("the chain lands (ok=%v, failed=%q)\n%s", ok, e.refs("failed/"), out)
+		}
+		notes := e.upGit("show", "main:notes.md")
+		if strings.Contains(notes, "D-new") || !strings.HasPrefix(notes, "cites D") {
+			t.Errorf("the forward citation reads the number:\n%s", notes)
+		}
+	})
+	t.Run("across two units", func(t *testing.T) {
+		e := newLandEnv(t)
+		e.queue("a", "fix(client): a\n", "2026-01-01T10:00:00Z", map[string]string{"notes.md": "cites D-new-y\n"})
+		e.queue("b", "fix(client): b\n", "2026-01-01T10:01:00Z", map[string]string{dec + "D-new-y.md": "---\ntopic: x\n---\n\n# D-new-y\n"})
+		out, ok := e.land()
+		if !ok {
+			t.Fatalf("land failed\n%s", out)
+		}
+		if e.refs("failed/") != "a" {
+			t.Fatalf("a is rejected: failed=%q\n%s", e.refs("failed/"), out)
+		}
+		if r := e.upGit("log", "-1", "--format=%s", "failed/a"); !strings.Contains(r, "neither on main nor earlier in the train") {
+			t.Errorf("the reason says so, got %q", r)
+		}
+		if got := strings.Join(e.mainSubjects(), " | "); got != "fix(client): b" {
+			t.Errorf("b lands alone, main holds %q", got)
+		}
+	})
+}
+
+// A bisection that lands a prefix keeps the numbers the whole train gave it: the lander numbered
+// once, before the gate, and the prefix is the first commits of that train.
+func TestLanderABisectedPrefixKeepsItsNumbers(t *testing.T) {
+	e := newLandEnv(t)
+	dec := "docs/" + "decisions/"
+	e.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{dec + "D-new-a.md": "---\ntopic: x\n---\n\n# D-new-a\n", "a.txt": "see D-new-a\n"})
+	e.queue("b", "fix(kb): b\n", "2026-01-01T11:00:00Z", map[string]string{"BAD": "x\n"})
+	e.queue("c", "fix(kb): c\n", "2026-01-01T12:00:00Z", map[string]string{dec + "D-new-c.md": "---\ntopic: x\n---\n\n# D-new-c\n"})
+	out, ok := e.land()
+	if !ok || e.refs("failed/") != "b" {
+		t.Fatalf("b is rejected, a and c land (ok=%v failed=%q)\n%s", ok, e.refs("failed/"), out)
+	}
+	var na, nc string
+	for _, n := range e.decisionsOn("main") {
+		switch {
+		case strings.HasSuffix(n, "-a.md"):
+			na = n
+		case strings.HasSuffix(n, "-c.md"):
+			nc = n
+		}
+	}
+	numOf := func(n, slug string) int {
+		v, err := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(n, "D"), "-"+slug+".md"))
+		if err != nil {
+			return -1
+		}
+		return v
+	}
+	if numOf(na, "a") < 0 || numOf(nc, "c") <= numOf(na, "a") {
+		t.Fatalf("a and c are numbered, a first: %q %q\n%s", na, nc, out)
+	}
+	if got := e.upGit("show", "main~1:a.txt"); got != "see "+strings.TrimSuffix(na, "-a.md") {
+		t.Errorf("the citation of a reads its number, got %q", got)
+	}
+}
+
+// make ready warns when the change cites a pending decision that nothing queued before it adds,
+// and stays quiet for one the change adds itself.
+func TestReadyWarnsOfACitationNothingBeforeItAdds(t *testing.T) {
+	e := newLandEnv(t)
+	dec := "docs/" + "decisions/"
+	ready := func(slug, msg string, files map[string]string) string {
+		e.git("checkout", "-q", "-B", "feat/"+slug, "origin/main")
+		for p, b := range files {
+			e.write(filepath.Join(e.work, p), b)
+		}
+		e.git("add", ".")
+		e.git("commit", "-q", "-m", "wip")
+		m := filepath.Join(e.tmp, "msg")
+		e.write(m, msg)
+		cmd := exec.Command("bash", filepath.Join(e.work, "scripts", "ready.sh"))
+		cmd.Dir = e.work
+		cmd.Env = append(append([]string{}, e.env...), "MSG="+m, "READY_NO_LANDER=1")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("ready %s: %v\n%s", slug, err, out)
+		}
+		return string(out)
+	}
+	if out := ready("lone", "feat(kb): lone\n", map[string]string{"n.txt": "cites D-new-nobody\n", "t_test.go": "// D-new-fixture\n"}); !strings.Contains(out, "ready: warning: it cites D-new-nobody, which nothing queued before it adds") || strings.Contains(out, "D-new-fixture") {
+		t.Errorf("a warning for the citation, none for a test file:\n%s", out)
+	}
+	if out := ready("self", "feat(kb): self\n", map[string]string{"n2.txt": "cites D-new-mine\n", dec + "D-new-mine.md": "---\ntopic: x\n---\n\n# D-new-mine\n"}); strings.Contains(out, "warning") {
+		t.Errorf("no warning for a decision the change adds:\n%s", out)
+	}
+}
+
+// countingBuild is a LAND_BUNDLE_BUILD script that counts its runs in <dir>/count and builds the
+// bundle from web/src/a.ts, as bundleBuildScript does.
+func countingBuild(t *testing.T, e *landEnv) (script, count string) {
+	t.Helper()
+	dir := t.TempDir()
+	script, count = filepath.Join(dir, "build"), filepath.Join(dir, "count")
+	e.write(script, "#!/bin/sh\necho run >> '"+count+"'\nmkdir -p internal/webui/dist && cp web/src/a.ts internal/webui/dist/provenance.json\n")
+	return script, count
+}
+
+// A change picked through remap_pick (an edit of a pending decision main holds numbered) that
+// cites that decision under web/ gets its bundle built again: remap_pick has already rewritten
+// the citation, so the numbering of the train changes nothing, and the bundle is stale all the
+// same (D2128).
+func TestLanderRebuildsTheBundleOfARemappedChangeCitingUnderWeb(t *testing.T) {
+	e := newLandEnv(t)
+	dec := "docs/" + "decisions/"
+	body := "---\ntopic: x\n---\n\n# D-new-x — X\n"
+	e.queue("a", "feat(client): a\n", "2026-01-01T10:00:00Z", map[string]string{dec + "D-new-x.md": body, "internal/webui/dist/provenance.json": "stale\n"})
+	e.git("fetch", "-q", "origin")
+	e.git("checkout", "-q", "-B", "work-b", "origin/ready/a")
+	e.write(filepath.Join(e.work, dec, "D-new-x.md"), body+"Two.\n")
+	e.write(filepath.Join(e.work, "web/src/a.ts"), "// D-new-x\n")
+	e.git("add", ".")
+	e.git("commit", "-q", "-m", "feat(atlas): b\n")
+	e.git("push", "-q", "--force", "origin", "HEAD:refs/heads/ready/b")
+	e.git("checkout", "-q", "main")
+	e.git("fetch", "-q", "origin")
+	e.git("update-ref", "refs/lander-hold", "origin/ready/b")
+	e.upGit("update-ref", "-d", "refs/heads/ready/b")
+	if out, ok := e.land(); !ok {
+		t.Fatalf("land a failed\n%s", out)
+	}
+	e.git("push", "-q", "--force", "origin", "refs/lander-hold:refs/heads/ready/b")
+	build, count := countingBuild(t, e)
+	out, ok := e.land("LAND_BUNDLE_BUILD=" + build)
+	if !ok || e.refs("failed/") != "" {
+		t.Fatalf("b must land, failed=%q\n%s", e.refs("failed/"), out)
+	}
+	src := e.upGit("show", "main:web/src/a.ts")
+	if strings.Contains(src, "D-new-") || e.upGit("show", "main:internal/webui/dist/provenance.json") != src {
+		t.Errorf("the bundle must be built from the numbered source %q", src)
+	}
+	if n, _ := os.ReadFile(count); strings.Count(string(n), "run") != 1 {
+		t.Errorf("one build, got %q", n)
+	}
+}
+
+// The bundle is built again for a commit whose own diff cites a pending decision under web/, not
+// for every later commit of the train: a train of three where only the first touches web/ builds
+// once, and the others carry the previous commit's bundle.
+func TestLanderBuildsTheBundleOnlyForTheCommitThatCitesUnderWeb(t *testing.T) {
+	e := newLandEnv(t)
+	dec := "docs/" + "decisions/"
+	e.queue("a", "feat(atlas): a\n", "2026-01-01T10:00:00Z", map[string]string{
+		dec + "D-new-foo.md": "---\ntopic: x\n---\n\n# D-new-foo\n", "web/src/a.ts": "// D-new-foo\n", "internal/webui/dist/provenance.json": "stale\n"})
+	e.queue("b", "fix(kb): b\n", "2026-01-01T11:00:00Z", map[string]string{"b.txt": "b\n"})
+	e.queue("c", "fix(kb): c\n", "2026-01-01T12:00:00Z", map[string]string{"c.txt": "c\n"})
+	build, count := countingBuild(t, e)
+	out, ok := e.land("LAND_BUNDLE_BUILD=" + build)
+	if !ok || e.refs("failed/") != "" || len(e.mainSubjects()) != 3 {
+		t.Fatalf("the three land (ok=%v, failed=%q)\n%s", ok, e.refs("failed/"), out)
+	}
+	if n, _ := os.ReadFile(count); strings.Count(string(n), "run") != 1 {
+		t.Errorf("one build for the three commits, got %q\n%s", n, out)
+	}
+	src := e.upGit("show", "main:web/src/a.ts")
+	for _, ref := range []string{"main~2", "main~1", "main"} {
+		if got := e.upGit("show", ref+":internal/webui/dist/provenance.json"); got != src {
+			t.Errorf("%s carries the rebuilt bundle, got %q want %q", ref, got, src)
+		}
+	}
+}
+
+// remap_pick applies the edit of a pending decision to the numbered file when main changed that
+// file elsewhere meanwhile: hunks that do not overlap apply with their offset.
+func TestLanderRemapsAnEditWhenMainChangedTheNumberedFileElsewhere(t *testing.T) {
+	e := newLandEnv(t)
+	dec := "docs/" + "decisions/"
+	lines := func(first, last string) string {
+		return "---\ntopic: x\n---\n\n# D-new-x — X\n\n" + first + "\n" + strings.Repeat("filler line\n", 12) + last + "\n"
+	}
+	e.queue("a", "feat(client): a\n", "2026-01-01T10:00:00Z", map[string]string{dec + "D-new-x.md": lines("first", "last")})
+	e.git("fetch", "-q", "origin")
+	e.git("checkout", "-q", "-B", "work-b", "origin/ready/a")
+	e.write(filepath.Join(e.work, dec, "D-new-x.md"), lines("first edited", "last"))
+	e.git("add", ".")
+	e.git("commit", "-q", "-m", "fix(client): b\n")
+	e.git("push", "-q", "--force", "origin", "HEAD:refs/heads/ready/b")
+	e.git("checkout", "-q", "main")
+	e.git("fetch", "-q", "origin")
+	e.git("update-ref", "refs/lander-hold", "origin/ready/b")
+	e.upGit("update-ref", "-d", "refs/heads/ready/b")
+	if out, ok := e.land(); !ok {
+		t.Fatalf("land a failed\n%s", out)
+	}
+	// Main changes the numbered file's last line, as another change would.
+	e.git("fetch", "-q", "origin")
+	e.git("checkout", "-q", "-B", "elsewhere", "origin/main")
+	var num string
+	for _, n := range e.decisionsOn("main") {
+		if strings.HasSuffix(n, "-x.md") {
+			num = n
+		}
+	}
+	got, err := os.ReadFile(filepath.Join(e.work, dec, num))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.write(filepath.Join(e.work, dec, num), strings.Replace(string(got), "last\n", "last on main\n", 1))
+	e.git("add", ".")
+	e.git("commit", "-q", "-m", "docs: edit elsewhere")
+	e.git("push", "-q", "origin", "elsewhere:main")
+	e.git("checkout", "-q", "main")
+	e.git("push", "-q", "--force", "origin", "refs/lander-hold:refs/heads/ready/b")
+	out, ok := e.land()
+	if !ok || e.refs("failed/") != "" {
+		t.Fatalf("b must land, failed=%q\n%s", e.refs("failed/"), out)
+	}
+	if final := e.upGit("show", "main:"+dec+num); !strings.Contains(final, "first edited") || !strings.Contains(final, "last on main") {
+		t.Errorf("both edits are in the numbered file:\n%s", final)
 	}
 }

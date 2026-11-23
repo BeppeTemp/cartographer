@@ -1266,7 +1266,7 @@ case. A change whose cherry-pick conflicts only in
 `internal/webui/dist`, the committed bundle every frontend change rebuilds whole, is picked with the bundle built
 again from the merged sources (`make web`, Node on the lander's machine; `LAND_BUNDLE_BUILD` replaces the command
 in the tests), and the gate's `TestBundleMatchesSource` proves it; a conflict anywhere else, or a failed build, is
-still a rejection. A change that adds a `D-new-` citation under `web/` gets the bundle built again after the lander numbers it (the rewrite makes it stale), and is rejected when that build fails. A train whose signoff retried flaky tests lands on that gate, with a `bug`
+still a rejection. Pending decisions are numbered once, after the last pick of a train (D2304): the picks keep the `D-new-<slug>` placeholders, so a change that edits a line next to an earlier change's citation, or the earlier change's `D-new-<slug>.md`, applies as written, and the only check of a pick is a slug `main` or an earlier change of the train already holds. Then a citation is checked: a placeholder must be numbered on `main`, or added by a member of the change's own unit (earlier or later) or by an earlier unit, else that change is rejected (its unit as any rejection) and the queue is composed again, with no gate spent. The train's decisions then take the next numbers in commit order, and each commit is created again in order (same message, author and dates) with its decision files renamed and the placeholders rewritten in the files the train touched so far, never `_test.go` or `testdata/`; a bisection that lands a prefix keeps the prefix's numbers. A change that adds a `D-new-` citation under `web/` gets the bundle built again (the rewrite makes it stale, also when a pick rewrote it already; the later commits of the train that touch `web/` or the bundle too, the others take the previous commit's), and is rejected when that build fails. `make ready` warns of a `D-new-` citation that nothing queued before the change adds (a warning: the change that adds it may not be queued yet). A train whose signoff retried flaky tests lands on that gate, with a `bug`
 issue naming them. A red train whose failure the signoff's targeted retry confirmed goes
 straight to bisection; any other red train is gated a second time on the same tree: green
 then is a flaky test, the train lands and a `bug` issue names the failing tests (Go, vitest
@@ -1368,7 +1368,7 @@ after its rejection is queued: its `failed/` ref, deleted once it lands, no long
 later train while a later one that fits is taken, and a unit larger than `LAND_MAX` is gated alone
 (a log line says so). A member rejected at its pick (a conflict, a pending decision, a bundle that
 cannot be rebuilt) takes its unit out of the train: the train is reset to the commit before the
-unit's first pick, the decision numbers the unit took are forgotten, only that member moves to
+unit's first pick, only that member moves to
 `failed/` (its reason ends `(chain <first>..<tip>)`), and the others stay queued, blocked, so a
 second run of the lander gates nothing of the unit.
 
