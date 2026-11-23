@@ -275,7 +275,12 @@ func TestSink_AwaitIsBoundedWhileTheTailerDelivers(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	start := time.Now()
 	err = sk.Await(context.Background(), last[0].Hash)
-	if d := time.Since(start); err == nil || d > 2*time.Second {
+	// Every step of a delivery honours the deadline (the request is built with
+	// the context; only the local cursor write does not), so the margin over
+	// the 1 s timeout is for a loaded runner (2.29 s seen on Windows), not for
+	// the product: it only has to tell a bounded Await from one that waits for
+	// the 6 s backlog.
+	if d := time.Since(start); err == nil || d > time.Second+3*time.Second {
 		t.Fatalf("await: %v after %s, want a timeout within about 1 s", err, d)
 	}
 }
