@@ -18,7 +18,7 @@
 # members in their Lander-After order (ties by queue order), the units by their oldest member;
 # its tips are the members no other member follows. No member of a unit is picked while one is
 # rejected (blocked), carries `Lander-Hold: yes` (held), or, while the freeze is open
-# (scripts/freeze-open.sh, D1384), is a feat/perf/refactor or breaking change (frozen); a
+# (scripts/freeze-open.sh, D1384), is of a title type scripts/profiles.tsv holds, feat/perf/refactor or a breaking change (frozen); a
 # change queued again after its rejection is queued, its failed/ ref no longer counts. A train
 # is main plus whole units, at most LAND_MAX (8) changes in all; a unit that does not fit waits
 # for the next train, one larger than LAND_MAX is gated alone. Pending decisions are numbered once,
@@ -437,10 +437,27 @@ landed_on_main() {
   return 1
 }
 
-breaking() { # a feat, perf or refactor title, or a breaking change: held while the freeze is open
-  local t
+# The title types a change is held under while the freeze is open: the rows of profiles.tsv with
+# `held` (feat, perf, refactor and `breaking`: a `!` title or a `BREAKING CHANGE` line). The file
+# is read once; one that is missing or has a row of another shape stops the lander (the freeze is
+# a safety property: fail closed).
+[ -r "$here/profiles.tsv" ] || { log "cannot read $here/profiles.tsv"; exit 2; }
+held_types=$(tr -d '\r' <"$here/profiles.tsv" | awk -F'\t' '
+  /^#/ || $1 == "" { next }
+  NF != 7 { print "BAD " $1 " has another number of fields than seven"; next }
+  $6 != "held" && $6 != "-" { print "BAD " $1 " has an unknown freeze value " $6; next }
+  $6 == "held" { print $2 }') || die "cannot read $here/profiles.tsv"
+case "$held_types" in *BAD*) held_types=$(grep -m1 '^BAD' <<<"$held_types") && { log "$here/profiles.tsv: row ${held_types#*BAD }"; exit 2; } ;; esac
+held_types=,$(tr '\n' ',' <<<"$held_types")
+breaking() { # a title type of a held profile row, or a breaking change: held while the freeze is open
+  local t type
   t=$(title "$1")
-  [[ "$t" =~ ^(feat|perf|refactor)(\(|:|!) ]] || [[ "$t" =~ ^[a-z]+(\([^\)]*\))?!: ]] ||
+  [[ "$t" =~ ^([a-z]+)(\([^\)]*\))?!?: ]] && type=${BASH_REMATCH[1]} || type=
+  # A held row of types `*` holds every type.
+  case "$held_types" in *,\*,*) return 0 ;; esac
+  [ -z "$type" ] || case "$held_types" in *,"$type",*) return 0 ;; esac
+  case "$held_types" in *breaking*) ;; *) return 1 ;; esac
+  [[ "$t" =~ ^[a-z]+(\([^\)]*\))?!: ]] ||
     g log -1 --format=%B "$1" | grep -q '^BREAKING CHANGE'
 }
 

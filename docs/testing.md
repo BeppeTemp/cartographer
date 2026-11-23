@@ -1424,6 +1424,13 @@ onto the rebuilt one before it, then one atomic push with a lease on each ref's 
 is deleted in it) and the lander started. `FIRST=1` dates the chain before the oldest queue entry and adds
 `Lander-Now: yes` to its first change. A change that does not apply, one already on `main`, an unknown slug and a lease
 that fails push nothing. The new commits get a fresh pre-check, the tip's included.
+What a kind of change owes is data, `scripts/profiles.tsv` (one row per profile: title types, path pattern, tier floor,
+required trailers, `held` in the freeze, standing approval): `pr-triage.sh` prints `Profile: <names>` after `Role:` and
+takes the tier as the higher of the size rule and the floors, `trailers-lint.sh` asks which trailers the change owes,
+`land.sh` holds the title types of the `held` rows in the freeze, and `make ready PROFILE=live` declares the one row no title
+selects (the message then carries `Profile: live`). Every row whose types and paths both match applies, the strictest
+value of each column wins (a `fix` in an invariant area is `fix + security`); a missing file or a malformed row makes
+`pr-triage.sh` and `trailers-lint.sh` exit 2 naming the row, and stops the lander (`internal/repodocs/profiles_test.go`).
 `internal/repodocs/ready_check_test.go` pins the plan, the replay on temporary repositories
 and the replay step after each job's checkout.
 `internal/repodocs/land_test.go` runs the lander against a local bare repository with fake

@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # ready.sh — a maintainer hands a finished, reviewed change to the lander (D1706).
 #
-#   make ready MSG=<file> [AFTER=<slug>] [HOLD=1] [NOW=1] [REVIEW="<tier>, <n> rounds"]
+#   make ready MSG=<file> [AFTER=<slug>] [HOLD=1] [NOW=1] [REVIEW="<tier>, <n> rounds"] [PROFILE=<name>]
 #
 # In the change's worktree: squashes the branch onto its merge-base with main into ONE
 # commit whose message is MSG (a conventional title, changelog body lines on one line
 # each, `Closes #n`/`Refs #n`), checks it as pr-title.yml would (scripts/commit-lint.sh),
-# its `Found-by:`/`Introduced-by:` lines (a `fix`) and `Cost:` line (scripts/trailers-lint.sh)
+# the lines its profiles require (a `fix`: `Found-by:`/`Introduced-by:`, scripts/profiles.tsv) and
+# its `Cost:` line (scripts/trailers-lint.sh)
 # and the size cap as plan-gate would (scripts/pr-triage.sh), pushes it as
 # `refs/heads/ready/<slug>` (slug = the branch name after its prefix) and starts the
 # lander (scripts/land.sh --daemon) unless one already runs on this machine or another
@@ -33,6 +34,10 @@
 # `Lander-Tip: <the branch head squashed>` (added here), which `make worktree-clean`
 # reads, and the `Review` added here (the last one: the lander drops every other
 # `Review` line); any copy of them in the message is dropped first.
+#
+# PROFILE=<name> declares a row of scripts/profiles.tsv that no title type selects (today `live`):
+# the message then carries `Profile: <name>`, which reaches main. Any other name is refused,
+# with the declared ones.
 #
 # A contributor does not queue: they open a PR, and CI tests it.
 # Plain bash 3.2 (the macOS default).
@@ -105,8 +110,14 @@ fi
 
 full=$(mktemp "${TMPDIR:-/tmp}/ready-msg.XXXXXX")
 trap 'rm -f "$full"' EXIT
-grep -vE '^(Lander-[A-Za-z]+|Review): ' "$MSG" >"$full" || true
+grep -vE '^(Lander-[A-Za-z]+|Review|Profile): ' "$MSG" >"$full" || true
 "$here/commit-lint.sh" "$full" || die "the message does not pass the title and body rules"
+if [ -n "${PROFILE:-}" ]; then
+  declared=$(tr -d '\r' <"$here/profiles.tsv" | awk -F'\t' '!/^#/ && $1 != "" && $2 == "-" { print $1 }')
+  grep -qxF -- "$PROFILE" <<<"$declared" || die "PROFILE=$PROFILE is not a declared profile (scripts/profiles.tsv): $(tr '\n' ' ' <<<"$declared")"
+  # Not a Lander- line: it stays on the commit that lands.
+  git interpret-trailers --in-place --trailer "Profile: $PROFILE" "$full"
+fi
 why=$("$here/trailers-lint.sh" "$full" 2>&1) || die "the message does not say where the defect was found (Found-by, Introduced-by), or its Cost line is malformed: $why"
 args=()
 [ -z "${AFTER:-}" ] || args+=(--trailer "Lander-After: $AFTER")

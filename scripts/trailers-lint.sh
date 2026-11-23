@@ -10,7 +10,9 @@
 # message: they are not git trailers, because a `Closes #n` line in their paragraph hides
 # the whole block from `git interpret-trailers --parse`.
 #
-# A `fix` title (any scope, with or without `!`) needs:
+# Which trailers a change owes is data (scripts/profiles.tsv): the union of the `trailers`
+# column of every row whose title types match the message's title (or that its `Profile:` line
+# declares). Today the `fix` row, so a `fix` title (any scope, with or without `!`) needs:
 #   - a `Found-by: <value>` line per defect it fixes (a bundle of three has three, the
 #     value may repeat), each value a row of scripts/found-by.tsv;
 #   - an `Introduced-by: <ref>` line per change that introduced one, each ref one of:
@@ -21,7 +23,9 @@
 # Any change may carry one `Cost: impl <n>k, review <n>k, rounds <n>` line (thousands of
 # tokens of the implementing and the reviewing subagents, the review rounds; a figure the
 # client does not show is `?`), and nothing else that starts with `Cost:`.
-# Each key is matched whatever its case and refused unless spelled as above.
+# Each key is matched whatever its case and refused unless spelled as above. A profiles.tsv
+# that is missing or malformed, or a row with a path pattern that requires trailers (the path
+# is not known here), exits 2 naming the row: the trailers are a safety property.
 # Plain bash 3.2 (the macOS default).
 set -euo pipefail
 
@@ -40,10 +44,47 @@ trailer() { git log -1 --format=%B "$1" | git interpret-trailers --parse | sed -
 
 text=$(tr -d '\r' <"$msg")
 title=$(head -n 1 <<<"$text")
-fix_re='^fix(\([a-z,-]+\))?!?: '
 cost_re='^Cost: impl ([0-9]+k|\?), review ([0-9]+k|\?), rounds ([0-9]+|\?)$'
 isfix=0
-[[ "$title" =~ $fix_re ]] && isfix=1
+# The trailers the profiles require of this title: the union over the rows that match it.
+ptype=
+[[ "$title" =~ ^([a-z]+)(\([a-z,-]+\))?(!?): ]] && ptype=${BASH_REMATCH[1]}
+pbreaking=
+{ [[ "$title" =~ ^[a-z]+(\([a-z,-]+\))?!: ]] || grep -q '^BREAKING CHANGE' <<<"$text"; } && pbreaking=1
+declared=$(sed -n 's/^Profile:[[:space:]]*//p' <<<"$text" | tr -d ' ')
+required=
+profiles_file=$here/profiles.tsv
+[ -r "$profiles_file" ] || { echo "trailers-lint: $profiles_file is missing: the trailers a change owes are read from it" >&2; exit 2; }
+lineno=0
+while IFS=$'\t' read -r pname ptypes ppaths ptier ptrailers pfreeze pstanding extra || [ -n "$pname" ]; do
+  lineno=$((lineno + 1))
+  pname=${pname%$'\r'}
+  case "$pname" in "" | "#"*) continue ;; esac
+  if [ -z "${pstanding:-}" ] || [ -n "${extra:-}" ]; then
+    echo "trailers-lint: $profiles_file:$lineno: row '$pname' needs seven tab-separated fields" >&2; exit 2
+  fi
+  if [ "$ptrailers" != "-" ] && [ "$ppaths" != "-" ]; then
+    echo "trailers-lint: $profiles_file:$lineno: row '$pname' has a path pattern and requires trailers: the paths are not known when the message is checked" >&2; exit 2
+  fi
+  [ "$ptrailers" != "-" ] || continue
+  # Only the trailers this script knows how to check: an unknown name would be required of
+  # nobody, which is a silent rule.
+  for tn in $(tr ',' ' ' <<<"$ptrailers"); do
+    case "$tn" in Found-by | Introduced-by) ;; *)
+      echo "trailers-lint: $profiles_file:$lineno: row '$pname': unknown trailer '$tn' (Found-by, Introduced-by or -)" >&2; exit 2 ;;
+    esac
+  done
+  hit=
+  if [ "$ptypes" = "-" ]; then
+    grep -qxF "$pname" <<<"$declared" && hit=1
+  elif [ "$ptypes" = "*" ]; then hit=1
+  else
+    case ",$ptypes," in *",$ptype,"*) [ -z "$ptype" ] || hit=1 ;; esac
+    case ",$ptypes," in *,breaking,*) [ -z "$pbreaking" ] || hit=1 ;; esac
+  fi
+  [ -z "$hit" ] || required+=",$ptrailers,"
+done <"$profiles_file"
+case "$required" in *,Found-by,* | *,Introduced-by,*) isfix=1 ;; esac
 vocab=$(values)
 
 have_main=

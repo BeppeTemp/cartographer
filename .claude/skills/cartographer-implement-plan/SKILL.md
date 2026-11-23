@@ -226,5 +226,5 @@ A maintainer's standing policy, kept outside this repository and stated in the s
 - **Review** of every change (§3).
 - **Non-append conflicts** during a rebase after a rejection — hand back to the user.
 - **`make ready`** — act only on an explicit user decision or a standing approval.
-- **Supply-chain files** (`SUPPLY_CHAIN` in `scripts/pr-triage.sh`: CI workflows, installers, the release pipeline, bundled skills, agent-instruction files, the Makefile, `scripts/`) — the user reads those hunks and decides that the change is queued; a standing approval does not cover it.
+- **Supply-chain files** (the `process` row of `scripts/profiles.tsv`: CI workflows, installers, the release pipeline, bundled skills, agent-instruction files, the Makefile, `scripts/`) — the user reads those hunks and decides that the change is queued; a standing approval does not cover it.
 - **`make worktree-rm`** — it runs `git worktree remove --force`, which discards uncommitted work: confirm the change landed and the slug is the right one first.
