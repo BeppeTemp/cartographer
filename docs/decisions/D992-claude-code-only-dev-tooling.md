@@ -1,10 +1,13 @@
 ---
 topic: project-governance
 supersedes: D884
+superseded_by: D2323
 amends: D203, D327
 ---
 
 # D992 — This repository is developed with Claude Code only
+
+> **Superseded by [D2323](D2323-two-dev-clients.md)**: the repository is developed with two clients, Claude Code and Kiro CLI, the second one's agent definitions generated from the first one's; what D992 keeps is listed there.
 
 **Decision.** The repository's development tooling targets Claude Code alone:
 skills are real directories in `.claude/skills/`, subagents are the five files in

@@ -69,7 +69,7 @@ const (
 	MaxSkillDescriptionChars = 1024
 )
 
-// SkillDir holds the repository's own skills, as real directories (D992).
+// SkillDir holds the repository's own skills, as real directories (D2323).
 const SkillDir = ".claude/skills"
 
 // Markers for the generated block inside the hand-curated docs/decisions.md.

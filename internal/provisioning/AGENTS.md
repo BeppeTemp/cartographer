@@ -99,6 +99,6 @@ modifies files a user did not ask about.
 
 ## Scope note
 
-The repository's own `.claude/skills` and `.claude/agents` are real directories (D992). Because of D148 this package will refuse to materialize
+The repository's own `.claude/skills` and `.claude/agents` are real directories (D2323). Because of D148 this package will refuse to materialize
 into them, which is the correct outcome: those are repo-scoped skills, versioned
 here, and not something a KB sync should own.
