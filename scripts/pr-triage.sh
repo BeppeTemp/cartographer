@@ -19,17 +19,10 @@ set -euo pipefail
 
 # Limits are CONTRIBUTING.md §Pull requests; change them there and here together.
 SIZE_CAP=500      # production lines added per PR
-# Packages whose invariants are written down outside the code (an area AGENTS.md)
-# or are about security and concurrency: a change there always gets a full review.
-INVARIANT_AREAS='^internal/(mcpserver|provisioning|auth|gitx|sops|service)/'
-# What runs on, or gets installed into, users' machines without being Go code: the
-# CI workflows (they hold the release credentials), the installers, the release
-# pipeline, and the skills the binary provisions into users' agents. A change there
-# is a supply-chain change at any size: always a full review, never a standing merge (D857).
-# The files agents execute are the same class (D955): a PR that edits AGENTS.md, a skill,
-# an agent definition, the Makefile or a script steers the review and the sessions that read it.
-# .agents/, .kiro/, .opencode/ and .github/agents/ are no longer tracked (D992), but stay listed: a PR that adds them plants definitions other clients load.
-SUPPLY_CHAIN='^(\.github/workflows/|install\.(sh|ps1)$|\.goreleaser\.yaml$|Dockerfile$|release-please-config\.json$|internal/skillbundle/bundled/|(.*/)?(AGENTS|CLAUDE)\.md$|SECURITY\.md$|CONTRIBUTING\.md$|\.agents/|\.claude/|\.kiro/|\.opencode/|\.github/agents/|\.github/ISSUE_TEMPLATE/|\.github/pull_request_template\.md$|Makefile$|scripts/)'
+# What a kind of change owes (its review tier floor, its required trailers, whether it is held
+# in the freeze, whether a standing approval may queue it) is data: scripts/profiles.tsv, read
+# below, where the invariant areas and the supply-chain files are rows.
+PROFILES=$(dirname "$0")/profiles.tsv
 
 kind() { # production | test | docs | generated
   case "$1" in
@@ -115,6 +108,7 @@ if [ $# -ge 1 ]; then
     else "SUCCESS" end' <<<"$meta")
   issues=$(jq -r '.closingIssuesReferences[].number' <<<"$meta")
   body=$(jq -r .body <<<"$meta")
+  title=$(jq -r .title <<<"$meta")
 else
   # Fail closed on a fork clone without `upstream`: never diff against a stale fork main.
   "$(dirname "$0")/upstream-repo.sh" --require-remote >/dev/null || exit 2
@@ -134,6 +128,7 @@ else
   echo "Branch $(git rev-parse --abbrev-ref HEAD) vs $remote/main (before opening a PR)"
   issues=$(git log --format=%B "$tbase"..HEAD | grep -oiE '(closes|fixes) #[0-9]+' | grep -oE '[0-9]+' | sort -u || true)
   body=${TRIAGE_BODY:-}
+  title=$(head -n 1 <<<"$body")
 fi
 echo "Role: $role"
 
@@ -153,17 +148,61 @@ echo "Areas: $(cut -f4 <<<"$classified" | cut -d/ -f1-2 | sort | uniq -c | sort 
 docs_touched=$(cut -f4 <<<"$classified" | grep -m1 '^docs/' || true)
 decision=$(cut -f4 <<<"$classified" | grep -m1 '^docs/decisions/D' || true)
 
-invariant=$(paths_of production | grep -E "$INVARIANT_AREAS" | cut -d/ -f1-2 | sort -u || true)
-supply=$(paths_of production | grep -E "$SUPPLY_CHAIN" || true)
-if [ -n "$invariant" ] || [ -n "$supply" ]; then
-  tier=full
-elif [ "$prod" -le 50 ]; then
-  tier=light
-else
-  tier=standard
+# The profiles that apply (scripts/profiles.tsv): every row whose title types and paths both
+# match, the strictest value of each column. A row of types `-` applies only when the message
+# declares it (`Profile: <name>`, which `make ready PROFILE=` writes).
+[ -r "$PROFILES" ] || { echo "pr-triage: $PROFILES is missing: the tier is read from it" >&2; exit 2; }
+ptype=
+[[ "$title" =~ ^([a-z]+)(\([^\)]*\))?(!?): ]] && ptype=${BASH_REMATCH[1]}
+pbreaking=
+{ [[ "$title" =~ ^[a-z]+(\([^\)]*\))?!: ]] || grep -q '^BREAKING CHANGE' <<<"$body"; } && pbreaking=1
+declared=$(tr -d '\r' <<<"$body" | sed -n 's/^Profile:[[:space:]]*//p' | tr -d ' ')
+prod_paths=$(paths_of production)
+profiles= floor= process_hit= tierlist= lineno=0
+while IFS=$'\t' read -r pname ptypes ppaths ptier ptrailers pfreeze pstanding extra || [ -n "$pname" ]; do
+  lineno=$((lineno + 1))
+  pname=${pname%$'\r'}
+  case "$pname" in "" | "#"*) continue ;; esac
+  if [ -z "${pstanding:-}" ] || [ -n "${extra:-}" ] || ! [[ "$pname" =~ ^[a-z][a-z0-9-]*$ ]]; then
+    echo "pr-triage: $PROFILES:$lineno: row '$pname' needs seven tab-separated fields" >&2; exit 2
+  fi
+  pstanding=${pstanding%$'\r'}
+  case "$ptier" in full | -) ;; *) echo "pr-triage: $PROFILES:$lineno: row '$pname': the tier is full or -" >&2; exit 2 ;; esac
+  case "$pfreeze" in held | -) ;; *) echo "pr-triage: $PROFILES:$lineno: row '$pname': freeze is held or -" >&2; exit 2 ;; esac
+  case "$pstanding" in no | -) ;; *) echo "pr-triage: $PROFILES:$lineno: row '$pname': standing is no or -" >&2; exit 2 ;; esac
+  # grep -E answers 1 for no match and 2 for a pattern it cannot read: the latter is a malformed
+  # row (fail closed), never "no path matched".
+  matched=
+  if [ "$ppaths" != "-" ]; then
+    if matched=$(grep -E -e "$ppaths" <<<"$prod_paths"); then :; else
+      [ "$?" = 1 ] || { echo "pr-triage: $PROFILES:$lineno: row '$pname': the path pattern is not a regular expression" >&2; exit 2; }
+      matched=
+    fi
+  fi
+  hit=
+  if [ "$ptypes" = "-" ]; then
+    grep -qxF "$pname" <<<"$declared" && hit=1
+  elif [ "$ptypes" = "*" ]; then hit=1
+  else
+    case ",$ptypes," in *",$ptype,"*) [ -z "$ptype" ] || hit=1 ;; esac
+    case ",$ptypes," in *,breaking,*) [ -z "$pbreaking" ] || hit=1 ;; esac
+  fi
+  [ -z "$hit" ] || [ "$ppaths" = "-" ] || [ -n "$matched" ] || hit=
+  [ -n "$hit" ] || continue
+  profiles+="${profiles:+ + }$pname"
+  [ "$ptier" != full ] || floor=full
+  [ "$pname" != process ] || [ "$pstanding" != no ] || process_hit=1
+  if [ "$ptier" = full ] && [ "$ppaths" != "-" ]; then tierlist+=" — $pname: $(tr '\n' ' ' <<<"$matched")"; fi
+done <"$PROFILES"
+echo "Profile: ${profiles:-other}"
+tier=
+if [ "$floor" = full ]; then tier=full
+elif [ "$prod" -le 50 ]; then tier=light
+else tier=standard
 fi
-echo "Tier: $tier${invariant:+ — invariant areas: $(tr '\n' ' ' <<<"$invariant")}${supply:+ — supply chain: $(tr '\n' ' ' <<<"$supply")}"
-[ -n "$supply" ] && echo "WARN: supply-chain files changed — the user reads those hunks and decides the merge; no standing approval covers it"
+echo "Tier: $tier$tierlist"
+# The standing no of the process row: today's warning (no standing approval covers a supply-chain file).
+[ -z "$process_hit" ] || echo "WARN: supply-chain files changed — the user reads those hunks and decides the merge; no standing approval covers it"
 
 for n in $issues; do
   labels=$(gh issue view "$n" --json labels \

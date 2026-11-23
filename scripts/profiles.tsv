@@ -1,0 +1,36 @@
+# profiles.tsv — the process profiles: what a kind of change owes, as data. Four scripts read it:
+# scripts/pr-triage.sh (types, paths, tier, standing), scripts/trailers-lint.sh (types, trailers),
+# scripts/land.sh (types, freeze) and scripts/ready.sh (the declarable rows: types `-`).
+#
+# Format: seven TAB-separated columns per row; blank lines and lines starting with # are
+# ignored (the conventions of doc-owners.tsv).
+#   name      a lowercase word, unique
+#   types     the title types the row applies to, comma-separated: `*` any, `breaking` a title with
+#             `!` or a `BREAKING CHANGE` line; `-` none: the row applies only when `make ready
+#             PROFILE=<name>` declares it (the message then carries `Profile: <name>`)
+#   paths     an ERE over the production paths of the change; `-` any (also a change with none)
+#   tier      the review tier floor: `full`, or `-`
+#   trailers  the lines `make ready` requires in the message, comma-separated (`Found-by`,
+#             `Introduced-by`: scripts/trailers-lint.sh checks their values), or `-`;
+#             only a row whose paths are `-` can require any: ready knows the message
+#   freeze    `held`: the lander holds a change of these types while the release freeze is open
+#   standing  `no`: a standing approval may not queue it, or `-`
+#
+# EVERY row whose types and paths both match applies, and for each column the strictest value
+# wins: the highest tier floor, the union of the trailers, `held` over `-`, `no` over `-`. There
+# is no first match: a `fix(mcp):` in an invariant area is `fix` and `security` at once, so it is
+# full tier and still owes its trailers. Fail closed, per reader: a missing file, a row
+# with another number of fields, or an unknown value in a column the script reads, makes
+# pr-triage.sh (tier, freeze, standing, a path pattern that is no ERE), trailers-lint.sh (an
+# unknown trailer name) and land.sh (the freeze column) exit 2, naming the row. ready.sh reads
+# the name and types columns only and refuses an undeclared PROFILE.
+#
+# security: packages whose invariants are written down outside the code (an area AGENTS.md) or
+# are about security and concurrency. process: what runs on, or gets installed into, users'
+# machines without being Go code, and the files agents execute (D857, D955): at any size a full
+# review, never a standing merge.
+security	*	^internal/(mcpserver|provisioning|auth|gitx|sops|service)/	full	-	-	no
+process	*	^(\.github/workflows/|install\.(sh|ps1)$|\.goreleaser\.yaml$|Dockerfile$|release-please-config\.json$|internal/skillbundle/bundled/|(.*/)?(AGENTS|CLAUDE)\.md$|SECURITY\.md$|CONTRIBUTING\.md$|\.agents/|\.claude/|\.kiro/|\.opencode/|\.github/agents/|\.github/ISSUE_TEMPLATE/|\.github/pull_request_template\.md$|Makefile$|scripts/)	full	-	-	no
+fix	fix	-	-	Found-by,Introduced-by	-	-
+feature	feat,perf,refactor,breaking	-	-	-	held	-
+live	-	-	-	-	-	-
