@@ -3,7 +3,7 @@
 #
 # Exit 0 while it is open, 1 when it is closed. The freeze is opened by a release
 # candidate, not by the calendar: it is open while some candidate tag
-# vX.Y.Z-rc.<YYYYMMDD> exists whose X.Y.Z is greater than the latest stable release,
+# vX.Y.Z-rc.<YYYYMMDD>.<n> (or the older vX.Y.Z-rc.<YYYYMMDD>) exists whose X.Y.Z is greater than the latest stable release,
 # until that version is released (release.yml deletes its candidates) or the
 # candidate is discarded (release-train.yml, action discard).
 #
@@ -41,7 +41,7 @@ fi
 
 stable=$(awk '$1 ~ /^v[0-9]+\.[0-9]+\.[0-9]+$/ && $2 != "true" {print $1}' <<<"$releases" | sort -V | tail -1)
 # Candidates are not filtered on draft: preview.yml publishes them as pre-releases.
-cands=$(awk '$1 ~ /^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]{8}$/ {print $1}' <<<"$releases")
+cands=$(awk '$1 ~ /^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]{8}(\.[0-9]+)?$/ {print $1}' <<<"$releases")
 
 newer() { # newer <a> <b>: a is strictly greater than b (b may be empty)
   [ -z "$2" ] || { [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -1)" = "$1" ]; }
@@ -60,8 +60,9 @@ while read -r tag; do
 done <<<"$cands"
 
 [ -n "$top" ] || exit 1
-# Oldest first: the date suffix orders the candidates of one version.
-pending=$(grep -F "$top-rc." <<<"$newer_cands" | sort -t. -k4,4n)
+# Oldest first: the date, then the counter of the day, both numeric; a tag without
+# a counter (the old shape) sorts before .1 of its day.
+pending=$(grep -F "$top-rc." <<<"$newer_cands" | sort -t. -k4,4n -k5,5n)
 
 case "$mode" in
   --candidate) echo "$pending" | head -1 ;;

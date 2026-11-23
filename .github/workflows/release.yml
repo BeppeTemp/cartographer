@@ -2,7 +2,7 @@ name: Release
 
 on:
   push:
-    # A release candidate's tag (vX.Y.Z-rc.<date>, D1192), or any tag preview.yml
+    # A release candidate's tag (vX.Y.Z-rc.<date>.<n>, D1192), or any tag preview.yml
     # accepts (vX.Y.Z-<suffix>), never runs a release, even when pushed by a token
     # that starts workflows: a stable tag has no hyphen, the update channel's rule.
     tags: ["v*", "!v*-*"]
@@ -450,7 +450,7 @@ jobs:
         run: ./mcp-publisher publish
 
   # The candidates of this version leave with its release (D1192): every
-  # pre-release vX.Y.Z-rc.<YYYYMMDD> of the version shipped is deleted, with its
+  # pre-release vX.Y.Z-rc.<YYYYMMDD>[.<n>] of the version shipped is deleted, with its
   # tag; candidates of other versions stay. Never fails the release: a candidate
   # left behind is a warning, and the update channel skips it anyway. Deleting the
   # candidates is also what closes the freeze (scripts/freeze-open.sh, D1384): it is
@@ -475,7 +475,7 @@ jobs:
             echo "::warning::$TAG is not vX.Y.Z: no candidate cleanup"
             exit 0
           fi
-          pattern="^v${version//./\\.}-rc\\.[0-9]{8}$"
+          pattern="^v${version//./\\.}-rc\\.[0-9]{8}(\\.[0-9]+)?$"
           tags=$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" --jq '.[].tag_name' | grep -E "$pattern") || true
           for t in $tags; do
             if gh release delete "$t" --cleanup-tag --yes; then

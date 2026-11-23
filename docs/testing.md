@@ -277,7 +277,7 @@ row of the upgrade scenario: a scenario and its row land in the same change.
 release leaves on a client, which no scenario of `make e2e` does: each connects a
 fresh sandbox with the binary under test. It builds the newest stable tag reachable
 from HEAD (`vX.Y.Z`, no pre-release suffix, the tag at HEAD excluded) from a throwaway
-`git worktree`; a release candidate (`vX.Y.Z-rc.<date>`, D1192) is skipped by its tag as
+`git worktree`; a release candidate (`vX.Y.Z-rc.<date>.<n>`, D1192) is skipped by its tag as
 the installers skip it, and the scenario checks that rule on a throwaway repository first, runs it as the `claude` client of a HEAD server whose KB serves a
 skill, a hook, an MCP descriptor, a `block: full` `instructions.md` and a `{{path:…}}`
 key, approves what it waits for as a user does, then switches the client to HEAD and
@@ -1436,7 +1436,7 @@ GOOS=windows GOARCH=amd64 go vet ./...
 
 ## Before a release
 
-- The release candidate (`release-train.yml` with `action: rc` dispatches `preview.yml`, tag `v<next>-rc.<YYYYMMDD>`, D1384) has passed both image smokes (server and Surveyor) before its first push (D995, D1440) and has run on a real deployment, and its pre-release binaries have been installed as native service and client on a machine that is not the build host (`CARTOGRAPHER_INSTALL_TAG`, `CONTRIBUTING.md` §Releases); only then is the `rc-ok` label added to the release PR.
+- The release candidate (`release-train.yml` with `action: rc` dispatches `preview.yml`, tag `v<next>-rc.<YYYYMMDD>.<n>`, D1384, D2312) has passed both image smokes (server and Surveyor) before its first push (D995, D1440) and has run on a real deployment, and its pre-release binaries have been installed as native service and client on a machine that is not the build host (`CARTOGRAPHER_INSTALL_TAG`, `CONTRIBUTING.md` §Releases); only then is the `rc-ok` label added to the release PR. A publishing step that only `release.yml` runs cannot be rehearsed by the candidate (0.29.0 stayed a draft because "Attest the chart" had no registry login, #2272): `TestReleaseOnlyStepsAreDeclared` maps each job of `release.yml` to its twin in `preview.yml`, or to the reason it has none, and each step of a twinned job to the twin or to a declared reason, so adding one is a reviewed choice.
 - CI is green on the release commit, including `make e2e-web` in the `web` job.
 - `make e2e-upgrade` is green on the release PR (the `upgrade-e2e` job): a client of the previous release upgrades and converges.
 - `make smoke` succeeds for the packaged/local stdio path.

@@ -353,7 +353,7 @@ dispatched by hand with one of three actions.
   deletes once the notes fit (release-please replaces a body over GitHub's 65536 characters
   with a link).
 - **Freeze, opened by the candidate.** It is open from the moment a candidate tag
-  `vX.Y.Z-rc.<YYYYMMDD>` with `X.Y.Z` greater than the latest stable release exists, until
+  `vX.Y.Z-rc.<YYYYMMDD>.<n>` with `X.Y.Z` greater than the latest stable release exists, until
   that version is released (`release.yml` deletes its candidates) or the candidate is
   discarded. `scripts/freeze-open.sh` answers it from the releases listing (never
   `releases/latest`, which hides a 0.x pre-release; a draft is not released yet; an
@@ -367,7 +367,7 @@ dispatched by hand with one of three actions.
   blocked commit on `main` since the oldest candidate of the pending version skips the
   release. A PR the freeze blocks waits until the release.
 - **The release candidate.** `action: rc` builds the candidate
-  `v<next>-rc.<YYYYMMDD>` (`preview.yml`) and comments the tag on the release PR: one comment, edited for each new candidate (the latest tag, the earlier ones in a short list). It is a
+  `v<next>-rc.<YYYYMMDD>.<n>` (`preview.yml`; `<n>` counts the day's candidates from 1, so every candidate has a tag of its own, and the older `v<next>-rc.<YYYYMMDD>` shape is still read) and comments the tag on the release PR: one comment, edited for each new candidate (the latest tag, the earlier ones in a short list). It is a
   server image, a Surveyor image **and** a GitHub pre-release with the binaries (the same archives and
   `sha256sums.txt` as a stable release). Both images are started and smoked before anything
   is published (tools, non-root user, a KB served over HTTP with a write that commits for the server;
@@ -383,13 +383,13 @@ dispatched by hand with one of three actions.
   is not the current head of `main` (a fix landed after the build), the release is
   skipped with a comment (it says when the candidate build itself failed): run the
   candidate again by hand (`action: rc`), try it and add the label again. An
-  `action: rc` always builds (the same day, it replaces that day's pre-release, and so
-  moves the commit the freeze check starts from). A pull request
+  `action: rc` always builds, into a new tag (the oldest candidate, from which the freeze check
+  starts, is never replaced). A pull request
   touching `film/` runs `film-check` (30 frames, the runner's tools), so the encode chain
   fails there and not in the candidate.
 - **Trying the candidate as native service and client.** On macOS or Linux,
-  `curl -fsSL https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install.sh | CARTOGRAPHER_INSTALL_TAG=v<next>-rc.<YYYYMMDD> sh`
-  (Windows: `$env:CARTOGRAPHER_INSTALL_TAG='v<next>-rc.<YYYYMMDD>'` before
+  `curl -fsSL https://raw.githubusercontent.com/BeppeTemp/cartographer/main/install.sh | CARTOGRAPHER_INSTALL_TAG=v<next>-rc.<YYYYMMDD>.<n> sh`
+  (Windows: `$env:CARTOGRAPHER_INSTALL_TAG='v<next>-rc.<YYYYMMDD>.<n>'` before
   `install.ps1`) installs that tag, checksum-verified like any release, over a stable
   install; the next `cartographer sync` replaces the native service with it (D199) and
   its schema migrations run as a stable upgrade's would. Back to stable: `install.sh`

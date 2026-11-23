@@ -406,9 +406,115 @@ func TestReleaseWorkflowIgnoresAndCleansUpCandidates(t *testing.T) {
 	for _, st := range job.Steps {
 		run += st.Run
 	}
-	for _, want := range []string{"gh release delete", "--cleanup-tag", `-rc\\.[0-9]{8}$`, "${version//./\\\\.}"} {
+	// AC-P4-3: the cleanup deletes both shapes of the shipped version only, and the
+	// release gate reads a successful candidate of either shape.
+	if n := strings.Count(readFile(t, repoRoot(t), ".github/workflows/release-train.yml"), `-rc\\.[0-9]{8}(\\.[0-9]+)?$`); n != 2 {
+		t.Errorf("release-train.yml: %d readers of the candidate tag accept both shapes, want 2 (the newest success and the newest failure)", n)
+	}
+	for _, want := range []string{"gh release delete", "--cleanup-tag", `-rc\\.[0-9]{8}(\\.[0-9]+)?$`, "${version//./\\\\.}"} {
 		if !strings.Contains(run, want) {
 			t.Errorf("release.yml: candidate-cleanup lacks %q: it deletes the candidates of the shipped version only", want)
+		}
+	}
+}
+
+// A release candidate's tag is v<next>-rc.<YYYYMMDD>.<n>, one per build: <n> is one more
+// than the highest of today's preview.yml runs of any status, because a failed build
+// leaves no tag and no release, only its run title. The step's script runs for real
+// with a fake gh.
+func TestCandidateDispatchNumbersTheDay(t *testing.T) {
+	// AC-P4-1: two runs of one day dispatch .1 and .2, also when the first build failed.
+	// AC-P4-4: a failed read dispatches no build and names the read.
+	if runtime.GOOS == "windows" {
+		t.Skip("the script runs on ubuntu only; bash on Windows may be WSL")
+	}
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash not on PATH")
+	}
+	root := repoRoot(t)
+	var wf struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				Name string `yaml:"name"`
+				Run  string `yaml:"run"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(readFile(t, root, ".github/workflows/release-train.yml")), &wf); err != nil {
+		t.Fatal(err)
+	}
+	var run string
+	for _, job := range wf.Jobs {
+		for _, st := range job.Steps {
+			if st.Name == "Dispatch the release candidate build" {
+				run = st.Run
+			}
+		}
+	}
+	if run == "" {
+		t.Fatal("release-train.yml: no dispatch step")
+	}
+	// A fake date next to the fake gh: the script reads the day with `date -u`, so the test
+	// never races midnight UTC.
+	const today = "20260105"
+	fakeDate := "#!/bin/sh\necho " + today + "\n"
+	fake := `#!/bin/sh
+case "$1 $2" in
+"pr view") echo "chore(main): release 0.9.0" ;;
+"run list") echo "$@" >> "$LIST_LOG"; if [ -n "$FAIL_LIST" ]; then echo "boom" >&2; exit 1; fi; printf '%s' "$RUNS" ;;
+"workflow run") echo "$@" >> "$GH_LOG" ;;
+esac
+`
+	title := func(tag string) string { return "Preview image " + tag + "\n" }
+	cases := []struct {
+		name string
+		runs string
+		fail bool
+		want string // the tag dispatched; "" = nothing dispatched
+	}{
+		{"no run today", title("v0.9.0-rc.20200101.4"), false, "v0.9.0-rc." + today + ".1"},
+		{"first failed, second ok", title("v0.9.0-rc."+today+".2") + title("v0.9.0-rc."+today+".1"), false, "v0.9.0-rc." + today + ".3"},
+		{"only a failed one", title("v0.9.0-rc." + today + ".1"), false, "v0.9.0-rc." + today + ".2"},
+		{"ten after nine", title("v0.9.0-rc."+today+".9") + title("v0.9.0-rc."+today+".2"), false, "v0.9.0-rc." + today + ".10"},
+		{"another version's runs do not count", title("v0.8.0-rc." + today + ".5"), false, "v0.9.0-rc." + today + ".1"},
+		{"the old shape counts for nothing", title("v0.9.0-rc." + today), false, "v0.9.0-rc." + today + ".1"},
+		{"a hand-dispatched .08 is not octal", title("v0.9.0-rc." + today + ".08"), false, "v0.9.0-rc." + today + ".9"},
+		{"read fails", "", true, ""},
+	}
+	for _, c := range cases {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(fake), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "date"), []byte(fakeDate), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		ghLog := filepath.Join(dir, "gh.log")
+		listLog := filepath.Join(dir, "list.log")
+		cmd := exec.Command(bash, "-e", "-o", "pipefail", "-c", run)
+		cmd.Dir = root
+		cmd.Env = append(cmd.Environ(), "GH_REPO=example/repo", "PR=1", "GH_LOG="+ghLog, "LIST_LOG="+listLog, "RUNS="+c.runs,
+			"PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		if c.fail {
+			cmd.Env = append(cmd.Env, "FAIL_LIST=1")
+		}
+		var buf strings.Builder
+		cmd.Stdout, cmd.Stderr = &buf, &buf
+		err := cmd.Run()
+		got, _ := os.ReadFile(ghLog)
+		if c.want == "" {
+			if err == nil || len(got) != 0 || !strings.Contains(buf.String(), "gh run list") {
+				t.Errorf("%s: want a failure naming the read and no dispatch, got err=%v dispatched=%q log=%q", c.name, err, got, buf.String())
+			}
+			continue
+		}
+		// Runs of any status count: a failed build leaves its title and nothing else.
+		if l, _ := os.ReadFile(listLog); strings.Contains(string(l), "--status") || !strings.Contains(string(l), "preview.yml") {
+			t.Errorf("%s: the read of the runs must be preview.yml's, with no --status filter: %q", c.name, l)
+		}
+		if !strings.Contains(string(got), "tag="+c.want+"\n") {
+			t.Errorf("%s: dispatched %q, want tag=%s\n%s", c.name, got, c.want, buf.String())
 		}
 	}
 }

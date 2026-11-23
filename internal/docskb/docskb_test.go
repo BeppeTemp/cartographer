@@ -233,12 +233,14 @@ func TestSlugAndAnchor(t *testing.T) {
 
 func TestRef(t *testing.T) {
 	for in, want := range map[string]string{
-		"v0.29.0":            "v0.29.0",
-		"v0.29.0-rc.1":       "v0.29.0-rc.1",
-		"v0.28.0-5-gabc1234": "main",
-		"0.29.0":             "main",
-		"dev":                "main",
-		"":                   "main",
+		"v0.29.0":               "v0.29.0",
+		"v0.29.0-rc.1":          "v0.29.0-rc.1",
+		"v0.29.0-rc.20261123.2": "v0.29.0-rc.20261123.2",
+		"v0.29.0-rc.20261123":   "v0.29.0-rc.20261123",
+		"v0.28.0-5-gabc1234":    "main",
+		"0.29.0":                "main",
+		"dev":                   "main",
+		"":                      "main",
 	} {
 		if got := Ref(in); got != want {
 			t.Errorf("Ref(%q) = %q, want %q", in, got, want)

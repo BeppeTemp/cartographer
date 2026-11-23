@@ -195,8 +195,8 @@ jobs:
           go-version-file: go.mod
           cache: false
       # Local only, never pushed: GoReleaser reads {{ .Version }} from it, so the
-      # binaries print the candidate's tag. -f: a same-day rebuild finds the tag of
-      # the earlier candidate already fetched. Another day's candidate of the same
+      # binaries print the candidate's tag. -f: a run of a tag started again by hand
+      # finds the tag of its earlier build already fetched. Another candidate of the same
       # commit carries a tag on HEAD too, hence GORELEASER_CURRENT_TAG below.
       - name: Tag the commit locally
         env:
@@ -236,8 +236,8 @@ jobs:
           ls -l rc
       # github.token, never a PAT: a tag it creates starts no `push` workflow, the
       # second guard after release.yml's tag filter. --latest=false keeps GitHub's
-      # latest release where it is. A same-day rebuild replaces that day's candidate;
-      # other candidates are kept (release.yml deletes them with the release).
+      # latest release where it is. A run of a tag started again by hand replaces that
+      # candidate (release-train gives every candidate its own tag); other candidates are kept (release.yml deletes them with the release).
       - name: Publish the pre-release
         env:
           GH_TOKEN: ${{ github.token }}
