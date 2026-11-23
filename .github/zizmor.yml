@@ -22,3 +22,6 @@ rules:
       # Same reason: the film job calls ./.github/workflows/film.yml, the
       # candidate's own copy of the called workflow.
       - preview.yml
+      # Same reason: the rehearsal job calls ./.github/workflows/preview.yml,
+      # the checked-out copy of the called workflow it is rehearsing.
+      - nightly.yml
