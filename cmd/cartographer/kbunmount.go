@@ -174,6 +174,9 @@ func planKBUnmount(name, dataDir, configPath string, deleteClone bool) (*unmount
 			return nil, err
 		}
 	}
+	if !hasDataDirEntry(dataDir, name) {
+		return nil, noLocalKBError(name, dataDir)
+	}
 	if _, err := os.Stat(filepath.Join(p.KBPath, "data", "index.md")); err != nil {
 		if _, derr := os.Stat(p.KBPath); os.IsNotExist(derr) {
 			return nil, noLocalKBError(name, dataDir)

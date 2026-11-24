@@ -1239,6 +1239,32 @@ func mountedList(names []string) string {
 	return strings.Join(names, ", ")
 }
 
+// hasDataDirEntry reports whether the data dir holds an entry named exactly
+// name. os.Stat on <dataDir>/<name> would also match another case on a
+// case-insensitive filesystem (APFS, NTFS), where KB-A would find kb-a (#2345).
+func hasDataDirEntry(dataDir, name string) bool {
+	entries, err := os.ReadDir(dataDir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if e.Name() == name {
+			return true
+		}
+	}
+	return false
+}
+
+// isLocalKB accepts a local KB only when an entry of the data dir has exactly
+// that name and holds data/index.md.
+func isLocalKB(dataDir, name string) bool {
+	if !hasDataDirEntry(dataDir, name) {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(dataDir, name, "data", "index.md"))
+	return err == nil
+}
+
 // noLocalKBError is the answer of the offline kb commands (rename, unmount) to a
 // name with no directory under the data dir, in the wording of resolveTypedKBTargets.
 func noLocalKBError(name, dataDir string) error {

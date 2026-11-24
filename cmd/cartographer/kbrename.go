@@ -194,6 +194,9 @@ func planKBRename(old, newName, dataDir, configPath string) (*renamePlan, error)
 		EntryIndex: -1,
 		DataDir:    dataDir,
 	}
+	if !hasDataDirEntry(dataDir, old) {
+		return nil, noLocalKBError(old, dataDir)
+	}
 	if _, err := os.Stat(filepath.Join(p.OldPath, "data", "index.md")); err != nil {
 		if os.IsNotExist(err) {
 			if _, derr := os.Stat(p.OldPath); os.IsNotExist(derr) {
