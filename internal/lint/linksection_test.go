@@ -129,3 +129,14 @@ func TestReciprocalLinkItems_OneSideInText(t *testing.T) {
 		t.Fatalf("reciprocal items: %v", got)
 	}
 }
+
+// A cross-KB link ("kb:" prefix) is no link of this KB: as a list item it is
+// neither a duplicate of the text nor a bare link list.
+func TestLinksSectionIssues_KBSchemeLinkIsIgnored(t *testing.T) {
+	t.Parallel()
+	body := "Uses [[kb:kb-b/ops/x]] daily.\n\n## Links\n\n- [[kb:kb-b/ops/x]]\n- [y](kb:kb-b/ops/y)\n"
+	_, dups, _, bare, _ := linksSectionIssues(body, "x/page.md", nil)
+	if len(dups) != 0 || bare {
+		t.Fatalf("dups=%v bare=%v, want none", dups, bare)
+	}
+}
