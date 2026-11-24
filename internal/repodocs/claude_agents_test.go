@@ -267,36 +267,172 @@ func TestGhIssueCommentReadsFilterByAuthorAssociation(t *testing.T) {
 	if len(files) == 0 {
 		t.Fatal("no agent definition or skill found")
 	}
-	span := regexp.MustCompile("`gh (?:issue view|pr view|api)\\b[^`]*`")
-	apiText := regexp.MustCompile(`gh api\s+\S*/(?:issues|pulls)/`)
-	assoc := regexp.MustCompile(`select\([^` + "`" + `]*\b(?:authorAssociation|author_association)\b[^` + "`" + `]*\bOWNER\b[^` + "`" + `]*\bMEMBER\b[^` + "`" + `]*\bCOLLABORATOR\b`)
-	readsText := func(m string) bool {
-		if strings.HasPrefix(m, "`gh api") {
-			if !apiText.MatchString(m) {
-				return false
-			}
-			// `--jq .author_association`: a non-text field, no select needed.
-			if strings.Contains(m, "--jq") && !strings.Contains(m, "body") && !strings.Contains(m, "/comments") {
-				return false
-			}
-			return true
-		}
-		i := strings.Index(m, "--json")
-		if i < 0 {
-			return true // a bare `gh issue view` prints the body
-		}
-		fields := m[i:]
-		return strings.Contains(fields, "body") || strings.Contains(fields, "comments")
-	}
 	for _, f := range files {
 		raw, err := os.ReadFile(f)
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, m := range span.FindAllString(string(raw), -1) {
-			if readsText(m) && !assoc.MatchString(m) {
-				t.Errorf("%s: %s reads issue or PR text without a select on the OWNER, MEMBER and COLLABORATOR association", f, m)
+		for _, m := range unguardedGhReads(string(raw)) {
+			t.Errorf("%s: `%s` reads issue or PR text without a select on the OWNER, MEMBER and COLLABORATOR association (IN(...)) that guards .body", f, m)
+		}
+	}
+}
+
+// ghReadCommands returns every `gh issue view`, `gh pr view` and `gh api`
+// command of a Markdown file as one line: the inline code spans (wrapped over
+// lines or not) and the commands of fenced blocks (backslash continuations
+// joined).
+func ghReadCommands(md string) []string {
+	start := regexp.MustCompile(`gh (?:issue view|pr view|api)\b`)
+	var out []string
+	var prose []string
+	flush := func() {
+		text := strings.Join(prose, " ")
+		prose = nil
+		for _, sp := range regexp.MustCompile("`([^`]*)`").FindAllStringSubmatch(text, -1) {
+			if loc := start.FindStringIndex(sp[1]); loc != nil {
+				out = append(out, strings.Join(strings.Fields(sp[1][loc[0]:]), " "))
 			}
 		}
 	}
+	lines := strings.Split(md, "\n")
+	fence := ""
+	for i := 0; i < len(lines); i++ {
+		l := lines[i]
+		if t := strings.TrimSpace(l); strings.HasPrefix(t, "```") || strings.HasPrefix(t, "~~~") {
+			if fence == "" {
+				fence = t[:3]
+			} else if strings.HasPrefix(t, fence) {
+				fence = ""
+			}
+			continue
+		}
+		if fence != "" {
+			for i+1 < len(lines) && (strings.HasSuffix(l, "\\") || strings.HasSuffix(strings.TrimSpace(l), "|")) {
+				i++
+				l = strings.TrimSuffix(l, "\\") + " " + lines[i]
+			}
+			if loc := start.FindStringIndex(l); loc != nil {
+				out = append(out, strings.Join(strings.Fields(l[loc[0]:]), " "))
+			}
+			continue
+		}
+		if strings.TrimSpace(l) == "" {
+			flush()
+			continue
+		}
+		prose = append(prose, l)
+	}
+	flush()
+	return out
+}
+
+func TestGhReadCommandsFindsWrappedAndFenced(t *testing.T) {
+	md := "text `gh issue view 1\n--json comments` more\n\n```sh\ngh api graphql \\\n  -f q=x\n```\n"
+	got := ghReadCommands(md)
+	if len(got) != 2 || got[0] != "gh issue view 1 --json comments" || got[1] != "gh api graphql -f q=x" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+// The workflows open their `bug` and `ci-red` issues as github-actions[bot],
+// which GitHub reports as a Bot with the association CONTRIBUTOR (checked on a
+// real one), so the association filter alone would drop the body of every such
+// issue: an agent that reads an issue's body keeps the bot's by its login.
+func TestIssueBodyReadKeepsTheWorkflowBot(t *testing.T) {
+	root := repoRoot(t)
+	for _, name := range []string{"cartographer-fix-implementer.md", "cartographer-plan-writer.md"} {
+		raw, err := os.ReadFile(filepath.Join(root, ".claude", "agents", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, m := range ghReadCommands(string(raw)) {
+			if strings.HasPrefix(m, "gh api") && strings.Contains(m, "author_association") && strings.Contains(m, ".body") {
+				found = true
+				if !strings.Contains(m, `.user.login == "github-actions[bot]"`) {
+					t.Errorf("%s: the issue body read %q does not keep the body of github-actions[bot]", name, m)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("%s: no issue body read through gh api found", name)
+		}
+	}
+}
+
+func TestGhReadGuardRejectsWeakForms(t *testing.T) {
+	const sel = `select(.author_association | IN("OWNER","MEMBER","COLLABORATOR")) | .body`
+	bad := []string{
+		"`gh api -H X repos/o/r/issues/1`",
+		"`gh api --paginate repos/o/r/issues/1/comments`",
+		"`gh api repos/o/r/issues/1 --jq 'select(true or (.author_association | IN(\"OWNER\",\"MEMBER\",\"COLLABORATOR\"))) | .body'`",
+		"~~~sh\ngh issue view 1 --json body\n~~~\n",
+		"```sh\ngh issue view 1 --json comments --jq '.comments[]' |\n  jq .body\n```\n",
+		"```sh\ngh pr view 1 \\\n --json reviews\n```\n",
+	}
+	for _, md := range bad {
+		if len(unguardedGhReads(md)) == 0 {
+			t.Errorf("not rejected: %q", md)
+		}
+	}
+	good := []string{
+		"`gh api -H X repos/o/r/issues/1 --jq '.comments[] | " + sel + "'`",
+		"~~~sh\ngh issue view 1 --json comments --jq '.comments[] |\n " + sel + "'\n~~~\n",
+		"`gh api repos/o/r/issues/1 --jq '.title, (select(.user.login == \"github-actions[bot]\" or (.author_association | IN(\"OWNER\",\"MEMBER\",\"COLLABORATOR\"))) | .body)'`",
+	}
+	for _, md := range good {
+		if g := unguardedGhReads(md); len(g) != 0 {
+			t.Errorf("rejected %q: %q", md, g)
+		}
+	}
+}
+
+var apiText = regexp.MustCompile(`^gh api\b.*(?:\bgraphql\b|/(?:issues|pulls)/)`)
+
+// A select on the maintainer associations that is followed by `.body`: the
+// `IN(` form, the three associations and the body behind the guard (the bot
+// the workflows run as, github-actions[bot], is the one allowed addition).
+const inList = `IN\(\s*"OWNER"\s*,\s*"MEMBER"\s*,\s*"COLLABORATOR"\s*\)`
+const field = `\.(?:authorAssociation|author_association)\s*\|\s*`
+
+var assoc = regexp.MustCompile(`select\(\s*` + field + inList + `\s*\)\s*\|\s*\.body\b|` +
+	`select\(\s*\.user\.login\s*==\s*"github-actions\[bot\]"\s*or\s*\(\s*` + field + inList + `\s*\)\s*\)\s*\|\s*\.body\b`)
+var readsText = func(m string) bool {
+	if strings.HasPrefix(m, "gh api") {
+		if !apiText.MatchString(m) {
+			return false
+		}
+		if strings.HasPrefix(m, "gh api graphql") {
+			return true
+		}
+		// `--jq .author_association`: a non-text field, no select needed.
+		if strings.Contains(m, "--jq") && !strings.Contains(m, "body") && !strings.Contains(m, "/comments") {
+			return false
+		}
+		return true
+	}
+	i := strings.Index(m, "--json")
+	if i < 0 {
+		return true // a bare `gh issue view` prints the body
+	}
+	fields := m[i:]
+	for _, w := range []string{"body", "comments", "reviews", "latestReviews"} {
+		if strings.Contains(fields, w) {
+			return true
+		}
+	}
+	return false
+}
+
+// unguardedGhReads returns the gh commands of a Markdown file that read issue
+// or PR text without the association guard.
+func unguardedGhReads(md string) []string {
+	var out []string
+	for _, m := range ghReadCommands(md) {
+		if readsText(m) && !assoc.MatchString(m) {
+			out = append(out, m)
+		}
+	}
+	return out
 }
