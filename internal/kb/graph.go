@@ -236,7 +236,7 @@ func firstResolver(assetResolver []func(relPath string) bool) func(string) bool 
 // existing extensionless asset, or a path escaping the KB. It is the single
 // resolver both ExtractLinks and RewriteLinks use (D248).
 func mdLinkTarget(baseDir, href string, isAsset func(string) bool) (string, bool) {
-	if strings.Contains(href, "://") || strings.HasPrefix(href, "#") || strings.HasPrefix(href, "mailto:") {
+	if strings.Contains(href, "://") || strings.HasPrefix(href, "#") || strings.HasPrefix(href, "mailto:") || hasKBScheme(href) {
 		return "", false
 	}
 
@@ -286,12 +286,22 @@ func mdLinkTarget(baseDir, href string, isAsset func(string) bool) (string, bool
 	return id, id != ""
 }
 
+// kbScheme opens a link to a concept of another KB mounted on the same server
+// ("[[kb:kb-b/ops/x]]", "[x](kb:kb-b/ops/x)"). It is not a concept id of this
+// KB: no map name can carry a colon (okf.isKebabSegment), so no id starts with
+// it. Every link reader goes through mdLinkTarget/wikiLinkTarget, so the graph,
+// the lint, RewriteLinks and UnlinkTargets agree and leave such a link as is.
+// Only the start of the raw target counts: "ops/kb:x" is still an id.
+const kbScheme = "kb:"
+
+func hasKBScheme(raw string) bool { return strings.HasPrefix(raw, kbScheme) }
+
 // rooted reports a bundle-relative href (it starts with "/").
 func rooted(href string) bool { return strings.HasPrefix(href, "/") }
 
 // wikiLinkTarget resolves the ID group of a wiki-link match (root-relative).
 func wikiLinkTarget(raw string) (string, bool) {
-	if raw == "" || strings.Contains(raw, "://") {
+	if raw == "" || strings.Contains(raw, "://") || hasKBScheme(raw) {
 		return "", false
 	}
 	id := strings.TrimSuffix(raw, ".md")

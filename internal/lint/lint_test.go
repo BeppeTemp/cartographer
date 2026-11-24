@@ -1822,3 +1822,25 @@ func TestRun_Orphan_MessageNamesTheFix(t *testing.T) {
 		}
 	}
 }
+
+// A page holding cross-KB links ("kb:" prefix) has no broken_link, and a peer
+// that links to it keeps it from being an orphan.
+func TestRun_KBSchemeLinks_NoBrokenLink(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "arch/_archive.md",
+		"---\ntype: Archive\ntitle: Arch\narchive_type: ops\n---\n")
+	writeFile(t, k.DataRoot(), "arch/peer.md",
+		"---\ntype: Note\n---\nSee [[arch/remote]].\n")
+	writeFile(t, k.DataRoot(), "arch/remote.md",
+		"---\ntype: Note\n---\n[[kb:kb-b/ops/x]] [[kb:kb-b/ops/x|label]] [label](kb:kb-b/ops/x)\n")
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	for _, c := range []string{"broken_link", "orphan"} {
+		if hasCheck(findings, "arch/remote.md", c) {
+			t.Errorf("unexpected %s for arch/remote.md: %v", c, findings)
+		}
+	}
+}

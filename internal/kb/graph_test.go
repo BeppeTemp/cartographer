@@ -469,6 +469,7 @@ func TestRewriteLinks_MatchesExtractLinks(t *testing.T) {
 		"[h](#top)", "[m](mailto:x@y)", "[esc](../../../out.md)", "[c](c/index.md)",
 		"[r](/m/a.md)", "[r](/other/x#s)", "[r](/m/Makefile)", "[p](//example.com/m/a.md)", "[root](/)",
 		"[[m/a]]", "[[m/a#sec]]", "[[m/a|label]]", "[[m/a.md]]", "[[other/x#s|lbl]]", "[[m/c/sibling]]",
+		"[[kb:kb-b/m/a]]", "[[kb:kb-b/m/a|label]]", "[x](kb:kb-b/m/a)", "[[m/kb:a]]",
 		"`[a](a.md)`", "``[[m/a]]``", "plain text", "\n", "\n\n",
 		"\n```\n[a](a.md) [[m/a]]\n```\n", "\n~~~~\n[[other/x]]\n~~~~\n", "\n```mermaid\nN1[[\"x\"]]\n```\n",
 	}
@@ -774,5 +775,24 @@ func TestGraphView_TransientReadErrorDoesNotDropConcept(t *testing.T) {
 	}
 	if n := nodes(); n != 2 {
 		t.Fatalf("after delete: %d nodes, want 2", n)
+	}
+}
+
+// A link to another KB ("kb:" prefix) is no concept id of this one: it is
+// reported by no reader and left byte-identical by both rewrites.
+func TestKBSchemeLinksAreNotConceptLinks(t *testing.T) {
+	t.Parallel()
+	body := "[[kb:kb-b/ops/x]] [[kb:kb-b/ops/x|label]] [label](kb:kb-b/ops/x) [[ops/kb:x]]\n"
+	got := ExtractLinks(body, "m/p.md")
+	if len(got) != 1 || got[0] != "ops/kb:x" {
+		t.Fatalf("ExtractLinks = %v, want only ops/kb:x", got)
+	}
+	only := "[[kb:kb-b/ops/x]] [[kb:kb-b/ops/x|label]] [label](kb:kb-b/ops/x)\n"
+	moves := map[string]string{"kb:kb-b/ops/x": "n/y", "m/kb:kb-b/ops/x": "n/y", "kb:kb-b/ops/x.md": "n/y"}
+	if out, n := RewriteLinks(only, "m/p.md", moves); out != only || n != 0 {
+		t.Fatalf("RewriteLinks changed %q (%d)", out, n)
+	}
+	if out, n := UnlinkTargets(only, "m/p.md", map[string]bool{"kb:kb-b/ops/x": true, "m/kb:kb-b/ops/x": true}); out != only || n != 0 {
+		t.Fatalf("UnlinkTargets changed %q (%d)", out, n)
 	}
 }
