@@ -148,8 +148,9 @@ func (s *sseStream) next(t *testing.T, want string) sseEvent {
 				t.Fatalf("got event %q (%s), want %q", ev.event, ev.data, want)
 			}
 			return ev
-		case <-time.After(5 * time.Second):
-			t.Fatalf("no %q event in 5s", want)
+		// 20s: the stream loop runs step() (git) inline after each heartbeat and a loaded Windows runner stalls it (same class as 1e1b128b).
+		case <-time.After(20 * time.Second):
+			t.Fatalf("no %q event in 20s", want)
 		}
 	}
 }
