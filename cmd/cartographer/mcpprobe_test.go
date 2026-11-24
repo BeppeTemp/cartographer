@@ -165,3 +165,20 @@ func TestMCPProbe_RequiresWordsANetworkFault(t *testing.T) {
 		t.Errorf("tls: exit %d, out %q", code, out)
 	}
 }
+
+// mcp probe <kb>/<slug> hands its KB to the manifest fetch, so only that KB's
+// projections are judged; a bare slug hands none (#2306).
+func TestMCPProbe_PassesItsKBToTheManifestFetch(t *testing.T) {
+	probeFixture(t, "h1")
+	inner := approveManifest
+	var got []string
+	approveManifest = func(cfg *clientconfig.Config, kb string) (contract.Manifest, error) {
+		got = append(got, kb)
+		return inner(cfg, kb)
+	}
+	runProbe(t, "kb-a/svc")
+	runProbe(t, "svc")
+	if len(got) != 2 || got[0] != "kb-a" || got[1] != "" {
+		t.Fatalf("kb passed to the fetch = %q, want [kb-a \"\"]", got)
+	}
+}

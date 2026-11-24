@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -150,8 +152,8 @@ func TestFetchMergedManifestForDropsOptedOutKBReachedOrNot(t *testing.T) {
 	}
 }
 
-// A KB copy shadows the bundle and plugin copy of the same kind and name
-// across the union of projections, as it does inside one merge.
+// A KB copy shadows the bundle copy of the same kind and name across the
+// union of projections, as it does inside one merge.
 func TestKBShadowsBundleAcrossProjections(t *testing.T) {
 	arts := []contract.Artifact{
 		{Kind: "skill", Name: "ops", Source: "bundle"},
@@ -181,5 +183,70 @@ func TestApproveCommandsPassKBToTheManifestFetch(t *testing.T) {
 	})
 	if len(gotKB) != 3 || gotKB[0] != "kb-a" || gotKB[1] != "kb-b" || gotKB[2] != "" {
 		t.Fatalf("kb passed to the fetch = %q, want [kb-a kb-b \"\"]", gotKB)
+	}
+}
+
+// shadowPayload is kb's sync_pull answer carrying the bundled skill
+// cartographer-ops, and a KB copy of it when kbShips (a bundle copy that
+// differs from this client's embedded one is replaced by the embedded one).
+func shadowPayload(t *testing.T, kb string, kbShips bool) string {
+	t.Helper()
+	art := func(source string) map[string]any {
+		files := []contract.ArtifactFile{{Path: "SKILL.md", Content: []byte("# ops from " + source)}}
+		return map[string]any{
+			"kind": "skill", "name": "cartographer-ops", "source": source,
+			"content_hash": provisioning.ContentHashFiles(files),
+			"files":        []map[string]any{{"path": "SKILL.md", "content_b64": base64.StdEncoding.EncodeToString(files[0].Content)}},
+		}
+	}
+	arts := []map[string]any{art("bundle")}
+	if kbShips {
+		arts = append(arts, art("kb:"+kb))
+	}
+	body, err := json.Marshal(map[string]any{"revision": "rev-" + kb, "artifacts": arts})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(body)
+}
+
+// End to end: kb-a ships a skill the bundle also ships, kb-b does not, in
+// disjoint workspaces. kb-b's projection keeps the bundle copy, kb-a's the KB
+// copy; the union must keep the KB copy only, with or without --kb.
+func TestFetchMergedManifestForKBShadowsBundleAcrossProjections(t *testing.T) {
+	srv := prefixAwareMCPServer(t, map[string]string{"kb-a": "", "kb-b": ""}, "sync_pull", func(kb string) string {
+		return shadowPayload(t, kb, kb == "kb-a")
+	})
+	defer srv.Close()
+	cfg := approveProjectionConfig(t, srv.URL, false)
+
+	m, err := fetchMergedManifestFor(cfg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sources []string
+	for _, a := range m.Artifacts {
+		if a.Name == "cartographer-ops" {
+			sources = append(sources, a.Source)
+		}
+	}
+	if len(sources) != 1 || sources[0] != "kb:kb-a" {
+		t.Fatalf("cartographer-ops sources = %v, want [kb:kb-a]", sources)
+	}
+}
+
+// A named KB's artifact that carries no source label (or another KB's) is
+// refused with the KB and the artifact named, never merged under a guess.
+func TestFetchMergedManifestForRefusesArtifactWithoutSourceLabel(t *testing.T) {
+	srv := prefixAwareMCPServer(t, map[string]string{"kb-a": ""}, "sync_pull", func(kb string) string {
+		return strings.Replace(syncPullPayload(t, kb, "x"), `"source":"kb:kb-a"`, `"source":""`, 1)
+	})
+	defer srv.Close()
+	cfg := &clientconfig.Config{ServerURL: srv.URL + "/mcp", KnownKBs: []string{"kb-a"}, Agents: []string{"claude"}}
+	for _, kb := range []string{"kb-a", ""} {
+		_, err := fetchMergedManifestFor(cfg, kb)
+		if err == nil || !strings.Contains(err.Error(), "kb-a") || !strings.Contains(err.Error(), "skill/x") || !strings.Contains(err.Error(), `source ""`) {
+			t.Errorf("kb %q: error = %v, want the unlabelled skill/x of kb-a refused", kb, err)
+		}
 	}
 }
