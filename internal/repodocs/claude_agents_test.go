@@ -361,11 +361,20 @@ func TestIssueBodyReadKeepsTheWorkflowBot(t *testing.T) {
 	}
 }
 
+func TestWorkflowBotAssociationIsNotInTheGuard(t *testing.T) {
+	if strings.Contains(inList, workflowBotAssociation) {
+		t.Fatalf("the guard list admits %s: the login exemption would be moot", workflowBotAssociation)
+	}
+}
+
 func TestGhReadGuardRejectsWeakForms(t *testing.T) {
 	const sel = `select(.author_association | IN("OWNER","MEMBER","COLLABORATOR")) | .body`
 	bad := []string{
 		"`gh api -H X repos/o/r/issues/1`",
 		"`gh api --paginate repos/o/r/issues/1/comments`",
+		"`gh api repos/o/r/issues`",
+		"`gh api repos/o/r/pulls?state=all`",
+		"`gh api repos/o/r/issues/1 --jq '.comments[].body, (.x | select(.author_association | IN(\"OWNER\",\"MEMBER\",\"COLLABORATOR\")) | .body)'`",
 		"`gh api repos/o/r/issues/1 --jq 'select(true or (.author_association | IN(\"OWNER\",\"MEMBER\",\"COLLABORATOR\"))) | .body'`",
 		"~~~sh\ngh issue view 1 --json body\n~~~\n",
 		"```sh\ngh issue view 1 --json comments --jq '.comments[]' |\n  jq .body\n```\n",
@@ -388,7 +397,7 @@ func TestGhReadGuardRejectsWeakForms(t *testing.T) {
 	}
 }
 
-var apiText = regexp.MustCompile(`^gh api\b.*(?:\bgraphql\b|/(?:issues|pulls)/)`)
+var apiText = regexp.MustCompile(`^gh api\b.*(?:\bgraphql\b|/(?:issues|pulls)(?:[/?\s'"]|$))`)
 
 // A select on the maintainer associations that is followed by `.body`: the
 // `IN(` form, the three associations and the body behind the guard (the bot
@@ -398,6 +407,14 @@ const field = `\.(?:authorAssociation|author_association)\s*\|\s*`
 
 var assoc = regexp.MustCompile(`select\(\s*` + field + inList + `\s*\)\s*\|\s*\.body\b|` +
 	`select\(\s*\.user\.login\s*==\s*"github-actions\[bot\]"\s*or\s*\(\s*` + field + inList + `\s*\)\s*\)\s*\|\s*\.body\b`)
+var bodyRead = regexp.MustCompile(`\.body\b`)
+
+// workflowBotAssociation is what GitHub reports for github-actions[bot], the
+// author of the workflows' `bug` and `ci-red` issues (checked on a real one;
+// a unit test cannot read it live). It is not in the guard's list, so the bot
+// must be kept by its login: the test below pins that the list excludes it.
+const workflowBotAssociation = "CONTRIBUTOR"
+
 var readsText = func(m string) bool {
 	if strings.HasPrefix(m, "gh api") {
 		if !apiText.MatchString(m) {
@@ -430,7 +447,9 @@ var readsText = func(m string) bool {
 func unguardedGhReads(md string) []string {
 	var out []string
 	for _, m := range ghReadCommands(md) {
-		if readsText(m) && !assoc.MatchString(m) {
+		// Every `.body` must sit behind a guarded select: one guarded select
+		// elsewhere in the command does not cover an unguarded read.
+		if readsText(m) && (!assoc.MatchString(m) || bodyRead.MatchString(assoc.ReplaceAllString(m, ""))) {
 			out = append(out, m)
 		}
 	}
