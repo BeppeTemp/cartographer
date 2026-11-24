@@ -94,7 +94,7 @@ func cmdKBSecretsInit(args []string) int {
 	token := resolveToken(cfg)
 	health, err := client.New(cfg.ServerURL, token).WithInsecureHTTP(cfg.InsecureHTTPAllowed()).Health(probeTimeout)
 	if err != nil && errors.Is(err, client.ErrUnauthorized) {
-		fmt.Fprintln(os.Stderr, "kb secrets init:", secretsUnauthorized(err, token != ""))
+		fmt.Fprintln(os.Stderr, "kb secrets init:", secretsUnauthorized(token != ""))
 		return 1
 	}
 	if err != nil {
@@ -126,7 +126,7 @@ func cmdKBSecretsInit(args []string) int {
 // was read from: this command reads auth/token of the client config, never
 // $CARTOGRAPHER_TOKENS (the server's own variable), and a 401 that names only
 // "the env var" sends the operator to the wrong place (#2284).
-func secretsUnauthorized(err error, sent bool) string {
+func secretsUnauthorized(sent bool) string {
 	src := "the client config"
 	if dir, derr := clientconfig.TargetDir(); derr == nil {
 		src = clientconfig.Path(dir)
@@ -135,7 +135,7 @@ func secretsUnauthorized(err error, sent bool) string {
 	if sent {
 		state = "the bearer token was rejected"
 	}
-	return fmt.Sprintf("%s: the token is read from auth/token of %s, not from $CARTOGRAPHER_TOKENS (%v)", state, src, err)
+	return fmt.Sprintf("%s: the token is read from auth/token of %s, not from $CARTOGRAPHER_TOKENS", state, src)
 }
 
 // unauthorizedHintCaller rewrites a 401 of the tool call like the health
@@ -148,7 +148,7 @@ type unauthorizedHintCaller struct {
 func (u *unauthorizedHintCaller) Invoke(tool string, args any) (json.RawMessage, error) {
 	raw, err := u.toolCaller.Invoke(tool, args)
 	if err != nil && errors.Is(err, client.ErrUnauthorized) {
-		return nil, errors.New(secretsUnauthorized(err, u.sent))
+		return nil, errors.New(secretsUnauthorized(u.sent))
 	}
 	return raw, err
 }
@@ -177,7 +177,7 @@ func (d *directRuleCaller) Invoke(tool string, args any) (json.RawMessage, error
 	force, _ := m["force"].(bool)
 
 	root := filepath.Join(d.dataDir, d.name)
-	if _, err := os.Stat(filepath.Join(root, "data", "index.md")); err != nil {
+	if !isLocalKB(d.dataDir, d.name) {
 		// Like the server path: an unknown name says so and lists the KBs of
 		// the data dir (#2284).
 		return nil, noLocalKBError(d.name, d.dataDir)

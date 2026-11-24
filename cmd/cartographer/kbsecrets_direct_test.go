@@ -246,7 +246,38 @@ func TestKBSecretsInitUnauthorizedNamesTheTokenSource(t *testing.T) {
 		code = cmdKBSecretsInit([]string{"kb-a", "--recipient", secretsRecipA, "--config", cfg, "--data", data, "--local"})
 	})
 	dir, _ := clientconfig.TargetDir()
-	if code == 0 || !strings.Contains(stderr, "no bearer token was sent") || !strings.Contains(stderr, clientconfig.Path(dir)) || !strings.Contains(stderr, "not from $CARTOGRAPHER_TOKENS") {
-		t.Errorf("code=%d stderr=%q", code, stderr)
+	// The whole line (#2346): no generic "(check the bearer token/env var)" tail.
+	want := "kb secrets init: no bearer token was sent: the token is read from auth/token of " + clientconfig.Path(dir) + ", not from $CARTOGRAPHER_TOKENS"
+	if code == 0 || strings.TrimSpace(stderr) != want {
+		t.Errorf("code=%d stderr=%q, want %q", code, stderr, want)
+	}
+}
+
+// #2345: a local KB is matched by the exact name of a data dir entry, so a
+// different case (which os.Stat finds on APFS) is refused. The test asserts
+// the exact-entry check itself, whatever the host filesystem does.
+func TestIsLocalKBMatchesTheExactEntryName(t *testing.T) {
+	e := newDirectEnv(t, "127.0.0.1:0")
+	for name, want := range map[string]bool{"kb-a": true, "KB-A": false, "kb": false, "": false, "kb-a/": false} {
+		if got := isLocalKB(e.data, name); got != want {
+			t.Errorf("isLocalKB(%q) = %v, want %v", name, got, want)
+		}
+		if got := hasDataDirEntry(e.data, name); got != want {
+			t.Errorf("hasDataDirEntry(%q) = %v, want %v", name, got, want)
+		}
+	}
+	scfg, err := loadReauthorConfig(e.config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := e.commits(t)
+	var out, errOut bytes.Buffer
+	d := &directRuleCaller{name: "KB-A", dataDir: e.data, cfg: scfg, errOut: &errOut}
+	code := runKBSecretsInit(d, "KB-A", secretsRecipA, "", filepath.Join(e.base, "credentials"), false, &out, &errOut)
+	if code == 0 || !strings.Contains(errOut.String(), `no KB named "KB-A" in `+e.data+`; mounted: kb-a`) {
+		t.Fatalf("code %d err %q", code, errOut.String())
+	}
+	if e.commits(t) != before {
+		t.Errorf("a refused name committed: %q", e.commits(t))
 	}
 }
