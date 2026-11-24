@@ -243,7 +243,7 @@ func repeatedFactItems(concepts []*reviewConcept, templates []string, contracts 
 	owners := map[string][]string{}
 	originals := map[string]string{} // first unmasked form seen of each key
 	for _, c := range concepts {
-		if contracts[c.mapName].Kind == "journal" {
+		if contracts[c.mapName].Kind == "journal" || isIngestUnitFM(c.fm) {
 			continue
 		}
 		for line, shown := range conceptFactLines(c.body, c.status, contractPtr(contracts, c.mapName), boilerplate) {

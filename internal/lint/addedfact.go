@@ -56,6 +56,15 @@ func AddedRepeatedFacts(k *kb.KB, id okf.ConceptID, prevBody, newBody string, bu
 	if isJournal(id) {
 		return nil, 0
 	}
+	// A page of shape ingest-unit records one observation: no advice, and it
+	// does not count as an owner (D2339).
+	isUnitRaw := func(raw string) bool {
+		parsed, _ := okf.ParseFrontmatter(raw)
+		return isIngestUnitFM(parsed)
+	}
+	if data, err := k.ReadConcept(id); err == nil && isUnitRaw(data.FrontmatterRaw) {
+		return nil, 0
+	}
 	boilerplate := templateBoilerplate(k.TemplateTexts())
 	prev := factLines(prevBody, boilerplate)
 	cur := factLines(newBody, boilerplate)
@@ -111,7 +120,7 @@ func AddedRepeatedFacts(k *kb.KB, id okf.ConceptID, prevBody, newBody string, bu
 			}
 			lines, ok := bodies[cand]
 			if !ok {
-				if data, err := k.ReadConcept(cand); err == nil {
+				if data, err := k.ReadConcept(cand); err == nil && !isUnitRaw(data.FrontmatterRaw) {
 					lines = conceptFactLines(data.Body, fmStatus(data.FrontmatterRaw), mapContract(k, cand), boilerplate)
 				}
 				bodies[cand] = lines

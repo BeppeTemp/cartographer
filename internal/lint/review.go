@@ -610,6 +610,11 @@ func duplicateItems(concepts []*reviewConcept, contracts map[string]kb.MapContra
 		if contracts[c.mapName].Kind == "journal" {
 			continue
 		}
+		// An ingest unit records one observation of a group: units of one
+		// group share their title by construction (D2339).
+		if isIngestUnitFM(c.fm) {
+			continue
+		}
 		ts := TitleTokens(c.title)
 		if len(ts) == 0 {
 			continue
@@ -1321,6 +1326,26 @@ func init() {
 // Shorter ones stay terms: two letters ("HA") are acronyms in any language.
 const shoutMinLen = 3
 
+// isoHourRe matches the hour part of an ISO timestamp ("2026-11-21T07:00"):
+// "T07" is not a term. The date's last digit is kept in the replacement
+// ($1) and the hour dropped.
+var isoHourRe = regexp.MustCompile(`(\d)T\d{2}(?::?\d{2}(?::?\d{2})?)?`)
+
+// isIngestUnitFM reports whether a page's frontmatter says shape: ingest-unit,
+// the page the Surveyor writes for one observation (D2339).
+func isIngestUnitFM(fm *okf.Frontmatter) bool {
+	if fm == nil {
+		return false
+	}
+	v, _ := fm.Get(kb.ShapeField)
+	s, _ := v.(string)
+	return strings.TrimSpace(s) == ingestUnitShape
+}
+
+// ingestUnitShape is the `shape` of a page written for one ingest unit
+// (internal/surveyor/poll_system.go).
+const ingestUnitShape = "ingest-unit"
+
 func glossaryItems(concepts []*reviewConcept, contracts map[string]kb.MapContract, glossary kb.Glossary) []ReviewItem {
 	known := map[string]bool{}
 	for t := range commonTechTerms {
@@ -1349,7 +1374,7 @@ func glossaryItems(concepts []*reviewConcept, contracts map[string]kb.MapContrac
 	users := map[string][]string{}
 	lowerUse := map[string]int{} // concepts using a word in lower case
 	for _, c := range concepts {
-		text := urlRe.ReplaceAllString(kb.MaskCodeSpans(c.body), " ")
+		text := isoHourRe.ReplaceAllString(urlRe.ReplaceAllString(kb.MaskCodeSpans(c.body), " "), "$1 ")
 		terms := map[string]bool{}
 		lower := map[string]bool{}
 		for _, w := range asciiWords(text) {
