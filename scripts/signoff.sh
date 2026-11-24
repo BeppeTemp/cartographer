@@ -300,6 +300,9 @@ hosted() { # $1 = why the gate runs in CI, $2 = `fallback` when the build host w
 # `gh run cancel`, which would make every unfinished job look cancelled. A leg of one of them (`test-windows (3/4)`, `web (browser)`: the aggregator
 # completes only after all its legs) that fails is red at once. A job of HOSTED_JOBS missing
 # from a completed run is red too: a renamed job must fail the gate, never wait it out.
+# `infra` is returned only once no job of HOSTED_JOBS (nor a leg of one) is still queued or in
+# progress: a capacity-cancelled job waits for the others, so a genuine failure among them is
+# seen as red; meanwhile nothing is printed and the caller keeps polling.
 hosted_verdict() {
   jq -r --arg want "$HOSTED_JOBS" '
     ($want | split(" ") | map(select(. != ""))) as $w
@@ -310,7 +313,9 @@ hosted_verdict() {
     | [$w[] | select(. as $n | [$j[].name] | index($n) | not)] as $missing
     | [$j[] | select(.status == "completed" and .conclusion == "cancelled" and ((.steps // []) | length) == 0) | .name] as $unacquired
     | ([.jobs[] | select(.status == "completed" and (.conclusion == "failure" or .conclusion == "timed_out"))] | length) as $failed
-    | if ($red | length) > 0 and $failed == 0 and ($unacquired | length) > 0 then "infra " + ($unacquired | join(" "))
+    | [.jobs[] | select(.name as $n | $w | any(. as $p | $n == $p or ($n | startswith($p + " (")))) | select(.status != "completed")] as $pending
+    | if ($red | length) > 0 and $failed == 0 and ($unacquired | length) > 0 and ($pending | length) > 0 then ""
+      elif ($red | length) > 0 and $failed == 0 and ($unacquired | length) > 0 then "infra " + ($unacquired | join(" "))
       elif ($red | length) > 0 then "red " + ($red | join(" "))
       elif ($missing | length) == 0 and ([$j[] | select(.status == "completed")] | length) >= ($w | length) then "green"
       elif .status == "completed" then "red " + ($missing | join(" ")) + " (missing)"
@@ -322,7 +327,7 @@ hosted_verdict() {
 # reads only `--- FAIL:` lines, these do not match).
 hosted_jobs() {
   printf '%s' "$1" | jq -r '.jobs[] | select(.status == "completed" and .conclusion != "success")
-    | "signoff: job \(.name): \(.conclusion)"' >&2 2>/dev/null || true
+    | "signoff: job \(.name | gsub("[^A-Za-z0-9 ._()/-]";"_")): \(.conclusion | tostring | gsub("[^A-Za-z0-9 ._()/-]";"_"))"' >&2 2>/dev/null || true
 }
 
 # hosted_failures <run JSON>: the `--- FAIL:` lines of the run's failed jobs, without the job,
