@@ -633,7 +633,10 @@ func TestSignoffWithoutAWindowsCommandSaysSo(t *testing.T) {
 var hostedJobs = []string{"gate", "test-windows", "web", "demo-edge", "docker", "helm", "test-macos", "test-linux-nosystemd"}
 
 // hostedRun is `gh run view --json status,jobs` for a run whose hosted jobs are all in
-// state def, except the ones named in over ("<status> <conclusion>").
+// state def, except the ones named in over ("<status> <conclusion>"). A completed job has run
+// a step and completed at 10:14:07 (with fractional seconds, which jq must strip), except one
+// whose over value ends in `unstarted`: GitHub's cancelled job that no runner picked up has no
+// step and no completion time worth reading.
 func hostedRun(runStatus, def string, over map[string]string) string {
 	var jobs []string
 	for i, n := range hostedJobs {
@@ -641,11 +644,23 @@ func hostedRun(runStatus, def string, over map[string]string) string {
 		if o, ok := over[n]; ok {
 			st = o
 		}
-		status, concl, _ := strings.Cut(st, " ")
-		jobs = append(jobs, fmt.Sprintf(`{"databaseId":%d,"name":%q,"status":%q,"conclusion":%q}`, 100+i, n, status, concl))
+		f := strings.Fields(st + " ")
+		status, concl := f[0], ""
+		if len(f) > 1 {
+			concl = f[1]
+		}
+		steps, done := `[{"name":"Set up job","status":"completed","conclusion":"success"}]`, "0001-01-01T00:00:00Z"
+		if status == "completed" {
+			done = "2026-01-01T10:14:07.123Z"
+		}
+		if len(f) > 2 && f[2] == "unstarted" {
+			steps, done = "[]", "2026-01-01T10:00:09Z"
+		}
+		jobs = append(jobs, fmt.Sprintf(`{"databaseId":%d,"name":%q,"status":%q,"conclusion":%q,"steps":%s,"completedAt":%q}`, 100+i, n, status, concl, steps, done))
 	}
-	// The run's own clock: 14m07s apart, with fractional seconds on updatedAt (jq must strip them).
-	return fmt.Sprintf(`{"status":%q,"createdAt":"2026-01-01T10:00:00Z","updatedAt":"2026-01-01T10:14:07.123Z","jobs":[%s]}`, runStatus, strings.Join(jobs, ","))
+	// The run's own clock: the latest job completes 14m07s after createdAt; updatedAt is later,
+	// as when something touches the run after it completed (#2325), and must not be read.
+	return fmt.Sprintf(`{"status":%q,"createdAt":"2026-01-01T10:00:00Z","updatedAt":"2026-01-01T10:59:59Z","jobs":[%s]}`, runStatus, strings.Join(jobs, ","))
 }
 
 // Exit 75 from SIGNOFF_MAKE (the probe or the targets) means the machine is
@@ -730,15 +745,18 @@ func TestSignoffGatesInCIWithEveryHostedJob(t *testing.T) {
 	}
 }
 
-// The duration of a hosted gate is the run's own (updatedAt - createdAt), not the time this
-// host waited: a lander whose machine slept in between must not inflate it (#2296). Without
-// readable timestamps it falls back to the wait.
+// The duration of a hosted gate is the run's own (the latest completedAt of its jobs - createdAt),
+// not the time this host waited (a lander whose machine slept in between must not inflate it,
+// #2296) and not the run's updatedAt (touched after the completion, #2325). Without readable
+// timestamps it falls back to the wait, still a well-formed <n>m<nn>s.
 func TestSignoffHostedDurationIsTheRunsClock(t *testing.T) {
 	green := hostedRun("completed", "completed success", nil)
-	noClock := strings.Replace(green, `"createdAt":"2026-01-01T10:00:00Z","updatedAt":"2026-01-01T10:14:07.123Z",`, "", 1)
+	noClock := strings.Replace(green, `"createdAt":"2026-01-01T10:00:00Z",`, "", 1)
+	noDone := strings.ReplaceAll(green, `"completedAt":"2026-01-01T10:14:07.123Z"`, `"completedAt":"0001-01-01T00:00:00Z"`)
 	for _, c := range []struct{ name, jobs, want string }{
 		{"the run's timestamps", green, " 14m07s - make "},
-		{"no timestamps, the wait", noClock, ""},
+		{"no createdAt, the wait", noClock, ""},
+		{"no completedAt, the wait", noDone, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			e := newSignoffEnv(t)
@@ -754,8 +772,13 @@ func TestSignoffHostedDurationIsTheRunsClock(t *testing.T) {
 			if c.want != "" && !strings.Contains(posts[0], c.want) {
 				t.Errorf("the duration must be the run's (%q): %s", c.want, posts[0])
 			}
-			if c.want == "" && strings.Contains(posts[0], "14m07s") {
-				t.Errorf("without timestamps the wait is used: %s", posts[0])
+			if c.want == "" {
+				if strings.Contains(posts[0], "14m07s") || strings.Contains(posts[0], "59m59s") {
+					t.Errorf("without timestamps the wait is used: %s", posts[0])
+				}
+				if !regexp.MustCompile(` run=7 legs=8 \d+m\d{2}s - make `).MatchString(posts[0]) {
+					t.Errorf("the fallback is a well-formed <n>m<nn>s duration: %s", posts[0])
+				}
 			}
 		})
 	}
@@ -1219,6 +1242,55 @@ func TestSignoffHostedWaitsForTheLogOfAFailedJob(t *testing.T) {
 			}
 			if got := strings.TrimSpace(e.log(e.ghLog + ".logreads")); got != c.reads {
 				t.Errorf("log reads = %q, want %q", got, c.reads)
+			}
+		})
+	}
+}
+
+// A hosted run whose only non-green jobs were cancelled before any runner took them is the
+// runners' capacity, not a red gate (#2313): the signoff cancels the rest, names the jobs and
+// exits 69 with the infrastructure line the lander matches, posting nothing. A failed job, or a
+// cancelled one that had started, keeps the run red; the red run names its non-green jobs.
+func TestSignoffHostedRunnerCapacityIsInfrastructure(t *testing.T) {
+	const infra = "signoff: the hosted runners failed (exit 0) before the gate finished: nothing pushed, nothing posted"
+	unacquired := hostedRun("in_progress", "in_progress ", map[string]string{"gate": "completed success", "test-macos": "completed cancelled unstarted"})
+	failedAndCancelled := hostedRun("in_progress", "in_progress ", map[string]string{"test-macos": "completed cancelled unstarted", "web": "completed failure"})
+	startedCancelled := hostedRun("in_progress", "in_progress ", map[string]string{"test-macos": "completed cancelled"})
+	timedOut := hostedRun("in_progress", "in_progress ", map[string]string{"test-macos": "completed cancelled unstarted", "docker": "completed timed_out"})
+	for _, c := range []struct {
+		name, jobs string
+		code       int // the exit code: 69 infrastructure, 1 red
+		lines      []string
+	}{
+		{"never started, nothing else", unacquired, 69, []string{"signoff: job test-macos: cancelled"}},
+		{"a failed job plus a cancelled one", failedAndCancelled, 1, []string{"signoff: job test-macos: cancelled", "signoff: job web: failure"}},
+		{"cancelled after it started", startedCancelled, 1, []string{"signoff: job test-macos: cancelled"}},
+		{"a timed out job plus a cancelled one", timedOut, 1, []string{"signoff: job docker: timed_out", "signoff: job test-macos: cancelled"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newSignoffEnv(t)
+			e.branch(e.work, "feat/x", "x.txt")
+			out, rc := e.signoffArgs(e.work, nil, `FAKE_GH_DISPATCHED=[{"databaseId":7}]`, "FAKE_GH_JOBS="+c.jobs, "SIGNOFF_GATE_TRIES=3", "SIGNOFF_GATE=hosted")
+			for _, l := range c.lines {
+				if !strings.Contains(out, l+"\n") {
+					t.Errorf("the log names the job (%q):\n%s", l, out)
+				}
+			}
+			isInfra := strings.HasSuffix(strings.TrimSpace(out), infra)
+			if isInfra != (c.code == 69) {
+				t.Errorf("infrastructure line last = %v, want %v:\n%s", isInfra, c.code == 69, out)
+			}
+			if c.code == 1 && !strings.Contains(out, "are red: nothing posted") && !strings.Contains(out, "is red: nothing posted") {
+				t.Errorf("a red run says so:\n%s", out)
+			}
+			if rc != c.code {
+				t.Errorf("exit code %d, want %d:\n%s", rc, c.code, out)
+			}
+			if len(e.posts()) != 0 {
+				t.Errorf("nothing is posted: %v", e.posts())
+			}
+			if !strings.Contains(e.log(e.ghLog), "run cancel 7") {
+				t.Errorf("the rest of the run is cancelled:\n%s", e.log(e.ghLog))
 			}
 		})
 	}

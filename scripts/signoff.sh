@@ -49,7 +49,8 @@
 #                 configuration error, "check SIGNOFF_MAKE".
 #
 # Exits: 0 signed off; 1 refused or red (a `failed (exit N): nothing pushed` line);
-# 69 (EX_UNAVAILABLE) the wrapper failed in the middle of the gate, no test failed. The code
+# 69 (EX_UNAVAILABLE) the wrapper failed in the middle of the gate, or no hosted runner was
+# acquired for a job of the hosted run (`the hosted runners failed (exit 0) ...`), no test failed. The code
 # is the signal scripts/land.sh reads: the log carries the change's own test output, so a
 # line in it proves nothing. It is not 75 (EX_TEMPFAIL), which only SIGNOFF_MAKE and
 # SIGNOFF_WINDOWS use, to say "the machine is unavailable, run the gate in CI": here the
@@ -256,25 +257,33 @@ hosted() { # $1 = why the gate runs in CI, $2 = `fallback` when the build host w
   # failing Go tests of its failed jobs are printed for the lander's failing().
   for i in $(seq 1 "${SIGNOFF_GATE_TRIES:-240}"); do
     v=
-    run=$(gh run view "$id" -R "$slug" --json status,jobs,createdAt,updatedAt 2>/dev/null) && v=$(printf '%s' "$run" | hosted_verdict) || true
+    run=$(gh run view "$id" -R "$slug" --json status,jobs,createdAt 2>/dev/null) && v=$(printf '%s' "$run" | hosted_verdict) || true
     [ -z "$v" ] || break
     sleep "${SIGNOFF_POLL:-15}"
   done
   case "$v" in
     green) ;;
+    infra\ *)
+      gh run cancel "$id" -R "$slug" >/dev/null 2>&1 || true
+      hosted_jobs "$run"
+      echo "signoff: ci.yml run $id: no hosted runner was acquired for ${v#infra }" >&2
+      host_die "the hosted runners" 0 ;;
     red\ *)
       gh run cancel "$id" -R "$slug" >/dev/null 2>&1 || true
+      hosted_jobs "$run"
       hosted_failures "$run"
       die "the jobs ${v#red } of ci.yml run $id are red: nothing posted" ;;
     *) gh run cancel "$id" -R "$slug" >/dev/null 2>&1 || true
        die "the jobs of ci.yml run $id are unfinished after the wait: nothing posted" ;;
   esac
-  # The run's own clock (updatedAt - createdAt): a lander that slept while it waited would
-  # inflate this host's t0-based wait (one train reported 204m for a 14m run). Unreadable
-  # timestamps fall back to the wait.
+  # The run's own clock (the latest completedAt of its jobs - createdAt): a lander that slept
+  # while it waited would inflate this host's t0-based wait (one train reported 204m for a 14m
+  # run), and the run's updatedAt moves when anything touches it after it completed. Unreadable
+  # or missing timestamps fall back to the wait.
   secs=$(printf '%s' "$run" | jq -r '
     def ts: sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601;
-    (.updatedAt | ts) - (.createdAt | ts) | if . >= 0 then floor else empty end' 2>/dev/null) || secs=
+    [.jobs[].completedAt | select(type == "string" and . != "" and (startswith("0001-") | not)) | ts] as $c
+    | if ($c | length) == 0 then empty else ($c | max) - (.createdAt | ts) | if . >= 0 then floor else empty end end' 2>/dev/null) || secs=
   case "$secs" in ''|*[!0-9]*) secs=$(( $(date +%s) - t0 )) ;; esac
   post "gate=hosted$fb run=$id legs=${#jobs[@]} $(printf '%dm%02ds' $((secs / 60)) $((secs % 60))) - make $targets"
   echo "signoff: ${sha:0:12} on $branch signed off by ci.yml run $id"
@@ -284,7 +293,11 @@ hosted() { # $1 = why the gate runs in CI, $2 = `fallback` when the build host w
 # hosted_verdict: reads `gh run view --json status,jobs` on stdin and prints `green` when every
 # job of HOSTED_JOBS completed with success, `red <jobs>` as soon as one completed otherwise
 # (failure, cancelled, skipped, timed out: a skipped required leg tested nothing), and nothing
-# while they run. A leg of one of them (`test-windows (3/4)`, `web (browser)`: the aggregator
+# while they run, and `infra <jobs>` instead of `red` when the red is the hosted runners' capacity:
+# no job of the run completed failure or timed_out, and a job of HOSTED_JOBS completed cancelled
+# without a step having run (GitHub cancels a job no runner picked up: "The job was not acquired
+# by Runner of type hosted"), a gate that tested nothing. Read here, before signoff's own
+# `gh run cancel`, which would make every unfinished job look cancelled. A leg of one of them (`test-windows (3/4)`, `web (browser)`: the aggregator
 # completes only after all its legs) that fails is red at once. A job of HOSTED_JOBS missing
 # from a completed run is red too: a renamed job must fail the gate, never wait it out.
 hosted_verdict() {
@@ -295,10 +308,21 @@ hosted_verdict() {
         | select(.status == "completed" and (.conclusion == "failure" or .conclusion == "timed_out")) | .name] as $legs
     | ([$j[] | select(.status == "completed" and .conclusion != "success") | .name] + $legs) as $red
     | [$w[] | select(. as $n | [$j[].name] | index($n) | not)] as $missing
-    | if ($red | length) > 0 then "red " + ($red | join(" "))
+    | [$j[] | select(.status == "completed" and .conclusion == "cancelled" and ((.steps // []) | length) == 0) | .name] as $unacquired
+    | ([.jobs[] | select(.status == "completed" and (.conclusion == "failure" or .conclusion == "timed_out"))] | length) as $failed
+    | if ($red | length) > 0 and $failed == 0 and ($unacquired | length) > 0 then "infra " + ($unacquired | join(" "))
+      elif ($red | length) > 0 then "red " + ($red | join(" "))
       elif ($missing | length) == 0 and ([$j[] | select(.status == "completed")] | length) >= ($w | length) then "green"
       elif .status == "completed" then "red " + ($missing | join(" ")) + " (missing)"
       else "" end'
+}
+
+# hosted_jobs <run JSON>: one `signoff: job <name>: <conclusion>` line per completed job that is
+# not green, so the gate log names the job even when no Go test failed (the lander's failing()
+# reads only `--- FAIL:` lines, these do not match).
+hosted_jobs() {
+  printf '%s' "$1" | jq -r '.jobs[] | select(.status == "completed" and .conclusion != "success")
+    | "signoff: job \(.name): \(.conclusion)"' >&2 2>/dev/null || true
 }
 
 # hosted_failures <run JSON>: the `--- FAIL:` lines of the run's failed jobs, without the job,

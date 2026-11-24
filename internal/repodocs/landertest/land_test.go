@@ -3321,3 +3321,28 @@ func TestRequeueFailsWhenTheQueueMovesBeforeThePush(t *testing.T) {
 		}
 	}
 }
+
+// The lander matches the signoff's line for a run whose hosted runners were never acquired
+// (#2313) with its anchored infra_line, so a gate that fails like that names the failure when
+// it stops; a line that merely contains it does not match.
+func TestLanderInfraLineMatchesTheHostedRunnersLine(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join(repoRoot(t), "scripts", "land.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`(?m)^infra_line='(.*)'$`).FindSubmatch(src)
+	if m == nil {
+		t.Fatal("scripts/land.sh has no infra_line")
+	}
+	re := regexp.MustCompile(string(m[1]))
+	for line, want := range map[string]bool{
+		"signoff: the hosted runners failed (exit 0) before the gate finished: nothing pushed, nothing posted":      true,
+		"signoff: the build host failed (exit 255) before the gate finished: nothing pushed, nothing posted":        true,
+		"x signoff: the hosted runners failed (exit 0) before the gate finished: nothing pushed, nothing posted":    false,
+		"signoff: the hosted runners failed (exit 0) before the gate finished: nothing pushed, nothing posted tail": false,
+	} {
+		if re.MatchString(line) != want {
+			t.Errorf("infra_line on %q = %v, want %v", line, !want, want)
+		}
+	}
+}
