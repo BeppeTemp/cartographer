@@ -11,74 +11,51 @@ KB histories with commits authored as `cartographer <cartographer@localhost>` ma
 ## [0.29.2](https://github.com/BeppeTemp/cartographer/compare/v0.29.1...v0.29.2) (2026-11-24)
 
 
-### Features
+### Atlas
 
-* **ci:** the pre-check of a queued change tests its chain on the current main ([17b401f](https://github.com/BeppeTemp/cartographer/commit/17b401fc2a648ad82e8c731268e3127486a10e7c))
-* **dev:** `make kiro-agents` generates .kiro/agents/cartographer-&lt;role&gt;.json from .claude/agents, and .gitignore keeps other tools' files out of .kiro/ ([06c0730](https://github.com/BeppeTemp/cartographer/commit/06c0730dd5ab3755dc12be698cd26a2a75304551))
-* **dev:** a chain is checked once on its tip, the hosted check runs beside the review, and a second round needs a high or medium finding ([28cf124](https://github.com/BeppeTemp/cartographer/commit/28cf12476c6c4e01b73bc09c6e2391a8d51991f4))
-* **dev:** a chain of queued changes lands as one unit ([3eff9e2](https://github.com/BeppeTemp/cartographer/commit/3eff9e2bba13dd737470700d0af54ca1321eea23))
-* **dev:** a change may record its cost in a Cost line ([507d912](https://github.com/BeppeTemp/cartographer/commit/507d912d75c1cd5b97f57f88613faab23261922e))
-* **dev:** a change to the CLI, a client or a message is tried before it is queued ([d4cc90a](https://github.com/BeppeTemp/cartographer/commit/d4cc90a66acfea5cd016faa770bdab8da83552e8))
-* **dev:** a landed commit keeps its Review trailer ([7531f0e](https://github.com/BeppeTemp/cartographer/commit/7531f0e7b5fe0f59e2f80dfac87c89e751a80fd0))
-* **dev:** a plan carries acceptance criteria with ids, a docs delta and anchors ([72b9a1b](https://github.com/BeppeTemp/cartographer/commit/72b9a1bf5f21b94254cc6f4e754242e08a2024c6))
-* **dev:** a plan merges a change under about 150 lines into its neighbour ([28cf124](https://github.com/BeppeTemp/cartographer/commit/28cf12476c6c4e01b73bc09c6e2391a8d51991f4))
-* **dev:** a plan names files and symbols, its implementer derives the lines ([72b9a1b](https://github.com/BeppeTemp/cartographer/commit/72b9a1bf5f21b94254cc6f4e754242e08a2024c6))
-* **dev:** a plan numbers its acceptance criteria and the change's message carries them ([72b9a1b](https://github.com/BeppeTemp/cartographer/commit/72b9a1bf5f21b94254cc6f4e754242e08a2024c6))
-* **dev:** a plan's closing lists the docs delta and the contract reviewer checks it ([72b9a1b](https://github.com/BeppeTemp/cartographer/commit/72b9a1bf5f21b94254cc6f4e754242e08a2024c6))
-* **dev:** a queued fix says where the defect was found and what introduced it ([507d912](https://github.com/BeppeTemp/cartographer/commit/507d912d75c1cd5b97f57f88613faab23261922e))
-* **dev:** a second review round runs only after a verified high or medium finding ([28cf124](https://github.com/BeppeTemp/cartographer/commit/28cf12476c6c4e01b73bc09c6e2391a8d51991f4))
-* **dev:** a small maintainer change outside the gate and core files takes the fast lane ([15f65b6](https://github.com/BeppeTemp/cartographer/commit/15f65b684e62588c3ad95c4b15085c974f0b0e97))
-* **dev:** decisions declare what they supersede and amend, and the index lists the live ones ([83f18a3](https://github.com/BeppeTemp/cartographer/commit/83f18a34c1e84c3a3a48a6d2aa1b5b4d6e7b63e3))
-* **dev:** escaped defects become reviewer eval cases by script, and a reviewer change needs a score ([3b99632](https://github.com/BeppeTemp/cartographer/commit/3b996326ad99aa10610153e68b246a74862a58b2))
-* **dev:** flaky Go tests are quarantined by a versioned list with an issue and an expiry ([c419676](https://github.com/BeppeTemp/cartographer/commit/c41967682940e9a4b238aeef52632c83a73a1edb))
-* **dev:** implementers run targeted tests and the coordinator runs one hosted check beside the review ([28cf124](https://github.com/BeppeTemp/cartographer/commit/28cf12476c6c4e01b73bc09c6e2391a8d51991f4))
-* **dev:** make land-status shows each unit's pre-check verdict and its failed jobs ([38d6c18](https://github.com/BeppeTemp/cartographer/commit/38d6c18f352080d5685c26329af2dc9c95f780b0))
-* **dev:** make requeue rebuilds a queued or rejected change on main ([8c50e1e](https://github.com/BeppeTemp/cartographer/commit/8c50e1ee762023d56223e0ca95dd1b343aa6180b))
-* **dev:** make requeue rebuilds a queued or rejected change on main ([8c50e1e](https://github.com/BeppeTemp/cartographer/commit/8c50e1ee762023d56223e0ca95dd1b343aa6180b))
-* **dev:** make status answers what waits for the maintainer ([a9d4a11](https://github.com/BeppeTemp/cartographer/commit/a9d4a114fdc9242ec4d31649ec1ac8748de4f1c6))
-* **dev:** make status answers what waits for the maintainer ([a9d4a11](https://github.com/BeppeTemp/cartographer/commit/a9d4a114fdc9242ec4d31649ec1ac8748de4f1c6))
-* **dev:** make usage-test runs a headless agent through seven tasks on a binary ([d4cc90a](https://github.com/BeppeTemp/cartographer/commit/d4cc90a66acfea5cd016faa770bdab8da83552e8))
-* **dev:** one implementer may write a whole chain, reviewed and checked once on its tip ([28cf124](https://github.com/BeppeTemp/cartographer/commit/28cf12476c6c4e01b73bc09c6e2391a8d51991f4))
-* **dev:** pending decisions are numbered once per composed train ([8feefe9](https://github.com/BeppeTemp/cartographer/commit/8feefe9015a660cf86618828b9c6f3174eb583a9))
-* **dev:** pending decisions are numbered once per composed train ([8feefe9](https://github.com/BeppeTemp/cartographer/commit/8feefe9015a660cf86618828b9c6f3174eb583a9))
-* **dev:** process profiles are data read by the triage, make ready and the lander ([99bb504](https://github.com/BeppeTemp/cartographer/commit/99bb504d4adb2e8fbb1e3b9baef70d73583f50cf))
-* **dev:** process profiles are data read by the triage, make ready and the lander ([99bb504](https://github.com/BeppeTemp/cartographer/commit/99bb504d4adb2e8fbb1e3b9baef70d73583f50cf))
-* **dev:** repodocs caps the length of a docs page and of a CONTRIBUTING.md paragraph ([dfd59ee](https://github.com/BeppeTemp/cartographer/commit/dfd59eee496722310041b374f5ea200e2911c3fc))
-* **dev:** scripts/ac-report.sh lists the acceptance criteria landed in a range ([e8be6fc](https://github.com/BeppeTemp/cartographer/commit/e8be6fc705eff12ae7afd6af5f5cecc340e92f9e))
-* **dev:** the lander collects before composing and land-status shows the pre-check verdicts ([38d6c18](https://github.com/BeppeTemp/cartographer/commit/38d6c18f352080d5685c26329af2dc9c95f780b0))
-* **dev:** the lander waits for a collection window before composing a train ([38d6c18](https://github.com/BeppeTemp/cartographer/commit/38d6c18f352080d5685c26329af2dc9c95f780b0))
-* **dev:** the second client's agent definitions are generated from .claude/agents, with a parity test ([06c0730](https://github.com/BeppeTemp/cartographer/commit/06c0730dd5ab3755dc12be698cd26a2a75304551))
-* **dev:** the train gate is hosted by default and every train says which gate it had ([7531f0e](https://github.com/BeppeTemp/cartographer/commit/7531f0e7b5fe0f59e2f80dfac87c89e751a80fd0))
-* **dev:** the train PR carries a Gate line read from the signoff status ([7531f0e](https://github.com/BeppeTemp/cartographer/commit/7531f0e7b5fe0f59e2f80dfac87c89e751a80fd0))
-* **dev:** the triage prints Tier: fast for a maintainer's change of 51 to 150 production lines that matches no supply-chain or invariant-area row, no decision and no binary, and one contract-reviewer round with the hosted check beside it reviews it ([15f65b6](https://github.com/BeppeTemp/cartographer/commit/15f65b684e62588c3ad95c4b15085c974f0b0e97))
-* **dev:** the triage traces a change's acceptance criteria to tests ([e8be6fc](https://github.com/BeppeTemp/cartographer/commit/e8be6fc705eff12ae7afd6af5f5cecc340e92f9e))
-* **dev:** the triage warns about an acceptance criterion no test cites ([e8be6fc](https://github.com/BeppeTemp/cartographer/commit/e8be6fc705eff12ae7afd6af5f5cecc340e92f9e))
+#### Bug Fixes
+
+* a template card counts and filters the pages of its type whatever the case ([c9f3bb1](https://github.com/BeppeTemp/cartographer/commit/c9f3bb12c49e175047e9f6fb72d5326186b561ec)), closes [#2285](https://github.com/BeppeTemp/cartographer/issues/2285)
+* one close button on the inspector sheet on a narrow screen ([5a3a390](https://github.com/BeppeTemp/cartographer/commit/5a3a390857514e34ebf12ab90a77b6ca2b6e9a86))
 
 
-### Bug Fixes
+### MCP tools
+
+#### Bug Fixes
+
+* widen the SSE stream wait in apistream_test to 20s ([0178bac](https://github.com/BeppeTemp/cartographer/commit/0178baceedc5a22d19957615ea78f6c5d12778e0)), closes [#2329](https://github.com/BeppeTemp/cartographer/issues/2329)
+
+
+### Lint & repair
+
+#### Bug Fixes
+
+* kb_review skips ingest units and ISO hours in review checks ([216cdeb](https://github.com/BeppeTemp/cartographer/commit/216cdebf897e002bed01285b3f8ce977e8f964aa)), closes [#2288](https://github.com/BeppeTemp/cartographer/issues/2288)
+
+
+### Client & CLI
+
+#### Bug Fixes
+
+* approve judges the artifact name collision per projection ([ec2ae23](https://github.com/BeppeTemp/cartographer/commit/ec2ae23f3ba1ba27cec16ddd0c16ebd39bb36abc)), closes [#2306](https://github.com/BeppeTemp/cartographer/issues/2306)
+* kb secrets init words an unknown KB and a 401 like the server path ([a621c0e](https://github.com/BeppeTemp/cartographer/commit/a621c0ea8a71239dfdbc7f9f68cfd62eb811db87)), closes [#2284](https://github.com/BeppeTemp/cartographer/issues/2284)
+* match a local KB by its exact name on the offline kb commands ([98be02a](https://github.com/BeppeTemp/cartographer/commit/98be02aab51f557700ad6476f7af5d263c4776d1)), closes [#2345](https://github.com/BeppeTemp/cartographer/issues/2345) [#2346](https://github.com/BeppeTemp/cartographer/issues/2346)
+* scope the session-start sync to its client and gate it by a 10-minute stamp ([18cb78c](https://github.com/BeppeTemp/cartographer/commit/18cb78c921167a07bbc2fe26ef9451a2348c1cec)), closes [#2340](https://github.com/BeppeTemp/cartographer/issues/2340)
+
+
+### Server & KB
+
+#### Bug Fixes
+
+* a link target starting with `kb:` is not a concept id of this KB ([6efdae1](https://github.com/BeppeTemp/cartographer/commit/6efdae11c26b8cc834c4619b166bf9e93d52b709)), closes [#2335](https://github.com/BeppeTemp/cartographer/issues/2335)
+
+
+### General
+
+#### Bug Fixes
 
 * a quiet Surveyor run writes no closing log entry ([ef3dcb9](https://github.com/BeppeTemp/cartographer/commit/ef3dcb99b2bf781047d33b6f2d44d600374bb23a)), closes [#2283](https://github.com/BeppeTemp/cartographer/issues/2283)
-* **atlas:** a template card counts and filters the pages of its type whatever the case ([c9f3bb1](https://github.com/BeppeTemp/cartographer/commit/c9f3bb12c49e175047e9f6fb72d5326186b561ec)), closes [#2285](https://github.com/BeppeTemp/cartographer/issues/2285)
-* **atlas:** one close button on the inspector sheet on a narrow screen ([5a3a390](https://github.com/BeppeTemp/cartographer/commit/5a3a390857514e34ebf12ab90a77b6ca2b6e9a86))
-* **client:** approve judges the artifact name collision per projection ([ec2ae23](https://github.com/BeppeTemp/cartographer/commit/ec2ae23f3ba1ba27cec16ddd0c16ebd39bb36abc)), closes [#2306](https://github.com/BeppeTemp/cartographer/issues/2306)
-* **client:** kb secrets init words an unknown KB and a 401 like the server path ([a621c0e](https://github.com/BeppeTemp/cartographer/commit/a621c0ea8a71239dfdbc7f9f68cfd62eb811db87)), closes [#2284](https://github.com/BeppeTemp/cartographer/issues/2284)
-* **client:** match a local KB by its exact name on the offline kb commands ([98be02a](https://github.com/BeppeTemp/cartographer/commit/98be02aab51f557700ad6476f7af5d263c4776d1)), closes [#2345](https://github.com/BeppeTemp/cartographer/issues/2345) [#2346](https://github.com/BeppeTemp/cartographer/issues/2346)
-* **client:** scope the session-start sync to its client and gate it by a 10-minute stamp ([18cb78c](https://github.com/BeppeTemp/cartographer/commit/18cb78c921167a07bbc2fe26ef9451a2348c1cec)), closes [#2340](https://github.com/BeppeTemp/cartographer/issues/2340)
-* **dev:** a hosted run whose jobs no runner took is gated again, not red ([8024587](https://github.com/BeppeTemp/cartographer/commit/802458773f1e1164db568b646d8a6bf113b1405f)), closes [#2313](https://github.com/BeppeTemp/cartographer/issues/2313) [#2325](https://github.com/BeppeTemp/cartographer/issues/2325)
-* **dev:** agent definitions read an issue's text only from maintainers ([02359f0](https://github.com/BeppeTemp/cartographer/commit/02359f01a520cfe3a0790600117082838c833c32)), closes [#2298](https://github.com/BeppeTemp/cartographer/issues/2298)
-* **dev:** e2e scenarios pick a port that is free when the server binds it ([86b16e2](https://github.com/BeppeTemp/cartographer/commit/86b16e24437163da911b0eac50140f604598ed00)), closes [#2275](https://github.com/BeppeTemp/cartographer/issues/2275)
-* **dev:** ready.sh strips the lander's trailers with any spacing and case ([d883726](https://github.com/BeppeTemp/cartographer/commit/d8837260641bfda33fb531e64b38190900f95086)), closes [#2290](https://github.com/BeppeTemp/cartographer/issues/2290)
-* **dev:** take the hosted gate's duration from the run's own clock ([5d7bf82](https://github.com/BeppeTemp/cartographer/commit/5d7bf82d0764435803b028b992b791616cb83585)), closes [#2296](https://github.com/BeppeTemp/cartographer/issues/2296)
-* **dev:** the agent definitions' issue reads follow their jq, keep the workflows' bot, and the test reads every form ([36e1a73](https://github.com/BeppeTemp/cartographer/commit/36e1a7394976e5380a65a5e70ec9fbc3eb92b32a)), closes [#2325](https://github.com/BeppeTemp/cartographer/issues/2325)
-* **dev:** the gh read guard test reads issue lists and covers every .body ([8f397cb](https://github.com/BeppeTemp/cartographer/commit/8f397cbdbaf97cddd582a04e47b68ddad3378403)), closes [#2332](https://github.com/BeppeTemp/cartographer/issues/2332) [#2325](https://github.com/BeppeTemp/cartographer/issues/2325)
-* **dev:** the hosted signoff waits for a failed job's log before naming its tests ([38d6c18](https://github.com/BeppeTemp/cartographer/commit/38d6c18f352080d5685c26329af2dc9c95f780b0))
-* **dev:** the lander runs main's scripts and waits for a lander gating elsewhere ([9bdc864](https://github.com/BeppeTemp/cartographer/commit/9bdc864772564a94cd026ce4409917d193bc2966))
-* **dev:** the lander runs the scripts of origin/main, wherever make ready started it ([9bdc864](https://github.com/BeppeTemp/cartographer/commit/9bdc864772564a94cd026ce4409917d193bc2966))
-* **dev:** wait for running jobs before an infra verdict and sanitise job names ([67d7699](https://github.com/BeppeTemp/cartographer/commit/67d7699a8719a0234a684069ea8c094257917e19)), closes [#2333](https://github.com/BeppeTemp/cartographer/issues/2333) [#2313](https://github.com/BeppeTemp/cartographer/issues/2313)
 * **docs:** the decision-citation check reads a number of any length ([bfa8aa0](https://github.com/BeppeTemp/cartographer/commit/bfa8aa0ce0a338e9fb174d12fbadb06dadf6257c)), closes [#2299](https://github.com/BeppeTemp/cartographer/issues/2299)
-* **kb:** a link target starting with `kb:` is not a concept id of this KB ([6efdae1](https://github.com/BeppeTemp/cartographer/commit/6efdae11c26b8cc834c4619b166bf9e93d52b709)), closes [#2335](https://github.com/BeppeTemp/cartographer/issues/2335)
-* **lint:** kb_review skips ingest units and ISO hours in review checks ([216cdeb](https://github.com/BeppeTemp/cartographer/commit/216cdebf897e002bed01285b3f8ce977e8f964aa)), closes [#2288](https://github.com/BeppeTemp/cartographer/issues/2288)
-* **mcp:** widen the SSE stream wait in apistream_test to 20s ([0178bac](https://github.com/BeppeTemp/cartographer/commit/0178baceedc5a22d19957615ea78f6c5d12778e0)), closes [#2329](https://github.com/BeppeTemp/cartographer/issues/2329)
 * Surveyor supersede, orphaned claims, quiet polls, repair summary, author ([bc6474f](https://github.com/BeppeTemp/cartographer/commit/bc6474fb481c243e2355dd6c3ce11a72c726cdc0)), closes [#2279](https://github.com/BeppeTemp/cartographer/issues/2279)
 * warn, not refuse or pass in silence, on three edge cases ([1b3af74](https://github.com/BeppeTemp/cartographer/commit/1b3af74883c96b60b4f4123645387711f2d9dbf6)), closes [#2278](https://github.com/BeppeTemp/cartographer/issues/2278)
 
