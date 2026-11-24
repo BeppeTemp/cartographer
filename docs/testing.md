@@ -1264,7 +1264,7 @@ kept as its synonym), dispatches `ci.yml` (below); `host` runs the targets on th
 private wrapper). The first line of every signoff names the mode, `signoff: gate: hosted` or `signoff: gate: host`,
 and the status description starts with it, so the 140-character cut can only lose its tail:
 `gate=hosted run=<id> legs=<n> <duration> - make <targets>` (`gate=hosted fallback=host-unavailable run=...` when the
-build host was asked for and answered 75); a hosted `<duration>` is the run's own, `updatedAt - createdAt` of `gh run view`, so a lander that slept does not inflate it (the wait is the fallback when the timestamps cannot be read), or `gate=host <platform> windows=<n>|none|unavailable web=yes|no
+build host was asked for and answered 75); a hosted `<duration>` is the run's own, the latest `completedAt` of its jobs minus `createdAt`, from `gh run view`, so a lander that slept does not inflate it (the wait is the fallback when the timestamps cannot be read), or `gate=host <platform> windows=<n>|none|unavailable web=yes|no
 <duration>[ flaky=<n>] - make <targets>`, `windows=<n>` being the number of packages of the Windows leg. The
 platform is the one word of it the tree under test prints (its `signoff-platform` target), so it must be
 `<os>/<arch>` or the signoff stops. `signoff.sh --hosted-jobs` prints `HOSTED_JOBS`.
@@ -1306,7 +1306,9 @@ tests' own (make's 2, the Windows retry's 1). On the Windows leg the shards' exi
 SIGNOFF_MAKE`) and for the deferred `web-perf`, whose make failure is a red gate on the line
 `make web-perf failed (exit N)`. A wrapper failure is not a red gate: the signoff prints `signoff:
 the build host failed (exit N) before the gate finished: nothing pushed, nothing posted` (`the
-Windows machine` for that leg) and exits 69 (EX_UNAVAILABLE), the code the lander reads (the log
+Windows machine` for that leg; `the hosted runners` for a hosted run with a job cancelled before
+it started and no failed job, which also prints a `signoff: job <name>: <conclusion>` line per
+non-green job, as does a red run) and exits 69 (EX_UNAVAILABLE), the code the lander reads (the log
 holds the change's own test output, so a line in it proves nothing; 75 stays the wrapper's "machine
 unavailable, run the gate in CI"). A retry that lost its host never prints `confirmed on a targeted
 retry`; a 75 from the retry or from the deferred `web-perf` (both run after the gate started, so CI
@@ -1392,7 +1394,8 @@ train is composed again), and a probe whose machine is unavailable, or whose wra
 own (make's 2, the Windows retry's 1: ssh's 255, a signal), reports 75 and falls back to full gates. A gate that fails for a reason that is not a test (the signoff stops before
 the targets) stops the lander and leaves the queue untouched. A gate whose signoff exits 69 (`the build host
 failed (exit N) before the gate finished`: the connection to the build host or the Windows machine
-dropped, no test failed) is neither red nor flaky (D2025): the lander gates the same tree again, without a
+dropped, no test failed; a hosted gate also ends so, `the hosted runners failed (exit 0)`, when no
+runner took a job and nothing else failed, D2340) is neither red nor flaky (D2025): the lander gates the same tree again, without a
 re-run's flaky issue and without bisection, up to `LAND_INFRA_TRIES` gates in a row (3, `LAND_INFRA_WAIT`
 seconds apart, 120), then stops with the queue untouched, naming the failure; the log of each failed
 attempt is kept as `gate-<id>.log.host<n>`. Once the train PR merged, a

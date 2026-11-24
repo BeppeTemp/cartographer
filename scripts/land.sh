@@ -44,7 +44,8 @@
 # signoff status of its head, up to " - make">`, or `Gate: unknown (...)`. On the build host the signoff itself retries once the
 # Go tests a red run names (its step 4c): green, the train lands on that gate and a `bug`
 # issue names them; red, the failure is confirmed and bisection starts without a re-run.
-# A signoff that exits 69 (ssh or rsync dropped, so no test failed: #1843; its line `the build
+# A signoff that exits 69 (ssh or rsync dropped, or no hosted runner was acquired for a job of the
+# hosted run, so no test failed: #1843, #2313; its line `the build
 # host failed (exit N) before the gate finished` is for people: the log holds the change's own
 # output, so the code decides) is not red: the same tree is gated again, no flaky
 # issue, up to LAND_INFRA_TRIES gates in a row; a host that stays down stops the lander with
@@ -894,7 +895,7 @@ number_train() {
 # in CI"). An out-of-band signal: the gate log holds the change's own test output, so a line in
 # it, which a test can print, must never decide that the gate was not red. Tests pin both scripts.
 host_rc=69
-infra_line='^signoff: the (build host|Windows machine) failed \(exit [0-9]+\) before the gate finished: nothing pushed, nothing posted$'
+infra_line='^signoff: the (build host|Windows machine|hosted runners) failed \(exit [0-9]+\) before the gate finished: nothing pushed, nothing posted$'
 gate_token=
 gate_once() { # $1 = log file; signoff.sh on the train branch: exit 0 green, 1 red, 2 not a test, 3 the build host failed
   local rc pf
