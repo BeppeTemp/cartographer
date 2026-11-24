@@ -14,6 +14,18 @@ interface TemplateShape {
   sections: string[];
 }
 
+/** The types of `byType` a template slug stands for: a page binds to
+ * `templates/<lowercased type>.md`, so `Practice` is counted for `practice`. */
+export function typesOfSlug(byType: Record<string, number>, slug: string): string[] {
+  const want = slug.toLowerCase();
+  return Object.keys(byType).filter((t) => t.toLowerCase() === want);
+}
+
+/** How many pages a template card counts: the case variants of its slug summed. */
+export function countForSlug(byType: Record<string, number>, slug: string): number {
+  return typesOfSlug(byType, slug).reduce((n, t) => n + (byType[t] ?? 0), 0);
+}
+
 export function templateShape(text: string): TemplateShape {
   const fm = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text);
   const pairs = fm
