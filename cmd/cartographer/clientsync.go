@@ -594,9 +594,11 @@ func fetchMergedManifestFor(cfg *clientconfig.Config, kb string) (contract.Manif
 	return out, nil
 }
 
-// kbShadowsBundle drops a bundle or plugin artifact when a KB ships the same
-// kind and name: the precedence one merge applies (a KB wins over the bundle)
-// holds inside each projection, and the union of projections must keep it.
+// kbShadowsBundle drops a bundle artifact when a KB ships the same kind and
+// name: the precedence one merge applies (a KB wins over the bundle) holds
+// inside each projection, and the union of projections must keep it. The
+// merge ranks a KB against the bundle only: a plugin claiming a KB's name
+// never reaches the union (DropPluginCollisions drops both claimants).
 func kbShadowsBundle(arts []contract.Artifact) []contract.Artifact {
 	fromKB := map[string]bool{}
 	for _, a := range arts {
