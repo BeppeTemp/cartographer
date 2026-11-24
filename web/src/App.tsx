@@ -17,6 +17,7 @@ import {
   restoreToken,
   setToken,
 } from "./api/client";
+import { countForSlug, typesOfSlug } from "./components/TemplateCards";
 import { filterReportByMap } from "./lib/health";
 import {
   clusterSnapshot,
@@ -1146,11 +1147,11 @@ export function App() {
               narrow={narrow}
               onSelect={(artifact) => navigate({ artifact })}
               titleOf={(id) => nodeTitles.get(id)}
-              typeCount={(type) => overview?.concepts.by_type[type] ?? 0}
+              typeCount={(slug) => countForSlug(overview?.concepts.by_type ?? {}, slug)}
               onOpenConcept={(id) => navigate({ panel: "atlas", concept: id, artifact: null })}
               onOpenHealth={() => navigate({ panel: "health", artifact: null, hmap: null })}
               onFilterType={(type) => {
-                setTypeFilter(new Set([type]));
+                setTypeFilter(new Set(typesOfSlug(overview?.concepts.by_type ?? {}, type)));
                 setStatusFilter(new Set());
                 navigate({ panel: "atlas", concept: null, artifact: null });
               }}

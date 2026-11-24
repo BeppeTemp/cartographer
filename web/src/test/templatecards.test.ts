@@ -1,4 +1,4 @@
-import { templateShape } from "../components/TemplateCards";
+import { countForSlug, templateShape, typesOfSlug } from "../components/TemplateCards";
 
 describe("templateShape", () => {
   it("reads the fields a template adds, its brief and its sections", () => {
@@ -19,5 +19,17 @@ describe("templateShape", () => {
 
   it("copes with a template without frontmatter or brief", () => {
     expect(templateShape("## Only\n")).toEqual({ fields: [], brief: null, sections: ["Only"] });
+  });
+});
+
+describe("template slug and page type", () => {
+  const byType = { Practice: 3, practice: 1, Task: 2 };
+  it("counts the case variants of the type for the slug", () => {
+    expect(countForSlug(byType, "practice")).toBe(4);
+    expect(countForSlug(byType, "task")).toBe(2);
+    expect(countForSlug(byType, "other")).toBe(0);
+  });
+  it("filters on every type the count summed", () => {
+    expect(typesOfSlug(byType, "practice").sort()).toEqual(["Practice", "practice"]);
   });
 });
