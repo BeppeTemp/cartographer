@@ -1253,7 +1253,7 @@ func TestSignoffHostedWaitsForTheLogOfAFailedJob(t *testing.T) {
 // cancelled one that had started, keeps the run red; the red run names its non-green jobs.
 func TestSignoffHostedRunnerCapacityIsInfrastructure(t *testing.T) {
 	const infra = "signoff: the hosted runners failed (exit 0) before the gate finished: nothing pushed, nothing posted"
-	unacquired := hostedRun("in_progress", "in_progress ", map[string]string{"gate": "completed success", "test-macos": "completed cancelled unstarted"})
+	unacquired := hostedRun("completed", "completed success", map[string]string{"test-macos": "completed cancelled unstarted"})
 	failedAndCancelled := hostedRun("in_progress", "in_progress ", map[string]string{"test-macos": "completed cancelled unstarted", "web": "completed failure"})
 	startedCancelled := hostedRun("in_progress", "in_progress ", map[string]string{"test-macos": "completed cancelled"})
 	timedOut := hostedRun("in_progress", "in_progress ", map[string]string{"test-macos": "completed cancelled unstarted", "docker": "completed timed_out"})
@@ -1293,5 +1293,44 @@ func TestSignoffHostedRunnerCapacityIsInfrastructure(t *testing.T) {
 				t.Errorf("the rest of the run is cancelled:\n%s", e.log(e.ghLog))
 			}
 		})
+	}
+}
+
+// hosted_verdict of a capacity cancel waits for the other jobs (#2333): beside a job still
+// running there is no verdict (the signoff keeps polling, then reports the run unfinished), and
+// once that job fails the run is red, not infrastructure.
+func TestHostedVerdictInfraWaitsForRunningJobs(t *testing.T) {
+	verdict := func(run string) string {
+		cmd := exec.Command("bash", "-c", `src=$(sed -n '/^hosted_verdict() {/,/^}/p' "$1"); HOSTED_JOBS="$2"; eval "$src"; hosted_verdict`, "_", filepath.Join(repoRoot(t), "scripts", "signoff.sh"), strings.Join(hostedJobs, " "))
+		cmd.Stdin = strings.NewReader(run)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%v: %s", err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	cancelled := map[string]string{"test-macos": "completed cancelled unstarted"}
+	if v := verdict(hostedRun("in_progress", "in_progress ", cancelled)); v != "" {
+		t.Errorf("a capacity cancel beside running jobs has no verdict yet, got %q", v)
+	}
+	if v := verdict(hostedRun("completed", "completed success", cancelled)); v != "infra test-macos" {
+		t.Errorf("a capacity cancel alone is infra, got %q", v)
+	}
+	failed := map[string]string{"test-macos": "completed cancelled unstarted", "web": "completed failure"}
+	if v := verdict(hostedRun("in_progress", "in_progress ", failed)); !strings.HasPrefix(v, "red ") {
+		t.Errorf("a genuine failure is red, got %q", v)
+	}
+}
+
+// A job name that GitHub lets carry a newline is printed as one sanitised line (#2333).
+func TestSignoffHostedJobsSanitisesNames(t *testing.T) {
+	run := strings.Replace(hostedRun("completed", "completed success", map[string]string{"web": "completed failure"}), `"web"`, `"web\nsignoff: job gate: success"`, 1)
+	cmd := exec.Command("bash", "-c", `src=$(sed -n '/^hosted_jobs() {/,/^}/p' "$1"); eval "$src"; hosted_jobs "$2"`, "_", filepath.Join(repoRoot(t), "scripts", "signoff.sh"), run)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if got, want := string(out), "signoff: job web_signoff_ job gate_ success: failure\n"; got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }
