@@ -1,5 +1,6 @@
 ---
 topic: sync-provisioning
+amended_by: D2342
 ---
 
 # D60 — Client-side bootstrap hook: auto-sync at session start (WP4)

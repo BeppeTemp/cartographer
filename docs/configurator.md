@@ -695,6 +695,7 @@ cartographer sync [--client <provider>]... [--dry-run] [--no-heal] [--log-file <
 | Flag | Default | Effect |
 |---|---|---|
 | `--client` | *(all)* | Syncs only this provider (repeatable). A provider left out is not touched at all: not its MCP entries, not its artifacts, not its lockfile entry |
+| `--if-older-than` | *(off, hidden)* | The bootstrap script's gate (`10m`): exits 0 at once, before the client lock and any network call, when the last successful sync of the same `--client` selection is younger than the duration; written only after a successful run, never by `--dry-run`; a `--client` not connected here is dropped and none left syncs every provider ([D2342](decisions/D2342-bootstrap-sync-scope.md)) |
 | `--dry-run` | `false` | Prints the plan without writing: every artifact and MCP entry, the `.cartographer.yaml` rewrite (only when its bytes would change) and the creation or update of `workspace-derived.json`; MCP entries are listed for removal only when they exist in the config |
 | `--no-heal` | `false` | Reports managed artifacts that diverged on disk instead of restoring them from Meridian (D139) |
 | `--log-file` | *(none)* | Appends this run's output to that file instead of stdout/stderr (created if absent, never rotated); the Windows sync task uses it, where nothing else records a failing background run (D217); on Windows a run that is the only process on its console releases it, so the task's window closes ([D1479](decisions/D1479-the-windows-service-detaches-from-its-console.md)) |

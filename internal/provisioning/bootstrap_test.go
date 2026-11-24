@@ -13,6 +13,7 @@ package provisioning_test
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -43,7 +44,7 @@ func TestEnsureBootstrapHook_Claude_MaterializzaERegistra(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read %s: %v", provisioning.BootstrapScriptNameForTest, err)
 	}
-	if !strings.Contains(string(scriptData), "cartographer sync >") || strings.Contains(string(scriptData), "--auto-trust") {
+	if !strings.Contains(string(scriptData), "cartographer sync --client claude --if-older-than 10m 2>&1 >") || strings.Contains(string(scriptData), "--auto-trust") {
 		t.Errorf("%s must call `cartographer sync` and no removed flag (D906): %s", provisioning.BootstrapScriptNameForTest, scriptData)
 	}
 
@@ -561,7 +562,7 @@ func TestBootstrapScriptIsRunnableOnThisPlatform(t *testing.T) {
 		}
 	}
 
-	if !strings.Contains(script, "cartographer sync >") || strings.Contains(script, "--auto-trust") {
+	if !strings.Contains(script, "cartographer sync --if-older-than 10m 2>&1 >") || strings.Contains(script, "--auto-trust") {
 		t.Error("the script must run the sync it exists for, without the removed --auto-trust (D906)")
 	}
 
@@ -576,7 +577,7 @@ func TestBootstrapScriptIsRunnableOnThisPlatform(t *testing.T) {
 	if noticeLine == "" {
 		t.Fatal("the script does not run `cartographer update notice`")
 	}
-	if strings.Index(script, "cartographer update notice") < strings.Index(script, "cartographer sync --auto-trust") {
+	if strings.Index(script, "cartographer update notice") < strings.Index(script, "cartographer sync ") {
 		t.Error("the notice must run after the sync")
 	}
 	if stdout := strings.NewReplacer("2>nul", "", "2>/dev/null", "").Replace(noticeLine); strings.Contains(stdout, ">") {
@@ -673,7 +674,7 @@ func TestEnsureBootstrapHook_RewritesAnOutdatedScript(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if string(got) != provisioning.BootstrapScriptContentForTest {
+			if string(got) != provisioning.BootstrapScriptContentForProvider(p) {
 				t.Fatalf("an outdated script was not rewritten:\n%s", got)
 			}
 		})
@@ -699,5 +700,62 @@ func TestEnsureBootstrapHook_KeepsItsPlaceInTheLock(t *testing.T) {
 	}
 	if !reflect.DeepEqual(again.Managed, before) {
 		t.Errorf("managed entries reordered by a second run:\n got %+v\nwant %+v", again.Managed, before)
+	}
+}
+
+// D-new-bootstrap-sync-scope: each client's script syncs only that client
+// (--client <provider>) behind the 10-minute freshness gate, before anything
+// else on the line, and Antigravity's keeps its notice channel.
+func TestBootstrapScriptBakesInItsClient(t *testing.T) {
+	for _, p := range []configurator.Provider{configurator.ProviderClaudeCode, configurator.ProviderCodex, configurator.ProviderAntigravity} {
+		script := strings.ReplaceAll(provisioning.BootstrapScriptContentForProvider(p), "\r\n", "\n")
+		want := "cartographer sync --client " + string(p) + " --if-older-than 10m 2>&1 >"
+		retry := "cartographer sync --client " + string(p) + " >"
+		for _, w := range []string{want, retry, "flag provided but not defined: -if-older-than"} {
+			if strings.Count(script, w) != 1 {
+				t.Errorf("%s: want exactly one %q in:\n%s", p, w, script)
+			}
+		}
+		if got := strings.Contains(script, "update notice --channel antigravity"); got != (p == configurator.ProviderAntigravity) {
+			t.Errorf("%s: antigravity channel = %v", p, got)
+		}
+	}
+}
+
+// A binary older than the script rejects --if-older-than (exit 2, stderr
+// discarded): the script retries once as a plain scoped sync, and only for that
+// error. Run against a fake cartographer on PATH.
+func TestBootstrapScriptRetriesWithoutTheGateOnAnOlderBinary(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the batch script is covered by its bytes")
+	}
+	run := func(t *testing.T, fake string) string {
+		t.Helper()
+		dir := t.TempDir()
+		log := filepath.Join(dir, "calls")
+		bin := filepath.Join(dir, "cartographer")
+		body := "#!/bin/sh\necho \"$*\" >> " + log + "\n" + fake
+		if err := os.WriteFile(bin, []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		script := filepath.Join(dir, "bootstrap.sh")
+		if err := os.WriteFile(script, []byte(provisioning.BootstrapScriptContentForProvider(configurator.ProviderClaudeCode)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command("/bin/sh", script)
+		cmd.Env = []string{"PATH=" + dir + ":/usr/bin:/bin"}
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("script failed: %v\n%s", err, out)
+		}
+		data, _ := os.ReadFile(log)
+		return string(data)
+	}
+	old := run(t, "case \"$1 $*\" in *if-older-than*) echo 'flag provided but not defined: -if-older-than' >&2; exit 2;; esac\n")
+	if want := "sync --client claude --if-older-than 10m\nsync --client claude\nupdate notice\n"; old != want {
+		t.Errorf("older binary: calls = %q, want %q", old, want)
+	}
+	other := run(t, "case \"$*\" in sync*) echo 'server down' >&2; exit 2;; esac\n")
+	if want := "sync --client claude --if-older-than 10m\nupdate notice\n"; other != want {
+		t.Errorf("another failure must not retry: calls = %q, want %q", other, want)
 	}
 }
