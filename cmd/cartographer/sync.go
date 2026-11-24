@@ -25,7 +25,7 @@ import (
 // unchanged server is a no-op. Loads the client config itself, then delegates
 // the actual work to runSync — the same in-process runner `upgrade-repair`
 // uses (D121), so both commands share one authorization/materialization path.
-func cmdSync(args []string) int {
+func cmdSync(args []string) (code int) {
 	fs := flag.NewFlagSet("sync", flag.ExitOnError)
 	dryRun := fs.Bool("dry-run", false, "Print what would change without writing")
 	var clients repeatedString
@@ -34,6 +34,8 @@ func cmdSync(args []string) int {
 	noHeal := fs.Bool("no-heal", false, "Report locally modified managed artifacts instead of restoring them from the server")
 	logFile := fs.String("log-file", "", "Append this run's output to this file instead of stdout/stderr (created if absent; never rotated)")
 	reportTo := fs.String("report-to", "", "Only send this machine's usage and settings reports to this MCP endpoint (a live development instance), and change nothing")
+	// Hidden: the session-start script's freshness gate (D2342).
+	ifOlderThan := fs.Duration("if-older-than", 0, "")
 	if code := noExtraArgs(fs, args); code != 0 {
 		return code
 	}
@@ -61,12 +63,24 @@ func cmdSync(args []string) int {
 	if *reportTo != "" {
 		return reportOnly(dir, *reportTo)
 	}
+	var gate *syncGate
+	// Before the client lock and any network call: a session start inside the
+	// window of the last successful sync costs one stat. The stamp is written
+	// only when this run succeeds.
+	if *ifOlderThan > 0 && !*dryRun {
+		stamp := syncStampPath(dir, clients)
+		if syncStampFresh(stamp, *ifOlderThan, version) {
+			return 0
+		}
+		gate = &syncGate{dir: dir, stamp: stamp, maxAge: *ifOlderThan}
+	}
 	migratedBackup := ""
 	// The lock comes before the realignment and the load: the config saved at the end of the sync
 	// must be the one read after every other writer finished (D172). A dry run
 	// writes nothing and takes none.
 	locked := false
 	unlock := func() {}
+	var onApplied func()
 	if !*dryRun {
 		release, err := lockClient(dir)
 		if err != nil {
@@ -76,6 +90,17 @@ func cmdSync(args []string) int {
 		unlock = sync.OnceFunc(release)
 		defer unlock()
 		locked = true
+		if gate != nil {
+			// Sessions started together all passed the check above and queued
+			// here: the one that ran the sync stamped it, so the rest stop.
+			if syncStampFresh(gate.stamp, gate.maxAge, version) {
+				return 0
+			}
+			// runSync writes the stamp (OnApplied) before it first releases the
+			// lock, which it does early: a stamp written after it returned would
+			// let a session queued on the lock run a second sync.
+			onApplied = func() { touchSyncStamp(gate.dir, gate.stamp, version) }
+		}
 		// Under the one lock the sync waits for: a second wait here would
 		// double the delay and repeat the message (#2238).
 		migratedBackup = realignClientConfig(dir)
@@ -93,10 +118,14 @@ func cmdSync(args []string) int {
 		// registry dropped (D898) must still be cleaned and say why.
 		handleUnsupportedProviders(os.Stderr, dir, cfg, !*dryRun)
 		fmt.Println("no agent connected (run `cartographer connect`)")
+		// Nothing was synced: no stamp.
 		return 0
 	}
 
-	res, err := runSync(dir, cfg, syncOptions{DryRun: *dryRun, NoHeal: *noHeal, Clients: clients, RepairService: true, Locked: locked, Unlock: unlock})
+	if *ifOlderThan > 0 && len(clients) > 0 {
+		clients = connectedOnly(cfg.Agents, clients)
+	}
+	res, err := runSync(dir, cfg, syncOptions{DryRun: *dryRun, NoHeal: *noHeal, Clients: clients, RepairService: true, Locked: locked, Unlock: unlock, OnApplied: onApplied})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", syncErrorText(err, dir, migratedBackup))
 		// The exit stays 2, but the skipped workspaces are not lost with it.
@@ -229,6 +258,11 @@ type syncOptions struct {
 	// runSync calls it before the post-apply reports, which read what was
 	// written and must not make the next session-start sync wait (#1619).
 	Unlock func()
+	// OnApplied, when set, is called once, before the client lock is first
+	// released, after an apply that left nothing failed, refused or skipped: the
+	// freshness gate's stamp (D2342). Never on a dry run, an
+	// error or a run that synced nothing.
+	OnApplied func()
 	// Streams is where the run reports; the zero value is the process's own
 	// stdout and stderr. A caller that must keep the terminal clean passes buffers.
 	Streams syncStreams
@@ -537,6 +571,13 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		} else {
 			mounted := cfg.KnownKBs
 			cfg.KnownKBs = withRetainedKBs(mounted, retainedKBs)
+			if len(opts.Clients) > 0 {
+				// A run limited by --client leaves the other providers' MCP
+				// entries alone, and known_kbs is what their later syncs remove
+				// stale entries by: a KB unmounted meanwhile stays listed until
+				// a full sync reconciles them (D2342).
+				cfg.KnownKBs = withRetainedKBs(cfg.KnownKBs, previousKnownKBs)
+			}
 			// D1166: before the apply, so what a pre-D1141 client installed is
 			// approved by this very run instead of frozen by it.
 			if lockFile, lerr := provisioning.ReadLockFile(lockFilePath(dir)); lerr == nil {
@@ -569,6 +610,10 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	}
 	printInstructionsSizeWarnings(out, dir, results, opts.DryRun)
 	printSyncRevisions(out, results, targets, opts.DryRun)
+	if opts.OnApplied != nil && !opts.DryRun && len(pullFailures) == 0 && len(providerFailures) == 0 &&
+		len(unreadable) == 0 && len(pruneDenied) == 0 && len(writeDenied) == 0 && len(skippedParts(refusedMCP, nil, results)) == 0 {
+		opts.OnApplied()
+	}
 	// D326: after the apply, so the lockfile names what was just materialised.
 	// A dry run changes nothing and neither does it report, and an unreachable
 	// server has nobody to report to.
