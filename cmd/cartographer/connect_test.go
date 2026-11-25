@@ -423,13 +423,18 @@ func TestPrintConnectResult_ReportsEntryAndRestartHint(t *testing.T) {
 // loopback literal the service listens on (D231). Whether a local server
 // answers does not matter: a down server still records the connection.
 func TestDoConnect_MigratesLegacyDefaultURL(t *testing.T) {
-	// The migration target is the real default endpoint, so on a machine that
-	// runs the native service doConnect reaches it and inherits its KBs — two or
-	// more make the first connect fail on the D190 choice, which is not what
-	// this test is about. CI has no such server and keeps the coverage.
-	if _, err := client.New(defaults.DefaultMCPURL, "").Health(time.Second); err == nil {
-		t.Skip("a local server answers on the default endpoint this test migrates to")
+	// The migration target is the real default endpoint, where a machine that
+	// runs the native service answers with its KBs (two or more make the first
+	// connect fail on the D190 choice). The probe is replaced by a down server
+	// that records what it was asked, so the test depends on no machine state
+	// and no timing (#2361).
+	var probed []string
+	previous := enumerateKBs
+	enumerateKBs = func(serverURL string, _ bool, _ string, _ bool) (serverFacts, error) {
+		probed = append(probed, serverURL)
+		return serverFacts{}, errors.New("connection refused")
 	}
+	t.Cleanup(func() { enumerateKBs = previous })
 	dir := t.TempDir()
 	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: "http://localhost:39273/mcp", Name: "cartographer"}); err != nil {
 		t.Fatalf("doConnect: %v", err)
@@ -440,6 +445,11 @@ func TestDoConnect_MigratesLegacyDefaultURL(t *testing.T) {
 	}
 	if cfg.ServerURL != defaults.DefaultMCPURL {
 		t.Errorf("recorded server_url = %q, want %q", cfg.ServerURL, defaults.DefaultMCPURL)
+	}
+	for _, u := range probed {
+		if u != defaults.DefaultMCPURL {
+			t.Errorf("probed %q, want only %q", u, defaults.DefaultMCPURL)
+		}
 	}
 	data, err := os.ReadFile(filepath.Join(dir, ".claude.json"))
 	if err != nil {

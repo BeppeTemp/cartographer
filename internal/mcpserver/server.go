@@ -224,6 +224,8 @@ type Server struct {
 	// (overridable in tests).
 	autoRepairTrigger chan struct{}
 	autoRepairPullGap time.Duration
+	// autoRepairAfter replaces time.After for the debounce; nil in production.
+	autoRepairAfter func(time.Duration) <-chan time.Time
 
 	// sdkOnce/sdkSrv memoise the official-SDK server this Server is served
 	// through (D168). Built on first use, from the tools registered at mount.

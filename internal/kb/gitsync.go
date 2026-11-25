@@ -1098,6 +1098,9 @@ func (k *KB) DiscardUncommitted() error {
 		if !time.Now().Before(deadline) {
 			break
 		}
+		if gitx.WhileWaitingForIndexLock != nil {
+			gitx.WhileWaitingForIndexLock()
+		}
 		time.Sleep(gitx.IndexLockPoll)
 	}
 	k.recordLeftovers(prints)
