@@ -214,6 +214,11 @@ func RestoreWithoutIndex(dir string) error {
 // in that window (#2241). Nil in production.
 var AfterStage func(dir string)
 
+// WhileWaitingForIndexLock runs on each pause of the restore that waits for a
+// foreign index.lock to clear: a seam for the tests that clear the lock by an
+// event of the wait itself instead of a timer (#2361). Nil in production.
+var WhileWaitingForIndexLock func()
+
 // IndexLockWait is how long a restore after a failed commit waits for a foreign
 // index.lock to clear before giving up (#2241); IndexLockPoll is the pause
 // between two attempts. Variables so a test shortens them.

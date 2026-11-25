@@ -100,6 +100,8 @@ export function Inspector({
     );
   }
 
+  const panelsRendered = !loading && !error && !!concept;
+
   return (
     <aside className="inspector" aria-label={`Inspector for ${conceptId}`}>
       <header className="inspector__head">
@@ -123,7 +125,9 @@ export function Inspector({
             role="tab"
             id={`tab-${name}`}
             aria-selected={tab === name}
-            aria-controls={`panel-${name}`}
+            // The panels render once the concept has loaded: an aria-controls
+            // naming one before that points at nothing (axe aria-valid-attr-value).
+            aria-controls={panelsRendered ? `panel-${name}` : undefined}
             className="inspector__tab"
             onClick={() => setTab(name)}
           >

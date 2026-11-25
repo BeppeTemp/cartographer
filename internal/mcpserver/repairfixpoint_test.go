@@ -290,27 +290,55 @@ func TestAutoRepairPullTriggersOneDebouncedRun(t *testing.T) {
 	t.Parallel()
 	k, s := chainKB(t, 1)
 	s.autoRepairTrigger = make(chan struct{}, 1)
-	s.autoRepairPullGap = 400 * time.Millisecond
+	s.autoRepairPullGap = time.Hour
+	// The debounce timer is fired by hand: no assertion rides on the clock, so
+	// a loaded machine cannot let the gap elapse early.
+	armed := make(chan chan time.Time, 4)
+	s.autoRepairAfter = func(d time.Duration) <-chan time.Time {
+		c := make(chan time.Time, 1)
+		armed <- c
+		return c
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan struct{})
 	go func() { s.autoRepairLoop(ctx, time.Hour, time.Hour); close(done) }()
+	nextTimer := func(what string) chan time.Time {
+		t.Helper()
+		select {
+		case c := <-armed:
+			return c
+		case <-time.After(gitxtest.Deadline(10 * time.Second)):
+			t.Fatalf("timed out waiting for %s", what)
+			return nil
+		}
+	}
 
 	s.triggerAutoRepair()
+	first := nextTimer("the first debounce timer")
+	first <- time.Now() // no previous run: it fires at once
 	waitFor(t, "the pull-triggered run", func() bool { return countRuns(t, k) == 1 })
-	// A second and third pull inside the gap coalesce into one run.
+	// A second and third pull inside the gap coalesce into one pending run.
 	writeChainPage(t, k, "late")
 	s.triggerAutoRepair()
-	time.Sleep(50 * time.Millisecond)
+	second := nextTimer("the debounce timer of the pulls inside the gap")
 	s.triggerAutoRepair()
+	// The loop took the third pull while the timer is pending (a buffered
+	// signal would race the timer in its select).
+	waitFor(t, "the loop to take the third pull", func() bool { return len(s.autoRepairTrigger) == 0 })
 	if n := countRuns(t, k); n != 1 {
 		t.Fatalf("a pull inside the gap ran at once: %d runs", n)
 	}
+	second <- time.Now()
 	waitFor(t, "the debounced run", func() bool { return countRuns(t, k) == 2 })
-	time.Sleep(600 * time.Millisecond)
+	// A new pull arms a new timer only once the loop is idle again, so the
+	// pulls coalesced above left no run behind.
+	s.triggerAutoRepair()
+	third := nextTimer("the timer proving the loop is idle")
 	if n := countRuns(t, k); n != 2 {
 		t.Fatalf("two pulls inside the gap made %d runs, want 1 more", n-1)
 	}
+	_ = third
 	cancel()
 	<-done
 }

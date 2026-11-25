@@ -185,9 +185,14 @@ func probeCredential(serverURL, tokenSpec string, allowInsecure bool) error {
 	return client.New(serverURL, token).WithInsecureHTTP(allowInsecure).WithTokenEnv(name).Ping(probeTimeout)
 }
 
-// enumerateKBs obtains the mounted KB names and the server version from
+// enumerateKBs is enumerateKBsOverHTTP, a variable only so a test whose target
+// is the real default endpoint answers it without touching the machine's own
+// service (#2361).
+var enumerateKBs = enumerateKBsOverHTTP
+
+// enumerateKBsOverHTTP obtains the mounted KB names and the server version from
 // /health.
-func enumerateKBs(serverURL string, auth bool, tokenSpec string, allowInsecure bool) (serverFacts, error) {
+func enumerateKBsOverHTTP(serverURL string, auth bool, tokenSpec string, allowInsecure bool) (serverFacts, error) {
 	token, name := "", ""
 	if c := (&clientconfig.Config{Auth: auth, Token: tokenSpec}); auth && strings.TrimSpace(tokenSpec) != "" {
 		token = resolveToken(c)

@@ -12,6 +12,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
+	"github.com/BeppeTemp/cartographer/internal/gitx/gitxtest"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
@@ -655,8 +656,10 @@ func TestWriteGate_ForeignIndexLockLeavesNoDanglingIndex(t *testing.T) {
 }
 
 // takeLockAfterStage makes a foreign index.lock appear once the commit has
-// staged the write (the window of #2241) and releases it after hold.
-func takeLockAfterStage(t *testing.T, k *kb.KB, hold time.Duration) {
+// staged the write (the window of #2241) and returns the function that
+// releases it. No timer decides when: the test releases it by an event, so a
+// loaded machine cannot reorder the commit, the restore and the release.
+func takeLockAfterStage(t *testing.T, k *kb.KB) (release func()) {
 	t.Helper()
 	lock := filepath.Join(k.Root, ".git", "index.lock")
 	armed := true
@@ -667,20 +670,17 @@ func takeLockAfterStage(t *testing.T, k *kb.KB, hold time.Duration) {
 		armed = false
 		if err := os.WriteFile(lock, nil, 0o644); err != nil {
 			t.Error(err)
-			return
 		}
-		go func() {
-			time.Sleep(hold)
-			os.Remove(lock)
-		}()
 	}
 	oldWait, oldPoll := gitx.IndexLockWait, gitx.IndexLockPoll
 	t.Cleanup(func() {
 		gitx.AfterStage = nil
+		gitx.WhileWaitingForIndexLock = nil
 		gitx.IndexLockWait, gitx.IndexLockPoll = oldWait, oldPoll
 		os.Remove(lock)
 	})
 	gitx.IndexLockPoll = 10 * time.Millisecond
+	return func() { os.Remove(lock) }
 }
 
 // A write whose commit fails on a foreign index.lock that clears within the
@@ -688,11 +688,21 @@ func takeLockAfterStage(t *testing.T, k *kb.KB, hold time.Duration) {
 func TestFailedCommit_LockClearedWithinTheWaitRestoresTheTree(t *testing.T) {
 	k := gateKB(t)
 	s := gateSeed(t, k, map[string]string{"ops/p": draftPage})
-	takeLockAfterStage(t, k, 200*time.Millisecond)
-	gitx.IndexLockWait = 3 * time.Second
+	release := takeLockAfterStage(t, k)
+	// The lock clears on the third pause of the restore: always within the wait.
+	pauses := 0
+	gitx.WhileWaitingForIndexLock = func() {
+		if pauses++; pauses == 3 {
+			release()
+		}
+	}
+	gitx.IndexLockWait = gitxtest.Deadline(30 * time.Second)
 	text, isErr := callJSON(t, s, adminCtx, "concept_write", `{"id":"ops/q","frontmatter":{"type":"Note","title":"Q"},"body":"See [P](p.md).","index_entry":true}`)
 	if !isErr || !strings.Contains(text, "not saved") {
 		t.Fatalf("want a not-saved error, got %q", text)
+	}
+	if pauses < 3 {
+		t.Fatalf("the restore never waited for the lock (%d pauses)", pauses)
 	}
 	if st := strings.TrimSpace(gitOut(t, k, "status", "--porcelain")); st != "" {
 		t.Fatalf("the failed write left files: %s", st)
@@ -704,13 +714,13 @@ func TestFailedCommit_LockClearedWithinTheWaitRestoresTheTree(t *testing.T) {
 func TestFailedCommit_LockHeldPastTheWaitIsDiscardedByTheNextWrite(t *testing.T) {
 	k := gateKB(t)
 	s := gateSeed(t, k, map[string]string{"ops/p": draftPage})
-	takeLockAfterStage(t, k, 400*time.Millisecond)
+	release := takeLockAfterStage(t, k)
 	gitx.IndexLockWait = 50 * time.Millisecond
 	text, isErr := callJSON(t, s, adminCtx, "concept_write", `{"id":"ops/q","frontmatter":{"type":"Note","title":"Q"},"body":"See [P](p.md).","index_entry":true}`)
 	if !isErr || !strings.Contains(text, "not saved") {
 		t.Fatalf("want a not-saved error, got %q", text)
 	}
-	time.Sleep(600 * time.Millisecond) // the lock is gone
+	release() // the lock is gone
 	if text, isErr := callJSON(t, s, adminCtx, "concept_write", `{"id":"ops/r","frontmatter":{"type":"Note","title":"R"},"body":"See [P](p.md).","index_entry":true}`); isErr {
 		t.Fatalf("the next write failed: %s", text)
 	}

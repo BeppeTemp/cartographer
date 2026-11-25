@@ -443,7 +443,7 @@ func (s *Server) autoRepairLoop(ctx context.Context, interval, delay time.Durati
 				if wait < 0 || lastRun.IsZero() {
 					wait = 0
 				}
-				pending = time.After(wait)
+				pending = s.autoRepairAfterFn()(wait)
 			}
 			continue
 		case <-pending:
@@ -469,6 +469,15 @@ func (s *Server) autoRepairLoop(ctx context.Context, interval, delay time.Durati
 			timer.Reset(interval)
 		}
 	}
+}
+
+// autoRepairAfterFn is the timer of the pull debounce: time.After unless a test
+// injected one to fire the debounce by hand instead of waiting on the clock.
+func (s *Server) autoRepairAfterFn() func(time.Duration) <-chan time.Time {
+	if s.autoRepairAfter != nil {
+		return s.autoRepairAfter
+	}
+	return time.After
 }
 
 // autoRepairQuotaOr is the per-stage quota: autoRepairLimit unless a test set
