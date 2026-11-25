@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/plugin"
 	"github.com/BeppeTemp/cartographer/internal/plugin/core"
@@ -50,6 +51,11 @@ func TestExamplePluginRegistersWhatTheTutorialUses(t *testing.T) {
 	}
 }
 
+// exampleBudget is the wall clock the example's event call gets: the test is
+// about what the plugin does, not how fast the machine is (a loaded hosted
+// runner exceeded EventTimeout); the limit itself is TestCallWallClockLimit.
+const exampleBudget = 10 * time.Minute
+
 func TestExamplePluginRuns(t *testing.T) {
 	p, prog := examplePlugin(t)
 	home := t.TempDir()
@@ -69,14 +75,14 @@ func TestExamplePluginRuns(t *testing.T) {
 	tool := base
 	tool.Kind, tool.Name, tool.Params, tool.ReadOnly = KindTool, "echo", []byte(`{"kb":"kb-a","text":"x"}`), true
 	tool.Host.KB = newFakeKB()
-	res, err := prog.Call(context.Background(), tool)
+	res, err := prog.call(context.Background(), tool, callOpts{timeout: exampleBudget})
 	if err != nil || !strings.Contains(res.Text, `"echo": "x"`) {
 		t.Errorf("echo: %q, %v", res.Text, err)
 	}
 
 	ev := base
 	ev.Kind, ev.Name, ev.Event = KindEvent, "sync.after", map[string]any{"installed": 2}
-	if _, err := prog.Call(context.Background(), ev); err != nil {
+	if _, err := prog.call(context.Background(), ev, callOpts{timeout: exampleBudget}); err != nil {
 		t.Fatal(err)
 	}
 	b, err := os.ReadFile(filepath.Join(home, ".example-forks", "last-sync.txt"))
@@ -85,7 +91,7 @@ func TestExamplePluginRuns(t *testing.T) {
 	}
 	// A read-only session must not write the marker.
 	ev.ReadOnly = true
-	if _, err := prog.Call(context.Background(), ev); err == nil {
+	if _, err := prog.call(context.Background(), ev, callOpts{timeout: exampleBudget}); err == nil {
 		t.Error("the sync handler wrote in a read-only session")
 	}
 }
