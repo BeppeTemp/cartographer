@@ -8,6 +8,62 @@
 
 KB histories with commits authored as `cartographer <cartographer@localhost>` may need a manual author rewrite before a forge with author push rules accepts the first push.
 
+## [0.29.2](https://github.com/BeppeTemp/cartographer/compare/v0.29.1...v0.29.2) (2026-11-24)
+
+
+### Atlas
+
+#### Bug Fixes
+
+* a template card counts and filters the pages of its type whatever the case ([c9f3bb1](https://github.com/BeppeTemp/cartographer/commit/c9f3bb12c49e175047e9f6fb72d5326186b561ec)), closes [#2285](https://github.com/BeppeTemp/cartographer/issues/2285)
+* one close button on the inspector sheet on a narrow screen ([5a3a390](https://github.com/BeppeTemp/cartographer/commit/5a3a390857514e34ebf12ab90a77b6ca2b6e9a86))
+
+
+### MCP tools
+
+#### Bug Fixes
+
+* widen the SSE stream wait in apistream_test to 20s ([0178bac](https://github.com/BeppeTemp/cartographer/commit/0178baceedc5a22d19957615ea78f6c5d12778e0)), closes [#2329](https://github.com/BeppeTemp/cartographer/issues/2329)
+
+
+### Lint & repair
+
+#### Bug Fixes
+
+* kb_review skips ingest units and ISO hours in review checks ([216cdeb](https://github.com/BeppeTemp/cartographer/commit/216cdebf897e002bed01285b3f8ce977e8f964aa)), closes [#2288](https://github.com/BeppeTemp/cartographer/issues/2288)
+
+
+### Client & CLI
+
+#### Bug Fixes
+
+* approve judges the artifact name collision per projection ([ec2ae23](https://github.com/BeppeTemp/cartographer/commit/ec2ae23f3ba1ba27cec16ddd0c16ebd39bb36abc)), closes [#2306](https://github.com/BeppeTemp/cartographer/issues/2306)
+* kb secrets init words an unknown KB and a 401 like the server path ([a621c0e](https://github.com/BeppeTemp/cartographer/commit/a621c0ea8a71239dfdbc7f9f68cfd62eb811db87)), closes [#2284](https://github.com/BeppeTemp/cartographer/issues/2284)
+* match a local KB by its exact name on the offline kb commands ([98be02a](https://github.com/BeppeTemp/cartographer/commit/98be02aab51f557700ad6476f7af5d263c4776d1)), closes [#2345](https://github.com/BeppeTemp/cartographer/issues/2345) [#2346](https://github.com/BeppeTemp/cartographer/issues/2346)
+* scope the session-start sync to its client and gate it by a 10-minute stamp ([18cb78c](https://github.com/BeppeTemp/cartographer/commit/18cb78c921167a07bbc2fe26ef9451a2348c1cec)), closes [#2340](https://github.com/BeppeTemp/cartographer/issues/2340)
+
+
+### Server & KB
+
+#### Bug Fixes
+
+* a link target starting with `kb:` is not a concept id of this KB ([6efdae1](https://github.com/BeppeTemp/cartographer/commit/6efdae11c26b8cc834c4619b166bf9e93d52b709)), closes [#2335](https://github.com/BeppeTemp/cartographer/issues/2335)
+
+
+### General
+
+#### Bug Fixes
+
+* a quiet Surveyor run writes no closing log entry ([ef3dcb9](https://github.com/BeppeTemp/cartographer/commit/ef3dcb99b2bf781047d33b6f2d44d600374bb23a)), closes [#2283](https://github.com/BeppeTemp/cartographer/issues/2283)
+* **docs:** the decision-citation check reads a number of any length ([bfa8aa0](https://github.com/BeppeTemp/cartographer/commit/bfa8aa0ce0a338e9fb174d12fbadb06dadf6257c)), closes [#2299](https://github.com/BeppeTemp/cartographer/issues/2299)
+* Surveyor supersede, orphaned claims, quiet polls, repair summary, author ([bc6474f](https://github.com/BeppeTemp/cartographer/commit/bc6474fb481c243e2355dd6c3ce11a72c726cdc0)), closes [#2279](https://github.com/BeppeTemp/cartographer/issues/2279)
+* warn, not refuse or pass in silence, on three edge cases ([1b3af74](https://github.com/BeppeTemp/cartographer/commit/1b3af74883c96b60b4f4123645387711f2d9dbf6)), closes [#2278](https://github.com/BeppeTemp/cartographer/issues/2278)
+
+
+### Miscellaneous Chores
+
+* **deps:** bump the github-actions group (setup-go, codeql-action, semantic-pull-request) ([3e22aba](https://github.com/BeppeTemp/cartographer/commit/3e22aba769887ca86e3e8fdb4f9ac85e6829b5a9))
+
 ## [0.29.1](https://github.com/BeppeTemp/cartographer/compare/v0.29.0...v0.29.1) (2026-11-18)
 
 
