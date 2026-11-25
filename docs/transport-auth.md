@@ -511,6 +511,8 @@ reloads never run at once. Without a config file (environment and flags only)
 `SIGHUP` re-reads the environment of the running process, which does not change,
 so only the file route is useful in practice.
 
+The TLS certificate (`tls.crt`, `tls.key` of the credentials directory) reloads the same way, by poll and `SIGHUP`, keeping the certificate in force on a failure: see §Credentials directory in `docs/deployment.md`.
+
 ### How a permission is enforced
 
 Every request carries exactly one principal, and authorization happens at a

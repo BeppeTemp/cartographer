@@ -269,6 +269,16 @@ remote). On Kubernetes it is one mounted Secret (§Example: K8s pod).
 | `<kb>.age`, else `default.age` | age identity that decrypts the KB's SOPS secrets | secrets report a missing key |
 | `<kb>.signing`, no default | artifact signing seed, 64 hex characters (§Provisioning artifact signing) | unsigned artifacts |
 | `audit.key` | audit log signing seed, 64 hex characters | generated at the first start |
+| `tls.crt`, `tls.key` | certificate chain and private key (PEM) of the TLS listener, `tls.enabled`; the names of a Kubernetes `kubernetes.io/tls` secret | with `tls.enabled` on, the start stops naming the expected path |
+
+`tls.crt` and `tls.key` are read at start and again while the server runs: the files are polled every
+`tls.reload_interval` (default `30s`) by a digest of both, and `SIGHUP` always reloads (not on Windows). The
+listener accepts TLS 1.3 only and HTTP/1.1 only. A reload that fails (a file missing, a pair that does not match) keeps
+the certificate in force and logs one line per distinct content, never key material; new handshakes use the new
+certificate, open connections keep theirs. A certificate past its `NotAfter` or before its `NotBefore` is served with a
+warning, at start and on reload, as expired tokens are (D2110), and one expiring within 14 days is warned about; a
+missing or mismatched pair at start stops the server, which never falls back to clear. This release reads the files and
+reloads them; the listener that uses them follows.
 
 `default.token`, `default.ssh` and `default.age` are offered to every KB that has no file of its own,
 whatever its remote host: a KB whose remote is on another host than the others should get its own

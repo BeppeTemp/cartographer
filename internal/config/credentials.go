@@ -28,6 +28,12 @@ const (
 	// AuditKeyFile is the seed that signs the audit log, hex; generated at the
 	// first start when it is missing.
 	AuditKeyFile = "audit.key"
+
+	// TLSCertFile and TLSKeyFile are the certificate chain and the private key
+	// of the HTTP server's TLS listener (tls.enabled), PEM: the names of a
+	// Kubernetes kubernetes.io/tls secret, so a mounted secret works as is.
+	TLSCertFile = "tls.crt"
+	TLSKeyFile  = "tls.key"
 )
 
 // credentialsDirName is the directory kept under data when credentials_dir is
