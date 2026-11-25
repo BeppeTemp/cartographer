@@ -91,6 +91,12 @@ add_test_kbs() {
 			cp "$entry" "$work/$name"
 		fi
 	done
+	# The seeded Surveyor run counters live in a dot-directory of the cache, which
+	# the loop above does not see: they go to the server's own state directory.
+	if [ -f "$cache/.cartographer/surveyor-history.json" ] && [ ! -e "$1/.cartographer/surveyor-history.json" ]; then
+		mkdir -p "$1/.cartographer"
+		cp "$cache/.cartographer/surveyor-history.json" "$1/.cartographer/surveyor-history.json"
+	fi
 }
 
 mkdir "$work/data"

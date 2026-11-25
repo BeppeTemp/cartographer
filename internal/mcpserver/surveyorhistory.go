@@ -23,7 +23,7 @@ import (
 // Traps, each held by a test (surveyorhistory_test.go):
 //   - the day of a run is the UTC day of the server's receipt (the `now` add is
 //     given), never the Surveyor's started_at: a skewed clock cannot move a bucket;
-//   - a run is counted once: a seen-set per "<perimeter>/<replica>" in the same
+//   - a run is counted once: a seen-set per (principal, perimeter, replica) in the same
 //     file survives a restart, so the re-post the Surveyor makes on runs_wanted
 //     does not double it, and a crash cannot count a run and forget it was counted;
 //   - the file is only replaced atomically and never written through a symlink;
@@ -35,12 +35,20 @@ const (
 	runHistorySeenIDs  = 64  // per replica: more than the 20 a Surveyor re-posts
 	runHistoryReplicas = 512 // replica entries in the seen-set
 	runHistoryMaxRows  = 20000
-	runHistoryFile     = "surveyor-history.json"
-	runHistoryDayFmt   = "2006-01-02"
-	runHistoryMaxKB    = 128
-	// seenSep joins the KB and the run id in the seen-set: the replica id is
+	// runHistoryMaxDayRows bounds the rows of one UTC day: task and perimeter
+	// are free-form, so without it one principal could grow the file without
+	// limit within a day, and a flood on many days would evict other KBs' old
+	// days. Past it a new key is dropped (counted in droppedRows), existing
+	// rows keep counting. 90 days of it fit the total cap.
+	runHistoryMaxDayRows = 250
+	runHistoryFile       = "surveyor-history.json"
+	runHistoryDayFmt     = "2006-01-02"
+	runHistoryMaxKB      = 128
+	// seenSep joins the KB and the run id in the seen-set (the replica id is
 	// client-chosen, so a run id counted for one KB must not suppress the same
-	// id for another.
+	// id for another), and the principal and the replica in its key (two
+	// principals declaring the same perimeter and replica id must not share a
+	// ring: one could suppress or double the other's counts).
 	seenSep = "\x1f"
 )
 
@@ -86,23 +94,28 @@ type historyView struct {
 }
 
 type runHistory struct {
-	mu       sync.Mutex
-	path     string // "" = memory only
-	rows     map[historyKey]*historyCount
-	seen     map[string]*seenReplica
-	gen      uint64 // bumped by every change
-	flushed  uint64 // gen of the last snapshot written
-	maxRows  int
-	logf     func(format string, args ...any)
-	flushMu  sync.Mutex // serializes flushes; snapshots are taken inside it
-	lastFail string     // last flush error logged (guarded by flushMu)
+	mu      sync.Mutex
+	path    string // "" = memory only
+	rows    map[historyKey]*historyCount
+	seen    map[string]*seenReplica
+	gen     uint64 // bumped by every change
+	flushed uint64 // gen of the last snapshot written
+	maxRows int
+	// maxDayRows is runHistoryMaxDayRows; droppedRows counts the keys refused
+	// past it and dropLogged the day a drop was last logged (guarded by mu).
+	maxDayRows  int
+	droppedRows int64
+	dropLogged  string
+	logf        func(format string, args ...any)
+	flushMu     sync.Mutex // serializes flushes; snapshots are taken inside it
+	lastFail    string     // last flush error logged (guarded by flushMu)
 }
 
 func newRunHistory() *runHistory {
 	return &runHistory{
 		rows:    map[historyKey]*historyCount{},
 		seen:    map[string]*seenReplica{},
-		maxRows: runHistoryMaxRows,
+		maxRows: runHistoryMaxRows, maxDayRows: runHistoryMaxDayRows,
 		logf: func(format string, args ...any) {
 			fmt.Fprintf(os.Stderr, "cartographer: "+format+"\n", args...)
 		},
@@ -110,6 +123,11 @@ func newRunHistory() *runHistory {
 }
 
 func (h *runHistory) persisted() bool { return h.path != "" }
+
+// seenKey is the key of a replica's ring in the seen-set.
+func seenKey(principal, perimeter, replica string) string {
+	return principal + seenSep + perimeter + "/" + replica
+}
 
 func historyDay(t time.Time) string { return t.UTC().Format(runHistoryDayFmt) }
 
@@ -178,7 +196,11 @@ func (h *runHistory) load(path string, now time.Time) {
 		}
 	}
 	for key, e := range f.Seen {
-		per, rep, ok := strings.Cut(key, "/")
+		pr, rest, ok := strings.Cut(key, seenSep)
+		if !ok || pr == "" || len(pr) > runHistoryMaxKB || strings.ContainsFunc(pr, func(c rune) bool { return c < ' ' || c == 0x7f }) {
+			continue
+		}
+		per, rep, ok := strings.Cut(rest, "/")
 		if !ok || !perimeterRe.MatchString(per) || !runIDRe.MatchString(rep) || e.At.Before(now.AddDate(0, 0, -runHistoryDays)) {
 			continue
 		}
@@ -258,12 +280,12 @@ func (h *runHistory) evictLocked(now time.Time) {
 	}
 }
 
-// add counts the runs not yet counted for <perimeter>/<replica>, on the UTC day
+// add counts the runs not yet counted for the principal's <perimeter>/<replica>, on the UTC day
 // of now (the server's receipt clock), and flushes when anything changed or an
 // earlier flush failed. It returns how many runs it counted.
-func (h *runHistory) add(perimeter, replica string, runs []surveyorRun, now time.Time) (counted int) {
+func (h *runHistory) add(principal, perimeter, replica string, runs []surveyorRun, now time.Time) (counted int) {
 	h.mu.Lock()
-	key := perimeter + "/" + replica
+	key := seenKey(principal, perimeter, replica)
 	e := h.seen[key]
 	if e == nil {
 		e = &seenReplica{}
@@ -273,6 +295,13 @@ func (h *runHistory) add(perimeter, replica string, runs []surveyorRun, now time
 		have[id] = true
 	}
 	day := historyDay(now)
+	dayRows := 0
+	for k := range h.rows {
+		if k.day == day {
+			dayRows++
+		}
+	}
+	changed := false
 	for _, r := range runs {
 		sid := r.KB + seenSep + r.RunID
 		if have[sid] {
@@ -280,9 +309,19 @@ func (h *runHistory) add(perimeter, replica string, runs []surveyorRun, now time
 		}
 		have[sid] = true
 		e.ids = append(e.ids, sid)
+		changed = true
 		k := historyKey{day, r.KB, perimeter, r.Task, r.Outcome}
 		c := h.rows[k]
 		if c == nil {
+			if dayRows >= h.maxDayRows {
+				h.droppedRows++
+				if h.dropLogged != day {
+					h.dropLogged = day
+					h.logf("surveyor history: more than %d distinct rows on %s, new ones are not counted (existing rows keep counting)", h.maxDayRows, day)
+				}
+				continue
+			}
+			dayRows++
 			c = &historyCount{}
 			h.rows[k] = c
 		}
@@ -291,7 +330,7 @@ func (h *runHistory) add(perimeter, replica string, runs []surveyorRun, now time
 		c.durationMS += r.DurationMS
 		counted++
 	}
-	if counted > 0 {
+	if changed {
 		if len(e.ids) > runHistorySeenIDs {
 			e.ids = append([]string(nil), e.ids[len(e.ids)-runHistorySeenIDs:]...)
 		}

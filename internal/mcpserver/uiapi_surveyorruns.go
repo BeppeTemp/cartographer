@@ -15,8 +15,8 @@ import (
 // POST /api/component/v1/runs — the runs a Surveyor finished and the alarms it
 // raises. It is its own route and not part of the heartbeat because the beat is
 // liveness and must never fail or grow because of a report (the reason the
-// settings have their own route, D1259). Memory only, bounded, no KB write: a
-// restart forgets it until the Surveyor posts again, which the heartbeat answer
+// settings have their own route, D1259). The runs and alarms held here are memory only, bounded, no KB write: a
+// restart forgets them until the Surveyor posts again, which the heartbeat answer
 // asks for (runs_wanted). Ages are computed from ReceivedAt, the server's clock;
 // a Surveyor's own timestamps are shown but never decide how recent a run is.
 const (
@@ -345,6 +345,14 @@ func (m *MultiKBServer) handleSurveyorRuns(w http.ResponseWriter, r *http.Reques
 	}
 	cands := m.acceptCandidates(body.Candidates, p.ID, body.Perimeter, body.ID, writable, now)
 	last := m.surveyors.putRuns(p.ID, body.Perimeter, runs, alarms, cands, now)
+	// The history is called after putRuns released surveyorStore.mu and never
+	// while holding it (the two locks are never nested). It counts what was
+	// accepted, not what the 20-run cap keeps, on the day of the server's
+	// receipt (now), never the Surveyor's started_at. A failure inside it is
+	// logged and never changes this answer.
+	if m.runHistory != nil {
+		m.runHistory.add(p.ID, body.Perimeter, body.ID, runs, now)
+	}
 	writeUIJSON(w, http.StatusOK, map[string]any{"received": len(runs), "last_run_id": last})
 }
 

@@ -786,6 +786,9 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 		multi.SetSkippedKBs(bs.skipped)
 		multi.SetFeedback(settingsCfg.FeedbackDestination()) // before MountKB: every server and routed view inherits it
 		multi.SetSettings(settingsCfg, string(updateChannelFn()))
+		if settingsCfg != nil { // a folder session has no data directory: the history stays in memory
+			multi.SetRunHistory(settingsCfg.Data)
+		}
 		if err := multi.SetAtlasPlugins(atlasPlugins); err != nil {
 			log.Fatal(err)
 		}

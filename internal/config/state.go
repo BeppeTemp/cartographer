@@ -33,6 +33,19 @@ func ServerStatePath(dataDir string) string {
 	return filepath.Join(dataDir, ".cartographer", StateFileName)
 }
 
+// SurveyorHistoryFileName is the persistent Surveyor run counters, beside the
+// state file.
+const SurveyorHistoryFileName = "surveyor-history.json"
+
+// SurveyorHistoryPath is where the Surveyor run counters of a server with data
+// directory dataDir live; "" when there is no data directory.
+func SurveyorHistoryPath(dataDir string) string {
+	if dataDir == "" {
+		return ""
+	}
+	return filepath.Join(dataDir, ".cartographer", SurveyorHistoryFileName)
+}
+
 // ReadServerState reads the state file of dataDir. A missing file, or no data
 // directory, is an empty state. A malformed list is an error naming the file:
 // the server must not guess which alias was meant.

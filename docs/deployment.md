@@ -76,6 +76,9 @@ The Meridian process is **ephemeral** (k8s pod or local service); what persists 
   rebuildable; conflict registries are operational state and should survive a
   restart until resolved; `search-misses.jsonl` (D247) is a bounded log of
   searches that found nothing, disposable, lost harmlessly with the volume.
+  `surveyor-history.json` holds the daily counters of the Surveyors' runs for 90 days
+  (`control-plane.md` §Surveyor runs and alarms): one server per data directory, so several servers
+  keep separate histories, and a folder session keeps none on disk; deleting it resets the counters.
   An entry ages out after 30 days; one whose search finds something now is
   reported `resolved` by `kb_status` before that (D319). Deleting the file is
   the only manual reset. `lint-history.jsonl` (D370) holds one sample a day of
@@ -1660,6 +1663,7 @@ and the concepts it created or changed as buttons that open them. Those are the 
 (start to start + duration, 5 s of slack for the two clocks); no wire field carries them, so a concept someone changed after the run is listed in the feed, not under the run (the changes
 route keeps each concept's newest change). Ages are worded against the server's clock (`server.now` of the read), not the browser's. The tab is local state, not in the URL.
 Work carries nothing of the Surveyor: its replicas, budgets and alarms are in Health.
+The daily run counters behind the 90-day trend (`GET /api/ui/v1/kbs/{kb}/surveyor-history`, kept in the data directory's `.cartographer/surveyor-history.json`, `control-plane.md` §Surveyor runs and alarms) are served to the Atlas; the tab's figures above still count the kept runs.
 
 Below it, **Report candidates** (D1925) lists what the Surveyors noticed that a person might report to the
 Cartographer project, per Surveyor: the kind in words (tool error, protocol mismatch, contract mismatch), the tool and the

@@ -34,6 +34,10 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	if err := testkbs.WriteSurveyorHistory(dir, time.Now()); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 }
 
 // parseArgs returns the data directory, or "" and the exit code: -h and --help

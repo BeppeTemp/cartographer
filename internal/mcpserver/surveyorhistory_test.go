@@ -41,19 +41,19 @@ func histTotal(h *runHistory, kb string) (runs, tokens int64) {
 func TestRunHistoryCountsOnce(t *testing.T) {
 	h, path, _ := newTestHistory(t, histNow)
 	runs := []surveyorRun{histRun("a-1", "poll", "ok", 10, 100), histRun("a-2", "ingest", "failed", 5, 50), histRun("a-3", "poll", "ok", 1, 1)}
-	if n := h.add("per", "rep", runs, histNow); n != 3 {
+	if n := h.add("p0", "per", "rep", runs, histNow); n != 3 {
 		t.Fatalf("counted %d, want 3", n)
 	}
-	if n := h.add("per", "rep", runs, histNow); n != 0 {
+	if n := h.add("p0", "per", "rep", runs, histNow); n != 0 {
 		t.Fatalf("repost counted %d, want 0", n)
 	}
 	// the same ids from another replica are other runs
-	if n := h.add("per", "rep2", runs[:1], histNow); n != 1 {
+	if n := h.add("p0", "per", "rep2", runs[:1], histNow); n != 1 {
 		t.Fatalf("other replica counted %d, want 1", n)
 	}
 	h2 := newRunHistory()
 	h2.load(path, histNow)
-	if n := h2.add("per", "rep", runs, histNow); n != 0 {
+	if n := h2.add("p0", "per", "rep", runs, histNow); n != 0 {
 		t.Fatalf("after load counted %d, want 0", n)
 	}
 	rows := h2.query("kb-a", 30, histNow).Days
@@ -74,18 +74,18 @@ func TestRunHistoryRetention(t *testing.T) {
 	h, path, _ := newTestHistory(t, histNow)
 	// the day is the receipt day: a run counted 100 days ago is dropped on the next add.
 	old := histNow.AddDate(0, 0, -100)
-	h.add("per", "rep", []surveyorRun{histRun("old", "poll", "ok", 1, 1)}, old)
+	h.add("p0", "per", "rep", []surveyorRun{histRun("old", "poll", "ok", 1, 1)}, old)
 	edge := histNow.AddDate(0, 0, -runHistoryDays)
-	h.add("per", "rep", []surveyorRun{histRun("edge", "poll", "ok", 1, 1)}, edge)
-	h.add("per", "rep", []surveyorRun{histRun("new", "poll", "ok", 1, 1)}, histNow)
+	h.add("p0", "per", "rep", []surveyorRun{histRun("edge", "poll", "ok", 1, 1)}, edge)
+	h.add("p0", "per", "rep", []surveyorRun{histRun("new", "poll", "ok", 1, 1)}, histNow)
 	v := h.query("kb-a", 90, histNow)
 	// the edge day is still held (FirstDay) though outside a 90-day window of rows
 	if len(v.Days) != 1 || v.FirstDay != historyDay(edge) {
 		t.Fatalf("after add: %+v", v)
 	}
 	// a day between two receipts: midnight UTC moves the bucket
-	h.add("per", "rep", []surveyorRun{histRun("m1", "poll", "ok", 0, 0)}, time.Date(2026, 3, 10, 23, 59, 0, 0, time.UTC))
-	h.add("per", "rep", []surveyorRun{histRun("m2", "poll", "ok", 0, 0)}, time.Date(2026, 3, 11, 0, 1, 0, 0, time.UTC))
+	h.add("p0", "per", "rep", []surveyorRun{histRun("m1", "poll", "ok", 0, 0)}, time.Date(2026, 3, 10, 23, 59, 0, 0, time.UTC))
+	h.add("p0", "per", "rep", []surveyorRun{histRun("m2", "poll", "ok", 0, 0)}, time.Date(2026, 3, 11, 0, 1, 0, 0, time.UTC))
 	days := map[string]bool{}
 	for _, r := range h.query("kb-a", 90, histNow.AddDate(0, 0, 1)).Days {
 		days[r.Day] = true
@@ -105,7 +105,7 @@ func TestRunHistoryRetention(t *testing.T) {
 	c.maxRows = 3
 	for d := 0; d < 3; d++ {
 		at := histNow.AddDate(0, 0, -2+d)
-		c.add("per", "rep", []surveyorRun{histRun(fmt.Sprintf("x%d-a", d), "poll", "ok", 1, 1), histRun(fmt.Sprintf("x%d-b", d), "ingest", "ok", 1, 1)}, at)
+		c.add("p0", "per", "rep", []surveyorRun{histRun(fmt.Sprintf("x%d-a", d), "poll", "ok", 1, 1), histRun(fmt.Sprintf("x%d-b", d), "ingest", "ok", 1, 1)}, at)
 	}
 	v = c.query("kb-a", 90, histNow)
 	if len(v.Days) != 2 || v.FirstDay != historyDay(histNow) {
@@ -116,28 +116,28 @@ func TestRunHistoryRetention(t *testing.T) {
 func TestRunHistoryRingAndReplicaBounds(t *testing.T) {
 	h := newRunHistory()
 	for i := 0; i < runHistorySeenIDs+10; i++ {
-		h.add("per", "rep", []surveyorRun{histRun(fmt.Sprintf("id-%d", i), "poll", "ok", 0, 0)}, histNow)
+		h.add("p0", "per", "rep", []surveyorRun{histRun(fmt.Sprintf("id-%d", i), "poll", "ok", 0, 0)}, histNow)
 	}
-	if n := len(h.seen["per/rep"].ids); n != runHistorySeenIDs {
+	if n := len(h.seen[seenKey("p0", "per", "rep")].ids); n != runHistorySeenIDs {
 		t.Fatalf("ring %d", n)
 	}
 	// a run just evicted from the ring would count again; one within it does not
-	if h.add("per", "rep", []surveyorRun{histRun("id-0", "poll", "ok", 0, 0)}, histNow) != 1 {
+	if h.add("p0", "per", "rep", []surveyorRun{histRun("id-0", "poll", "ok", 0, 0)}, histNow) != 1 {
 		t.Fatal("evicted id should count again")
 	}
-	if h.add("per", "rep", []surveyorRun{histRun("id-73", "poll", "ok", 0, 0)}, histNow) != 0 {
+	if h.add("p0", "per", "rep", []surveyorRun{histRun("id-73", "poll", "ok", 0, 0)}, histNow) != 0 {
 		t.Fatal("recent id counted twice")
 	}
 	for i := 0; i < runHistoryReplicas+20; i++ {
-		h.add("per", fmt.Sprintf("rep-%d", i), []surveyorRun{histRun("z", "poll", "ok", 0, 0)}, histNow.Add(time.Duration(i)*time.Second))
+		h.add("p0", "per", fmt.Sprintf("rep-%d", i), []surveyorRun{histRun("z", "poll", "ok", 0, 0)}, histNow.Add(time.Duration(i)*time.Second))
 	}
 	if len(h.seen) > runHistoryReplicas {
 		t.Fatalf("replicas %d", len(h.seen))
 	}
-	if _, ok := h.seen["per/rep-0"]; ok {
+	if _, ok := h.seen[seenKey("p0", "per", "rep-0")]; ok {
 		t.Fatal("oldest replica kept")
 	}
-	if _, ok := h.seen["per/rep-"+fmt.Sprint(runHistoryReplicas+19)]; !ok {
+	if _, ok := h.seen[seenKey("p0", "per", "rep-"+fmt.Sprint(runHistoryReplicas+19))]; !ok {
 		t.Fatal("newest replica evicted")
 	}
 }
@@ -190,7 +190,7 @@ func TestRunHistoryBadFileAndSymlink(t *testing.T) {
 		var logged int
 		h.logf = func(string, ...any) { logged++ }
 		h.load(path, histNow)
-		h.add("per", "rep", []surveyorRun{histRun("a", "poll", "ok", 1, 1)}, histNow)
+		h.add("p0", "per", "rep", []surveyorRun{histRun("a", "poll", "ok", 1, 1)}, histNow)
 		if b, _ := os.ReadFile(target); string(b) != keep {
 			t.Fatalf("written through the symlink: %q", b)
 		}
@@ -240,7 +240,7 @@ func TestRunHistoryConcurrentAdd(t *testing.T) {
 			defer wg.Done()
 			for i := 0; i < 10; i++ {
 				id := fmt.Sprintf("g%d-%d", g, i)
-				h.add("per", fmt.Sprintf("rep%d", g), []surveyorRun{histRun(id, "poll", "ok", 2, 3), histRun(id, "poll", "ok", 2, 3)}, histNow)
+				h.add("p0", "per", fmt.Sprintf("rep%d", g), []surveyorRun{histRun(id, "poll", "ok", 2, 3), histRun(id, "poll", "ok", 2, 3)}, histNow)
 			}
 		}()
 	}
@@ -278,8 +278,8 @@ func TestRunHistoryFlushFailureRetried(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { os.Chmod(dir, 0o755) })
-	h.add("per", "rep", []surveyorRun{histRun("a", "poll", "ok", 1, 1)}, histNow)
-	h.add("per", "rep", []surveyorRun{histRun("b", "poll", "ok", 1, 1)}, histNow)
+	h.add("p0", "per", "rep", []surveyorRun{histRun("a", "poll", "ok", 1, 1)}, histNow)
+	h.add("p0", "per", "rep", []surveyorRun{histRun("b", "poll", "ok", 1, 1)}, histNow)
 	if runs, _ := histTotal(h, "kb-a"); runs != 2 {
 		t.Fatalf("memory lost: %d", runs)
 	}
@@ -290,7 +290,7 @@ func TestRunHistoryFlushFailureRetried(t *testing.T) {
 		t.Fatal(err)
 	}
 	// nothing new to count, but the pending change is written
-	h.add("per", "rep", []surveyorRun{histRun("b", "poll", "ok", 1, 1)}, histNow)
+	h.add("p0", "per", "rep", []surveyorRun{histRun("b", "poll", "ok", 1, 1)}, histNow)
 	h2 := newRunHistory()
 	h2.load(path, histNow)
 	if runs, _ := histTotal(h2, "kb-a"); runs != 2 {
@@ -306,7 +306,7 @@ func TestRunHistoryFlushesNeverGoBackwards(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for i := 0; i < 5; i++ {
-				h.add("per", fmt.Sprintf("r%d", g), []surveyorRun{histRun(fmt.Sprintf("i%d", i), "poll", "ok", 0, 0)}, histNow)
+				h.add("p0", "per", fmt.Sprintf("r%d", g), []surveyorRun{histRun(fmt.Sprintf("i%d", i), "poll", "ok", 0, 0)}, histNow)
 				h.flush()
 			}
 		}()
@@ -323,10 +323,10 @@ func TestRunHistorySeenIsPerKB(t *testing.T) {
 	h := newRunHistory()
 	b := histRun("same", "poll", "ok", 1, 1)
 	b.KB = "kb-b"
-	if h.add("per", "rep", []surveyorRun{histRun("same", "poll", "ok", 1, 1)}, histNow) != 1 || h.add("per", "rep", []surveyorRun{b}, histNow) != 1 {
+	if h.add("p0", "per", "rep", []surveyorRun{histRun("same", "poll", "ok", 1, 1)}, histNow) != 1 || h.add("p0", "per", "rep", []surveyorRun{b}, histNow) != 1 {
 		t.Fatal("a run id counted for kb-a suppressed the same id for kb-b")
 	}
-	if h.add("per", "rep", []surveyorRun{b}, histNow) != 0 {
+	if h.add("p0", "per", "rep", []surveyorRun{b}, histNow) != 0 {
 		t.Fatal("repeat counted")
 	}
 }
@@ -343,7 +343,7 @@ func TestRunHistoryUnreadableFileKept(t *testing.T) {
 	h := newRunHistory()
 	h.logf = func(string, ...any) {}
 	h.load(path, histNow)
-	h.add("per", "rep", []surveyorRun{histRun("a", "poll", "ok", 1, 1)}, histNow)
+	h.add("p0", "per", "rep", []surveyorRun{histRun("a", "poll", "ok", 1, 1)}, histNow)
 	os.Chmod(path, 0o600)
 	if b, _ := os.ReadFile(path); string(b) != body {
 		t.Fatalf("file touched: %q", b)
@@ -360,8 +360,8 @@ func TestRunHistoryQueryScopesKBAndWindow(t *testing.T) {
 	h := newRunHistory()
 	b := histRun("b1", "poll", "ok", 1, 1)
 	b.KB = "kb-b"
-	h.add("per", "rep", []surveyorRun{histRun("a1", "poll", "ok", 1, 1), b}, histNow.AddDate(0, 0, -5))
-	h.add("per", "rep", []surveyorRun{histRun("a2", "poll", "ok", 1, 1)}, histNow)
+	h.add("p0", "per", "rep", []surveyorRun{histRun("a1", "poll", "ok", 1, 1), b}, histNow.AddDate(0, 0, -5))
+	h.add("p0", "per", "rep", []surveyorRun{histRun("a2", "poll", "ok", 1, 1)}, histNow)
 	for _, r := range h.query("kb-a", 30, histNow).Days {
 		if r.KB != "" {
 			t.Fatalf("kb in row: %+v", r)
@@ -382,8 +382,8 @@ func TestRunHistoryFirstDayIsOfTheQueriedKB(t *testing.T) {
 	h := newRunHistory()
 	b := histRun("b1", "poll", "ok", 1, 1)
 	b.KB = "kb-b"
-	h.add("per", "rep", []surveyorRun{b}, histNow.AddDate(0, 0, -20))
-	h.add("per", "rep", []surveyorRun{histRun("a1", "poll", "ok", 1, 1)}, histNow)
+	h.add("p0", "per", "rep", []surveyorRun{b}, histNow.AddDate(0, 0, -20))
+	h.add("p0", "per", "rep", []surveyorRun{histRun("a1", "poll", "ok", 1, 1)}, histNow)
 	if f := h.query("kb-a", 30, histNow).FirstDay; f != historyDay(histNow) {
 		t.Fatalf("first day leaked another KB's: %s", f)
 	}
@@ -406,12 +406,72 @@ func TestRunHistoryBadFileNotMovedIsNotOverwritten(t *testing.T) {
 	h := newRunHistory()
 	h.logf = func(string, ...any) {}
 	h.load(path, histNow)
-	h.add("per", "rep", []surveyorRun{histRun("a", "poll", "ok", 1, 1)}, histNow)
+	h.add("p0", "per", "rep", []surveyorRun{histRun("a", "poll", "ok", 1, 1)}, histNow)
 	os.Chmod(dir, 0o755)
 	if b, _ := os.ReadFile(path); string(b) != body || h.persisted() {
 		t.Fatalf("file overwritten or still persisted: %q", b)
 	}
 	if runs, _ := histTotal(h, "kb-a"); runs != 1 {
 		t.Fatal("memory lost")
+	}
+}
+
+// F1 of review round 1: a flood of distinct task names on one day stays within
+// the per-day cap and leaves the existing rows counting.
+func TestRunHistoryDayRowCap(t *testing.T) {
+	t.Parallel()
+	h, _, logs := newTestHistory(t, histNow)
+	older := histNow.AddDate(0, 0, -3)
+	h.add("p0", "per", "rep", []surveyorRun{histRun("keep", "ingest", "ok", 1, 1)}, older)
+	h.add("p0", "per", "rep", []surveyorRun{histRun("first", "poll", "ok", 1, 1)}, histNow)
+	var flood []surveyorRun
+	for i := 0; i < 3*runHistoryMaxDayRows; i++ {
+		flood = append(flood, histRun(fmt.Sprintf("f%d", i), fmt.Sprintf("t%d", i), "ok", 1, 1))
+	}
+	for i := 0; i < len(flood); i += 20 {
+		h.add("p0", "per", "rep", flood[i:i+20], histNow)
+	}
+	h.mu.Lock()
+	rows := 0
+	for k := range h.rows {
+		if k.day == historyDay(histNow) {
+			rows++
+		}
+	}
+	dropped := h.droppedRows
+	h.mu.Unlock()
+	if rows != runHistoryMaxDayRows || dropped == 0 {
+		t.Fatalf("rows today %d (cap %d), dropped %d", rows, runHistoryMaxDayRows, dropped)
+	}
+	if n, _ := histTotal(h, "kb-a"); n < 2 {
+		t.Fatalf("existing rows lost: %d", n)
+	}
+	if got := h.query("kb-a", 90, histNow); got.FirstDay != historyDay(older) {
+		t.Fatalf("older day evicted: %+v", got)
+	}
+	// An existing key keeps counting past the cap.
+	h.add("p0", "per", "rep", []surveyorRun{histRun("again", "poll", "ok", 1, 1)}, histNow)
+	if len(*logs) != 1 {
+		t.Fatalf("the drop is logged once a day: %v", *logs)
+	}
+	for _, r := range h.query("kb-a", 1, histNow).Days {
+		if r.Task == "poll" && r.Runs != 2 {
+			t.Fatalf("poll = %d", r.Runs)
+		}
+	}
+}
+
+// F2 of review round 1: the seen-set is per principal.
+func TestRunHistorySeenIsPerPrincipal(t *testing.T) {
+	t.Parallel()
+	h, path, _ := newTestHistory(t, histNow)
+	r := histRun("same", "poll", "ok", 1, 1)
+	if h.add("alice", "per", "rep", []surveyorRun{r}, histNow) != 1 || h.add("bob", "per", "rep", []surveyorRun{r}, histNow) != 1 {
+		t.Fatal("two principals with the same perimeter, replica and run id must both be counted")
+	}
+	h2 := newRunHistory()
+	h2.load(path, histNow)
+	if h2.add("alice", "per", "rep", []surveyorRun{r}, histNow) != 0 || h2.add("bob", "per", "rep", []surveyorRun{r}, histNow) != 0 {
+		t.Fatal("not deduplicated after a reload")
 	}
 }
