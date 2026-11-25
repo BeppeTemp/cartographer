@@ -46,6 +46,9 @@ type syncProjection struct {
 	// KBs are the KBs this projection may receive. Empty is a legal, explicit
 	// state and never means "every KB".
 	KBs []string
+	// OwnKBs is KBs without the ones brought by lineage: what a printed
+	// `workspace bind` command names (a lineage KB is never bound by hand).
+	OwnKBs []string
 	// BundleOnly marks the residual global projection of a workspace-scoped
 	// provider: it carries the transversal bundled skills and nothing
 	// KB-sourced. This is decision 5 made into a flag rather than a convention.
@@ -80,6 +83,16 @@ type syncProjection struct {
 	// projection registers its hooks in instead of .claude/settings.json
 	// (#1198); empty otherwise.
 	HookSettingsRel string
+}
+
+// ownKBs is the KB list a printed `workspace bind` command names: OwnKBs when
+// the projection was built with lineage, else its own KBs (nil OwnKBs means no
+// lineage KBs).
+func (p syncProjection) ownKBs() []string {
+	if p.OwnKBs != nil {
+		return p.OwnKBs
+	}
+	return p.KBs
 }
 
 // Key is the lockfile projection this state is recorded under.
@@ -186,6 +199,7 @@ func projectionsFor(cfg *clientconfig.Config, provider, clientBaseDir string) ([
 			BaseDir:   w.Path,
 			Remote:    w.Remote,
 			KBs:       w.KBs,
+			OwnKBs:    w.OwnKBs(),
 			Scope:     contract.ScopeProject,
 			Derived:   w.Derived,
 		}
@@ -299,6 +313,7 @@ const workspaceUsage = `usage: cartographer workspace bind <provider> <path> --k
        cartographer workspace bind codex <path> --kb <name>[,<name>...] [--trust]    (--trust applies to codex only)
        cartographer workspace bind <provider> <path> --no-kb
        cartographer workspace bind <provider> <path> --kb <name>[,<name>...] --worktrees
+       cartographer workspace bind <provider> <path> --kb <name>[,<name>...] --no-lineage | --exclude <name>[,<name>...]
        cartographer workspace unbind <provider> <path>
        cartographer workspace unbind <provider> --all
        cartographer workspace list [provider]
@@ -340,7 +355,8 @@ func loadWorkspaceConfigLocked() (string, *clientconfig.Config, func(), error) {
 func cmdWorkspaceBind(args []string) int {
 	var provider, path string
 	var kbs []string
-	noKB, trust, worktrees := false, false, false
+	var exclude []string
+	noKB, trust, worktrees, noLineage := false, false, false, false
 	positional := make([]string, 0, 2)
 	for i := 0; i < len(args); i++ {
 		switch {
@@ -350,6 +366,16 @@ func cmdWorkspaceBind(args []string) int {
 			trust = true
 		case args[i] == "--worktrees":
 			worktrees = true
+		case args[i] == "--no-lineage":
+			noLineage = true
+		case args[i] == "--exclude" && i+1 < len(args):
+			i++
+			exclude = append(exclude, splitCommaList([]string{args[i]})...)
+		case strings.HasPrefix(args[i], "--exclude="):
+			exclude = append(exclude, splitCommaList([]string{strings.TrimPrefix(args[i], "--exclude=")})...)
+		case args[i] == "--exclude": // the one with no value left
+			fmt.Fprintln(os.Stderr, "Error: --exclude needs a value: the KB names lineage must not bring")
+			return 2
 		case args[i] == "--kb" && i+1 < len(args):
 			i++
 			kbs = append(kbs, splitCommaList([]string{args[i]})...)
@@ -381,6 +407,10 @@ func cmdWorkspaceBind(args []string) int {
 	if noKB && len(kbs) > 0 {
 		fmt.Fprintln(os.Stderr, "Error: --no-kb and --kb are mutually exclusive")
 		return 2
+	}
+	exclude = dedupe(nonEmpty(exclude))
+	if code := checkLineageFlags(kbs, exclude, noKB, noLineage); code != 0 {
+		return code
 	}
 
 	dir, cfg, release, err := loadWorkspaceConfigLocked()
@@ -421,7 +451,7 @@ func cmdWorkspaceBind(args []string) int {
 			fmt.Fprintf(os.Stderr, "warning: the server does not list its KBs; could not check that it mounts %s\n", strings.Join(kbs, ", "))
 		}
 	}
-	if err := cfg.BindWorkspaceWith(provider, path, kbs, clientconfig.BindOptions{Worktrees: worktrees}); err != nil {
+	if err := cfg.BindWorkspaceWith(provider, path, kbs, clientconfig.BindOptions{Worktrees: worktrees, NoLineage: noLineage, Exclude: exclude}); err != nil {
 		fmt.Fprintln(os.Stderr, "Error:", err)
 		return 2
 	}
@@ -449,7 +479,10 @@ func cmdWorkspaceBind(args []string) int {
 	if len(kbs) == 0 {
 		fmt.Printf("bound %s in %s to no KBs%s\n", provider, canonical, suffix)
 	} else {
-		fmt.Printf("bound %s in %s to %s%s\n", provider, canonical, strings.Join(kbs, ", "), suffix)
+		fmt.Printf("bound %s in %s to %s%s%s\n", provider, canonical, strings.Join(kbs, ", "), lineageSuffix(cfg, provider, canonical), suffix)
+		if !noLineage && !lineageKnown(cfg, kbs) {
+			fmt.Println("lineage is computed by sync")
+		}
 	}
 	if switched {
 		fmt.Printf("%s switched to workspace scope: its KB artifacts now live in each bound workspace, not in your home.\n", provider)
@@ -461,6 +494,108 @@ func cmdWorkspaceBind(args []string) int {
 		return codexTrustStep(dir, canonical, trust)
 	}
 	return 0
+}
+
+// checkLineageFlags is the usage check of the lineage flags of a bind (exit 2):
+// they are the opt-outs of a binding that names KBs, so a combination that has
+// nothing to opt out of, or says the same thing twice, is refused.
+func checkLineageFlags(kbs, exclude []string, noKB, noLineage bool) int {
+	switch {
+	case noLineage && len(exclude) > 0:
+		fmt.Fprintln(os.Stderr, "Error: --exclude is redundant with --no-lineage (which follows no relation): give one of the two")
+	case noKB && (noLineage || len(exclude) > 0):
+		fmt.Fprintln(os.Stderr, "Error: --no-lineage and --exclude need --kb: --no-kb has no KB whose lineage there is to opt out of")
+	default:
+		for _, k := range exclude {
+			if slices.Contains(kbs, k) {
+				fmt.Fprintf(os.Stderr, "Error: %s is in both --kb and --exclude: drop it from one of the two\n", k)
+				return 2
+			}
+		}
+		return 0
+	}
+	return 2
+}
+
+// lineageKnown reports whether the stored lineage has an entry for one of kbs.
+func lineageKnown(cfg *clientconfig.Config, kbs []string) bool {
+	for _, k := range kbs {
+		if _, ok := cfg.Derived().Lineage[k]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// lineageSuffix is the ` (and core-kb by lineage)` of the bind line: the KBs
+// the stored lineage adds to the binding just saved at canonical.
+func lineageSuffix(cfg *clientconfig.Config, provider, canonical string) string {
+	for _, w := range cfg.WorkspaceBindings(provider) {
+		if w.Path != canonical {
+			continue
+		}
+		var added []string
+		for _, k := range w.KBs {
+			if _, ok := w.Lineage[k]; ok {
+				added = append(added, k)
+			}
+		}
+		if len(added) > 0 {
+			return " (and " + strings.Join(added, ", ") + " by lineage)"
+		}
+	}
+	return ""
+}
+
+// bindCommand is the `workspace bind` command that rebinds path as w is bound:
+// the own KBs only (a rebind that wrote the effective set would turn lineage
+// KBs into hand-bound ones), and the lineage options when w carries them, since
+// a rebind that does not repeat them turns them off. A derived binding has none.
+func bindCommand(provider, path string, w clientconfig.WorkspaceBinding) string {
+	cmd := "cartographer workspace bind " + provider + " " + path
+	own := w.OwnKBs()
+	if len(own) == 0 {
+		return cmd + " --no-kb"
+	}
+	cmd += " --kb " + strings.Join(own, ",")
+	switch {
+	case w.NoLineage:
+		cmd += " --no-lineage"
+	case len(w.Exclude) > 0:
+		cmd += " --exclude " + strings.Join(w.Exclude, ",")
+	}
+	return cmd
+}
+
+// lineageLabel is the list column's `+ core-kb (lineage of client-kb)`.
+func lineageLabel(w clientconfig.WorkspaceBinding) string {
+	var sb strings.Builder
+	for _, k := range w.KBs {
+		if seeds, ok := w.Lineage[k]; ok {
+			fmt.Fprintf(&sb, "  + %s (lineage of %s)", k, strings.Join(seeds, ", "))
+		}
+	}
+	return sb.String()
+}
+
+// resolveLineageLine says which KBs of the winning binding came by lineage and
+// the command that opts out of them: an explicit binding on the path that
+// repeats the options the binding already has.
+func resolveLineageLine(provider string, w clientconfig.WorkspaceBinding) string {
+	var from, names []string
+	for _, k := range w.KBs {
+		if seeds, ok := w.Lineage[k]; ok {
+			from = append(from, k+" from "+strings.Join(seeds, ", "))
+			names = append(names, k)
+		}
+	}
+	if len(from) == 0 {
+		return ""
+	}
+	opt := w
+	opt.NoLineage = false
+	opt.Exclude = dedupe(append(slices.Clone(w.Exclude), names...))
+	return fmt.Sprintf("  lineage: %s (opt out: %s)\n", strings.Join(from, ", "), strings.TrimPrefix(bindCommand(provider, w.Path, opt), "cartographer "))
 }
 
 // warnNoWorkspaceDestination tells, when provider enters workspace scope, which
@@ -672,11 +807,17 @@ func cmdWorkspaceList(args []string) int {
 				state = "  [gone]"
 			}
 			kbs := "no KBs"
-			if len(w.KBs) > 0 {
-				kbs = strings.Join(w.KBs, ", ")
+			if own := w.OwnKBs(); len(own) > 0 {
+				kbs = strings.Join(own, ", ")
 			}
 			if src := sourcesLabel(w); src != "" {
 				state += "  [derived: " + src + "]"
+			}
+			kbs += lineageLabel(w)
+			if w.NoLineage {
+				kbs += "  [no lineage]"
+			} else if len(w.Exclude) > 0 {
+				kbs += "  [exclude " + strings.Join(w.Exclude, ", ") + "]"
 			}
 			if w.Worktrees {
 				kbs += "  [worktrees]"
@@ -775,6 +916,7 @@ func renderWorkspaceResolve(cfg *clientconfig.Config, path string, providers []s
 			} else {
 				fmt.Fprintf(&sb, "  bound by %s  ->  %s\n", scope.Binding.Path, kbs)
 			}
+			sb.WriteString(resolveLineageLine(p, *scope.Binding))
 		case scope.All:
 			fmt.Fprintf(&sb, "  unbound: the provider's default set (every KB)\n")
 		default:
@@ -1278,7 +1420,7 @@ func workspaceStatuses(cfg *clientconfig.Config, provider, clientBaseDir string)
 
 	out := make([]workspaceStatus, 0, len(bindings))
 	for _, w := range bindings {
-		st := workspaceStatus{Path: w.Path, KBs: w.KBs, State: "ok", Derived: w.Derived, Source: sourcesLabel(w)}
+		st := workspaceStatus{Path: w.Path, KBs: w.KBs, State: "ok", Derived: w.Derived, Source: sourcesLabel(w), Bind: bindCommand(provider, w.Path, w)}
 		if info, err := os.Stat(w.Path); err != nil || !info.IsDir() {
 			st.State, st.Detail = "gone", "the bound directory is not there any more"
 			if w.Derived {
@@ -1312,8 +1454,8 @@ func workspaceStatuses(cfg *clientconfig.Config, provider, clientBaseDir string)
 			if _, skipped := derivedInstructions(provider, w.Path); skipped != "" {
 				// Appended: for a Codex binding that is not trusted the detail
 				// already says why it is inactive, and the fix points at it.
-				note := fmt.Sprintf("instructions not written: %s is tracked by git and a derived binding never edits a tracked file — `cartographer workspace bind %s %s --kb %s` writes the block there",
-					skipped, provider, w.Path, strings.Join(w.KBs, ","))
+				note := fmt.Sprintf("instructions not written: %s is tracked by git and a derived binding never edits a tracked file — `%s` writes the block there",
+					skipped, st.Bind)
 				if st.Detail != "" {
 					note = st.Detail + "; " + note
 				}
@@ -1322,7 +1464,7 @@ func workspaceStatuses(cfg *clientconfig.Config, provider, clientBaseDir string)
 		}
 		if w.Derived {
 			if files, kinds := derivedSharedSkips(provider, w.Path); len(files) > 0 {
-				note := trackedMCPNote(files, provider, w.Path, w.KBs)
+				note := trackedMCPNote(files, provider, w.Path, w.OwnKBs())
 				if slices.Contains(kinds, "hook") {
 					note = "hooks not projected: " + strings.Join(files, ", ") + " is tracked by git; " + note
 				}
@@ -1407,7 +1549,7 @@ func checkWorkspaceProjections(dir string, cfg *clientconfig.Config, providers [
 				out = append(out, doctorFinding{
 					Check: "workspace", Severity: doctorWarning, Path: w.Path,
 					Message: fmt.Sprintf("%s: %s", provider, w.Detail),
-					Fix:     fmt.Sprintf("cartographer workspace bind %s %s --kb %s", provider, w.Path, strings.Join(w.KBs, ",")),
+					Fix:     w.Bind,
 				})
 				continue
 			}
@@ -1451,7 +1593,7 @@ func checkWorkspaceProjections(dir string, cfg *clientconfig.Config, providers [
 				out = append(out, doctorFinding{
 					Check: "workspace", Severity: doctorError, Path: w.Path,
 					Message: fmt.Sprintf("%s: %s", provider, w.Detail),
-					Fix:     fmt.Sprintf("cartographer workspace bind %s %s --kb <name>", provider, w.Path),
+					Fix:     w.Bind,
 				})
 			case "inactive":
 				// A warning, not an error: nothing is broken, the projection is
@@ -1661,11 +1803,7 @@ func codexUntrustedDetail(w clientconfig.WorkspaceBinding, cfgPath string) strin
 	line := strings.ReplaceAll(provisioning.ManualLine(w.Path), "\n", " + ")
 	msg := "codex does not trust this project, so it ignores its .codex/ layer — "
 	if !w.Derived {
-		kbs := "--no-kb"
-		if len(w.KBs) > 0 {
-			kbs = "--kb " + strings.Join(w.KBs, ",")
-		}
-		msg += fmt.Sprintf("`cartographer workspace bind codex %s %s --trust` records it, or ", w.Path, kbs)
+		msg += fmt.Sprintf("`%s --trust` records it, or ", bindCommand("codex", w.Path, w))
 	}
 	return msg + fmt.Sprintf("add %s to %s, or accept the prompt in a codex session in this directory", line, cfgPath)
 }
