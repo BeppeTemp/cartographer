@@ -4,8 +4,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func withFakeRemote(t *testing.T, remotes map[string]string) {
@@ -472,5 +475,159 @@ func TestDeriveBindings_UnreadableCloneIsNotAnotherRemote(t *testing.T) {
 	_, bad := DeriveBindings([]DeclaredRepo{decl}, func(DeclaredRepo) (string, error) { return dir, nil })
 	if len(bad) != 1 || !strings.Contains(bad[0].Reason, "cannot be read") || strings.Contains(bad[0].Reason, "another remote") {
 		t.Fatalf("bad = %+v", bad)
+	}
+}
+
+// lineageCfg is a workspace-scope configuration whose stored lineage is the
+// given closures, keyed by seed KB.
+func lineageCfg(t *testing.T, closures map[string][]string, derived ...DerivedBinding) *Config {
+	t.Helper()
+	cfg := workspaceCfg(t, derived...)
+	st := cfg.Derived()
+	st.Lineage = map[string]DerivedLineage{}
+	for k, c := range closures {
+		st.Lineage[k] = DerivedLineage{Closure: c}
+	}
+	cfg.SetDerived(st)
+	return cfg
+}
+
+// AC-lineage-1: a derived binding under an explicit one keeps the lineage KB.
+func TestLineageOverlay(t *testing.T) {
+	root := t.TempDir()
+	outer := canonDir(t, root, "folder")
+	inner := canonDir(t, root, "folder", "repo")
+	withFakeRemote(t, map[string]string{inner: "example.com/owner/repo"})
+	derived := DerivedBinding{Path: inner, Remote: "example.com/owner/repo", KBs: []string{"client-kb"}}
+
+	cfg := lineageCfg(t, map[string][]string{"client-kb": {"core-kb"}}, derived)
+	if err := cfg.BindWorkspace("claude", outer, []string{"client-kb", "core-kb"}); err != nil {
+		t.Fatal(err)
+	}
+	w, bound, err := cfg.ResolveWorkspace("claude", inner)
+	if err != nil || !bound || !w.Derived || !reflect.DeepEqual(w.KBs, []string{"client-kb", "core-kb"}) {
+		t.Fatalf("derived binding = %+v %v %v, want [client-kb core-kb]", w, bound, err)
+	}
+	if !reflect.DeepEqual(w.OwnKBs(), []string{"client-kb"}) {
+		t.Errorf("own KBs = %v", w.OwnKBs())
+	}
+
+	cfg = lineageCfg(t, map[string][]string{"client-kb": nil}, derived)
+	if err := cfg.BindWorkspace("claude", outer, []string{"client-kb", "core-kb"}); err != nil {
+		t.Fatal(err)
+	}
+	if w, _, _ = cfg.ResolveWorkspace("claude", inner); !reflect.DeepEqual(w.KBs, []string{"client-kb"}) {
+		t.Errorf("with an empty closure the derived set narrows: %v", w.KBs)
+	}
+}
+
+// AC-lineage-2: the sets of ancestor bindings are never merged in.
+func TestLineageNoAncestorMerge(t *testing.T) {
+	root := t.TempDir()
+	outer := canonDir(t, root, "folder")
+	inner := canonDir(t, root, "folder", "repo")
+	withFakeRemote(t, nil)
+	cfg := lineageCfg(t, map[string][]string{"client-kb": {"core-kb"}})
+	if err := cfg.BindWorkspace("claude", outer, []string{"core-kb"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.BindWorkspace("claude", inner, []string{"kb-x"}); err != nil {
+		t.Fatal(err)
+	}
+	w, _, err := cfg.ResolveWorkspace("claude", inner)
+	if err != nil || !reflect.DeepEqual(w.KBs, []string{"kb-x"}) {
+		t.Errorf("nested binding = %v %v, want [kb-x]", w.KBs, err)
+	}
+}
+
+// AC-lineage-3: no_lineage and exclude remove lineage KBs, never an own KB.
+func TestLineageOptOut(t *testing.T) {
+	root := t.TempDir()
+	repo := canonDir(t, root, "repo")
+	withFakeRemote(t, nil)
+	closures := map[string][]string{"client-kb": {"core-kb", "base-kb"}}
+	resolve := func(opts BindOptions, kbs ...string) []string {
+		t.Helper()
+		cfg := lineageCfg(t, closures)
+		if err := cfg.BindWorkspaceWith("claude", repo, kbs, opts); err != nil {
+			t.Fatal(err)
+		}
+		w, _, err := cfg.ResolveWorkspace("claude", repo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return w.KBs
+	}
+	if got := resolve(BindOptions{}, "client-kb"); !reflect.DeepEqual(got, []string{"client-kb", "core-kb", "base-kb"}) {
+		t.Errorf("no opt-out = %v", got)
+	}
+	if got := resolve(BindOptions{NoLineage: true}, "client-kb"); !reflect.DeepEqual(got, []string{"client-kb"}) {
+		t.Errorf("no_lineage = %v", got)
+	}
+	// The closure is flat: excluding core-kb leaves base-kb.
+	if got := resolve(BindOptions{Exclude: []string{"core-kb"}}, "client-kb"); !reflect.DeepEqual(got, []string{"client-kb", "base-kb"}) {
+		t.Errorf("exclude = %v", got)
+	}
+	if got := resolve(BindOptions{}); len(got) != 0 {
+		t.Errorf("a binding with no KB got lineage: %v", got)
+	}
+
+	cfg := lineageCfg(t, closures)
+	if err := cfg.BindWorkspaceWith("claude", repo, []string{"client-kb"}, BindOptions{Exclude: []string{"client-kb"}}); err == nil || !strings.Contains(err.Error(), "client-kb") {
+		t.Errorf("a KB both bound and excluded: err = %v", err)
+	}
+	if err := cfg.BindWorkspaceWith("claude", repo, nil, BindOptions{Exclude: []string{" x"}}); err == nil {
+		t.Error("an invalid excluded name was accepted")
+	}
+	// A rebind replaces the binding whole: the options not repeated are off.
+	if err := cfg.BindWorkspaceWith("claude", repo, []string{"client-kb"}, BindOptions{NoLineage: true, Exclude: []string{"a", "a"}}); err != nil {
+		t.Fatal(err)
+	}
+	if b := cfg.Workspaces["claude"][0]; !b.NoLineage || !reflect.DeepEqual(b.Exclude, []string{"a"}) {
+		t.Errorf("binding = %+v", b)
+	}
+	if err := cfg.BindWorkspace("claude", repo, []string{"client-kb"}); err != nil {
+		t.Fatal(err)
+	}
+	if b := cfg.Workspaces["claude"][0]; b.NoLineage || b.Exclude != nil {
+		t.Errorf("a rebind kept the options: %+v", b)
+	}
+}
+
+// AC-lineage-4: an explicit binding replaces the derived one, and only its own
+// set seeds the lineage.
+func TestLineageExplicitReplacesDerived(t *testing.T) {
+	root := t.TempDir()
+	repo := canonDir(t, root, "repo")
+	withFakeRemote(t, nil)
+	cfg := lineageCfg(t, map[string][]string{"client-kb": {"core-kb"}, "kb-y": {"other-kb"}},
+		DerivedBinding{Path: repo, KBs: []string{"client-kb"}})
+	if err := cfg.BindWorkspace("claude", repo, []string{"kb-y"}); err != nil {
+		t.Fatal(err)
+	}
+	got := cfg.WorkspaceBindings("claude")
+	if len(got) != 1 || got[0].Derived || !reflect.DeepEqual(got[0].KBs, []string{"kb-y", "other-kb"}) {
+		t.Errorf("bindings = %+v, want the explicit set and its own lineage only", got)
+	}
+}
+
+// AC-lineage-5: OwnKBs leaves out the KBs brought by lineage, and the stored
+// YAML round trip of the new keys never carries the lineage.
+func TestOwnKBsExcludesLineage(t *testing.T) {
+	w := WorkspaceBinding{KBs: []string{"a", "core-kb", "b"}, Lineage: map[string][]string{"core-kb": {"a"}}}
+	if got := w.OwnKBs(); !reflect.DeepEqual(got, []string{"a", "b"}) {
+		t.Errorf("OwnKBs = %v", got)
+	}
+	in := WorkspaceBinding{Path: "/p", KBs: []string{"a"}, NoLineage: true, Exclude: []string{"x"}, Lineage: map[string][]string{"x": nil}}
+	data, err := yaml.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "x: ") || !strings.Contains(string(data), "no_lineage: true") || !strings.Contains(string(data), "exclude:") {
+		t.Errorf("yaml = %s", data)
+	}
+	var out WorkspaceBinding
+	if err := yaml.Unmarshal(data, &out); err != nil || !out.NoLineage || !reflect.DeepEqual(out.Exclude, []string{"x"}) || out.Lineage != nil {
+		t.Errorf("round trip = %+v %v", out, err)
 	}
 }

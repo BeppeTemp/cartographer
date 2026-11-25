@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/procattr"
@@ -61,11 +62,47 @@ type WorkspaceBinding struct {
 	// Off when absent, and turned off by a rebind without the flag.
 	Worktrees bool `yaml:"worktrees,omitempty"`
 
+	// NoLineage turns the lineage off for this binding: it receives only the
+	// KBs it names. Exclude names KBs that are never brought by lineage; it
+	// removes nothing the binding names itself. Both are the person's choice on
+	// this machine, never the KB's, and a rebind that does not repeat them
+	// turns them off.
+	NoLineage bool     `yaml:"no_lineage,omitempty"`
+	Exclude   []string `yaml:"exclude,omitempty"`
+
 	// Derived and Sources are never stored here: a binding with Derived set
 	// comes from the paths.yaml of the KBs named in Sources (D1019), not from
 	// the user's `workspaces:` table.
 	Derived bool     `yaml:"-"`
 	Sources []string `yaml:"-"`
+
+	// Lineage is never stored here either: it is set on the bindings that
+	// effectiveWorkspaces returns, and maps each KB brought by lineage to the
+	// own KBs of the binding it came from. KBs is then the effective set.
+	Lineage map[string][]string `yaml:"-"`
+}
+
+// OwnKBs is the KBs the binding names itself: KBs without the ones brought by
+// lineage. A printed `workspace bind` command uses it, never KBs, because a
+// rebind that wrote the effective set would turn lineage KBs into hand-bound
+// ones.
+func (w WorkspaceBinding) OwnKBs() []string {
+	out := make([]string, 0, len(w.KBs))
+	for _, k := range w.KBs {
+		if _, ok := w.Lineage[k]; !ok {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// validKBName is the rule a KB name written into the configuration follows:
+// non-empty, trimmed, no control character.
+func validKBName(name string) bool {
+	if name == "" || name != strings.TrimSpace(name) {
+		return false
+	}
+	return !strings.ContainsFunc(name, unicode.IsControl)
 }
 
 // gitRemoteFn is indirected for tests: a bind must work in a temp dir with no
@@ -240,6 +277,9 @@ func (c *Config) BindWorkspace(provider, dir string, kbs []string) error {
 type BindOptions struct {
 	// Worktrees records the opt-in to the repository's linked worktrees.
 	Worktrees bool
+	// NoLineage and Exclude are the lineage opt-outs (see WorkspaceBinding).
+	NoLineage bool
+	Exclude   []string
 }
 
 // BindWorkspaceWith is BindWorkspace with the binding's options.
@@ -256,8 +296,20 @@ func (c *Config) BindWorkspaceWith(provider, dir string, kbs []string, opts Bind
 		return fmt.Errorf("clientconfig: workspace %q is not a directory", dir)
 	}
 	for _, kb := range kbs {
-		if kb == "" || kb != strings.TrimSpace(kb) {
+		if !validKBName(kb) {
 			return fmt.Errorf("clientconfig: invalid KB name %q", kb)
+		}
+	}
+	var exclude []string
+	for _, kb := range opts.Exclude {
+		if !validKBName(kb) {
+			return fmt.Errorf("clientconfig: invalid KB name %q in exclude", kb)
+		}
+		if containsString(kbs, kb) {
+			return fmt.Errorf("clientconfig: KB %q is both bound and excluded: drop it from one of the two", kb)
+		}
+		if !containsString(exclude, kb) {
+			exclude = append(exclude, kb)
 		}
 	}
 	if c.Workspaces == nil {
@@ -269,6 +321,8 @@ func (c *Config) BindWorkspaceWith(provider, dir string, kbs []string, opts Bind
 		KBs:    append([]string{}, kbs...),
 
 		Worktrees: opts.Worktrees,
+		NoLineage: opts.NoLineage,
+		Exclude:   exclude,
 	}
 	list := c.Workspaces[provider]
 	for i := range list {

@@ -614,7 +614,22 @@ unchanged.
   either, and the recorded remote guards it afterwards as for an explicit binding.
 - **An explicit binding wins on its path**, `--no-kb` included: that is the local opt-out.
   Otherwise the deepest binding wins across explicit and derived ones together, so a declared
-  repository inside a bound folder gets its own set.
+  repository inside a bound folder gets its own set. The set that folder receives is then the
+  winning binding's own KBs, plus the KBs they depend on (below), minus its `exclude`: the sets of
+  the bindings above it are never merged in, so `--no-kb` and a nested binding stay a local opt-out.
+- **A KB's dependencies are bound with it.** A binding (explicit or derived) with at least one own KB
+  also receives the stored `closure` of each of them, the KBs they declare in `depends_on` and, transitively,
+  theirs, in the order the server gave them and after the own KBs. A KB brought this way is bound as
+  `workspace bind --kb` would bind it. Two optional keys on an explicit `workspaces` entry opt
+  out, decided on this machine and never in the KB: `no_lineage: true` follows nothing, and
+  `exclude: [<kb>, ...]` never brings the named KBs (the closure is flat: excluding a KB does not
+  exclude what it depends on; list each, and a KB cannot be both bound and excluded). A binding that
+  names no KB has nothing to follow. A rebind replaces the binding whole, so an option it does not
+  repeat is off; a derived binding stores no keys, so a derived repository opts out with an explicit
+  binding on its path. The lineage lives in `workspace-derived.json`, per seed KB (`lineage`, the
+  closure and the relations the server could not resolve, and `last_change`), and is read from there by the
+  bridge and `approve`, which never pull; an edited `exclude` therefore takes effect with no sync. A stored
+  name is kept on load only if it is a valid KB name, is not its seed and fits the cap of 64 per KB.
 - **Derived state, not a preference.** The list is recomputed by every `sync` from the registries
   it pulls and stored apart from `.cartographer.yaml`, next to the repo index cache
   (`workspace-derived.json`). A repository that stops being declared, gets `bind: false` or

@@ -400,6 +400,7 @@ func rewriteBindings(old, newName string) error {
 		for p, ws := range cfg.Workspaces {
 			for i := range ws {
 				ws[i].KBs = renameInList(ws[i].KBs, old, newName)
+				ws[i].Exclude = renameInList(ws[i].Exclude, old, newName)
 			}
 			cfg.Workspaces[p] = ws
 		}

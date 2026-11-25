@@ -2,6 +2,7 @@ package clientconfig
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -269,5 +270,84 @@ func TestRemoveSigningKeys(t *testing.T) {
 	}
 	if !c.RemoveSigningKeys("kb-a") || len(c.SigningKeys) != 0 {
 		t.Errorf("kb-a not removed: %v", c.SigningKeys)
+	}
+}
+
+// AC-lineage-6: stored lineage is cleaned on load: the name rules and the cap
+// apply (never the mounted test), and a malformed last_change is dropped.
+func TestLoadDerivedCleansLineage(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	dir := t.TempDir()
+	long := make([]string, 0, 80)
+	for i := 0; i < 80; i++ {
+		long = append(long, fmt.Sprintf("kb-%d", i))
+	}
+	good := &DerivedChange{At: "2026-01-02T03:04:05Z", Added: []DerivedChangeItem{{KB: "core-kb", Path: "/r", Via: "lineage", From: "client-kb"}}}
+	s := DerivedState{
+		Lineage: map[string]DerivedLineage{
+			"client-kb": {
+				Closure:    []string{"core-kb", "", " pad", "bad\x1bname", "client-kb", "core-kb", "not-mounted-kb"},
+				Unresolved: []LineageUnresolved{{Name: "gone-kb", Reason: "not_mounted"}, {Name: "bad\nname", Reason: "cycle"}},
+			},
+			"big-kb": {Closure: long},
+			" bad":   {Closure: []string{"core-kb"}},
+		},
+		LastChange: good,
+	}
+	if err := SaveDerived(dir, s); err != nil {
+		t.Fatal(err)
+	}
+	got := LoadDerived(dir)
+	if c := got.Lineage["client-kb"]; !reflect.DeepEqual(c.Closure, []string{"core-kb", "not-mounted-kb"}) ||
+		!reflect.DeepEqual(c.Unresolved, []LineageUnresolved{{Name: "gone-kb", Reason: "not_mounted"}}) {
+		t.Errorf("client-kb = %+v", c)
+	}
+	if n := len(got.Lineage["big-kb"].Closure); n != MaxLineageClosure {
+		t.Errorf("closure length = %d, want %d", n, MaxLineageClosure)
+	}
+	if _, ok := got.Lineage[" bad"]; ok {
+		t.Error("an entry with an invalid seed name was kept")
+	}
+	if got.LastChange == nil || len(got.LastChange.Added) != 1 {
+		t.Errorf("a well formed last_change was dropped: %+v", got.LastChange)
+	}
+	for _, bad := range []*DerivedChange{
+		{At: "yesterday"},
+		{At: good.At, Added: []DerivedChangeItem{{KB: "", Via: "lineage"}}},
+		{At: good.At, Added: []DerivedChangeItem{{KB: "core-kb", Via: "magic"}}},
+	} {
+		s.LastChange = bad
+		if err := SaveDerived(dir, s); err != nil {
+			t.Fatal(err)
+		}
+		if got := LoadDerived(dir); got.LastChange != nil {
+			t.Errorf("malformed last_change %+v kept", bad)
+		}
+	}
+}
+
+func TestRenameDerivedKBRewritesLineage(t *testing.T) {
+	cfg := lineageCfg(t, nil)
+	st := cfg.Derived()
+	st.Lineage = map[string]DerivedLineage{
+		"kb-a": {Closure: []string{"core-kb"}, Unresolved: []LineageUnresolved{{Name: "core-kb", Reason: "cycle"}}},
+		"kb-b": {Closure: []string{"kb-a", "core-kb"}},
+	}
+	cfg.SetDerived(st)
+	if !cfg.RenameDerivedKB("kb-a", "kb-z") {
+		t.Fatal("rename reported no change")
+	}
+	l := cfg.Derived().Lineage
+	if _, ok := l["kb-a"]; ok || !reflect.DeepEqual(l["kb-z"].Closure, []string{"core-kb"}) || !reflect.DeepEqual(l["kb-b"].Closure, []string{"kb-z", "core-kb"}) {
+		t.Errorf("after rename: %+v", l)
+	}
+	if !cfg.RenameDerivedKB("core-kb", "") {
+		t.Fatal("remove reported no change")
+	}
+	l = cfg.Derived().Lineage
+	if len(l["kb-z"].Closure) != 0 || len(l["kb-z"].Unresolved) != 0 || !reflect.DeepEqual(l["kb-b"].Closure, []string{"kb-z"}) {
+		t.Errorf("after remove: %+v", l)
 	}
 }
