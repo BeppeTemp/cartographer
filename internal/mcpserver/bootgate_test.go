@@ -103,3 +103,16 @@ func TestBootGateOpenIsRaceFree(t *testing.T) {
 	g.Open(http.NotFoundHandler())
 	wg.Wait()
 }
+
+// HEAD of /health and /ready is answered like GET while booting (the probes
+// and the TLS health listener allow it).
+func TestBootGateAnswersHeadLikeGet(t *testing.T) {
+	t.Parallel()
+	h := NewBootGate("v-test").Handler()
+	if rec := gateGet(h, http.MethodHead, "/health"); rec.Code != http.StatusOK {
+		t.Errorf("HEAD /health = %d, want 200", rec.Code)
+	}
+	if rec := gateGet(h, http.MethodHead, "/ready"); rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("HEAD /ready = %d, want 503", rec.Code)
+	}
+}
