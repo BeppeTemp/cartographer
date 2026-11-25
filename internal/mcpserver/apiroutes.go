@@ -219,6 +219,11 @@ var apiRoutes = buildAPIRoutes([]apiRoute{
 		Handler: func(m *MultiKBServer, w http.ResponseWriter, r *http.Request, name string, srv *Server) {
 			m.uiComponents(w, r, name, srv)
 		}},
+	{Pattern: "/kbs/{kb}/surveyor-history", Tier: tierInternal, Summary: "Daily Surveyor run counters", Response: surveyorHistoryBody{}, Errors: errsBadRequest,
+		Query: []apiParam{{Name: "days", Description: "Days to return, 1 to 90, default 30"}},
+		Handler: func(m *MultiKBServer, w http.ResponseWriter, r *http.Request, name string, srv *Server) {
+			m.uiSurveyorHistory(w, r, name, srv)
+		}},
 	{Pattern: "/feedback/candidates", Tier: tierInternal, Summary: "Report candidates a Surveyor recorded", Errors: []int{http.StatusNotFound},
 		Handler: func(m *MultiKBServer, w http.ResponseWriter, r *http.Request, _ string, _ *Server) {
 			m.uiFeedbackCandidates(w, r)

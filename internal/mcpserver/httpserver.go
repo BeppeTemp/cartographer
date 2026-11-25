@@ -342,6 +342,8 @@ type MultiKBServer struct {
 	clientReports clientReports
 	// surveyors are the declarations of the surveyors' heartbeats (uiapi_surveyors.go).
 	surveyors surveyorStore
+	// runHistory counts the runs the surveyors report, persistently (surveyorhistory.go).
+	runHistory *runHistory
 	// components is the registry of expected components (components.go).
 	components componentRegistry
 	// atlasURL is where a browser opens the Atlas (SetAtlasAddr).
@@ -442,8 +444,9 @@ func (m *MultiKBServer) readiness() (ready bool, kbs []KBInfo, degraded []string
 // NewMultiKBServer creates a multi-KB server.
 func NewMultiKBServer(version string) *MultiKBServer {
 	return &MultiKBServer{
-		servers: make(map[string]*Server),
-		version: version,
+		servers:    make(map[string]*Server),
+		version:    version,
+		runHistory: newRunHistory(),
 	}
 }
 
