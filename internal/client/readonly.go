@@ -27,6 +27,8 @@ var ReadOnlyToolNames = map[string]bool{
 	"kb_status":       true,
 	"kb_review":       true,
 	"work_list":       true,
+	"dashboard_list":  true,
+	"dashboard_get":   true,
 	"kb_guide":        true,
 	"conflicts_list":  true,
 	"service_get":     true,

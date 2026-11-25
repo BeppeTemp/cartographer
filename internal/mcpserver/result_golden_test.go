@@ -79,6 +79,9 @@ func goldenCases() []goldenCase {
 		{"graph_path", "graph_path", `{"source":"ops/alpha","target":"ops/gamma"}`},
 		{"link_suggest", "link_suggest", `{"id":"ops/gamma"}`},
 		{"work_list", "work_list", `{}`},
+		{"dashboard_list", "dashboard_list", `{}`},
+		{"dashboard_get", "dashboard_get", `{"name":"overview"}`},
+		{"dashboard_get-missing", "dashboard_get", `{"name":"empty"}`},
 		{"kb_status", "kb_status", `{}`},
 		{"kb_review", "kb_review", `{}`},
 		{"lint", "lint", `{}`},
@@ -110,6 +113,13 @@ func TestToolResultGolden(t *testing.T) {
 	s, k := graphToolKBWithKB(t, goldenKBFiles())
 	root := k.DataRoot()
 	dir := filepath.Join("testdata", "results")
+	if err := os.MkdirAll(filepath.Join(k.Root, "dashboards"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	overview := "title: Overview\nwidgets:\n  - id: pages\n    type: stat\n    source: concepts\n    title: Pages\n  - id: note\n    type: note\n    text: Start here.\n"
+	if err := os.WriteFile(filepath.Join(k.Root, "dashboards", "overview.yaml"), []byte(overview), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if *updateGolden {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)

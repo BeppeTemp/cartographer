@@ -261,10 +261,18 @@ func resolveWidget(src *dashSources, w kb.DashboardWidget) resolvedWidget {
 		limit = dashboardMaxLimit
 	}
 	readKeys := append(widgetFieldKeys(w), "waiting_on", "review_after")
+	// budget caps the entries of the whole widget across its groups: the
+	// limit applies per group, and a grouped widget would otherwise return
+	// every visible row. Group totals stay true; only entries are trimmed.
+	budget := dashboardMaxLimit
 	shape := func(rows []dashRow) []dashboardEntry {
 		if len(rows) > limit {
 			rows = rows[:limit]
 		}
+		if len(rows) > budget {
+			rows = rows[:budget]
+		}
+		budget -= len(rows)
 		entries := make([]dashboardEntry, 0, len(rows))
 		for _, r := range rows {
 			e := r.out
@@ -336,10 +344,29 @@ func groupKey(r dashRow, spec string) string {
 	return ""
 }
 
+const (
+	dashboardMaxGroups   = 50
+	dashboardKeyMaxBytes = 200
+	// dashboardOtherGroup collects the rows past the group cap.
+	dashboardOtherGroup = "(other)"
+)
+
+// cutKey bounds a group key, on a rune boundary.
+func cutKey(s string) string {
+	if len(s) <= dashboardKeyMaxBytes {
+		return s
+	}
+	return strings.ToValidUTF8(s[:dashboardKeyMaxBytes], "")
+}
+
 // groupDashRows groups rows by spec in order of first appearance, so the
 // widget's sort orders the groups. With columns, only those groups are kept,
 // in that order and all present even when empty: a row outside them is left
 // out of every count (the total of a kanban is what it shows).
+//
+// Without columns a widget has at most dashboardMaxGroups groups: rows whose
+// key would open one more fall into the group dashboardOtherGroup, whose total
+// is true, and a key is cut to dashboardKeyMaxBytes.
 func groupDashRows(rows []dashRow, spec string, columns []string) []dashRowGroup {
 	var groups []dashRowGroup
 	idx := map[string]int{}
@@ -350,11 +377,18 @@ func groupDashRows(rows []dashRow, spec string, columns []string) []dashRowGroup
 		}
 	}
 	for _, r := range rows {
-		key := groupKey(r, spec)
+		key := cutKey(groupKey(r, spec))
 		i, ok := idx[key]
 		if !ok {
 			if len(columns) > 0 {
 				continue
+			}
+			if len(groups) >= dashboardMaxGroups {
+				key = dashboardOtherGroup
+				if i, ok = idx[key]; ok {
+					groups[i].rows = append(groups[i].rows, r)
+					continue
+				}
 			}
 			i = len(groups)
 			idx[key] = i
@@ -367,6 +401,7 @@ func groupDashRows(rows []dashRow, spec string, columns []string) []dashRowGroup
 
 const (
 	agendaDefaultHorizon = 14
+	agendaMaxHorizon     = 365
 	agendaOverdue        = "overdue"
 )
 
@@ -382,6 +417,9 @@ func agendaGroups(rows []dashRow, w kb.DashboardWidget, now time.Time) []dashRow
 	if horizon <= 0 {
 		horizon = agendaDefaultHorizon
 	}
+	if horizon > agendaMaxHorizon {
+		horizon = agendaMaxHorizon
+	}
 	const layout = "2006-01-02"
 	today := now.Format(layout)
 	last := time.Date(now.Year(), now.Month(), now.Day()+horizon, 0, 0, 0, 0, time.UTC).Format(layout)
@@ -393,12 +431,8 @@ func agendaGroups(rows []dashRow, w kb.DashboardWidget, now time.Time) []dashRow
 		if !ok {
 			continue
 		}
-		text, ok := fieldText(v)
-		if !ok || len(text) < len(layout) {
-			continue
-		}
-		day := text[:len(layout)]
-		if _, err := time.Parse(layout, day); err != nil {
+		day, ok := agendaDay(v, now.Location())
+		if !ok {
 			continue
 		}
 		switch {
@@ -420,6 +454,24 @@ func agendaGroups(rows []dashRow, w kb.DashboardWidget, now time.Time) []dashRow
 		groups = append(groups, dashRowGroup{key: d, rows: byDay[d]})
 	}
 	return groups
+}
+
+// agendaDay reads a date value strictly: a string that is exactly YYYY-MM-DD,
+// or a full RFC 3339 timestamp, converted to the server's zone. A list, a date
+// with trailing text or any other shape is not a date.
+func agendaDay(v any, loc *time.Location) (string, bool) {
+	s, ok := v.(string)
+	if !ok {
+		return "", false
+	}
+	const layout = "2006-01-02"
+	if t, err := time.Parse(layout, s); err == nil {
+		return t.Format(layout), true
+	}
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t.In(loc).Format(layout), true
+	}
+	return "", false
 }
 
 // fieldText renders a scalar or list frontmatter value as text; other shapes
