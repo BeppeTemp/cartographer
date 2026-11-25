@@ -802,3 +802,18 @@ func TestStartRetriesAfterAFailedListing(t *testing.T) {
 		t.Errorf("the sweep did not rerun: %v", k.pages["u/old"].fm)
 	}
 }
+
+// The floor refusal says so in the result: the runner ends the run stopped=budget
+// on it (D-new-surveyor-once-stop-reason).
+func TestIngestRunBelowFloorReportsBudget(t *testing.T) {
+	in := newInst(t, TierSmall)
+	rt := rtFor(newIKB(), nil, "r1")
+	rt.Grant = in.floor() - 1
+	res, err := in.run(context.Background(), ingestCand{unit: "u/1"}, rt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Budget || res.Tokens != 0 {
+		t.Fatalf("res = %+v, want Budget with nothing spent", res)
+	}
+}

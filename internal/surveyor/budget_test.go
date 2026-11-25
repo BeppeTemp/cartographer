@@ -228,8 +228,21 @@ func TestBudgetCloseSkipsAQuietKB(t *testing.T) {
 	}
 }
 
+func TestBudgetCloseSkipsAQuietKBStoppedByBudget(t *testing.T) {
+	quiet, busy := &ledgerCaller{}, &ledgerCaller{}
+	b := newTestBudget(map[string]*ledgerCaller{"kb-a": quiet, "work-kb": busy})
+	b.Begin([]string{"kb-a", "work-kb"}, testNow)
+	b.Touch("kb-a") // a floor-refused task: nothing spent
+	b.Note("kb-a", 0, 0)
+	b.Note("work-kb", 1, 1)
+	b.Close(StoppedBudget, "")
+	if len(quiet.appends) != 0 || len(busy.appends) != 1 {
+		t.Fatalf("quiet=%d busy=%d, want 0 and 1", len(quiet.appends), len(busy.appends))
+	}
+}
+
 func TestBudgetCloseWritesAQuietKBOnAnyOtherStop(t *testing.T) {
-	for _, stopped := range []string{StoppedError, StoppedWindow, StoppedBudget, StoppedIdle, StoppedShutdown} {
+	for _, stopped := range []string{StoppedError, StoppedWindow, StoppedIdle, StoppedShutdown} {
 		kb := &ledgerCaller{}
 		b := newTestBudget(map[string]*ledgerCaller{"kb-a": kb})
 		b.Begin([]string{"kb-a"}, testNow)
