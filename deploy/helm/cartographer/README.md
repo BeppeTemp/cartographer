@@ -49,12 +49,13 @@ Each has a values file in `ci/`, rendered and checked by `make helm-check` in th
 | Surveyor with an exec recipe, a derived image and a service account | `ci/surveyor-exec-values.yaml` |
 | Surveyors only, against an external Meridian over HTTPS | `ci/surveyor-only-values.yaml` |
 | Surveyors only, against a plain-HTTP Meridian (`allow_insecure_http` injected) | `ci/surveyor-only-http-values.yaml` |
+| Kubernetes with native TLS: a `kubernetes.io/tls` Secret, a health port | `ci/meridian-tls-values.yaml` |
 | Meridian without the Atlas | `ci/meridian-no-atlas-values.yaml` |
 
 ## Meridian
 
 **Config.** `meridian.config` is the Meridian YAML, rendered to the ConfigMap. The chart owns `http`, `data`
-and `credentials_dir`: setting one fails at template time. Keep `auth.mode` a quoted string. The file is
+and `credentials_dir` (and `tls.enabled`, `tls.health_addr` with native TLS): setting one fails at template time. Keep `auth.mode` a quoted string. The file is
 read once, so a change restarts the pod. The mount is read-only, so Meridian never rewrites it; a
 removed key is ignored with a log line, and `helm upgrade` is the realignment. `kb clone` and `kb rename`
 run inside the pod cannot persist into the ConfigMap: declare KBs in `meridian.config.kbs`.
@@ -68,8 +69,24 @@ would be rendered into a ConfigMap.
 **Readiness.** The default is an `exec` that reads the body of `/health` (`"ready":true`), because
 `/ready` needs a token when auth is on. To use `/ready`, set `meridian.probes.readiness.tokenSecret` to a
 Secret key holding one of Meridian's own tokens with a read scope on one KB. Liveness and startup are
-`httpGet /health`; the startup allowance for the cold clone is five minutes. `terminationGracePeriodSeconds`
+`httpGet /health` (HTTPS with native TLS); the startup allowance for the cold clone is five minutes. `terminationGracePeriodSeconds`
 is 60: the shutdown takes up to 10 s of HTTP drain plus 10 s per KB, so raise it with the number of KBs.
+
+**Native TLS.** `meridian.tls.secretName` names an existing `kubernetes.io/tls` Secret (keys `tls.crt` and
+`tls.key`); empty keeps plain HTTP. The chart then projects both keys into `/etc/cartographer-credentials`
+(next to the credentials Secret, whose other files stay visible) and sets `tls.enabled: true` and
+`tls.health_addr` in the config; a volume, not a `subPath`, so a rotated certificate reaches the pod and the
+server reloads it. The public port is TLS-only (TLS 1.3): liveness and startup are `httpGet` with
+`scheme: HTTPS` (the kubelet does not verify the certificate), and the Service and the Surveyors injected by the
+chart use `https://`, so the certificate must name the Service host and a private CA needs `ca_file` in the
+Surveyor config. The kubelet probes the pod IP, which the loopback health listener does not serve, so the
+readiness `exec` stays inside the pod and reads `http://127.0.0.1:<meridian.tls.healthPort>` (`/health` body or
+`/ready` with the token), default 39274 (the public port plus one). `healthPort` must differ from 39273 and is
+never exposed by the Service; `tls.enabled` and `tls.health_addr` are chart-owned in `meridian.config`
+while the Secret is set, the other `tls` keys (`hsts_max_age`, `reload_interval`) pass through. The Ingress
+`tls` block is the proxy's certificate and is independent: with native TLS the Ingress must speak HTTPS to the
+Service (for ingress-nginx, `nginx.ingress.kubernetes.io/backend-protocol: HTTPS` in
+`meridian.ingress.annotations`).
 
 **Persistence.** By default a claim `<fullname>-data` that survives `helm uninstall`. Installing the
 release again fails in Helm on ownership: set `meridian.persistence.existingClaim: <fullname>-data`.

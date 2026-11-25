@@ -1,0 +1,19 @@
+# Kubernetes with native TLS: a kubernetes.io/tls Secret next to the credentials Secret,
+# a health listener on a non-default port, a token for the readiness probe.
+meridian:
+  tokens:
+    existingSecret:
+      name: cartographer-tokens
+  credentials:
+    existingSecret:
+      name: cartographer-credentials
+  tls:
+    secretName: cartographer-tls
+    healthPort: 39280
+  config:
+    auth:
+      mode: "on"
+    tls:
+      hsts_max_age: 720h
+    kbs:
+      - remote: https://git.example.com/user/kb-a.git

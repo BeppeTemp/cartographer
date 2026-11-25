@@ -53,7 +53,7 @@ app.kubernetes.io/managed-by: {{ .root.Release.Service }}
      (a trailing / trimmed, /mcp appended unless already there) when the release has no Meridian. */}}
 {{- define "cartographer.serverURL" -}}
 {{- if .Values.meridian.enabled -}}
-{{- printf "http://%s:%v/mcp" (include "cartographer.fullname" .) .Values.meridian.service.port -}}
+{{- printf "%s://%s:%v/mcp" (ternary "https" "http" (not (empty .Values.meridian.tls.secretName))) (include "cartographer.fullname" .) .Values.meridian.service.port -}}
 {{- else -}}
 {{- $u := trimSuffix "/" .Values.meridian.url -}}
 {{- if hasSuffix "/mcp" $u -}}{{- $u -}}{{- else -}}{{- printf "%s/mcp" $u -}}{{- end -}}
@@ -95,6 +95,20 @@ app.kubernetes.io/managed-by: {{ .root.Release.Service }}
 {{- end -}}
 {{- if and $s.credentials.enabled (not $s.credentials.existingSecret.name) -}}
 {{- fail "meridian.credentials.existingSecret.name is required: the Secret holds audit.key (`openssl rand -hex 32`, Meridian cannot generate it on a read-only mount) and the KBs' key files (default.ssh, known_hosts, <kb>.token); or set meridian.credentials.enabled=false" -}}
+{{- end -}}
+{{- if and (not $s.tls.secretName) (kindIs "map" (get $cfg "tls")) (get (get $cfg "tls") "enabled") -}}
+{{- fail "meridian.config.tls.enabled needs meridian.tls.secretName: the chart's probes and Surveyor URL speak HTTPS only when it is set, so the pod would never become ready; name the Secret holding tls.crt and tls.key" -}}
+{{- end -}}
+{{- if $s.tls.secretName -}}
+{{- $tlsCfg := default (dict) (get $cfg "tls") -}}
+{{- range $k := list "enabled" "health_addr" -}}
+{{- if hasKey $tlsCfg $k -}}
+{{- fail (printf "meridian.config.tls.%s is owned by the chart while meridian.tls.secretName is set (the probes read it): remove it from your values (the health port is meridian.tls.healthPort)" $k) -}}
+{{- end -}}
+{{- end -}}
+{{- if eq (int $s.tls.healthPort) 39273 -}}
+{{- fail "meridian.tls.healthPort must differ from the public port 39273" -}}
+{{- end -}}
 {{- end -}}
 {{- if and $s.persistence.existingClaim $s.persistence.emptyDir -}}
 {{- fail "meridian.persistence.existingClaim and meridian.persistence.emptyDir are exclusive: choose one" -}}
