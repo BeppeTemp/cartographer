@@ -125,6 +125,14 @@ func TestCallStepCap(t *testing.T) {
 	callErr(t, err, LimitExceeded)
 }
 
+// The kind's own wall clock (spec.Timeout) ends a spinning call with no help
+// from the caller's context; deterministic: the script never finishes.
+func TestCallWallClockLimit(t *testing.T) {
+	p := mustLoad(t, spinSrc)
+	_, err := p.call(context.Background(), toolReq("spin", `{}`), callOpts{steps: 1 << 60, timeout: 50 * time.Millisecond})
+	callErr(t, err, LimitExceeded)
+}
+
 func TestCallDeadlineAndCancel(t *testing.T) {
 	p := mustLoad(t, spinSrc)
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
