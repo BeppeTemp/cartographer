@@ -272,3 +272,19 @@ func TestSurveyorSettings_VersionIsAShortTokenOrDropped(t *testing.T) {
 		}
 	}
 }
+
+// A short dummy token ("local") matches ordinary report text, so the leak check
+// skips it; a token of the minimum length is still refused (#2382).
+func TestSurveyorSettings_ShortTokenInBodyIsAccepted(t *testing.T) {
+	t.Parallel()
+	f := newAtlasSurveyorFixture(t)
+	f.post(t, "local", beat(nil))
+	if rr := f.postSettings("local", report(map[string]any{"version": "local"})); rr.Code != http.StatusOK {
+		t.Fatalf("short token in the body: status %d: %s", rr.Code, rr.Body.String())
+	}
+	// A token of minLeakCheckToken characters or more is still refused, with its reason.
+	rr := f.postSettings("surveyor-a", report(map[string]any{"version": "surveyor-a"}))
+	if rr.Code != http.StatusBadRequest || !strings.Contains(rr.Body.String(), "bearer token") {
+		t.Fatalf("long token in the body: status %d: %s", rr.Code, rr.Body.String())
+	}
+}

@@ -86,6 +86,10 @@ type RemoteError struct {
 	// (CodeHTTPFailed from an answering server), zero otherwise. It lets a
 	// caller tell a refused credential (403) from a transport failure (#1299).
 	HTTPStatus int
+	// ServerMessage is the `error.message` an answering server put in the body
+	// of a non-2xx response of the component routes, cut short and on one line;
+	// empty when the body carries none (#2382).
+	ServerMessage string
 	// RPCCode is the JSON-RPC error code of a CodeMCPFailed that came from an
 	// "error" object (for example -32602, invalid params), zero otherwise. It
 	// lets a caller tell a refused argument from a failure without parsing
@@ -1163,7 +1167,8 @@ func (c *MCPClient) apiCallInto(method, route, kbName string, body, out any, tim
 		return re
 	case resp.StatusCode < 200 || resp.StatusCode > 299:
 		return &RemoteError{State: RemoteUnavailable, Code: CodeHTTPFailed,
-			Message: fmt.Sprintf("%s returned HTTP %d", u.Redacted(), resp.StatusCode), HTTPStatus: resp.StatusCode}
+			Message: fmt.Sprintf("%s returned HTTP %d", u.Redacted(), resp.StatusCode), HTTPStatus: resp.StatusCode,
+			ServerMessage: serverErrorMessage(raw)}
 	}
 	if out != nil {
 		if err := json.Unmarshal(raw, out); err != nil {
@@ -1172,6 +1177,31 @@ func (c *MCPClient) apiCallInto(method, route, kbName string, body, out any, tim
 		}
 	}
 	return nil
+}
+
+// serverErrorMessage is the `error.message` of an error body, on one line and
+// at most 200 bytes; empty when the body is not an error object.
+func serverErrorMessage(raw []byte) string {
+	var body struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(raw, &body) != nil {
+		return ""
+	}
+	// Control runes (an ESC of an ANSI sequence) from a server or proxy body
+	// must not reach a terminal through the log.
+	msg := strings.Join(strings.Fields(strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) && !unicode.IsSpace(r) {
+			return -1
+		}
+		return r
+	}, body.Error.Message)), " ")
+	if len(msg) > 200 {
+		msg = strings.ToValidUTF8(msg[:200], "") + "..."
+	}
+	return msg
 }
 
 // decodeToolResult parses a tools/call result; Call and CallTool share it so

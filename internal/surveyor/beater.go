@@ -421,7 +421,11 @@ func (b *Beater) postSettings() {
 			b.loggedSettingsStatus = re.HTTPStatus
 			b.mu.Unlock()
 			if first {
-				b.logf("surveyor: settings report refused (%v): retried in %d beats", err, runsBackoffBeats)
+				why := ""
+				if re.ServerMessage != "" {
+					why = ": " + re.ServerMessage
+				}
+				b.logf("surveyor: settings report refused (%v%s): retried in %d beats", err, why, runsBackoffBeats)
 			}
 			return
 		}
