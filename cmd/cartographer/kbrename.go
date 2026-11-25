@@ -163,7 +163,10 @@ func cmdKBRename(args []string) int {
 	if len(plan.Bindings) > 0 {
 		if err := rewriteBindings(plan.Old, plan.New); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: the KB is renamed, but this machine's client bindings still name %q: %v\n", plan.Old, err)
-			fmt.Fprintf(os.Stderr, "  rebind each one by hand: `cartographer client unbind <provider> %s` then `cartographer client bind <provider> %s`\n", plan.Old, plan.New)
+			// Fixed text: it prints when the config could not be rewritten, so the
+			// stored options are unknown here; the placeholder says a bind
+			// replaces them whole and a bare one would drop them.
+			fmt.Fprintf(os.Stderr, "  rebind each one by hand: `cartographer client unbind <provider> %s` then `cartographer client bind <provider> %s` (repeat its options: [--no-lineage | --exclude <kbs>]; `cartographer client show <provider>` prints them)\n", plan.Old, plan.New)
 			return 1
 		}
 		fmt.Printf("rewrote %d client binding(s) in this machine's .cartographer.yaml\n", len(plan.Bindings))
@@ -395,14 +398,12 @@ func rewriteBindings(old, newName string) error {
 	}
 	return withClientConfig(dir, func(cfg *clientconfig.Config) error {
 		for p, b := range cfg.Clients {
-			b.KBs = renameInList(b.KBs, old, newName)
-			b.Exclude = renameInList(b.Exclude, old, newName)
+			b.KBs, b.Exclude = renameInBinding(b.KBs, b.Exclude, old, newName)
 			cfg.Clients[p] = b
 		}
 		for p, ws := range cfg.Workspaces {
 			for i := range ws {
-				ws[i].KBs = renameInList(ws[i].KBs, old, newName)
-				ws[i].Exclude = renameInList(ws[i].Exclude, old, newName)
+				ws[i].KBs, ws[i].Exclude = renameInBinding(ws[i].KBs, ws[i].Exclude, old, newName)
 			}
 			cfg.Workspaces[p] = ws
 		}
@@ -413,6 +414,24 @@ func rewriteBindings(old, newName string) error {
 		}
 		return nil
 	})
+}
+
+// renameInBinding renames old in both lists of one binding. When newName is
+// already in the other list the rename would bind and exclude the same KB: the
+// bound one wins (exclude only removes KBs that came by lineage), so the
+// exclude entry goes.
+func renameInBinding(kbs, exclude []string, old, newName string) ([]string, []string) {
+	kbs, exclude = renameInList(kbs, old, newName), renameInList(exclude, old, newName)
+	if len(exclude) == 0 {
+		return kbs, exclude
+	}
+	kept := make([]string, 0, len(exclude))
+	for _, k := range exclude {
+		if !containsString(kbs, k) {
+			kept = append(kept, k)
+		}
+	}
+	return kbs, kept
 }
 
 func renameInList(list []string, old, newName string) []string {

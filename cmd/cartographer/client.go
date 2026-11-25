@@ -82,7 +82,7 @@ func cmdClient(args []string) int {
 func printClientUsage(w *os.File) {
 	fmt.Fprintln(w, "Usage: cartographer client list")
 	fmt.Fprintln(w, "       cartographer client show <provider>")
-	fmt.Fprintln(w, "       cartographer client bind <provider> <kb>[,<kb>...]     adds KBs to the provider's binding")
+	fmt.Fprintln(w, "       cartographer client bind <provider> <kb>[,<kb>...] [--no-lineage | --exclude <kb>[,<kb>...]]   adds KBs to the provider's binding; the flags opt it out of lineage")
 	fmt.Fprintln(w, "       cartographer client unbind <provider> <kb>[,<kb>...]   removes KBs from it")
 	fmt.Fprintln(w, "       cartographer client reset <provider>                   restores every known KB")
 	fmt.Fprintln(w, "       cartographer client update [--check=true|false]")
@@ -255,7 +255,7 @@ func clientList(cfg *clientconfig.Config, args []string) int {
 	fmt.Printf("%-12s %-22s %s\n", "PROVIDER", "ORIGIN", "KBS")
 	for _, p := range cfg.Agents {
 		kbs, explicit := cfg.BoundOwnKBs(p)
-		fmt.Printf("%-12s %-22s %s%s\n", p, bindingOrigin(explicit), formatKBList(kbs), lineageNote(cfg, p))
+		fmt.Printf("%-12s %-22s %s%s\n", p, bindingOrigin(explicit), formatKBList(kbs), lineageNote(cfg, p)+lineageFlagsNote(cfg, p))
 	}
 	return 0
 }
@@ -284,9 +284,12 @@ func clientShow(cfg *clientconfig.Config, args []string) int {
 	own, _ := cfg.BoundOwnKBs(provider)
 	fmt.Printf("provider   %s\n", provider)
 	fmt.Printf("origin     %s\n", bindingOrigin(explicit))
-	fmt.Printf("bound      %s\n", formatKBList(own))
+	fmt.Printf("bound      %s%s\n", formatKBList(own), lineageFlagsNote(cfg, provider))
 	if l := cfg.ProviderLineage(provider); len(l) > 0 {
-		fmt.Printf("lineage    %s\n", formatKBList(l))
+		fmt.Printf("lineage    %s (by lineage of %s)\n", formatKBList(l), strings.Join(own, ", "))
+	}
+	if b := cfg.Clients[provider]; b.Explicit() && (b.NoLineage || len(b.Exclude) > 0) {
+		fmt.Printf("rebind     %s\n", providerBindCommand(cfg, provider))
 	}
 
 	// What a provider does NOT receive is the half a binding is declared for,
@@ -328,10 +331,80 @@ func printClaudeConfigDirs(cfg *clientconfig.Config) {
 	}
 }
 
+// splitBindLineageFlags takes --no-lineage and --exclude (after the KB list)
+// out of the arguments of `client bind`; given is true when either was there.
+func splitBindLineageFlags(args []string) (rest, exclude []string, noLineage, given bool, code int) {
+	for i := 0; i < len(args); i++ {
+		switch {
+		case args[i] == "--no-lineage":
+			noLineage, given = true, true
+		case args[i] == "--exclude" && i+1 < len(args):
+			i++
+			exclude, given = append(exclude, splitCommaList([]string{args[i]})...), true
+		case strings.HasPrefix(args[i], "--exclude="):
+			exclude, given = append(exclude, splitCommaList([]string{strings.TrimPrefix(args[i], "--exclude=")})...), true
+		case args[i] == "--exclude":
+			fmt.Fprintln(os.Stderr, "Error: --exclude needs a value: the KB names lineage must not bring")
+			return nil, nil, false, false, 2
+		default:
+			rest = append(rest, args[i])
+		}
+	}
+	return rest, dedupe(nonEmpty(exclude)), noLineage, given, 0
+}
+
+// providerBindCommand is the `client bind` command that rebinds provider as it
+// is bound: the own KBs only and the lineage options the binding carries, since
+// a rebind that does not repeat them leaves them as they are only by luck.
+func providerBindCommand(cfg *clientconfig.Config, provider string) string {
+	own, _ := cfg.BoundOwnKBs(provider)
+	cmd := "cartographer client bind " + provider + " " + strings.Join(own, ",")
+	b := cfg.Clients[provider]
+	switch {
+	case b.NoLineage:
+		cmd += " --no-lineage"
+	case len(b.Exclude) > 0:
+		cmd += " --exclude " + strings.Join(b.Exclude, ",")
+	}
+	return cmd
+}
+
+// lineageFlagsNote is the `[no lineage]` / `[exclude core-kb]` marker of a
+// provider binding that carries the opt-outs.
+func lineageFlagsNote(cfg *clientconfig.Config, provider string) string {
+	b := cfg.Clients[provider]
+	switch {
+	case !b.Explicit():
+		return ""
+	case b.NoLineage:
+		return " [no lineage]"
+	case len(b.Exclude) > 0:
+		return " [exclude " + strings.Join(b.Exclude, ",") + "]"
+	}
+	return ""
+}
+
 func clientBind(dir string, cfg *clientconfig.Config, args []string) int {
+	args, exclude, noLineage, lineageGiven, code := splitBindLineageFlags(args)
+	if code != 0 {
+		return code
+	}
 	provider, kbs, code := parseBindArgs(cfg, args)
 	if code != 0 {
 		return code
+	}
+	if lineageGiven {
+		// Same rules as workspace bind; the KBs checked are the ones the
+		// binding will hold, so a KB already bound and excluded is caught too.
+		// A provider with no explicit binding is bound to `kbs` alone: its
+		// default list (every known KB) is not what the bind will hold.
+		held := kbs
+		if own, explicit := cfg.BoundOwnKBs(provider); explicit {
+			held = append(own, kbs...)
+		}
+		if code := checkLineageFlags(held, exclude, false, noLineage); code != 0 {
+			return code
+		}
 	}
 
 	facts, listErr, refused := checkMountedKBs(cfg, kbs)
@@ -347,8 +420,23 @@ func clientBind(dir string, cfg *clientconfig.Config, args []string) int {
 		}
 		added = append(added, kb)
 	}
+	// The options replace the binding's whole on every bind, as workspace bind
+	// does: clear the stored ones first, so a KB the old exclude named can be
+	// bound, and set the new ones after the KB list is complete.
+	if wasExplicit {
+		if err := cfg.SetProviderLineage(provider, false, nil); err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return 2
+		}
+	}
 	for _, kb := range kbs {
 		if err := cfg.Bind(provider, kb); err != nil {
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			return 2
+		}
+	}
+	if lineageGiven {
+		if err := cfg.SetProviderLineage(provider, noLineage, exclude); err != nil {
 			fmt.Fprintln(os.Stderr, "Error:", err)
 			return 2
 		}
@@ -384,7 +472,7 @@ func clientBind(dir string, cfg *clientconfig.Config, args []string) int {
 
 	own, _ := cfg.BoundOwnKBs(provider)
 	bound, _ := cfg.BoundKBs(provider)
-	fmt.Printf("%s bound to %s%s (added: %s)\n", provider, formatKBList(own), lineageNote(cfg, provider), addedList(added))
+	fmt.Printf("%s bound to %s%s%s (added: %s)\n", provider, formatKBList(own), lineageNote(cfg, provider), lineageFlagsNote(cfg, provider), addedList(added))
 	warnProviderCollisions(cfg, provider, bound)
 	fmt.Println("run `cartographer sync` to apply")
 	return 0

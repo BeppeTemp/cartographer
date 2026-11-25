@@ -1189,8 +1189,8 @@ func checkCapabilities(dir string, cfg *clientconfig.Config, facts serverFacts, 
 
 // checkLineageExclude: an exclude list that names a KB the same binding binds is
 // a contradiction. The KB stays bound (exclude removes only KBs that came by
-// lineage); the entry is the mistake, and `workspace bind` and the provider
-// setter refuse to write it, so only a hand edit gets here.
+// lineage); the entry is the mistake, and `workspace bind`, `client bind` and the provider
+// setter refuse to write it and `kb rename` resolves it, so only a hand edit gets here.
 func checkLineageExclude(dir string, cfg *clientconfig.Config) []doctorFinding {
 	var out []doctorFinding
 	report := func(where string, kbs, exclude []string) {
