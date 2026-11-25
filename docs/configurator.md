@@ -1743,7 +1743,10 @@ with its values, default and notes), and the keys that are not set are listed co
 `# --- available settings: uncomment a key to set it ---`, like a Helm `values.yaml`: a blank line between
 keys, each with the value to uncomment, and an example under a map or a list (`# scopes:` /
 `#   claude: workspace`). Files written before that wording have `# --- available settings ---`; a realignment
-reads either divider and writes the new one. The text comes from one table, `Schema` in
+reads either divider and writes the new one. A key you add below the block does not get a second copy: the block that
+the parser reads as that key's head comment goes back to the foot of the previous key (of the file, for the first key),
+and the text above the divider stays on your key, glued to it or not (the block is cut at its divider; a note glued
+below its last line moves with it, a note after a blank line stays above its key). A file with two blocks, one on each side of a key, ends with one. The text comes from one table, `Schema` in
 `internal/clientconfig/schema.go`, which is also what `config.example.yaml` and the config view read;
 a test fails when a key exists in the file without an entry there, so a new setting starts in the
 table. `Save` is a `yaml.Node` round-trip of the existing file: a comment you wrote and a key the
