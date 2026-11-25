@@ -63,3 +63,13 @@ describe("the cluster view's state", () => {
     expect(viewStateToSearch({ ...view, unfold: [] })).toBe("?kb=kb-a");
   });
 });
+
+describe("the dashboard parameter", () => {
+  it("is read and written only on the work panel", () => {
+    const view = readViewState("?kb=k&panel=work&dashboard=week");
+    expect(view.dashboard).toBe("week");
+    expect(viewStateToSearch(view)).toBe("?kb=k&panel=work&dashboard=week");
+    expect(readViewState("?kb=k&panel=health&dashboard=week").dashboard).toBeNull();
+    expect(viewStateToSearch({ ...view, panel: "health" })).toBe("?kb=k&panel=health");
+  });
+});

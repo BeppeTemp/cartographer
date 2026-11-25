@@ -32,6 +32,8 @@ export interface ViewState {
   artifact: string | null;
   /** Health's own Map filter: only on the Health panel; the rail's scope never reaches it. */
   hmap: string | null;
+  /** The dashboard open in the Work page: only on the work panel; absent is the default board. */
+  dashboard: string | null;
   /** The plugin view open, `<plugin>/<name>`: only on the ext panel. */
   ext: string | null;
   /** `nodes` forces the flat graph on a KB above the cluster threshold; absent is clusters. */
@@ -86,6 +88,7 @@ export function readViewState(search: string = window.location.search): ViewStat
     artifact: panel === "artifacts" || panel === "templates" ? params.get("artifact") : null,
     hmap: panel === "health" ? params.get("hmap") : null,
     ext: panel === "ext" ? params.get("ext") : null,
+    dashboard: panel === "work" ? params.get("dashboard") || null : null,
     graph: params.get("graph") === "nodes" ? "nodes" : null,
     // At most one cluster is open (an accordion): a list from an older link keeps its last.
     unfold: (params.get("unfold") ?? "").split(",").filter((id) => id.startsWith("c:")).slice(-1),
@@ -102,6 +105,7 @@ export function viewStateToSearch(view: ViewState): string {
     params.set("artifact", view.artifact);
   if (view.panel === "health" && view.hmap) params.set("hmap", view.hmap);
   if (view.panel === "ext" && view.ext) params.set("ext", view.ext);
+  if (view.panel === "work" && view.dashboard) params.set("dashboard", view.dashboard);
   if (view.graph === "nodes") params.set("graph", "nodes");
   if (view.unfold.length > 0) params.set("unfold", view.unfold.join(","));
   const query = params.toString();
