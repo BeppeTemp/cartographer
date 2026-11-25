@@ -11,7 +11,6 @@ package service
 
 import (
 	"fmt"
-	"net"
 	"os"
 	"path"
 	"path/filepath"
@@ -519,14 +518,4 @@ data: %q
 // IsLoopbackListenAddr reports whether a server `http:` address binds only
 // the loopback interface. A bare port (":39273") or a wildcard host binds
 // every interface, so it is not loopback.
-func IsLoopbackListenAddr(addr string) bool {
-	host, _, err := net.SplitHostPort(addr)
-	if err != nil {
-		return false
-	}
-	if host == "localhost" {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
-}
+func IsLoopbackListenAddr(addr string) bool { return config.IsLoopbackListenAddr(addr) }

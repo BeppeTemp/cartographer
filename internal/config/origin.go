@@ -343,6 +343,14 @@ func (c *Config) serverValue(path string) (any, bool) {
 			return "github", true
 		}
 		return c.Feedback.Destination, true
+	case "tls.enabled":
+		return c.TLS.Enabled, true
+	case "tls.health_addr":
+		return str(c.TLS.HealthAddr)
+	case "tls.hsts_max_age":
+		return c.TLS.HSTSMaxAge.String(), true
+	case "tls.reload_interval":
+		return c.TLS.ReloadInterval.String(), true
 	case "api.enabled":
 		return c.API.Enabled, true
 	case "api.cors_origins":

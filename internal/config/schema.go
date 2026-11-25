@@ -178,6 +178,15 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 	{Path: "web.enabled", Scope: settingschema.ScopeServer, Type: "bool", Default: "true", Env: "CARTOGRAPHER_WEB_ENABLED", Flag: "--web-enabled", Restart: true, Example: "true",
 		Description: "Serve the read-only Atlas UI at /ui/ and its API at /api/ui/v1 in HTTP mode. false removes both routes."},
 
+	{Path: "tls.enabled", Scope: settingschema.ScopeServer, Type: "bool", Default: "false", Env: "CARTOGRAPHER_TLS_ENABLED", Flag: "--tls-enabled", Restart: true, Example: "false",
+		Description: "Serve the HTTP listener over TLS 1.3 only, with the certificate and key files tls.crt and tls.key of credentials_dir (never inline). The public listener is TLS-only: plain HTTP on it is refused, and nothing is redirected. A missing or mismatched certificate stops the start. HSTS is sent only over TLS. tls.health_addr is the loopback listener of /health and /ready; no plain-HTTP option exists."},
+	{Path: "tls.health_addr", Scope: settingschema.ScopeServer, Type: "string", Values: "loopback host:port | off", Default: "127.0.0.1:<public port + 1>", Restart: true,
+		Description: "The loopback listener that answers only GET and HEAD of /health and /ready when tls.enabled, for the local probes. Default: 127.0.0.1 on the public port plus one (a public port of 0 or 65535 requires the key). Must be a loopback host:port different from the public address; off runs no health listener. YAML only."},
+	{Path: "tls.hsts_max_age", Scope: settingschema.ScopeServer, Type: "duration", Default: "4380h", Restart: true, Example: "4380h",
+		Description: "The max-age of the Strict-Transport-Security header, sent on every response over TLS and never on a plain one (no includeSubDomains, no preload). 0 turns it off. YAML only."},
+	{Path: "tls.reload_interval", Scope: settingschema.ScopeServer, Type: "duration", Default: "30s", Restart: true, Example: "30s",
+		Description: "How often a running server looks at tls.crt and tls.key for a change. 0 stops the poll; SIGHUP always reloads. YAML only."},
+
 	{Path: "feedback.destination", Scope: settingschema.ScopeServer, Type: "string", Values: "github | off | URL template with {kind}, {title}, {body}", Default: "github", Env: "CARTOGRAPHER_FEEDBACK_DESTINATION", Restart: true, Example: "github",
 		Description: "Where agent bug and idea reports go. github opens a prefilled issue on the public repository; off removes the offer lines from the served instructions and the hint on internal errors; an https:// URL template (it must contain {title}) points agents at an internal tracker. Nothing is ever sent by the server."},
 

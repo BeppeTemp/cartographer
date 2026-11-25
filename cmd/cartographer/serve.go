@@ -94,6 +94,7 @@ func cmdServe(args []string) int {
 	httpFlag := fs.String("http", "", "HTTP listen address, e.g. :39273 (or CARTOGRAPHER_HTTP)")
 	tokensFlag := fs.String("tokens", "", "Comma-separated bearer tokens (or CARTOGRAPHER_TOKENS)")
 	configFlag := fs.String("config", "", "Path to a YAML config file (or CARTOGRAPHER_CONFIG)")
+	tlsEnabledFlag := fs.Bool("tls-enabled", false, "Serve HTTP over TLS 1.3 with tls.crt and tls.key of the credentials directory (or CARTOGRAPHER_TLS_ENABLED)")
 	webEnabledFlag := fs.Bool("web-enabled", true, "Serve the embedded read-only Atlas UI at /ui/ and its API at /api/ui/v1 in HTTP mode (or CARTOGRAPHER_WEB_ENABLED)")
 	apiEnabledFlag := fs.Bool("api-enabled", false, "Serve the public read-only API at /api/v1 in HTTP mode (or CARTOGRAPHER_API_ENABLED)")
 	updateCheckFlag := fs.Bool("update-check", true, "Look up the latest release once a day and report it in /health and kb_status when newer, and let the Atlas read the release history on demand; off, neither call is made (or CARTOGRAPHER_UPDATE_CHECK)")
@@ -133,6 +134,7 @@ func cmdServe(args []string) int {
 		Data:        dataFlag,
 		Tokens:      tokensFlag,
 		WebEnabled:  webEnabledFlag,
+		TLSEnabled:  tlsEnabledFlag,
 		APIEnabled:  apiEnabledFlag,
 		UpdateCheck: updateCheckFlag,
 	}
@@ -231,6 +233,8 @@ func loadServeConfigAt(fs *flag.FlagSet, overrides config.FlagOverrides, configF
 			explicit.Tokens = overrides.Tokens
 		case "web-enabled":
 			explicit.WebEnabled = overrides.WebEnabled
+		case "tls-enabled":
+			explicit.TLSEnabled = overrides.TLSEnabled
 		case "api-enabled":
 			explicit.APIEnabled = overrides.APIEnabled
 		case "update-check":
@@ -595,6 +599,9 @@ func applyKBPolicy(k *kb.KB, cfg *config.Config, server config.KBSpec, name stri
 
 // runServe opens/bootstraps all configured KBs and starts the server.
 func runServe(cfg *config.Config, reload *authReload) {
+	if err := checkTLSConfig(cfg); err != nil {
+		log.Fatal(err)
+	}
 	if err := checkCredentialsDir(cfg); err != nil {
 		log.Fatal(err)
 	}
@@ -617,7 +624,7 @@ func runServe(cfg *config.Config, reload *authReload) {
 	if cfg.HTTP != "" {
 		// serveHTTP installs its own signal handler; the context only stops a
 		// bootstrap clone when the server is asked to end.
-		err := serveHTTP(cfg.HTTP, func(phase func(string)) kbBootstrap { return bootstrapKBs(cfg, phase) }, cfg.Auth, reload, cfg.Web.Enabled, auditLog, latestVersion, cfg)
+		err := serveHTTP(cfg.HTTP, func(phase func(string)) kbBootstrap { return bootstrapKBs(cfg, phase) }, cfg.Auth, reload, cfg.Web.Enabled, auditLog, latestVersion, cfg, cfg.TLS)
 		stopSinks()
 		if err != nil {
 			if errors.Is(err, errRestartToMount) {
@@ -673,7 +680,13 @@ func serveStdio(k *kb.KB, artifactSigner ed25519.PrivateKey, sqlIdxs map[string]
 // listener starts; a failure inside boot stays fatal. The port is bound
 // synchronously, before boot is started: a second serve on a taken port returns
 // the error at once, without cloning, committing or indexing anything.
-func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg config.AuthConfig, reload *authReload, webEnabled bool, auditLog *audit.Log, latestVersion func() string, settingsCfg *config.Config) error {
+func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg config.AuthConfig, reload *authReload, webEnabled bool, auditLog *audit.Log, latestVersion func() string, settingsCfg *config.Config, tlsCfg config.TLSConfig) error {
+	if tlsCfg.Enabled {
+		// The settings land before the listener that honours them: a server
+		// asked for TLS never starts in clear, so until the TLS listener
+		// replaces this guard the start is refused.
+		return errors.New("tls.enabled: the TLS listener is not available in this build")
+	}
 	if auditLog != nil {
 		log.Printf("audit log active")
 	}

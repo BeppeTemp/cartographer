@@ -67,6 +67,10 @@ server	plugins.{name}.digest	Tree digest of the approved plugin, as printed by c
 server	plugins.{name}.enabled	Set to false to skip the pin: the tree is not read, but the name and digest are still validated.
 server	plugins.{name}.settings	Scalar settings handed to the plugin, typed by the settings its manifest declares.
 server	web.enabled	Serve the read-only Atlas UI at /ui/ and its API at /api/ui/v1 in HTTP mode. false removes both routes.
+server	tls.enabled	Serve the HTTP listener over TLS 1.3 only, with the certificate and key files tls.crt and tls.key of credentials_dir (never inline). The public listener is TLS-only: plain HTTP on it is refused, and nothing is redirected. A missing or mismatched certificate stops the start. HSTS is sent only over TLS. tls.health_addr is the loopback listener of /health and /ready; no plain-HTTP option exists.
+server	tls.health_addr	The loopback listener that answers only GET and HEAD of /health and /ready when tls.enabled, for the local probes. Default: 127.0.0.1 on the public port plus one (a public port of 0 or 65535 requires the key). Must be a loopback host:port different from the public address; off runs no health listener. YAML only.
+server	tls.hsts_max_age	The max-age of the Strict-Transport-Security header, sent on every response over TLS and never on a plain one (no includeSubDomains, no preload). 0 turns it off. YAML only.
+server	tls.reload_interval	How often a running server looks at tls.crt and tls.key for a change. 0 stops the poll; SIGHUP always reloads. YAML only.
 server	feedback.destination	Where agent bug and idea reports go. github opens a prefilled issue on the public repository; off removes the offer lines from the served instructions and the hint on internal errors; an https:// URL template (it must contain {title}) points agents at an internal tracker. Nothing is ever sent by the server.
 server	api.enabled	Serve the public read-only API at /api/v1 in HTTP mode, independent of web.enabled. Off by default: nothing is exposed until set.
 server	api.cors_origins	Browser origins allowed to read /api/v1, each scheme://host[:port] (http or https, no path, no *). Empty allows none.
