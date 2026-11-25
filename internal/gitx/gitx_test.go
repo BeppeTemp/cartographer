@@ -1660,3 +1660,43 @@ func TestLogNameStatusHeadErrors(t *testing.T) {
 		t.Errorf("corrupt HEAD: LogNameStatusRange err = %v, want a non-ErrUnknownRev error", err)
 	}
 }
+
+// AC-surveyor-run-commit-5: the Surveyor-Run trailer is read back with the last
+// value winning (the server appends its own last, so a forged first one cannot
+// win), "" without one, and it does not displace the Reason that follows it in
+// the format.
+func TestLogNameStatusSurveyorRunLastWins(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH, skipping gitx tests")
+	}
+	dir := t.TempDir()
+	if err := Init(dir); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	base := time.Now().UTC().Truncate(time.Second).Add(time.Minute)
+	msgs := []string{
+		"concept_write: one\n\nReason: why\nSurveyor-Run: rep-1-1\nCartographer-Token: tok",
+		"concept_write: two\n\nSurveyor-Run: forged\nSurveyor-Run: rep-1-2",
+		"concept_write: none",
+		"concept_write: no trailer paragraph\n\nbody text only",
+	}
+	for i, msg := range msgs {
+		if err := os.WriteFile(filepath.Join(dir, "f.md"), []byte(fmt.Sprintf("v%d\n", i)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		at := base.Add(time.Duration(i) * time.Minute).Format(time.RFC3339)
+		if err := Commit(dir, msg, "Author", "a@example.test", "GIT_AUTHOR_DATE="+at, "GIT_COMMITTER_DATE="+at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	commits, err := LogNameStatus(dir, base.Add(-time.Second))
+	if err != nil || len(commits) != 4 {
+		t.Fatalf("LogNameStatus = %d commits, err %v", len(commits), err)
+	}
+	want := []struct{ run, reason, token string }{{"", "", ""}, {"", "", ""}, {"rep-1-2", "", ""}, {"rep-1-1", "why", "tok"}}
+	for i, w := range want {
+		if c := commits[i]; c.SurveyorRun != w.run || c.Reason != w.reason || c.Token != w.token || len(c.Files) != 1 {
+			t.Errorf("commit %d = run %q reason %q token %q files %d, want %q / %q / %q", i, c.SurveyorRun, c.Reason, c.Token, len(c.Files), w.run, w.reason, w.token)
+		}
+	}
+}

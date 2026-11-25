@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/componentproto"
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
@@ -737,6 +738,8 @@ const (
 	defaultChangesSinceWindow = 7 * 24 * time.Hour
 	defaultChangesSinceLimit  = 100
 	maxChangesSinceLimit      = 500
+	// maxSurveyorRuns caps changesSinceConcept.SurveyorRuns.
+	maxSurveyorRuns = 8
 )
 
 type changesSinceConcept struct {
@@ -755,6 +758,11 @@ type changesSinceConcept struct {
 	// Agents are the distinct Agent: trailers (D718) of the commits that
 	// touched the concept, newest first: which agent clients wrote here.
 	Agents []string `json:"agents,omitempty"`
+	// SurveyorRuns are the distinct Surveyor-Run: trailers of the commits of the
+	// window that touched the concept, newest first, at most 8: the run ids a
+	// Surveyor declared for those writes. A self-declared label, never
+	// authorization; the Atlas also checks the commit's author.
+	SurveyorRuns []string `json:"surveyor_runs,omitempty"`
 	// Transfers are the Moved-To:/Moved-From: trailers (D760) of those commits
 	// as "to <kb>" / "from <kb>": the concept left or arrived by concept_transfer.
 	Transfers []string `json:"transfers,omitempty"`
@@ -942,6 +950,9 @@ func buildChangesSince(ctx requestContext, k *kb.KB, commits []gitx.CommitChange
 			if commit.Agent != "" && !agentSeen[id][commit.Agent] {
 				agentSeen[id][commit.Agent] = true
 				info.Agents = append(info.Agents, commit.Agent)
+			}
+			if run := commit.SurveyorRun; run != "" && len(info.SurveyorRuns) < maxSurveyorRuns && componentproto.ValidRunID(run) && !slices.Contains(info.SurveyorRuns, run) {
+				info.SurveyorRuns = append(info.SurveyorRuns, run)
 			}
 			for _, tr := range []string{movedLabel("to", visibleKBName(ctx, commit.MovedTo)), movedLabel("from", visibleKBName(ctx, commit.MovedFrom))} {
 				if tr != "" && !slices.Contains(info.Transfers, tr) {

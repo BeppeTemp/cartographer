@@ -169,7 +169,7 @@ func (s *Server) buildSDKServer() *sdk.Server {
 // sees for an ordinary denial or a failing tool.
 func (s *Server) sdkToolHandler(name string) sdk.ToolHandler {
 	return func(ctx context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
-		ctx = withCallerAuthor(withCallerSession(withCallerClient(ctx, req), req), req)
+		ctx = withSurveyorRun(withCallerAuthor(withCallerSession(withCallerClient(ctx, req), req), req), req)
 		// The unknown-argument check runs inside the shared path, after the
 		// unknown-tool answer and the authorization decision (#1279): a caller
 		// that may not use the tool gets the denial, not a schema probe.

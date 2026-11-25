@@ -1895,6 +1895,11 @@ type CommitChanges struct {
 	// the id of the token that wrote it, appended by the server last. Empty when
 	// absent (a commit that is not a write, or one made before it existed).
 	Token string
+	// SurveyorRun is the value of the commit's Surveyor-Run: trailer
+	// (D2370): the run id a Surveyor declared, written by the
+	// server before Cartographer-Host. The last one wins, like Token. A hint,
+	// never authorization. Empty when absent.
+	SurveyorRun string
 	// Reason is the value of the commit's Reason: trailer (D272), empty when
 	// absent. With several trailers only the first is kept.
 	Reason string
@@ -2069,9 +2074,10 @@ func logNameStatus(dir string, rangeArgs ...string) ([]CommitChanges, error) {
 	// The record separator gives each commit an unambiguous boundary while the
 	// NUL-separated header keeps subjects with spaces intact. --name-status is
 	// deliberately left line-oriented to match git's ordinary path format.
-	// Reason must stay the LAST field (after Moved-To/Moved-From/Cartographer-Token): the name-status block is split off at the
-	// first newline after it.
-	format := "%x1e%H%x00%aI%x00%an%x00%s%x00%(trailers:key=Accepted-Finding,valueonly,separator=%x1f)%x00%(trailers:key=Agent,valueonly,separator=%x1f)%x00%(trailers:key=Moved-To,valueonly,separator=%x1f)%x00%(trailers:key=Moved-From,valueonly,separator=%x1f)%x00%(trailers:key=Cartographer-Token,valueonly,separator=%x1f)%x00%(trailers:key=Reason,valueonly,separator=%x1f)"
+	// Reason must stay the LAST field (after Moved-To/Moved-From/Cartographer-Token/Surveyor-Run): the name-status block is split off at the
+	// first newline after it. The format and the field count of the split below
+	// change together.
+	format := "%x1e%H%x00%aI%x00%an%x00%s%x00%(trailers:key=Accepted-Finding,valueonly,separator=%x1f)%x00%(trailers:key=Agent,valueonly,separator=%x1f)%x00%(trailers:key=Moved-To,valueonly,separator=%x1f)%x00%(trailers:key=Moved-From,valueonly,separator=%x1f)%x00%(trailers:key=Cartographer-Token,valueonly,separator=%x1f)%x00%(trailers:key=Surveyor-Run,valueonly,separator=%x1f)%x00%(trailers:key=Reason,valueonly,separator=%x1f)"
 	// -z: the name-status block is NUL-separated ("S\0path\0", a rename
 	// "R100\0old\0new\0", a "\0" after the commit), so a path is never quoted
 	// and may hold a tab or a newline.
@@ -2087,8 +2093,8 @@ func logNameStatus(dir string, rangeArgs ...string) ([]CommitChanges, error) {
 		if record == "" {
 			continue
 		}
-		head := strings.SplitN(record, "\x00", 10)
-		if len(head) != 10 {
+		head := strings.SplitN(record, "\x00", 11)
+		if len(head) != 11 {
 			continue
 		}
 		at, err := time.Parse(time.RFC3339, head[1])
@@ -2099,14 +2105,15 @@ func logNameStatus(dir string, rangeArgs ...string) ([]CommitChanges, error) {
 		// block, so the block is whatever follows the first newline.
 		// With -z a commit with no changed file (a merge, --allow-empty) ends
 		// with a lone NUL right after the trailers: not part of the reason.
-		reasonAndFiles := strings.SplitN(strings.TrimRight(head[9], "\x00"), "\n", 2)
+		reasonAndFiles := strings.SplitN(strings.TrimRight(head[10], "\x00"), "\n", 2)
 		accepted := splitTrailerValues(head[4])
 		reason, _, _ := strings.Cut(reasonAndFiles[0], "\x1f")
 		agent, _, _ := strings.Cut(head[5], "\x1f")
 		movedTo, _, _ := strings.Cut(head[6], "\x1f")
 		movedFrom, _, _ := strings.Cut(head[7], "\x1f")
 		token := lastTrailerValue(head[8])
-		commit := CommitChanges{SHA: head[0], At: at, Author: head[2], Subject: head[3], Agent: strings.TrimSpace(agent), MovedTo: strings.TrimSpace(movedTo), MovedFrom: strings.TrimSpace(movedFrom), Token: token, Reason: strings.TrimSpace(reason), AcceptedFindings: accepted}
+		surveyorRun := lastTrailerValue(head[9])
+		commit := CommitChanges{SHA: head[0], At: at, Author: head[2], Subject: head[3], Agent: strings.TrimSpace(agent), MovedTo: strings.TrimSpace(movedTo), MovedFrom: strings.TrimSpace(movedFrom), Token: token, SurveyorRun: surveyorRun, Reason: strings.TrimSpace(reason), AcceptedFindings: accepted}
 		if len(reasonAndFiles) == 2 {
 			commit.Files = parseNameStatusZ(reasonAndFiles[1])
 		}

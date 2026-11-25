@@ -138,6 +138,12 @@
             },
             "type": "array"
           },
+          "surveyor_runs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "transfers": {
             "items": {
               "type": "string"
