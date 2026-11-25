@@ -349,3 +349,26 @@ func TestValidateDashboardTableAndTimeline(t *testing.T) {
 		}
 	}
 }
+
+// AC-kbdash-23
+func TestValidateLinksRefusesKBForm(t *testing.T) {
+	ok := "widgets:\n- id: l\n  type: links\n  ids: [visible/a, b]\n"
+	if err := ValidateDashboard([]byte(ok)); err != nil {
+		t.Fatalf("valid: %v", err)
+	}
+	for name, bad := range map[string]string{
+		"kb form":   "widgets:\n- id: l\n  type: links\n  ids: [\"kb:other/x\"]\n",
+		"empty":     "widgets:\n- id: l\n  type: links\n",
+		"filter":    "widgets:\n- id: l\n  type: links\n  ids: [a]\n  filter: {status: [open]}\n",
+		"on list":   "widgets:\n- id: l\n  type: list\n  ids: [a]\n",
+		"blank id":  "widgets:\n- id: l\n  type: links\n  ids: [\"\"]\n",
+		"dotdot":    "widgets:\n- id: l\n  type: links\n  ids: [\"../x\"]\n",
+		"double /":  "widgets:\n- id: l\n  type: links\n  ids: [\"a//b\"]\n",
+		"leading /": "widgets:\n- id: l\n  type: links\n  ids: [\"/x\"]\n",
+		"backslash": "widgets:\n- id: l\n  type: links\n  ids: [\"a\\\\b\"]\n",
+	} {
+		if ValidateDashboard([]byte(bad)) == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+}

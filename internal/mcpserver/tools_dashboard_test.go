@@ -390,6 +390,7 @@ func TestDashboardSecretScanCoversEveryAuthorString(t *testing.T) {
 	for name, ops := range map[string]string{
 		"widget title":    `[{"op":"add","widget":{"id":"w","type":"list","title":"` + secret + `"}}]`,
 		"dashboard title": `[{"op":"set_title","title":"` + secret + `"}]`,
+		"link id":         `[{"op":"add","widget":{"id":"w","type":"links","ids":["` + secret + `"]}}]`,
 		"filter field":    `[{"op":"add","widget":{"id":"w","type":"list","filter":{"fields":{"owner":"` + secret + `"}}}}]`,
 	} {
 		res := callTool(t, s, "dashboard_patch", patchArgs("scan", "", ops))

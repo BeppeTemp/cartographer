@@ -222,6 +222,8 @@ func resolveWidget(src *dashSources, w kb.DashboardWidget) resolvedWidget {
 	switch w.Type {
 	case "note":
 		return out // text only: nothing to resolve
+	case "links":
+		return resolveLinks(src, out)
 	case "kanban", "list", "stat", "agenda", "table", "timeline":
 	default:
 		return fail("widget type %q is not resolved", w.Type)
@@ -608,4 +610,29 @@ func sortDashRows(rows []dashRow, spec string) {
 		}
 		return av < bv
 	})
+}
+
+// resolveLinks resolves the ids of a links widget against the concepts the
+// caller may read. A hidden id and a nonexistent one take the same branch, so
+// their output is byte-equal (D226); only a readable concept carries a title.
+func resolveLinks(src *dashSources, out resolvedWidget) resolvedWidget {
+	rows, err := src.rows("concepts")
+	if err != nil {
+		out.Problem = fmt.Sprintf("concepts source: %s", relPathErr(err, src.k.Root))
+		return out
+	}
+	byID := make(map[string]dashboardEntry, len(rows))
+	for _, r := range rows {
+		byID[r.out.ID] = r.out
+	}
+	out.Entries = make([]dashboardEntry, 0, len(out.IDs))
+	for _, id := range out.IDs {
+		if e, ok := byID[id]; ok {
+			out.Entries = append(out.Entries, dashboardEntry{ID: e.ID, Title: e.Title})
+			continue
+		}
+		out.Entries = append(out.Entries, dashboardEntry{ID: id, State: "missing"})
+	}
+	out.Total = len(out.Entries)
+	return out
 }

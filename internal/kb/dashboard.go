@@ -15,6 +15,8 @@ import (
 	"unicode"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
 // DashboardsDir is the KB-root folder of the dashboards: one file
@@ -41,6 +43,7 @@ const (
 	dashboardMaxFields      = 10
 	dashboardMaxHorizon     = 365
 	dashboardMaxColumns     = 8
+	dashboardMaxLinks       = 50 // ids of a links widget
 	dashboardColumnMaxBytes = 200
 )
 
@@ -55,7 +58,7 @@ var (
 // sides equal. Icons are names of the Atlas icon set; accents are names of
 // its colour tokens, never a colour (D227: appearance is not free).
 var (
-	dashboardWidgetTypes = []string{"kanban", "list", "stat", "agenda", "note", "table", "timeline"}
+	dashboardWidgetTypes = []string{"kanban", "list", "stat", "agenda", "note", "table", "timeline", "links"}
 	dashboardIcons       = []string{"list", "work", "health", "maps", "sources", "services", "artifacts", "components", "key", "paths", "eye", "lock", "alert", "person", "check", "info", "activity", "search", "grow", "settings"}
 	dashboardAccents     = []string{"neutral", "primary", "accent", "clay", "ok", "info", "warning", "error"}
 )
@@ -98,6 +101,10 @@ type DashboardWidget struct {
 	DateField   string `yaml:"date_field,omitempty"   json:"date_field,omitempty"`   // agenda, timeline; default review_after
 	HorizonDays int    `yaml:"horizon_days,omitempty" json:"horizon_days,omitempty"` // agenda, default 14
 	Show        string `yaml:"show,omitempty"         json:"show,omitempty"`         // stat: count | groups
+
+	// IDs is the list of a links widget: concept ids of this KB, in the order
+	// the author wrote them. The kb:<name>/<id> form is not accepted yet.
+	IDs []string `yaml:"ids,omitempty" json:"ids,omitempty"`
 
 	// Problem is set by the tolerant read only: why this widget cannot draw.
 	// It is never written, and a file carrying an `error` key is refused.
@@ -371,6 +378,26 @@ func checkWidget(w DashboardWidget, seen map[string]bool) []string {
 	}
 	if w.HorizonDays < 0 || w.HorizonDays > dashboardMaxHorizon {
 		add("horizon_days %d is not between 1 and %d", w.HorizonDays, dashboardMaxHorizon)
+	}
+	if w.Type == "links" {
+		if len(w.IDs) == 0 || len(w.IDs) > dashboardMaxLinks {
+			add("a links widget lists 1 to %d ids, not %d", dashboardMaxLinks, len(w.IDs))
+		}
+		for _, id := range w.IDs {
+			switch {
+			case id == "" || len(id) > 200 || strings.ContainsFunc(id, unicode.IsControl):
+				add("link id %q must be a non-empty concept id of at most 200 bytes with no control character", id)
+			case strings.HasPrefix(id, "kb:"):
+				add("link id %q names another KB: a links widget takes ids of this KB only", id)
+			case okf.ValidateID(id) != nil:
+				add("link id %q is not a canonical concept id (relative, slash-separated, no empty, . or .. segment, no backslash)", id)
+			}
+		}
+		if w.Filter != nil || w.GroupBy != "" || len(w.Columns) > 0 || w.Sort != "" || w.Limit != 0 || w.Source != "" {
+			add("a links widget has ids only: no filter, source, group_by, columns, sort or limit")
+		}
+	} else if len(w.IDs) > 0 {
+		add("ids belong to a links widget")
 	}
 	if w.Show != "" && (w.Type != "stat" || (w.Show != "count" && w.Show != "groups")) {
 		add("show %q is only for a stat, one of count, groups", w.Show)
