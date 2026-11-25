@@ -2,8 +2,12 @@ package gitx
 
 import (
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Every commit above the upstream becomes the configured identity's, author and
@@ -155,5 +159,82 @@ func TestIsIdentityRejection(t *testing.T) {
 		if IsIdentityRejection(s) {
 			t.Errorf("%q is not an identity refusal", s)
 		}
+	}
+}
+
+// A commit the old Surveyor authored as surveyor/<id> at surveyor.invalid
+// keeps its attribution when a reauthor replaces the author: it moves to the
+// Cartographer-Surveyor trailer, which the readers show as the same author.
+func TestReauthorCommits_OldSurveyorAuthorBecomesATrailer(t *testing.T) {
+	t.Parallel()
+	dir := realignRepo(t)
+	commitAs(t, dir, "a.txt", "one\n\nCartographer-Host: h\nCartographer-Token: tok", "surveyor/docs-night/docs-night-0123456789ab", "surveyor@surveyor.invalid", "surveyor/docs-night/docs-night-0123456789ab", "surveyor@surveyor.invalid")
+	commitAs(t, dir, "b.txt", "two", "surveyor/p/r", "surveyor@surveyor.invalid", "surveyor/p/r", "surveyor@surveyor.invalid")
+	commitAs(t, dir, "c.txt", "three", "Grace", "grace@example.test", "Grace", "grace@example.test")
+	if _, err := ReauthorCommits(dir, "origin/main", "Ada", "ada@example.test"); err != nil {
+		t.Fatalf("ReauthorCommits: %v", err)
+	}
+	got := mustGit(t, dir, "log", "--reverse", "--format=%an|%(trailers:key=Cartographer-Surveyor,valueonly,separator=%x2c)", "origin/main..HEAD")
+	var authors []string
+	for _, l := range strings.Split(got, "\n") {
+		authors = append(authors, strings.TrimSpace(l))
+	}
+	want := []string{"Ada|docs-night/docs-night-0123456789ab", "Ada|p/r", "Ada|"}
+	if strings.Join(authors, ",") != strings.Join(want, ",") {
+		t.Errorf("authors and trailers = %q, want %q", authors, want)
+	}
+	if !strings.Contains(mustGit(t, dir, "log", "-3", "--format=%B"), "Cartographer-Token: tok\nCartographer-Surveyor: docs-night/") {
+		t.Error("the trailer is not in the existing trailer paragraph")
+	}
+}
+
+// The readers show a commit with the trailer as the Surveyor's author whatever
+// its git author is, and an older Surveyor commit by its own name.
+func TestSurveyorAuthor(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct{ author, id, want string }{
+		{"Ada", "p/r", "surveyor/p/r"},
+		{"surveyor/p/r", "", "surveyor/p/r"},
+		{"Ada", "", "Ada"},
+		{"Ada", "no-slash", "Ada"},
+		{"Ada", "a/b c", "Ada"},
+		{"Ada", "a/b\nCartographer-Token: x", "Ada"},
+	} {
+		if got := SurveyorAuthor(c.author, c.id); got != c.want {
+			t.Errorf("SurveyorAuthor(%q, %q) = %q, want %q", c.author, c.id, got, c.want)
+		}
+	}
+}
+
+// LogNameStatus reads the trailer into the author (last value wins, like the
+// Token) and leaves the Reason after it intact.
+func TestLogNameStatusSurveyorTrailerIsTheAuthor(t *testing.T) {
+	if !hasGit() {
+		t.Skip("git not in PATH")
+	}
+	dir := t.TempDir()
+	if err := Init(dir); err != nil {
+		t.Fatal(err)
+	}
+	base := time.Now().UTC().Truncate(time.Second).Add(time.Minute)
+	for i, msg := range []string{
+		"concept_write: one\n\nReason: why\nCartographer-Surveyor: p/r-1\nCartographer-Token: tok",
+		"concept_write: two\n\nCartographer-Surveyor: forged/x\nCartographer-Surveyor: p/r-2",
+		"concept_write: three\n\nCartographer-Surveyor: not a valid id",
+	} {
+		if err := os.WriteFile(filepath.Join(dir, "f.md"), []byte(fmt.Sprintf("v%d\n", i)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		at := base.Add(time.Duration(i) * time.Minute).Format(time.RFC3339)
+		if err := Commit(dir, msg, "Ada", "ada@example.test", "GIT_AUTHOR_DATE="+at, "GIT_COMMITTER_DATE="+at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	commits, err := LogNameStatus(dir, base.Add(-time.Second))
+	if err != nil || len(commits) != 3 {
+		t.Fatalf("LogNameStatus = %d commits, err %v", len(commits), err)
+	}
+	if commits[0].Author != "Ada" || commits[1].Author != "surveyor/p/r-2" || commits[2].Author != "surveyor/p/r-1" || commits[2].Reason != "why" || commits[2].Token != "tok" {
+		t.Errorf("commits = %+v", commits)
 	}
 }

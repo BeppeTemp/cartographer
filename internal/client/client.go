@@ -161,6 +161,9 @@ type MCPClient struct {
 	// SurveyorRun is the id of the Surveyor run this client's tool calls belong
 	// to; it travels in SurveyorRunHeader. Empty (or invalid) sends nothing.
 	SurveyorRun string
+	// Surveyor is "<perimeter>/<replica>" of the Surveyor this client's tool
+	// calls are by; it travels in SurveyorHeader. Empty (or invalid) sends nothing.
+	Surveyor string
 
 	// legacyComponents is set (atomically) once a 404 on the component family
 	// showed the server predates it (a 0.28 server): the two reports that were
@@ -439,6 +442,15 @@ func (c *MCPClient) WithSurveyorRun(id string) *MCPClient {
 	return &cp
 }
 
+// WithSurveyor returns a copy of the client whose tool calls say which
+// Surveyor, "<perimeter>/<replica>", they are by. It sets no author: the
+// writes keep the KB's identity.
+func (c *MCPClient) WithSurveyor(id string) *MCPClient {
+	cp := *c
+	cp.Surveyor = id
+	return &cp
+}
+
 // unauthorizedCauseFor builds the Cause of a 401 for this client's credential.
 func (c *MCPClient) unauthorizedCauseFor() error {
 	switch {
@@ -529,6 +541,13 @@ const AuthorHeader = "Cartographer-Author"
 // must never allow or deny anything on it. Sent on tools/call only.
 const SurveyorRunHeader = "Cartographer-Surveyor-Run"
 
+// SurveyorHeader carries "<perimeter>/<replica>" of the Surveyor a tool call is
+// by. The server records it as a Cartographer-Surveyor commit trailer, so the
+// Surveyor is attributable while the commit's author stays the KB's identity
+// (a forge membership rule refuses any other). A label, never authorization.
+// Sent on tools/call only.
+const SurveyorHeader = "Cartographer-Surveyor"
+
 // withProtocolMeta returns params with the revision's reserved _meta keys
 // merged in. params is left untouched: callers build plain maps and should not
 // have to know the protocol decorates them.
@@ -606,6 +625,9 @@ func (c *MCPClient) doCtx(ctx context.Context, method string, params any) (json.
 		}
 		if c.Author != "" {
 			httpReq.Header.Set(AuthorHeader, EncodeAuthor(c.Author))
+		}
+		if componentproto.ValidSurveyorID(c.Surveyor) {
+			httpReq.Header.Set(SurveyorHeader, c.Surveyor)
 		}
 		// A value the server would drop is never sent.
 		if componentproto.ValidRunID(c.SurveyorRun) {

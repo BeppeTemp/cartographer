@@ -26,6 +26,16 @@ const RunIDPattern = `^[A-Za-z0-9._:/-]{1,96}$`
 
 var runIDRe = regexp.MustCompile(RunIDPattern)
 
+// SurveyorIDPattern is a Surveyor's identity in a commit trailer,
+// "<perimeter>/<replica>": no whitespace or newline, so it cannot inject a
+// second trailer.
+const SurveyorIDPattern = `^[A-Za-z0-9._:-]{1,64}/[A-Za-z0-9._:-]{1,96}$`
+
+var surveyorIDRe = regexp.MustCompile(SurveyorIDPattern)
+
+// ValidSurveyorID reports whether s is a well-formed "<perimeter>/<replica>".
+func ValidSurveyorID(s string) bool { return surveyorIDRe.MatchString(s) }
+
 // ValidRunID reports whether s is a well-formed run id.
 func ValidRunID(s string) bool { return runIDRe.MatchString(s) }
 
