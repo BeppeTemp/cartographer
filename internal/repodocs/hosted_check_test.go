@@ -175,7 +175,11 @@ case "$1 $2" in
 "api "*) echo; exit 0 ;;
 "workflow run") [ -z "$GH_DISPATCH_FAIL" ] || exit 1; echo "$*" > "$S/dispatch"; : > "$S/dispatched"; exit 0 ;;
 "run list")
-  if [ ! -e "$S/dispatched" ]; then [ -z "$GH_LIST_FAIL" ] || exit 1; echo 100; exit 0; fi
+  if [ ! -e "$S/dispatched" ]; then
+    [ -z "$GH_LIST_FAIL" ] || exit 1
+    if [ -n "$GH_FLAKY" ]; then f=$(cat "$S/lflaky" 2>/dev/null || echo 0); if [ "$f" -lt "$GH_FLAKY" ]; then echo $((f + 1)) > "$S/lflaky"; exit 1; fi; fi
+    echo 100; exit 0
+  fi
   n=$(cat "$S/polls" 2>/dev/null || echo 0); echo $((n + 1)) > "$S/polls"
   if [ "$n" -ge 1 ]; then echo 101; fi
   echo 100; exit 0 ;;
@@ -185,6 +189,8 @@ case "$1 $2" in
   *jobs*) ;;
   *) exit 99 ;; # the verdict and the legs come from one poll
   esac
+  [ -z "$GH_VIEW_DOWN" ] || exit 1
+  if [ -n "$GH_FLAKY" ]; then f=$(cat "$S/vflaky" 2>/dev/null || echo 0); if [ "$f" -lt "$GH_FLAKY" ]; then echo $((f + 1)) > "$S/vflaky"; exit 1; fi; fi
   if [ "$3" = 100 ]; then echo "completed success "; else echo "completed $GH_CONCL $GH_JOBS"; fi
   exit 0 ;;
 "run cancel") echo "$3" > "$S/cancelled"; exit 0 ;;
@@ -216,15 +222,19 @@ func TestHostedCheckRun(t *testing.T) {
 		name, concl string
 		dispatchBad bool
 		listBad     bool
+		flaky       string
 		code        int
 		want        string
 	}{
-		{"green", "success", false, false, 0, "check: OK (hosted-check run 101)"},
-		{"red prints the log", "failure", false, false, 1, "FAILED-LOG-LINE"},
-		{"timed out is red", "timed_out", false, false, 1, "FAILED-LOG-LINE"},
-		{"cancelled is 1 and says so", "cancelled", false, false, 1, "was cancelled"},
-		{"a refused dispatch is 75", "", true, false, 75, "cannot dispatch"},
-		{"a failed run list before the dispatch is 75", "", false, true, 75, "cannot list"},
+		{"green", "success", false, false, "", 0, "check: OK (hosted-check run 101)"},
+		{"red prints the log", "failure", false, false, "", 1, "FAILED-LOG-LINE"},
+		{"timed out is red", "timed_out", false, false, "", 1, "FAILED-LOG-LINE"},
+		{"cancelled is 1 and says so", "cancelled", false, false, "", 1, "was cancelled"},
+		{"a refused dispatch is 75", "", true, false, "", 75, "cannot dispatch"},
+		{"a failed run list before the dispatch is 75", "", false, true, "", 75, "cannot list"},
+		{"a list and a poll that fail twice are retried", "success", false, false, "2", 0, "check: OK (hosted-check run 101)"},
+		{"a list that keeps failing is 75 once the tries are spent", "success", false, false, "4", 75, "cannot list"},
+		{"a poll that stays down is 75", "success", false, false, "down", 75, "lost GitHub"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -241,7 +251,12 @@ func TestHostedCheckRun(t *testing.T) {
 			run(repo, "config", "url."+bare+".insteadOf", "https://example.com/owner/name.git")
 			stubs := stubBin(t, map[string]string{"gh": ghStub})
 			path := stubs + string(os.PathListSeparator) + filepath.Dir(git) + string(os.PathListSeparator) + "/usr/bin" + string(os.PathListSeparator) + "/bin"
-			env := append([]string{"GH_STATE=" + state, "GH_CONCL=" + c.concl, "HOSTED_CHECK_POLL=0", "HOSTED_CHECK_DISPATCH_POLL=0"}, gitEnv...)
+			env := append([]string{"GH_STATE=" + state, "GH_CONCL=" + c.concl, "HOSTED_CHECK_POLL=0", "HOSTED_CHECK_DISPATCH_POLL=0", "HOSTED_CHECK_GH_WAIT=0"}, gitEnv...)
+			if c.flaky == "down" {
+				env = append(env, "GH_VIEW_DOWN=1")
+			} else if c.flaky != "" {
+				env = append(env, "GH_FLAKY="+c.flaky)
+			}
 			if c.listBad {
 				env = append(env, "GH_LIST_FAIL=1")
 			}
@@ -363,7 +378,7 @@ func TestHostedCheckSweepKeepsOtherWorktrees(t *testing.T) {
 	run(repo, "remote", "add", "origin", bare)
 	stubs := stubBin(t, map[string]string{"gh": ghStub})
 	path := stubs + string(os.PathListSeparator) + filepath.Dir(git) + string(os.PathListSeparator) + "/usr/bin" + string(os.PathListSeparator) + "/bin"
-	env := append([]string{"GH_STATE=" + state, "GH_CONCL=success", "HOSTED_CHECK_POLL=0", "HOSTED_CHECK_DISPATCH_POLL=0"}, gitEnv...)
+	env := append([]string{"GH_STATE=" + state, "GH_CONCL=success", "HOSTED_CHECK_POLL=0", "HOSTED_CHECK_DISPATCH_POLL=0", "HOSTED_CHECK_GH_WAIT=0"}, gitEnv...)
 	// This worktree's branch name, from a dry run.
 	_, out := runHostedCheck(t, repo, path, append([]string{"HOSTED_CHECK_DRY=1"}, env...), "check-run", "CHECK_PKGS=./a")
 	m := regexp.MustCompile(`(check/[a-z0-9-]+-[0-9a-f]{6})-[0-9a-f]{12}`).FindStringSubmatch(out)
@@ -569,7 +584,7 @@ func TestHostedCheckWindowsLeg(t *testing.T) {
 			stubs := stubBin(t, map[string]string{"gh": ghStub})
 			path := stubs + string(os.PathListSeparator) + filepath.Dir(git) + string(os.PathListSeparator) + "/usr/bin" + string(os.PathListSeparator) + "/bin"
 			env := append([]string{"HOSTED_CHECK_TEST_WIN_PKGS=./a ./b", "GH_STATE=" + state, "GH_CONCL=" + c.concl, "GH_JOBS=" + c.jobs, "GH_LOG=" + log,
-				"HOSTED_CHECK_POLL=0", "HOSTED_CHECK_DISPATCH_POLL=0"}, gitEnv...)
+				"HOSTED_CHECK_POLL=0", "HOSTED_CHECK_DISPATCH_POLL=0", "HOSTED_CHECK_GH_WAIT=0"}, gitEnv...)
 			code, out := runHostedCheck(t, repo, path, env, "check-run", "CHECK_PKGS=./a")
 			if code != c.code {
 				t.Fatalf("exit %d, want %d:\n%s", code, c.code, out)
