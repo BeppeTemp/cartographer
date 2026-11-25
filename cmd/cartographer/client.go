@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 )
@@ -545,6 +546,11 @@ func saveClientConfig(dir string, cfg *clientconfig.Config) int {
 // read or parsed used to be reported the same way, sending the operator to
 // connect, which refuses to replace it (D1514), instead of to the line to fix.
 func describeClientConfigError(dir string, err error) string {
+	var cae *client.CAFileError
+	if errors.As(err, &cae) {
+		// Not a missing or broken config: its CA file. connect would not help.
+		return fmt.Sprintf("%s: %v", caFileProblem(cae), err)
+	}
 	if errors.Is(err, os.ErrNotExist) {
 		return fmt.Sprintf("no client config found in %s (run `cartographer connect` first): %v", dir, err)
 	}

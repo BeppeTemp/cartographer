@@ -172,6 +172,7 @@ func doReconnect(opts reconnectOptions) (reconnectResult, error) {
 		DryRun:    opts.DryRun,
 
 		AllowInsecureHTTP: cfg.AllowInsecureHTTP,
+		CAFile:            cfg.CAFilePath,
 	}
 	connectRes, err := doConnectLocked(res.ConnectOptions)
 	if err != nil {
@@ -197,6 +198,9 @@ func reconnectRecoveryCommand(providers []string, opts connectOptions) string {
 	}
 	if opts.AllowInsecureHTTP {
 		sb.WriteString(" --allow-insecure-http")
+	}
+	if opts.CAFile != "" {
+		fmt.Fprintf(&sb, " --ca-file %s", opts.CAFile)
 	}
 	if opts.Auth {
 		sb.WriteString(" --auth")

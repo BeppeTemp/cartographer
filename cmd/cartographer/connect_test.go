@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"flag"
 	"fmt"
@@ -752,5 +753,239 @@ func TestConnectOffersInstall_DeniedProbeNeverOffers(t *testing.T) {
 	}
 	if connectOffersInstall(service.Status{HealthSkipReason: service.HealthSkipDenied}) {
 		t.Error("a denied probe was offered an install")
+	}
+}
+
+// AC-tls-native-15: --ca-file is persisted by connect, a re-run without the
+// flag keeps it, the flag beats the file, and reconnect keeps the key.
+func TestConnectCAFilePrecedenceAndReconnect(t *testing.T) {
+	srv := multiKBServer(t, `{"status":"ok","version":"1.4.0","kbs":[{"name":"alpha"}]}`)
+	defer srv.Close()
+	t.Cleanup(func() { _ = client.SetServerCA("", "") })
+	tls := httptest.NewTLSServer(http.NotFoundHandler())
+	defer tls.Close()
+	caFile := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(caFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: tls.Certificate().Raw}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if _, err := doConnect(connectOptions{
+		Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp",
+		Name: "cartographer", Token: "${TOKEN}", CAFile: connectCAFile(caFile, nil),
+	}); err != nil {
+		t.Fatalf("doConnect: %v", err)
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil || cfg.CAFilePath != caFile {
+		t.Fatalf("connect --ca-file must persist server.ca_file: %q, %v", cfg.CAFilePath, err)
+	}
+	if got := connectCAFile("", cfg); got != caFile {
+		t.Errorf("a re-run without the flag must keep the key, got %q", got)
+	}
+	if got := connectCAFile("/other.pem", cfg); got != "/other.pem" {
+		t.Errorf("the flag must beat the file, got %q", got)
+	}
+	if _, err := doReconnect(reconnectOptions{Target: "all", Dir: dir}); err != nil {
+		t.Fatalf("doReconnect: %v", err)
+	}
+	if cfg, err = clientconfig.Load(dir); err != nil || cfg.CAFilePath != caFile {
+		t.Errorf("reconnect must keep server.ca_file: %q, %v", cfg.CAFilePath, err)
+	}
+}
+
+// A missing CA file stops connect before it writes: the server URL and the
+// settings of the existing config stay, and the message names the CA file and
+// where its path came from.
+func TestConnectMissingCAFileKeepsTheConfig(t *testing.T) {
+	old := clientconfig.OnLoad
+	t.Cleanup(func() { clientconfig.OnLoad = old; _ = client.SetServerCA("", "") })
+	clientconfig.OnLoad = registerServerCA
+	dir := t.TempDir()
+	cfg := clientconfig.Default()
+	cfg.ServerURL = "https://kb.example.com/mcp"
+	cfg.CAFilePath = filepath.Join(dir, "gone.pem")
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(clientconfig.Path(dir))
+
+	_, err := loadConfigForWrite(dir)
+	if err == nil {
+		t.Fatal("a missing CA file must stop the command, not hand back defaults")
+	}
+	for _, want := range []string{"gone.pem", "server.ca_file", "CA file"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the message must contain %q: %v", want, err)
+		}
+	}
+	if strings.Contains(err.Error(), "connect first") {
+		t.Errorf("a CA file problem is not a missing config: %v", err)
+	}
+	if got := describeClientConfigError(dir, errors.Join(err)); strings.Contains(got, "connect first") {
+		t.Errorf("describeClientConfigError: %s", got)
+	}
+	after, _ := os.ReadFile(clientconfig.Path(dir))
+	if string(before) != string(after) {
+		t.Error("the config was rewritten")
+	}
+
+	// The environment names itself as the source.
+	t.Setenv(clientconfig.CAFileEnv, filepath.Join(dir, "env-gone.pem"))
+	if _, err := loadConfigForWrite(dir); err == nil || !strings.Contains(err.Error(), clientconfig.CAFileEnv) {
+		t.Errorf("the message must name the variable: %v", err)
+	}
+}
+
+// A config loaded without ca_file (a workspace's) does not clear the CA of the
+// main config.
+func TestLoadWithoutCAFileKeepsTheMainCA(t *testing.T) {
+	old := clientconfig.OnLoad
+	t.Cleanup(func() { clientconfig.OnLoad = old; _ = client.SetServerCA("", "") })
+	clientconfig.OnLoad = registerServerCA
+	tls := httptest.NewTLSServer(http.NotFoundHandler())
+	defer tls.Close()
+	ca := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: tls.Certificate().Raw}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	main, ws := t.TempDir(), t.TempDir()
+	cfg := clientconfig.Default()
+	cfg.ServerURL, cfg.CAFilePath = tls.URL+"/mcp", ca
+	if err := clientconfig.Save(main, cfg); err != nil {
+		t.Fatal(err)
+	}
+	other := clientconfig.Default()
+	other.ServerURL = tls.URL + "/mcp"
+	if err := clientconfig.Save(ws, other); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := clientconfig.Load(main); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := clientconfig.Load(ws); err != nil {
+		t.Fatal(err)
+	}
+	hc := client.HTTPClient(&http.Client{}, false)
+	resp, err := hc.Get(tls.URL)
+	if err != nil {
+		t.Fatalf("the main CA must survive the second load: %v", err)
+	}
+	resp.Body.Close()
+}
+
+// An unknown-authority failure says how to fix it, in connect's deferral and
+// in sync's error.
+func TestUnknownAuthorityHint(t *testing.T) {
+	srv := httptest.NewTLSServer(http.NotFoundHandler())
+	defer srv.Close()
+	t.Cleanup(func() { _ = client.SetServerCA("", "") })
+	_, err := client.New(srv.URL, "").Health(5 * time.Second)
+	if err == nil {
+		t.Fatal("the probe must fail verification")
+	}
+	for name, got := range map[string]string{
+		"deferral": deferralReason(err),
+		"sync":     syncErrorText(err, t.TempDir(), ""),
+		"probe":    probeErrorMessage(probeUnreachable, err),
+	} {
+		if !strings.Contains(got, "--ca-file <pem>") || !strings.Contains(got, "CARTOGRAPHER_CA_FILE") || strings.Contains(got, "trust") {
+			t.Errorf("%s: %q", name, got)
+		}
+	}
+	if got := deferralReason(errors.New("boom")); strings.Contains(got, "--ca-file") {
+		t.Errorf("the hint belongs to certificate failures only: %q", got)
+	}
+}
+
+// caLoadFixture sets OnLoad to registerServerCA and returns a TLS server, a
+// writer of a CA file for the server's certificate, and a config saver.
+func caLoadFixture(t *testing.T) (srv *httptest.Server, caFor func(*httptest.Server) string, save func(dir, ca string)) {
+	t.Helper()
+	old := clientconfig.OnLoad
+	t.Cleanup(func() { clientconfig.OnLoad = old; _ = client.SetServerCA("", "") })
+	clientconfig.OnLoad = registerServerCA
+	srv = httptest.NewTLSServer(http.NotFoundHandler())
+	t.Cleanup(srv.Close)
+	caFor = func(s *httptest.Server) string {
+		p := filepath.Join(t.TempDir(), "ca.pem")
+		if err := os.WriteFile(p, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: s.Certificate().Raw}), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	save = func(dir, ca string) {
+		cfg := clientconfig.Default()
+		cfg.ServerURL, cfg.CAFilePath = srv.URL+"/mcp", ca
+		if err := clientconfig.Save(dir, cfg); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return srv, caFor, save
+}
+
+func reaches(srv *httptest.Server) bool {
+	resp, err := client.HTTPClient(&http.Client{}, false).Get(srv.URL)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return true
+}
+
+// Removing server.ca_file from the config that registered the CA, in a process
+// that stays up, withdraws it on the next load.
+func TestLoadAfterCAFileRemovedDropsTheCA(t *testing.T) {
+	srv, caFor, save := caLoadFixture(t)
+	dir := t.TempDir()
+	save(dir, caFor(srv))
+	if _, err := clientconfig.Load(dir); err != nil || !reaches(srv) {
+		t.Fatalf("the CA must be trusted after the first load: %v", err)
+	}
+	save(dir, "")
+	if _, err := clientconfig.Load(dir); err != nil {
+		t.Fatal(err)
+	}
+	if reaches(srv) {
+		t.Fatal("the removed CA file is still trusted")
+	}
+}
+
+// A config of another directory without ca_file does not drop the CA the main
+// config registered, even for the same server.
+func TestLoadOfAnotherConfigWithoutCAFileKeepsTheCA(t *testing.T) {
+	srv, caFor, save := caLoadFixture(t)
+	main, ws := t.TempDir(), t.TempDir()
+	save(main, caFor(srv))
+	save(ws, "")
+	for _, d := range []string{main, ws, ws} {
+		if _, err := clientconfig.Load(d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !reaches(srv) {
+		t.Fatal("another directory's config cleared the main CA")
+	}
+}
+
+// A new ca_file path in the same config replaces the pool (httptest servers
+// share one certificate, so the pool itself is compared).
+func TestLoadWithAChangedCAFileReplacesThePool(t *testing.T) {
+	srv, caFor, save := caLoadFixture(t)
+	dir := t.TempDir()
+	host := strings.TrimPrefix(srv.URL, "https://")
+	save(dir, caFor(srv))
+	if _, err := clientconfig.Load(dir); err != nil {
+		t.Fatal(err)
+	}
+	first := client.ServerRoots(host)
+	if first == nil {
+		t.Fatal("no pool after the first load")
+	}
+	save(dir, caFor(srv))
+	if _, err := clientconfig.Load(dir); err != nil {
+		t.Fatal(err)
+	}
+	if second := client.ServerRoots(host); second == nil || second == first {
+		t.Fatal("the pool was not replaced by the new ca_file")
 	}
 }

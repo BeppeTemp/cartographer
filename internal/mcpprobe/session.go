@@ -13,6 +13,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/procattr"
 )
 
@@ -136,7 +137,7 @@ func httpClient(t Target) *http.Client {
 		host = req.URL.Host
 	}
 	return &http.Client{
-		Transport: headerTripper{h: t.Headers, next: http.DefaultTransport},
+		Transport: headerTripper{h: t.Headers, next: client.ScopedTransport()},
 		CheckRedirect: func(req *http.Request, _ []*http.Request) error {
 			if !strings.EqualFold(req.URL.Host, host) {
 				return ErrRedirectHost

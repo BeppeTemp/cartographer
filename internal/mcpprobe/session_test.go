@@ -2,6 +2,7 @@ package mcpprobe
 
 import (
 	"context"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -134,5 +136,25 @@ func TestRunTimeoutKillsTheGrandchild(t *testing.T) {
 			t.Fatalf("grandchild %d is still running after the probe returned", pid)
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// The session of a descriptor at the configured server's host:port verifies
+// with the server CA, as Dial does.
+func TestRunHTTPSessionTrustsTheServerCA(t *testing.T) {
+	h := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return fakeServer() }, nil)
+	srv := httptest.NewTLSServer(h)
+	defer srv.Close()
+	t.Cleanup(func() { _ = client.SetServerCA("", "") })
+	ca := filepath.Join(t.TempDir(), "ca.pem")
+	if err := os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.SetServerCA(ca, srv.URL+"/mcp"); err != nil {
+		t.Fatal(err)
+	}
+	info, err := Run(context.Background(), Target{URL: srv.URL}, 20*time.Second, nil)
+	if err != nil || len(info.Tools) != 2 {
+		t.Fatalf("the session must verify with the server CA: %v, %v", info.Tools, err)
 	}
 }

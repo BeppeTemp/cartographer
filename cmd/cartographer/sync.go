@@ -165,6 +165,9 @@ const noConfigModifiedNote = "no configuration was modified"
 // claiming the file is untouched.
 func syncErrorText(err error, dir, migratedBackup string) string {
 	msg := err.Error()
+	if isUnknownAuthority(err) {
+		msg += unknownAuthorityHint
+	}
 	if migratedBackup == "" {
 		return msg
 	}
