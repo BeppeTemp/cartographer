@@ -21,3 +21,21 @@ the default branch is seen within that bound. A git failure while reading is an 
 missing or unknown field, a name that is not a KB name, a remote that is not a git remote or a
 name declared twice leaves out that item alone, with one finding `depends_on[<i>]`; a value that
 is not a list leaves out the key. `KB.NormalizedOriginErr` gives the KB's own origin in the same form (memoized like `Relations`); a git failure reading it is an error and is not kept, never "no remote".
+
+## Resolution
+
+`kb.ResolveRelations` is the one function every surface uses. A declared `{name, remote}`
+resolves when a KB is mounted under `name` or under an old name `kb_aliases` still maps (a
+mounted name beats an alias, D772), the caller may read it, and its origin
+(`KB.NormalizedOriginErr`) equals the declared remote; the remote guard applies to a target found
+through an alias as to any other. The view has `declared` and `unresolved` as written, and
+`resolved` (direct edges) and `closure` (transitive, depth-first discovery order, the KB itself
+excluded) by **current** mount name. An unresolved item has one reason: `not_mounted`,
+`remote_mismatch` (the target's actual remote is never shown), `no_remote` (a folder mount),
+`self` (the declaration names the KB itself by mount name or by its own origin), `cycle` or
+`too_deep` (a walk would pass 64 KBs). A direct edge to `T` is a `cycle` when the KB is reachable
+from `T`: in `a` to `b` to `a` the edge is a cycle in the view of each, and both closures are
+empty; a cycle that does not pass through the KB marks none of its edges. A KB the caller cannot
+read is never entered and answers exactly like one that is not mounted (`not_mounted`), so its own
+relations never reach the closure. A git failure reading any entered KB's `settings.yaml`, or its
+origin, is an error and no view, never a reason.
