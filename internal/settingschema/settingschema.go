@@ -408,9 +408,62 @@ func (s Schema) Render(doc *yaml.Node) {
 	if root == nil {
 		return
 	}
+	// Set apart by a blank line, a block above the first key is the head
+	// comment of the document, not of the key.
+	if doc.Kind == yaml.DocumentNode {
+		var moved string
+		doc.HeadComment, moved = cutBlock(doc.HeadComment)
+		if moved != "" {
+			doc.FootComment = joinComments(doc.FootComment, moved)
+		}
+	}
+	liftHeadBlocks(doc, root)
 	s.homeBlocks(doc)
 	s.walk(doc, root, s.tree(), true)
 	adoptTrailingNote(doc, root)
+}
+
+// liftHeadBlocks runs before homeBlocks. A person who writes a key below an
+// available-settings block makes the parser read the block as that key's head
+// comment, where homeBlocks does not look, and a second block was appended.
+// From its first divider on, a head comment goes to the foot of the previous
+// key of the mapping (the foot of the document when the key is the first), the
+// place homeBlocks reads; the text before the divider stays as the key's note.
+func liftHeadBlocks(doc, m *yaml.Node) {
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		k, v := m.Content[i], m.Content[i+1]
+		var moved string
+		k.HeadComment, moved = cutBlock(k.HeadComment)
+		if moved != "" {
+			dst := &doc.FootComment
+			if i > 0 {
+				dst = &m.Content[i-2].FootComment
+			}
+			*dst = joinComments(*dst, moved)
+		}
+		switch v.Kind {
+		case yaml.MappingNode:
+			liftHeadBlocks(doc, v)
+		case yaml.SequenceNode:
+			for _, e := range v.Content {
+				if e.Kind == yaml.MappingNode {
+					liftHeadBlocks(doc, e)
+				}
+			}
+		}
+	}
+}
+
+// cutBlock splits a comment at its first divider: the text before it, and the
+// block from the divider on. The cut starts at the divider: what is above it,
+// glued or not, stays; a note glued below the block's last line goes with it.
+func cutBlock(c string) (before, block string) {
+	lines := strings.Split(c, "\n")
+	at := slices.IndexFunc(lines, isMarker)
+	if at < 0 {
+		return c, ""
+	}
+	return strings.Trim(strings.Join(lines[:at], "\n"), "\n"), strings.Trim(strings.Join(lines[at:], "\n"), "\n")
 }
 
 // adoptTrailingNote moves a note that ends the file, right after a mapping that
