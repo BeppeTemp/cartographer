@@ -111,6 +111,10 @@ type KB struct {
 	// whole (D775): read it through Policy(), write it through SetPolicy().
 	policy atomic.Pointer[Policy]
 
+	// mounts is the set of KBs mounted with this one (mounts.go), set once at
+	// serve start; read it through Mounts().
+	mounts mountsHolder
+
 	// SiblingRoots maps every other KB the same server mounts to its absolute
 	// root (D316). Set by the HTTP server at mount time when it mounts more
 	// than one KB; nil otherwise. Lint reads it for cross_kb_path: an
