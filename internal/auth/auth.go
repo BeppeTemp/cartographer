@@ -7,6 +7,7 @@ package auth
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -484,7 +485,17 @@ func (ts *TokenStore) lookup(token string) (Principal, lookupStatus) {
 }
 
 func (ts *TokenStore) lookupEntry(token string) (tokenEntry, lookupStatus) {
-	e, ok := ts.snap.Load().hashes[hashToken(token)]
+	// Constant-time scan of every entry: the time does not depend on how much
+	// of the digest matches or on which entry matches, so the loop never
+	// leaves on a match.
+	want := []byte(hashToken(token))
+	var e tokenEntry
+	ok := false
+	for h, cand := range ts.snap.Load().hashes {
+		if subtle.ConstantTimeCompare([]byte(h), want) == 1 {
+			e, ok = cand, true
+		}
+	}
 	if !ok {
 		return tokenEntry{}, lookupUnknown
 	}

@@ -298,6 +298,8 @@ mode.
 
 Send a token only in `Authorization: Bearer <token>`, never in a URL.
 
+The bearer comparison is constant-time over every configured token: the SHA-256 digest of the presented token is compared with each stored digest (`crypto/subtle`) and the scan never stops at a match, so the time depends on neither how much of a token matches nor which entry matches.
+
 **Compass refuses cleartext (D1023).** A client never sends the bearer token to
 a non-loopback `http://` URL: every request fails before dialing unless the
 operator opted in with `server.allow_insecure_http` or `CARTOGRAPHER_ALLOW_INSECURE_HTTP=1`

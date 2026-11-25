@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -702,5 +705,81 @@ func TestMiddlewareSchemeIsCaseInsensitive(t *testing.T) {
 	handler.ServeHTTP(rr, req)
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("altered token: code %d", rr.Code)
+	}
+}
+
+// AC-tls-native-1: the constant-time scan answers as the map lookup did,
+// whatever the position of the token in the store.
+func TestLookupEntryResultsUnchanged(t *testing.T) {
+	now := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
+	ts := NewScopedTokenStore([]ScopedToken{
+		{Token: "tok-first", Policy: Policy{Admin: true}},
+		{Token: "tok-middle", Policy: Policy{Admin: true}},
+		{Token: "tok-expired", Policy: Policy{Admin: true}, ExpiresAt: now.Add(-time.Hour)},
+		{Token: "tok-last", Policy: Policy{Admin: true}},
+	})
+	ts.now = func() time.Time { return now }
+	for _, c := range []struct {
+		name  string
+		token string
+		want  lookupStatus
+	}{
+		{"first", "tok-first", lookupOK},
+		{"middle", "tok-middle", lookupOK},
+		{"last", "tok-last", lookupOK},
+		{"expired", "tok-expired", lookupExpired},
+		{"unknown", "tok-none", lookupUnknown},
+		{"empty", "", lookupUnknown},
+		{"prefix", "tok-firs", lookupUnknown},
+	} {
+		if _, st := ts.lookupEntry(c.token); st != c.want {
+			t.Errorf("%s: status = %v, want %v", c.name, st, c.want)
+		}
+	}
+	a, _ := ts.lookup("tok-first")
+	b, _ := ts.lookup("tok-last")
+	if a.ID == b.ID {
+		t.Fatalf("two tokens alias to principal %q", a.ID)
+	}
+}
+
+// AC-tls-native-2: no token or digest is compared with == or bytes.Equal in
+// the package, and lookupEntry uses crypto/subtle.
+func TestAuthDoesNotCompareCredentialsWithEquality(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	re := regexp.MustCompile(`bytes\.Equal|\b(token|digest|hash|secret|bearer)\w*\s*[!=]=\s*[^=\s]|[!=]=\s*\w*(token|digest|hash|secret|bearer)\w*\b`)
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		src, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, line := range strings.Split(string(src), "\n") {
+			code := line
+			if j := strings.Index(code, "//"); j >= 0 {
+				code = code[:j]
+			}
+			// Empty-string and length checks are not credential comparisons.
+			if strings.Contains(code, `== ""`) || strings.Contains(code, `!= ""`) || strings.Contains(code, "len(") {
+				continue
+			}
+			if re.MatchString(code) {
+				t.Errorf("%s:%d compares a credential with equality: %s", f, i+1, strings.TrimSpace(line))
+			}
+		}
+	}
+	src, err := os.ReadFile("auth.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(src)
+	i := strings.Index(s, "func (ts *TokenStore) lookupEntry(")
+	if i < 0 || !strings.Contains(s[i:i+800], "subtle.ConstantTimeCompare") {
+		t.Fatal("lookupEntry must compare digests with crypto/subtle")
 	}
 }
