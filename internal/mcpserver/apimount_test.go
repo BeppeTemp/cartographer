@@ -65,7 +65,7 @@ func TestAPIMount_InternalRoutesAre404(t *testing.T) {
 	h := newAPIHandler(t, auth.NewTokenStore(nil), true, true)
 	n := 0
 	for _, rt := range apiRoutes {
-		path := strings.ReplaceAll("/"+strings.Join(rt.segments, "/"), "{kb}", "docs")
+		path := liveURL("/" + strings.Join(rt.segments, "/"))
 		if rt.Events != nil {
 			continue
 		}

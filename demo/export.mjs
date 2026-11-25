@@ -88,6 +88,9 @@ await api(`${k}/work?limit=200&fields=contradiction_kind`);
 for (const p of ["maintenance/summary", "maintenance/review", "checks", "revision", "births", "status", "components", "surveyor-history", "feeds", "secrets", "placeholders", "maps", "journal", "sources?status=pending&limit=500", "sources?status=*&limit=500", "services", "retired"]) {
   await api(`${k}/${p}`);
 }
+// Dashboards (D745): the list, then one call per dashboard of the KB.
+const dashboards = await api(`${k}/dashboards`);
+for (const d of dashboards.dashboards) await api(`${k}/dashboards/${q(d.name)}`);
 // Per-concept history (assets are only for expanded concepts, so they stay live-only).
 for (const node of graph.nodes) await api(`${k}/history?id=${q(node.id)}`);
 

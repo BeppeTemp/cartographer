@@ -1,0 +1,13 @@
+title: Observing desk
+description: What the observatory has on record, by Map.
+widgets:
+  - id: pages
+    type: stat
+    title: Pages on record
+    source: concepts
+    width: 1
+  - id: notes
+    type: note
+    title: About this dashboard
+    text: A dashboard holds queries over the KB, never copies of its pages.
+    width: 3

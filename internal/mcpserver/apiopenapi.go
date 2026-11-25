@@ -58,6 +58,9 @@ func buildOpenAPIDocument() ([]byte, error) {
 			op.Params = append(op.Params, openapi.Param{Name: "kb", In: "path", Description: "KB name", Required: true})
 			op.Errors = append(op.Errors, http.StatusNotFound)
 		}
+		for _, v := range rt.pathVars() {
+			op.Params = append(op.Params, openapi.Param{Name: v, In: "path", Description: "Name in the path", Required: true})
+		}
 		for _, q := range rt.Query {
 			op.Params = append(op.Params, openapi.Param{Name: q.Name, In: "query", Description: q.Description, Type: q.Type, Required: q.Required})
 		}
@@ -81,6 +84,7 @@ func operationID(rt apiRoute) string {
 		if seg == "{kb}" {
 			continue
 		}
+		seg = strings.Trim(seg, "{}")
 		if id != "" {
 			seg = strings.ToUpper(seg[:1]) + seg[1:]
 		}
