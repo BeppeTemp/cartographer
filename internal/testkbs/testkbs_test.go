@@ -385,3 +385,37 @@ func TestSurveyorRunsCoverItsCommits(t *testing.T) {
 		}
 	}
 }
+
+// The Surveyor's demo commits carry the Surveyor-Run: trailer of the run that
+// covers them, so the Atlas shows an exact link; the oldest commit of the
+// second KB carries none, to show the author-and-time fallback.
+func TestSurveyorCommitsCarryTheirRunID(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	day := time.Now().UTC().Truncate(24 * time.Hour)
+	trailers := func(kb string) []string {
+		root := filepath.Join(dir, kb)
+		if err := Generate(root, Spec{Name: kb, Concepts: 40, Seed: 11}, day); err != nil {
+			t.Fatal(err)
+		}
+		out, err := exec.Command("git", "-C", root, "log", "--author="+SurveyorAuthor, "--reverse",
+			"--format=%(trailers:key=Surveyor-Run,valueonly,separator=%x2c)").Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []string
+		for _, l := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
+			got = append(got, strings.TrimSpace(l))
+		}
+		return got
+	}
+	want := map[string][]string{
+		"observatory":     {"dev-run-002", "dev-run-002", "dev-run-001", "dev-run-001"},
+		"mountain-rescue": {"", "dev-run-009", "dev-run-008", "dev-run-008"},
+	}
+	for kb, w := range want {
+		if got := trailers(kb); strings.Join(got, "|") != strings.Join(w, "|") {
+			t.Errorf("%s: Surveyor-Run trailers %q, want %q", kb, got, w)
+		}
+	}
+}

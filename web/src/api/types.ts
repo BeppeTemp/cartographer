@@ -355,6 +355,8 @@ export interface ConceptChange {
   authors?: string[];
   ops?: string[];
   reasons?: string[];
+  /** Run ids of the `Surveyor-Run` trailers of the window's commits that touched it, newest first; absent when none (a self-declared hint). */
+  surveyor_runs?: string[];
 }
 export interface ChangesResponse {
   since: string;
