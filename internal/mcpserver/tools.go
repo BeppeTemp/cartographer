@@ -159,6 +159,8 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	register(toolKBStatus(k, misses, reads, s.version, s.knownLatestVersion, s.feedbackDestination, s.atlasKBURL, cc))
 	register(toolKBReview(k, cc))
 	register(toolWorkList(k, cc))
+	register(toolDashboardList(k))
+	register(toolDashboardGet(k, cc))
 	// Core on every connection (D1100): a host that gives the model only tools
 	// reaches the guide and the procedures here, bundle or not.
 	register(toolKBGuide(k, deps, s.feedbackDestination))

@@ -2,6 +2,7 @@ package kb
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -246,5 +247,31 @@ func TestReadDashboardRefusesSymlink(t *testing.T) {
 	}
 	if names, _ := k.ListDashboards(); len(names) != 0 {
 		t.Errorf("a symlink and a folder are not dashboards, got %v", names)
+	}
+}
+
+// TestDashboardColumnsAreValues: a kanban column is a value of the group-by
+// field, so a space or a number is fine; an empty, long or control-character
+// value, or more than 8, is refused with a message that says values.
+func TestDashboardColumnsAreValues(t *testing.T) {
+	t.Parallel()
+	ok := "widgets:\n  - id: k\n    type: kanban\n    columns: [open, in progress, \"2026\", Done now]\n"
+	if err := ValidateDashboard([]byte(ok)); err != nil {
+		t.Fatalf("values refused: %v", err)
+	}
+	many := make([]string, 9)
+	for i := range many {
+		many[i] = fmt.Sprintf("c%d", i)
+	}
+	for name, cols := range map[string]string{
+		"empty":   `[""]`,
+		"control": `["a\u0007b"]`,
+		"long":    `["` + strings.Repeat("x", 201) + `"]`,
+		"many":    "[" + strings.Join(many, ",") + "]",
+	} {
+		err := ValidateDashboard([]byte("widgets:\n  - id: k\n    type: kanban\n    columns: " + cols + "\n"))
+		if err == nil || strings.Contains(err.Error(), "field names") || !strings.Contains(err.Error(), "column") {
+			t.Errorf("%s: %v", name, err)
+		}
 	}
 }

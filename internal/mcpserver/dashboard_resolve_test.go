@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"path/filepath"
 	"strings"
@@ -210,5 +211,89 @@ func TestResolveGroupByTypeAndField(t *testing.T) {
 	bad := kb.Dashboard{Widgets: []kb.DashboardWidget{{ID: "s", Type: "stat", Show: "groups"}}}
 	if w := resolveDashboard(adminCtx, k, &conformanceCache{}, bad).Widgets[0]; w.Problem == "" {
 		t.Fatal("show groups without group_by accepted")
+	}
+}
+
+// TestResolveDashboardCapsEntriesAcrossGroups: the limit is per group, so a
+// grouped widget is also capped as a whole; group totals stay true.
+func TestResolveDashboardCapsEntriesAcrossGroups(t *testing.T) {
+	t.Parallel()
+	_, k := workServer(t)
+	for i := 0; i < 250; i++ {
+		writeKBFile(t, k, fmt.Sprintf("visible/bulk%03d.md", i),
+			fmt.Sprintf("---\ntype: Bulk\ntitle: Bulk %d\nteam: t%d\n---\n# Bulk\n", i, i%5))
+	}
+	d := kb.Dashboard{Widgets: []kb.DashboardWidget{
+		{ID: "g", Type: "list", Source: "concepts", GroupBy: "field:team", Filter: &kb.DashboardFilter{Type: []string{"Bulk"}}},
+	}}
+	w := resolveDashboard(adminCtx, k, &conformanceCache{}, d).Widgets[0]
+	shown, total := 0, 0
+	for _, g := range w.Groups {
+		shown += len(g.Entries)
+		total += g.Total
+	}
+	if shown != dashboardMaxLimit || total != 250 || w.Total != 250 {
+		t.Fatalf("shown %d total %d widget total %d", shown, total, w.Total)
+	}
+}
+
+// TestAgendaDayReadsStrictly: only a string that is exactly a day, or a full
+// RFC 3339 timestamp (taken in the server zone), is a date.
+func TestAgendaDayReadsStrictly(t *testing.T) {
+	t.Parallel()
+	zone := time.FixedZone("plus2", 2*3600)
+	for in, want := range map[any]string{
+		"2026-11-24":                "2026-11-24",
+		"2026-11-24T23:30:00Z":      "2026-11-25",
+		"2026-11-24T10:00:00+02:00": "2026-11-24",
+	} {
+		if got, ok := agendaDay(in, zone); !ok || got != want {
+			t.Errorf("%v: got %q %v, want %q", in, got, ok, want)
+		}
+	}
+	for _, in := range []any{"2026-11-24garbage", "2026-11-24 10:00", "2026-11-24T10:00:00", "2026-13-40", "", []string{"2026-11-24"}, 20261124} {
+		if got, ok := agendaDay(in, zone); ok {
+			t.Errorf("%v accepted as %q", in, got)
+		}
+	}
+}
+
+// TestAgendaHorizonIsClamped: a horizon past a year reads as a year.
+func TestAgendaHorizonIsClamped(t *testing.T) {
+	t.Parallel()
+	_, k := workServer(t)
+	writeKBFile(t, k, "visible/in.md", "---\ntype: Task\ntitle: in\nstatus: open\ndue: 2027-06-01\n---\n# in\n")
+	writeKBFile(t, k, "visible/out.md", "---\ntype: Task\ntitle: out\nstatus: open\ndue: 2028-01-01\n---\n# out\n")
+	d := kb.Dashboard{Widgets: []kb.DashboardWidget{{ID: "a", Type: "agenda", Source: "concepts", DateField: "due", HorizonDays: 100000}}}
+	now := time.Date(2026, 11, 24, 8, 0, 0, 0, time.UTC)
+	got := resolveDashboardAt(adminCtx, k, &conformanceCache{}, d, now).Widgets[0]
+	if s := groupSummary(got); s != "2027-06-01=visible/in" {
+		t.Fatalf("agenda: %s", s)
+	}
+}
+
+// TestGroupsAreBounded: past dashboardMaxGroups distinct keys the rest fall
+// into one "(other)" group with a true total, and a key is cut to 200 bytes.
+func TestGroupsAreBounded(t *testing.T) {
+	t.Parallel()
+	_, k := workServer(t)
+	for i := 0; i < 60; i++ {
+		writeKBFile(t, k, fmt.Sprintf("visible/g%02d.md", i), fmt.Sprintf("---\ntype: Bulk\ntitle: G%d\nteam: team%02d\n---\n# G\n", i, i))
+	}
+	long := strings.Repeat("x", 300)
+	writeKBFile(t, k, "visible/long.md", "---\ntype: Bulk\ntitle: Long\nteam: "+long+"\n---\n# L\n")
+	d := kb.Dashboard{Widgets: []kb.DashboardWidget{{ID: "g", Type: "stat", Show: "groups", Source: "concepts", GroupBy: "field:team", Filter: &kb.DashboardFilter{Type: []string{"Bulk"}}, Sort: "title"}}}
+	w := resolveDashboard(adminCtx, k, &conformanceCache{}, d).Widgets[0]
+	if len(w.Groups) != dashboardMaxGroups+1 || w.Total != 61 {
+		t.Fatalf("groups %d total %d", len(w.Groups), w.Total)
+	}
+	other := w.Groups[len(w.Groups)-1]
+	if other.Key != dashboardOtherGroup || other.Total != 61-dashboardMaxGroups {
+		t.Fatalf("other group: %+v", other)
+	}
+	for _, g := range w.Groups {
+		if len(g.Key) > dashboardKeyMaxBytes {
+			t.Fatalf("key of %d bytes", len(g.Key))
+		}
 	}
 }

@@ -1,0 +1,10 @@
+{
+  "dashboards": [
+    {
+      "name": "overview",
+      "title": "Overview",
+      "widgets": 2,
+      "hash": "eb5f8934183b6dae00c3cdec8cae13a727168d48d1c4f2a102f15b67f40d7766"
+    }
+  ]
+}
