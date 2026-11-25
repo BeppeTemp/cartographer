@@ -7,10 +7,10 @@ import (
 
 // taskMetric is the one-line JSON record of a finished task, for the log: the
 // measurement of what a surveyor did. It never carries a page's content.
-func taskMetric(perimeter, replica, kb string, t TaskSpec, model, key string, d time.Duration, res Result, err error) string {
+func taskMetric(perimeter, replica, kb string, t TaskSpec, model, key, runID string, d time.Duration, res Result, err error) string {
 	m := map[string]any{
 		"metric": "surveyor_task", "perimeter": perimeter, "replica": replica, "kb": kb,
-		"kind": t.Kind, "profile": t.Profile, "model": model, "key": key,
+		"kind": t.Kind, "profile": t.Profile, "model": model, "key": key, "run": runID,
 		"seconds": d.Round(time.Millisecond).Seconds(),
 		"tokens":  res.Tokens, "cache_read_tokens": res.CacheReadTokens,
 		"steps": res.Steps, "max_prompt_tokens": res.MaxPromptTokens, "tool_calls": res.ToolCalls, "tool_errors": res.ToolErrors,

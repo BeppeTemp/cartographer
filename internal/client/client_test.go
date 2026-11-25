@@ -843,3 +843,37 @@ func TestHealth_NeverSendsTheTokenBeforeTheShapeIsKnown(t *testing.T) {
 		t.Errorf("same-host redirect saw %q", got)
 	}
 }
+
+// AC-surveyor-run-commit-2: the run id travels on tools/call only, and only
+// when valid.
+func TestSurveyorRunHeaderOnToolsCallOnly(t *testing.T) {
+	var mu sync.Mutex
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		got = append(got, r.Header.Get("Mcp-Method")+" "+strings.Join(r.Header.Values(client.SurveyorRunHeader), "|"))
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{}"}]}}`))
+	}))
+	defer srv.Close()
+
+	c := client.New(srv.URL, "").WithSurveyorRun("replica-1-2")
+	if err := c.Ping(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Call("ok_tool", map[string]any{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"", "has space", "line\nbreak", strings.Repeat("a", 97)} {
+		if _, err := client.New(srv.URL, "").WithSurveyorRun(bad).Call("ok_tool", map[string]any{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	want := "server/discover \ntools/call replica-1-2" + strings.Repeat("\ntools/call ", 4)
+	if strings.Join(got, "\n") != want {
+		t.Fatalf("run headers:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
+	}
+}

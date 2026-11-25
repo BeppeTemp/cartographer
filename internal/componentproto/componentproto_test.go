@@ -2,6 +2,7 @@ package componentproto
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -59,5 +60,16 @@ func TestGolden(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("contract changed:\n got %v\nwant %v", got, want)
+	}
+}
+
+func TestValidRunID(t *testing.T) {
+	for id, want := range map[string]bool{
+		"replica-1-2": true, "a.b:c/d_e": true, "": false, "a b": false, "a\nb": false,
+		strings.Repeat("a", 96): true, strings.Repeat("a", 97): false,
+	} {
+		if got := ValidRunID(id); got != want {
+			t.Errorf("ValidRunID(%q) = %v, want %v", id, got, want)
+		}
 	}
 }

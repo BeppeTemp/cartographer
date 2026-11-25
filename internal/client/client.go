@@ -154,6 +154,9 @@ type MCPClient struct {
 	// tools/call only. Empty sends nothing and the server authors the write as
 	// the token.
 	Author string
+	// SurveyorRun is the id of the Surveyor run this client's tool calls belong
+	// to; it travels in SurveyorRunHeader. Empty (or invalid) sends nothing.
+	SurveyorRun string
 
 	// legacyComponents is set (atomically) once a 404 on the component family
 	// showed the server predates it (a 0.28 server): the two reports that were
@@ -424,6 +427,14 @@ func (c *MCPClient) WithAuthor(author string) *MCPClient {
 	return &cp
 }
 
+// WithSurveyorRun returns a copy of the client whose tool calls carry the id of
+// the Surveyor run they belong to.
+func (c *MCPClient) WithSurveyorRun(id string) *MCPClient {
+	cp := *c
+	cp.SurveyorRun = id
+	return &cp
+}
+
 // unauthorizedCauseFor builds the Cause of a 401 for this client's credential.
 func (c *MCPClient) unauthorizedCauseFor() error {
 	switch {
@@ -509,6 +520,11 @@ const ClientName = "cartographer"
 // it.
 const AuthorHeader = "Cartographer-Author"
 
+// SurveyorRunHeader carries the id of the Surveyor run a tool call belongs to.
+// It is an attribution hint, never authorization: the server may record it and
+// must never allow or deny anything on it. Sent on tools/call only.
+const SurveyorRunHeader = "Cartographer-Surveyor-Run"
+
 // withProtocolMeta returns params with the revision's reserved _meta keys
 // merged in. params is left untouched: callers build plain maps and should not
 // have to know the protocol decorates them.
@@ -586,6 +602,10 @@ func (c *MCPClient) doCtx(ctx context.Context, method string, params any) (json.
 		}
 		if c.Author != "" {
 			httpReq.Header.Set(AuthorHeader, EncodeAuthor(c.Author))
+		}
+		// A value the server would drop is never sent.
+		if componentproto.ValidRunID(c.SurveyorRun) {
+			httpReq.Header.Set(SurveyorRunHeader, c.SurveyorRun)
 		}
 	}
 	if err := c.authorize(httpReq); err != nil {

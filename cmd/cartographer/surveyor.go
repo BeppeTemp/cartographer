@@ -135,6 +135,10 @@ const closeTimeout = 25 * time.Second
 // the client abandons keeps running on the server, holding the KB's lock.
 const toolCallTimeout = 5 * time.Minute
 
+// surveyorBeatInterval overrides the heartbeat interval; zero is the default.
+// A seam for tests that must see a run reported on a beat.
+var surveyorBeatInterval time.Duration
+
 // surveyorRunFn is the runner behind the start-up checks (stubbed by tests).
 var surveyorRunFn = func(ctx context.Context, env *surveyorEnv, once bool) int {
 	tiers := map[string]string{}
@@ -143,7 +147,7 @@ var surveyorRunFn = func(ctx context.Context, env *surveyorEnv, once bool) int {
 	}
 	candidates := surveyor.NewCandidateLog(nil)
 	beater := &surveyor.Beater{API: env.client, Perimeter: env.cfg.Name, Version: version, KBs: env.cfg.KBs,
-		Tiers: tiers, Tasks: surveyor.DeclaredTasks(env.cfg), Settings: env.settings, Logf: log.Printf, Candidates: candidates,
+		Tiers: tiers, Tasks: surveyor.DeclaredTasks(env.cfg), Settings: env.settings, Logf: log.Printf, Candidates: candidates, Interval: surveyorBeatInterval,
 		Sources: func() ([]surveyorconfig.Source, uint64) {
 			gen := env.cfg.Checks.Generation() // before the sources: a check in between is posted next beat
 			return env.cfg.Sources(time.Now()), gen
@@ -151,6 +155,9 @@ var surveyorRunFn = func(ctx context.Context, env *surveyorEnv, once bool) int {
 	r, err := surveyor.NewRunner(env.cfg, surveyor.DefaultKinds(), surveyor.RunnerOptions{
 		Callers: func(kb string) surveyor.ToolCaller {
 			return surveyor.ObserveCalls(env.kbClient(kb).WithHTTPTimeout(toolCallTimeout), candidates, kb)
+		},
+		RunCallers: func(kb, runID string) surveyor.ToolCaller {
+			return surveyor.ObserveCalls(env.kbClient(kb).WithSurveyorRun(runID).WithHTTPTimeout(toolCallTimeout), candidates, kb)
 		},
 		CloseCallers: func(kb string) surveyor.ToolCaller { return env.kbClient(kb).WithHTTPTimeout(closeTimeout) },
 		Models:       env.models,
