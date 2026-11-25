@@ -451,10 +451,7 @@ func pluginLoad() (*clientconfig.Config, core.Store, int) {
 	if err != nil {
 		return nil, store, pluginFail(2, "%v", err)
 	}
-	cfg, err := clientconfig.Load(dir)
-	if errors.Is(err, os.ErrNotExist) {
-		cfg, err = clientconfig.Default(), nil
-	}
+	cfg, err := clientconfig.LoadOrDefault(dir)
 	if err != nil {
 		return nil, store, pluginFail(1, "%v", err)
 	}

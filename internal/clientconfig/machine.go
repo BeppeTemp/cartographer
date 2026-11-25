@@ -93,6 +93,32 @@ func (c *Config) loadMachine(dir string, legacy *legacyCaches, state stateFile, 
 	}
 }
 
+// LoadOrDefault is Load for a command that works, and may save, without a
+// .cartographer.yaml: the defaults when the file does not exist, any other
+// error as Load returns it (D1514). The defaults still carry what the machine
+// recorded beside the YAML: the machine file (read the fail-closed way of
+// loadMachine, so an unreadable one stays unreplaced) and the state file's
+// agents, known KBs and mounts. Saving a bare Default() would replace the
+// machine file with nothing and re-run the pre-approval migration.
+func LoadOrDefault(dir string) (*Config, error) {
+	cfg, err := Load(dir)
+	if err == nil || !errors.Is(err, os.ErrNotExist) {
+		return cfg, err
+	}
+	cfg = Default()
+	state, ok := loadState(dir)
+	if ok {
+		cfg.KnownKBs = state.KnownKBs
+		cfg.ServerMountMode = state.ServerMountMode
+		cfg.ServerRoutedPath = state.ServerRoutedPath
+		if state.Agents != nil {
+			cfg.Agents = *state.Agents
+		}
+	}
+	cfg.loadMachine(dir, &legacyCaches{}, state, false, false)
+	return cfg, nil
+}
+
 // MachineOptOuts reads the sync-timer and tray opt-outs of the machine file in
 // dir, whether or not a .cartographer.yaml exists: they belong to the machine,
 // and a fresh one can carry them. False, false when the file is absent or

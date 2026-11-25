@@ -339,3 +339,32 @@ func TestCheckTriggerCoverage_OptOutIsInfo(t *testing.T) {
 		t.Fatalf("want one warning, got %+v", got)
 	}
 }
+
+// A machine file with no .cartographer.yaml survives the opt-out commands: one
+// opt-out set keeps the other and the approvals (D1728 amended).
+func TestSetClientOptOut_KeepsTheMachineFileWithoutYAML(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	seed := clientconfig.Default()
+	if err := seed.ApproveMCP("kb-a", "hook/guard", "h1", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	seed.ApprovalsMigrated, seed.TrayOptOut = true, true
+	if err := clientconfig.Save(home, seed); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(clientconfig.Path(home)); err != nil {
+		t.Fatal(err)
+	}
+	if !setSyncTimerOptOut(true) {
+		t.Fatal("the opt-out was not recorded")
+	}
+	cfg, err := clientconfig.Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.SyncTimerOptOut || !cfg.TrayOptOut || !cfg.ApprovalsMigrated || cfg.MCPApprovals["kb-a"]["hook/guard"].ContentHash != "h1" {
+		t.Errorf("machine data lost: %+v", cfg)
+	}
+}

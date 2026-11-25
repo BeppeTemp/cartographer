@@ -857,12 +857,9 @@ func removeLegacyDoctorTimer() {
 // write, because Save from Default() would replace pins, identities and
 // approvals no default can rebuild (D1514).
 func loadConfigForWrite(dir string) (*clientconfig.Config, error) {
-	cfg, err := clientconfig.Load(dir)
+	cfg, err := clientconfig.LoadOrDefault(dir)
 	if err == nil {
 		return cfg, nil
-	}
-	if errors.Is(err, os.ErrNotExist) {
-		return clientconfig.Default(), nil
 	}
 	return nil, fmt.Errorf("the client config cannot be read, nothing was changed (fix or remove %s): %w", clientconfig.Path(dir), err)
 }

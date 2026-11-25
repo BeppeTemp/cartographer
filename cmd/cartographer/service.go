@@ -205,12 +205,12 @@ func setClientOptOut(optOut bool, field func(*clientconfig.Config) *bool) bool {
 		return false
 	}
 	defer release()
-	cfg, err := clientconfig.Load(dir)
+	if _, statErr := os.Stat(clientconfig.Path(dir)); statErr != nil && !optOut {
+		return false // no config to clear an opt-out in
+	}
+	cfg, err := clientconfig.LoadOrDefault(dir)
 	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) || !optOut {
-			return false
-		}
-		cfg = clientconfig.Default()
+		return false
 	}
 	if *field(cfg) == optOut {
 		return optOut
