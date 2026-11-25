@@ -730,6 +730,8 @@ the same config.
 | `--once` | Evaluate the triggers once, run if due, exit 0 (for an external scheduler) |
 | `--log-file <file>` | Append the log to a file instead of stderr, as `serve` does |
 
+`ca_file` (absolute path of a PEM file) lets a server with a certificate from a private CA be reached over `https://`: the file is added to the system roots for the `server_url` host and port only, so the model endpoints, the connectors and `fetch` keep the system roots. A file that is unreadable or holds no certificate stops the start (exit 2), naming `ca_file`. `source-test` reads it too.
+
 Exit codes: 0 graceful shutdown (SIGINT/SIGTERM), 1 runtime failure (including a server that is still
 unreachable after the start-up retries), 2 start error (nothing was started).
 
@@ -739,6 +741,7 @@ The file is strict: an unknown key fails with its path and line. Secrets are nev
 ```yaml
 name: docs-night                  # the perimeter; [a-z0-9-]{1,40}
 server_url: https://wiki.example.com/mcp
+ca_file: /etc/surveyor/ca.pem    # optional: the private CA of the server certificate
 token_env: SURVEYOR_TOKEN
 kbs: [wiki-kb]
 models:                           # named profiles; tasks pick one

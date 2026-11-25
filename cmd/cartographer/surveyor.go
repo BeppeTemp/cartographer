@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"flag"
 	"fmt"
@@ -282,6 +284,20 @@ func loadSurveyorPlugins(cfg *surveyor.Config) error {
 	return cfg.LoadPlugins(core.Options{RunningVersion: version, CheckScripts: star.Check})
 }
 
+// applySurveyorCA registers ca_file for the server_url host only: the model,
+// connector and fetch hosts keep the system roots (client.SetServerCA).
+func applySurveyorCA(cfg *surveyor.Config) error {
+	if err := client.SetServerCA(cfg.CAFile, cfg.ServerURL); err != nil {
+		// The client names its own key (server.ca_file); here the key is the Surveyor's.
+		var cae *client.CAFileError
+		if errors.As(err, &cae) {
+			cae.Source = "ca_file in the Surveyor config"
+		}
+		return fmt.Errorf("ca_file: %w", err)
+	}
+	return nil
+}
+
 // surveyorStartup runs the start-up checks in order; each failure starts nothing.
 // The token and the API keys never reach an error or a log line: they are only
 // handed to the clients.
@@ -312,6 +328,9 @@ func surveyorStartup(ctx context.Context, path string, kinds *surveyor.Kinds, re
 		models[p.Name] = m
 	}
 
+	if err := applySurveyorCA(cfg); err != nil {
+		return nil, startFail(surveyorExitStart, "surveyor config %s: %v", path, err)
+	}
 	c := client.New(cfg.ServerURL, cfg.Token()).WithInsecureHTTP(cfg.AllowInsecureHTTP).WithTokenEnv(cfg.TokenEnv)
 	h, err := healthWithRetry(ctx, c, retry)
 	if err != nil {
@@ -403,6 +422,10 @@ func healthWithRetry(ctx context.Context, c *client.MCPClient, r retryPolicy) (*
 		var re *client.RemoteError
 		retriable := errors.As(err, &re) && (re.Code == client.CodeStarting || re.Code == client.CodeUnreachable || re.Code == client.CodeDNSFailed || re.HTTPStatus >= 500)
 		// A 5xx is a proxy or a rollout in front of the server: Health reports it as CodeHTTPFailed.
+		if isCertificateRejection(err) {
+			// A certificate the machine does not accept cannot clear by itself: waiting only delays the message.
+			return nil, startFail(surveyorExitStart, "health check of %s: %v%s", c.ServerURL, err, certificateRejectionHint(err))
+		}
 		if !retriable {
 			return nil, startFail(surveyorExitStart, "health check of %s: %v", c.ServerURL, err)
 		}
@@ -414,6 +437,27 @@ func healthWithRetry(ctx context.Context, c *client.MCPClient, r retryPolicy) (*
 		}
 		delay = min(delay*2, r.max)
 	}
+}
+
+// isCertificateRejection reports whether err is a TLS handshake that refused
+// the server's certificate: unknown authority, wrong host name, expired or
+// otherwise invalid.
+func isCertificateRejection(err error) bool {
+	var ua x509.UnknownAuthorityError
+	var he x509.HostnameError
+	var ci x509.CertificateInvalidError
+	var cv *tls.CertificateVerificationError
+	return errors.As(err, &ua) || errors.As(err, &he) || errors.As(err, &ci) || errors.As(err, &cv)
+}
+
+// certificateRejectionHint names the fix: the Surveyor trusts a private CA only
+// through ca_file (the client wording is unknownAuthorityHint).
+func certificateRejectionHint(err error) string {
+	var ua x509.UnknownAuthorityError
+	if errors.As(err, &ua) {
+		return "; the server's certificate is not signed by a CA this machine accepts: set ca_file in the Surveyor config to the PEM of the server's CA"
+	}
+	return "; the server's certificate was not accepted: check the host name and validity of the certificate, or set ca_file in the Surveyor config to the PEM of the server's CA"
 }
 
 // surveyorKBClient is the client of one KB for a command that has no start-up
