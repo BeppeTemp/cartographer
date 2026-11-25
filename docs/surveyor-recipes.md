@@ -72,6 +72,10 @@ that unit: no connector or network is involved. The asset text is searchable thr
 ID without `content_asset` is a planner's and is left alone; a staged unit of an older revision stays `draft`, inert,
 because the Surveyor never deletes.
 
+The model call that shapes the unit sees the entry's text too, in the user message only and as data like the rest: a
+`content` data block with its first 6 KiB, cut with a `[truncated n bytes]` marker, so a cut prefix can miss the pages
+the tail concerns. The unit's executor reads all of it. A reused unit (a changed document) makes no call.
+
 A recipe that lists cheaply (`key`, `revision`) and has no content in the listing gets it through the `fetch` verb
 (below): the poll asks for the entries that need a new unit and stages the answer exactly as inline content.
 

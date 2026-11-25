@@ -59,3 +59,19 @@ func TestDocumentedSurveyorConfigLoads(t *testing.T) {
 		t.Fatal("no surveyor example found in docs/deployment.md")
 	}
 }
+
+// The pages that describe the poll say what the shaping call sees of an entry's text.
+func TestDocsSayWhatTheShapingCallSees(t *testing.T) {
+	for _, page := range []string{"deployment.md", "surveyor-recipes.md"} {
+		doc, err := os.ReadFile(filepath.Join("..", "..", "docs", page))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(doc), "`content` data block") || !strings.Contains(string(doc), "6 KiB") {
+			t.Errorf("%s does not say that the shaping call gets a capped `content` data block", page)
+		}
+	}
+	if pollContentMax != 6<<10 {
+		t.Errorf("pollContentMax = %d: update the docs that say 6 KiB", pollContentMax)
+	}
+}

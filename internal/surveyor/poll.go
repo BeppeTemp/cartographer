@@ -29,6 +29,9 @@ const (
 	pollKindName = "poll"
 	// pollMaxOutput caps the answer of the one model call.
 	pollMaxOutput = 2000
+	// pollContentMax caps the text of an entry the shaping call sees: enough to
+	// tell which pages a document concerns, about 1.5k tokens a new unit.
+	pollContentMax = 6 << 10
 	// pollListTimeout bounds one recipe listing.
 	pollListTimeout = 15 * time.Minute
 	pollFeedMax     = 500
@@ -906,6 +909,11 @@ func (r *pollRun) model(ctx context.Context, rec recipe.Recipe, e recipe.Entry, 
 	tok := dataToken() // per-run delimiter token: data cannot close its own block
 	user := fmt.Sprintf("Shape the IngestUnit for this entry. The plan's maps: %s.\n\n%s\n\n%s\n\n%s",
 		strings.Join(maps, ", "), dataBlock("plan", tok, clip(planBody)), dataBlock("feed", tok, string(feedData)), dataBlock("entry", tok, string(entry)))
+	if e.Content != "" {
+		// The text the unit is about, inline or fetched: user message only, as
+		// data like the rest, and cut, since the executor reads all of it.
+		user += "\n\n" + dataBlock("content", tok, truncateBytes(e.Content, pollContentMax))
+	}
 	if problem != "" {
 		user += "\n\nYour previous answer was refused: " + problem + "\nAnswer again with the corrected JSON object."
 	}

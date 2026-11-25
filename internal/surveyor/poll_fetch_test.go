@@ -167,3 +167,18 @@ func TestPollFetchStopsAtTheAggregateBudget(t *testing.T) {
 		t.Fatalf("units %d, assets %d, feed %v", len(e.k.units()), len(e.k.assets), e.feed())
 	}
 }
+
+// Fetched content takes the same path as inline content: the shaper sees it too.
+func TestPollFetchedContentReachesTheShapingCall(t *testing.T) {
+	e, _ := fetchEnv(t, "fetch")
+	e.mustPoll()
+	seen := 0
+	for _, r := range e.model.reqs {
+		if strings.Contains(r.Messages[0].Text, "BEGIN DATA content ") && strings.Contains(r.Messages[0].Text, "Fetched a.md.\nEND DATA ") {
+			seen++
+		}
+	}
+	if seen != 1 {
+		t.Fatalf("%d shaping calls carried the fetched text of a.md", seen)
+	}
+}
