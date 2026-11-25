@@ -332,3 +332,20 @@ func TestWriteDashboardIsAtomic(t *testing.T) {
 		t.Fatalf("leftovers: %v", entries)
 	}
 }
+
+func TestValidateDashboardTableAndTimeline(t *testing.T) {
+	ok := "widgets:\n- id: t\n  type: table\n  columns: [title, customer]\n  sort: title\n- id: tl\n  type: timeline\n  date_field: due\n  group_by: status\n"
+	if err := ValidateDashboard([]byte(ok)); err != nil {
+		t.Fatalf("valid: %v", err)
+	}
+	for name, bad := range map[string]string{
+		"column":       "widgets:\n- id: t\n  type: table\n  columns: [\"a b\"]\n",
+		"table group":  "widgets:\n- id: t\n  type: table\n  group_by: status\n",
+		"horizon":      "widgets:\n- id: t\n  type: timeline\n  horizon_days: 3\n",
+		"date on list": "widgets:\n- id: t\n  type: list\n  date_field: due\n",
+	} {
+		if ValidateDashboard([]byte(bad)) == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+}

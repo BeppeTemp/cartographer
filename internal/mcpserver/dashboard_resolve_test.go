@@ -297,3 +297,38 @@ func TestGroupsAreBounded(t *testing.T) {
 		}
 	}
 }
+
+// AC-kbdash-25
+func TestResolveTableAndTimeline(t *testing.T) {
+	t.Parallel()
+	_, k := workServer(t)
+	for id, date := range map[string]string{"b": "2026-11-26", "a": "2026-11-20", "c": "2026-12-30"} {
+		writeKBFile(t, k, "visible/"+id+".md", "---\ntype: Task\ntitle: "+id+"\nstatus: open\ndue: "+date+"\ncustomer: acme\n---\n# "+id+"\n")
+	}
+	writeKBFile(t, k, "visible/nodate.md", "---\ntype: Task\ntitle: nodate\nstatus: open\ncustomer: acme\n---\n# n\n")
+	writeKBFile(t, k, "hidden/hd.md", "---\ntype: Task\ntitle: hd\nstatus: open\ndue: 2026-11-21\ncustomer: acme\n---\n# h\n")
+	d := kb.Dashboard{Widgets: []kb.DashboardWidget{
+		{ID: "t", Type: "table", Source: "concepts", Filter: &kb.DashboardFilter{Fields: map[string]string{"customer": "acme"}}, Columns: []string{"customer", "due"}, Sort: "title"},
+		{ID: "tl", Type: "timeline", Source: "concepts", Filter: &kb.DashboardFilter{Fields: map[string]string{"customer": "acme"}}, DateField: "due"},
+	}}
+	now := time.Date(2026, 11, 24, 10, 0, 0, 0, time.UTC)
+	got := resolveDashboardAt(adminCtx, k, &conformanceCache{}, d, now)
+	tbl := got.Widgets[0]
+	if tbl.Problem != "" || tbl.Total != 5 || tbl.Entries[0].Fields["customer"] != "acme" || tbl.Entries[0].Fields["due"] == "" {
+		t.Fatalf("table: %+v", tbl)
+	}
+	tl := got.Widgets[1]
+	if s := dashboardIDs(tl); tl.Problem != "" || tl.Total != 4 || len(tl.Groups) != 0 || s != "visible/a,hidden/hd,visible/b,visible/c" {
+		t.Fatalf("timeline: %q total %d err %q", s, tl.Total, tl.Problem)
+	}
+	ctx := restrictedContext(auth.Policy{Permissions: []auth.Permission{{KB: "docs", Maps: []string{"visible"}}}})
+	hid := resolveDashboardAt(ctx, k, &conformanceCache{}, d, now)
+	if s := dashboardIDs(hid.Widgets[1]); strings.Contains(s, "hidden") || hid.Widgets[1].Total != 3 || hid.Widgets[0].Total != 4 {
+		t.Fatalf("hidden entry leaks: %q %+v", s, hid.Widgets[0].Total)
+	}
+	for _, e := range hid.Widgets[0].Entries {
+		if strings.HasPrefix(e.ID, "hidden/") {
+			t.Fatalf("table leaks %s", e.ID)
+		}
+	}
+}

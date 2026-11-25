@@ -183,6 +183,9 @@ func widgetFieldKeys(w kb.DashboardWidget) []string {
 	if w.DateField != "" {
 		keys = append(keys, w.DateField)
 	}
+	if w.Type == "table" {
+		keys = append(keys, w.Columns...) // the columns a table draws
+	}
 	sort.Strings(keys)
 	return keys
 }
@@ -219,7 +222,7 @@ func resolveWidget(src *dashSources, w kb.DashboardWidget) resolvedWidget {
 	switch w.Type {
 	case "note":
 		return out // text only: nothing to resolve
-	case "kanban", "list", "stat", "agenda":
+	case "kanban", "list", "stat", "agenda", "table", "timeline":
 	default:
 		return fail("widget type %q is not resolved", w.Type)
 	}
@@ -253,6 +256,9 @@ func resolveWidget(src *dashSources, w kb.DashboardWidget) resolvedWidget {
 		}
 	}
 	sortDashRows(picked, w.Sort)
+	if w.Type == "timeline" {
+		picked = timelineRows(picked, w, src.now)
+	}
 	limit := w.Limit
 	if limit <= 0 {
 		limit = dashboardDefaultLimit
@@ -300,7 +306,7 @@ func resolveWidget(src *dashSources, w kb.DashboardWidget) resolvedWidget {
 			out.Total += len(g.rows)
 			out.Groups = append(out.Groups, dashboardGroup{Key: g.key, Total: len(g.rows), Entries: shape(g.rows)})
 		}
-	case groupBy != "" && (w.Type == "kanban" || w.Type == "list" || (w.Type == "stat" && w.Show == "groups")):
+	case groupBy != "" && (w.Type == "kanban" || w.Type == "list" || w.Type == "timeline" || (w.Type == "stat" && w.Show == "groups")):
 		for _, g := range groupDashRows(picked, groupBy, w.Columns) {
 			out.Total += len(g.rows)
 			dg := dashboardGroup{Key: g.key, Total: len(g.rows)}
@@ -454,6 +460,34 @@ func agendaGroups(rows []dashRow, w kb.DashboardWidget, now time.Time) []dashRow
 		groups = append(groups, dashRowGroup{key: d, rows: byDay[d]})
 	}
 	return groups
+}
+
+// timelineRows keeps the rows with a readable date in date_field (default
+// review_after), oldest day first; rows of one day keep the widget's sort.
+// Unlike an agenda there is no horizon and no overdue bucket.
+func timelineRows(rows []dashRow, w kb.DashboardWidget, now time.Time) []dashRow {
+	field := w.DateField
+	if field == "" {
+		field = "review_after"
+	}
+	type dated struct {
+		day string
+		row dashRow
+	}
+	var ds []dated
+	for _, r := range rows {
+		if v, ok := r.get(field); ok {
+			if day, ok := agendaDay(v, now.Location()); ok {
+				ds = append(ds, dated{day, r})
+			}
+		}
+	}
+	sort.SliceStable(ds, func(i, j int) bool { return ds[i].day < ds[j].day })
+	out := make([]dashRow, len(ds))
+	for i, d := range ds {
+		out[i] = d.row
+	}
+	return out
 }
 
 // agendaDay reads a date value strictly: a string that is exactly YYYY-MM-DD,

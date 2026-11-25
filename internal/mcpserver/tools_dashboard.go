@@ -14,10 +14,10 @@ import (
 
 // dashboardWidgetDoc is the widget field list both read tools carry, so an
 // agent that has only seen one of them can still write a dashboard.
-const dashboardWidgetDoc = "Widget fields: id (slug), type (kanban|list|stat|agenda|note), title, icon, accent, width 1-4, " +
+const dashboardWidgetDoc = "Widget fields: id (slug), type (kanban|list|stat|agenda|note|table|timeline), title, icon, accent, width 1-4, " +
 	"source (work, default | concepts), filter {status, map, type, id_prefix, stale, has_items, fields {key: value}, text}, " +
-	"group_by (status|map|type|field:<key>), columns (kanban), sort (age|title|status|field:<key>), limit, " +
-	"text (note), date_field and horizon_days (agenda), show (stat: count|groups)."
+	"group_by (status|map|type|field:<key>), columns (kanban: values of group_by; table: field names), sort (age|title|status|field:<key>), limit, " +
+	"text (note), date_field (agenda, timeline) and horizon_days (agenda), show (stat: count|groups)."
 
 // dashboardListEntry is one dashboard of dashboard_list.
 type dashboardListEntry struct {
