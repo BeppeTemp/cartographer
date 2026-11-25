@@ -398,6 +398,7 @@ func removeBindings(name string) error {
 		for p, ws := range cfg.Workspaces {
 			for i := range ws {
 				ws[i].KBs = removeFromList(ws[i].KBs, name)
+				ws[i].Exclude = removeFromList(ws[i].Exclude, name)
 			}
 			cfg.Workspaces[p] = ws
 		}

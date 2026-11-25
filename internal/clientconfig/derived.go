@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/repoindex"
@@ -54,6 +55,51 @@ type DerivedUnresolved struct {
 	Reason string `json:"reason"`
 }
 
+// MaxLineageClosure caps the closure stored per seed KB, and MaxLastChangeItems
+// the items of the last change: the server's data is untrusted.
+const (
+	MaxLineageClosure    = 64
+	MaxLastChangeItems   = 100
+	lastChangeViaPaths   = "paths.yaml"
+	lastChangeViaLineage = "lineage"
+)
+
+// LineageUnresolved is a relation of a seed KB the server could not resolve.
+// Reason is the server's closed set (not_mounted, remote_mismatch, no_remote,
+// self, cycle, too_deep), kept verbatim.
+type LineageUnresolved struct {
+	Name   string `json:"name"`
+	Reason string `json:"reason"`
+}
+
+// DerivedLineage is what the server last reported for one seed KB: the
+// transitive closure of the KBs it depends on, in the server's order, and the
+// relations it could not resolve. It is stored per seed KB, not per binding:
+// the overlay (own set, no_lineage, exclude) is applied at read time, so an
+// edited exclude takes effect with no sync.
+type DerivedLineage struct {
+	Closure    []string            `json:"closure,omitempty"`
+	Unresolved []LineageUnresolved `json:"unresolved,omitempty"`
+}
+
+// DerivedChangeItem is one KB added to or removed from a path (Via
+// "paths.yaml") or a provider (Via "lineage"); From is the seed KB of a
+// lineage change.
+type DerivedChangeItem struct {
+	KB   string `json:"kb"`
+	Path string `json:"path,omitempty"`
+	Via  string `json:"via"`
+	From string `json:"from,omitempty"`
+}
+
+// DerivedChange is what the last sync that changed derived state added and
+// removed, kept so `status` can show it after an unattended sync.
+type DerivedChange struct {
+	At      string              `json:"at"`
+	Added   []DerivedChangeItem `json:"added,omitempty"`
+	Removed []DerivedChangeItem `json:"removed,omitempty"`
+}
+
 // DerivedState is the content of the derived bindings file. ConfigDir names the
 // client config directory it was derived for: a file written for another
 // directory (another profile, a test) is not this configuration's.
@@ -62,6 +108,11 @@ type DerivedState struct {
 	ConfigDir  string                         `json:"config_dir"`
 	Bindings   map[string][]DerivedBinding    `json:"bindings,omitempty"`
 	Unresolved map[string][]DerivedUnresolved `json:"unresolved,omitempty"`
+
+	// Lineage is keyed by seed KB; LastChange is the most recent change of
+	// bindings and lineage. An older client ignores both keys.
+	Lineage    map[string]DerivedLineage `json:"lineage,omitempty"`
+	LastChange *DerivedChange            `json:"last_change,omitempty"`
 }
 
 // DerivedPath is where the derived bindings are stored.
@@ -90,7 +141,64 @@ func LoadDerived(dir string) DerivedState {
 	if json.Unmarshal(data, &s) != nil || s.Version != derivedVersion || s.ConfigDir != dir {
 		return DerivedState{}
 	}
+	s.Lineage = cleanLineage(s.Lineage)
+	s.LastChange = cleanLastChange(s.LastChange)
 	return s
+}
+
+// cleanLineage applies to stored data the name rules and the cap that applied
+// when it was written (never the mounted test, which is for what the server
+// newly sends): a name that is invalid, the seed itself or a repeat is dropped,
+// the closure and the unresolved list are cut at MaxLineageClosure, and an
+// entry whose seed name is invalid goes whole. The file is rebuilt by the next
+// sync, so a hostile edit costs nothing but its own entry.
+func cleanLineage(in map[string]DerivedLineage) map[string]DerivedLineage {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]DerivedLineage, len(in))
+	for seed, l := range in {
+		if !validKBName(seed) {
+			continue
+		}
+		var c DerivedLineage
+		for _, n := range l.Closure {
+			if len(c.Closure) == MaxLineageClosure {
+				break
+			}
+			if validKBName(n) && n != seed && !containsString(c.Closure, n) {
+				c.Closure = append(c.Closure, n)
+			}
+		}
+		for _, u := range l.Unresolved {
+			if len(c.Unresolved) == MaxLineageClosure {
+				break
+			}
+			if validKBName(u.Name) {
+				c.Unresolved = append(c.Unresolved, u)
+			}
+		}
+		out[seed] = c
+	}
+	return out
+}
+
+// cleanLastChange drops a last change that is not well formed: a time that is
+// not RFC 3339, an item with an invalid KB name or an unknown Via, or more
+// than MaxLastChangeItems items.
+func cleanLastChange(c *DerivedChange) *DerivedChange {
+	if c == nil {
+		return nil
+	}
+	if _, err := time.Parse(time.RFC3339, c.At); err != nil || len(c.Added)+len(c.Removed) > MaxLastChangeItems {
+		return nil
+	}
+	for _, it := range append(append([]DerivedChangeItem(nil), c.Added...), c.Removed...) {
+		if !validKBName(it.KB) || (it.Via != lastChangeViaPaths && it.Via != lastChangeViaLineage) {
+			return nil
+		}
+	}
+	return c
 }
 
 // derivedBytes is the file SaveDerived writes for s.
@@ -216,8 +324,52 @@ func (c *Config) RenameDerivedKB(old, newName string) bool {
 			c.derived.Unresolved[p] = kept
 		}
 	}
+	renameList := func(list []string) []string {
+		var kept []string
+		for _, n := range list {
+			if n == old {
+				changed = true
+				if newName == "" || containsString(list, newName) || containsString(kept, newName) {
+					continue
+				}
+				n = newName
+			}
+			kept = append(kept, n)
+		}
+		return kept
+	}
+	for seed, l := range c.derived.Lineage {
+		if seed == old {
+			changed = true
+			delete(c.derived.Lineage, seed)
+			if _, taken := c.derived.Lineage[newName]; newName == "" || taken {
+				continue
+			}
+			seed = newName
+		}
+		l.Closure = renameList(l.Closure)
+		var un []LineageUnresolved
+		for _, u := range l.Unresolved {
+			if u.Name == old {
+				changed = true
+				if newName == "" {
+					continue
+				}
+				u.Name = newName
+			}
+			un = append(un, u)
+		}
+		l.Unresolved = un
+		c.derived.Lineage[seed] = l
+	}
 	return changed
 }
+
+// Lineage returns what the server last reported for the seed KB kb (the zero
+// value when nothing is stored). It reads stored state and never pulls: the
+// bridge and approve read it too, and a relation change reaches them with the
+// next sync.
+func (c *Config) Lineage(kb string) DerivedLineage { return c.derived.Lineage[kb] }
 
 // DerivesBindings reports whether provider has derived workspace bindings: it
 // is in workspace scope, or its MCP mode is cli. A cli provider reaches the KBs
@@ -242,11 +394,50 @@ func (c *Config) DerivedUnresolved(provider string) []DerivedUnresolved {
 // entirely, `kbs: []` included: that is the local opt-out. Derived bindings
 // exist only for a provider that DerivesBindings, so an MCP provider in provider
 // scope reads exactly what it always read.
+//
+// Lineage is applied last, to the binding that won each path: its KBs become
+// own KBs ∪ the stored closure of each − Exclude (see applyLineage). It is read
+// from stored state and never pulled here: the bridge and approve call this and
+// never pull, so a relation change reaches them with the next sync.
 func (c *Config) effectiveWorkspaces(provider string) []WorkspaceBinding {
 	out := append([]WorkspaceBinding(nil), c.Workspaces[provider]...)
-	if !c.DerivesBindings(provider) {
-		return out
+	if c.DerivesBindings(provider) {
+		out = c.withDerived(provider, out)
 	}
+	for i := range out {
+		out[i] = c.applyLineage(out[i])
+	}
+	return out
+}
+
+// applyLineage widens w by the lineage of its own KBs. The closures of the
+// winning binding's own KBs only are used: ancestor bindings are never merged
+// in, and a lineage KB is not a seed of anything else. An empty own set has no
+// seed.
+func (c *Config) applyLineage(w WorkspaceBinding) WorkspaceBinding {
+	if w.NoLineage || len(w.KBs) == 0 || len(c.derived.Lineage) == 0 {
+		return w
+	}
+	kbs := append([]string(nil), w.KBs...)
+	for _, seed := range w.KBs {
+		for _, k := range c.derived.Lineage[seed].Closure {
+			if containsString(kbs, k) || containsString(w.Exclude, k) {
+				continue
+			}
+			kbs = append(kbs, k)
+			if w.Lineage == nil {
+				w.Lineage = map[string][]string{}
+			}
+			w.Lineage[k] = append(w.Lineage[k], seed)
+		}
+	}
+	w.KBs = kbs
+	return w
+}
+
+// withDerived adds the derived bindings to out, an explicit binding replacing
+// the derived one on the same path.
+func (c *Config) withDerived(provider string, out []WorkspaceBinding) []WorkspaceBinding {
 	explicit := make(map[string]bool, len(out))
 	for _, w := range out {
 		explicit[w.Path] = true
