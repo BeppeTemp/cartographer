@@ -1009,6 +1009,15 @@ passing `cfg.SearchRoots`/`cfg.Paths`.
   for the full form `host/owner/name`); multiple clones of the same remote resolve to the first match in
   `placeholders.search_roots` order, with a warning.
 
+### KB relations
+
+A KB declares the KBs it depends on in `depends_on` of its `settings.yaml`
+(`docs/kb-relations.md`). `sync_pull` serves, per KB, the resolved view as
+`relations` (`declared`, `resolved`, `closure`, `unresolved`; see
+`docs/control-plane.md`): always present, with empty arrays when the KB declares none, so an
+absent field means a server that predates it, unless `relations_unavailable: true` is there: the relations could not be read (the artifacts are delivered all the same, and `issues` says so), which a client must not read as "no dependencies". It is outside `revision` and every signature. The client
+does nothing with it yet.
+
 ## MCP servers (D69, D116)
 
 A KB can distribute third-party MCP servers (endpoints that connected agents must be able to call) alongside skills/agents/hooks/instructions. Two transports are supported: **http** (D69) and **stdio** (D116, see below); any other `type` fails the build.
