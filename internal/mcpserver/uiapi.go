@@ -693,6 +693,9 @@ func uiVisibleFindingsFrom(ctx requestContext, k *kb.KB, scope string, precomput
 		if !whole && lint.WholeGraphChecks[f.Check] {
 			continue
 		}
+		if !crossFindingVisible(ctx, k, f) {
+			continue
+		}
 		concept := findingConcept(f)
 		if concept == "" {
 			if whole {

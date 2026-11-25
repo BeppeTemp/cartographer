@@ -158,6 +158,11 @@ func serveUICached(w http.ResponseWriter, r *http.Request, k *kb.KB, route strin
 		inner(w, r)
 		return
 	}
+	if wholeOnly && fp == uiWholeFingerprint {
+		// A body whose counts depend on the caller's rights on the KBs this one
+		// links to carries those rights in its key.
+		fp += crossFingerprint(r.Context(), k)
+	}
 	st, err := stamp(k)
 	if err != nil {
 		inner(w, r)

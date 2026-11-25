@@ -42,6 +42,8 @@ type findingOut struct {
 type callerView struct {
 	visible func(id string) bool
 	whole   bool
+	// crossOK says whether the caller may be told of a finding that names other KBs.
+	crossOK func(f lint.Finding) bool
 }
 
 // newCallerView is the view of the principal of ctx on k. Whole-KB visibility
@@ -50,11 +52,21 @@ func newCallerView(ctx requestContext, k *kb.KB) *callerView {
 	return &callerView{
 		visible: func(id string) bool { return Visible(ctx, k, id) },
 		whole:   WholeVisible(ctx, k, false),
+		crossOK: func(f lint.Finding) bool { return crossFindingVisible(ctx, k, f) },
 	}
+}
+
+// seesCross says whether the caller may be told of f as far as the other KBs it
+// names go; a finding that names none is always true.
+func (v *callerView) seesCross(f lint.Finding) bool {
+	return v == nil || v.crossOK == nil || v.crossOK(f)
 }
 
 // sees says whether the caller may be told of f at all.
 func (v *callerView) sees(f lint.Finding) bool {
+	if v != nil && v.crossOK != nil && !v.crossOK(f) {
+		return false
+	}
 	if v == nil || v.whole {
 		return true
 	}
@@ -120,13 +132,38 @@ func (v *callerView) filterPaths(in []string) []string {
 
 // filter keeps the findings the caller may see, each redacted.
 func (v *callerView) filter(findings []lint.Finding) []lint.Finding {
-	if v == nil || v.whole {
+	if v == nil {
 		return findings
+	}
+	if v.whole {
+		return v.dropCross(findings)
 	}
 	out := make([]lint.Finding, 0, len(findings))
 	for _, f := range findings {
 		if v.sees(f) {
 			out = append(out, v.redact(f))
+		}
+	}
+	return out
+}
+
+// dropCross drops, for a whole-KB caller, the findings that name a KB it cannot read.
+func (v *callerView) dropCross(findings []lint.Finding) []lint.Finding {
+	if v.crossOK == nil {
+		return findings
+	}
+	out := findings
+	copied := false
+	for i, f := range findings {
+		if len(f.OtherKBs) == 0 || v.crossOK(f) {
+			if copied {
+				out = append(out, f)
+			}
+			continue
+		}
+		if !copied {
+			out = append([]lint.Finding(nil), findings[:i]...)
+			copied = true
 		}
 	}
 	return out
@@ -618,8 +655,9 @@ func (cc *conformanceCache) computeLint(k *kb.KB, gen uint64, stamp string) ([]l
 		cc.gen, cc.stamp, cc.findings, cc.cached = gen, stamp, findings, true
 		cc.lintCalls++
 		cc.mu.Unlock()
-		// D370: one sample a day of the unfiltered totals, taken where the
-		// whole-KB lint is recomputed and cached.
+		// D370: one sample a day of the whole-KB totals, taken where the
+		// whole-KB lint is recomputed and cached; a finding that names another
+		// KB is left out (newLintSample).
 		now := time.Now()
 		if cc.clock != nil {
 			now = cc.clock()
