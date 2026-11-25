@@ -13,7 +13,7 @@ func TestURL(t *testing.T) {
 		"not-a-valid-value": "",
 	}
 	for addr, want := range cases {
-		if got := URL(addr); got != want {
+		if got := URL(addr, false); got != want {
 			t.Errorf("URL(%q) = %q, want %q", addr, got, want)
 		}
 	}
@@ -44,7 +44,7 @@ func TestLoopbackURL(t *testing.T) {
 		"server.example.com:9090": "",
 	}
 	for addr, want := range cases {
-		if got := LoopbackURL(addr); got != want {
+		if got := LoopbackURL(addr, false); got != want {
 			t.Errorf("LoopbackURL(%q) = %q, want %q", addr, got, want)
 		}
 	}
@@ -53,5 +53,30 @@ func TestLoopbackURL(t *testing.T) {
 func TestKBURL(t *testing.T) {
 	if got, want := KBURL("http://127.0.0.1:39273/ui/", "kb a&b"), "http://127.0.0.1:39273/ui/?kb=kb+a%26b"; got != want {
 		t.Errorf("KBURL = %q, want %q", got, want)
+	}
+}
+
+// AC-tls-native-19: with TLS on the announced Atlas address is https, with TLS
+// off it is byte-identical to the http one.
+func TestURLScheme(t *testing.T) {
+	cases := []struct{ addr, http, https string }{
+		{":39273", "http://127.0.0.1:39273/ui/", "https://127.0.0.1:39273/ui/"},
+		{"0.0.0.0:9090", "http://127.0.0.1:9090/ui/", "https://127.0.0.1:9090/ui/"},
+		{"[::1]:9090", "http://[::1]:9090/ui/", "https://[::1]:9090/ui/"},
+		{"10.0.0.5:9090", "http://10.0.0.5:9090/ui/", "https://10.0.0.5:9090/ui/"},
+	}
+	for _, c := range cases {
+		if got := URL(c.addr, false); got != c.http {
+			t.Errorf("URL(%q, false) = %q, want %q", c.addr, got, c.http)
+		}
+		if got := URL(c.addr, true); got != c.https {
+			t.Errorf("URL(%q, true) = %q, want %q", c.addr, got, c.https)
+		}
+	}
+	if got := LoopbackURL(":39273", true); got != "https://127.0.0.1:39273/ui/" {
+		t.Errorf("LoopbackURL tls = %q", got)
+	}
+	if got := LoopbackURL("10.0.0.5:9090", true); got != "" {
+		t.Errorf("LoopbackURL of a specific address = %q, want empty", got)
 	}
 }

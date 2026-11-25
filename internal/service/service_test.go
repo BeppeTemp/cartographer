@@ -738,6 +738,34 @@ func TestStatus_UIURL(t *testing.T) {
 	}
 }
 
+// AC-tls-native-19: with tls.enabled the status UI address (hence the tray's)
+// is https; with it off it is the http one.
+func TestStatusUIURLHTTPSWithTLS(t *testing.T) {
+	for _, tc := range []struct{ name, config, want string }{
+		{"tls on", "http: \"127.0.0.1:39273\"\ntls:\n  enabled: true\n", "https://127.0.0.1:39273/ui/"},
+		{"tls off", "http: \"127.0.0.1:39273\"\n", "http://127.0.0.1:39273/ui/"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := withTestHome(t, "darwin")
+			plistPath := filepath.Join(home, "Library", "LaunchAgents", "com.cartographer.serve.plist")
+			os.MkdirAll(filepath.Dir(plistPath), 0o755)
+			os.WriteFile(plistPath, []byte("<plist/>"), 0o644)
+			configPath := filepath.Join(home, "server.yaml")
+			if err := os.WriteFile(configPath, []byte(tc.config), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			m, _ := newTestManager()
+			st, err := m.Status(configPath)
+			if err != nil {
+				t.Fatalf("Status: %v", err)
+			}
+			if st.UIURL != tc.want {
+				t.Errorf("UIURL = %q, want %q", st.UIURL, tc.want)
+			}
+		})
+	}
+}
+
 // TestUnsupportedPlatform is the canary for a GOOS this package has no branch
 // for: every method must refuse it outright rather than half-work. It used to
 // use "windows", which is now a supported platform (D217) — the guarantee is

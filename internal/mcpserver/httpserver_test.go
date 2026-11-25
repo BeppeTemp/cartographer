@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -132,6 +133,37 @@ func TestMultiKB_WellKnownProtectedResource_ServedWithoutAuth(t *testing.T) {
 	}
 	if _, ok := body["bearer_methods_supported"]; !ok {
 		t.Error("missing bearer_methods_supported")
+	}
+}
+
+// AC-tls-native-11: over TLS the well-known base is https, and a forwarded
+// header cannot turn it into http.
+func TestWellKnownBaseIsHTTPSOverTLS(t *testing.T) {
+	t.Parallel()
+	multi := newMultiKBTestHandler(t, "kbx")
+	handler := auth.NewScopedTokenStore([]auth.ScopedToken{
+		{Token: "some-tok", Scopes: []auth.KBScope{{KB: "kbx"}}},
+	}).Middleware(multi.Handler())
+	for _, proto := range []string{"", "http"} {
+		req := httptest.NewRequest(http.MethodGet, "/.well-known/oauth-protected-resource", nil)
+		req.Host = "cartographer.example.com"
+		req.TLS = &tls.ConnectionState{}
+		if proto != "" {
+			req.Header.Set("X-Forwarded-Proto", proto)
+		}
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		var body struct {
+			Resource   string   `json:"resource"`
+			AuthServer []string `json:"authorization_servers"`
+		}
+		if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+			t.Fatalf("invalid JSON body: %v", err)
+		}
+		const want = "https://cartographer.example.com"
+		if body.Resource != want || len(body.AuthServer) != 1 || body.AuthServer[0] != want {
+			t.Errorf("X-Forwarded-Proto %q: resource %q, authorization_servers %v, want %s", proto, body.Resource, body.AuthServer, want)
+		}
 	}
 }
 
