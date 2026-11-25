@@ -177,6 +177,17 @@ func SeriesSiblings(titleA, idA, titleB, idB string) bool {
 	return differ
 }
 
+// idSegmentTokens is the title tokens of one id segment ("lang-a-foo" gives
+// lang, a, foo, stop-words dropped): the words an id says about its page.
+func idSegmentTokens(seg string) map[string]bool {
+	return TitleTokens(strings.Map(func(r rune) rune {
+		if r == '-' || r == '_' {
+			return ' '
+		}
+		return r
+	}, seg))
+}
+
 // QualifierSiblings reports two sibling pages that are variants of one subject
 // told apart by a qualifier ("Weakness w-100 Python" / "Weakness w-100 Rust"):
 // both ids share a non-empty parent, their last segments differ, and every title
@@ -189,16 +200,8 @@ func QualifierSiblings(titleA, idA, titleB, idB string) bool {
 	if ia <= 0 || ib <= 0 || idA[:ia] != idB[:ib] || idA[ia+1:] == idB[ib+1:] {
 		return false
 	}
-	segTokens := func(seg string) map[string]bool {
-		return TitleTokens(strings.Map(func(r rune) rune {
-			if r == '-' || r == '_' {
-				return ' '
-			}
-			return r
-		}, seg))
-	}
-	seg := segTokens(idA[ia+1:])
-	for t := range segTokens(idB[ib+1:]) {
+	seg := idSegmentTokens(idA[ia+1:])
+	for t := range idSegmentTokens(idB[ib+1:]) {
 		seg[t] = true
 	}
 	ta, tb := TitleTokens(titleA), TitleTokens(titleB)
@@ -651,7 +654,7 @@ func duplicateItems(concepts []*reviewConcept, contracts map[string]kb.MapContra
 					continue
 				}
 				pair := [2]okf.ConceptID{c.id, other}
-				if paired[pair] || namedAfterParent(c.id, other, titles) || SeriesSiblings(titles[c.id], string(c.id), titles[other], string(other)) || QualifierSiblings(titles[c.id], string(c.id), titles[other], string(other)) {
+				if paired[pair] || namedAfterParent(c.id, other, titles) || SeriesSiblings(titles[c.id], string(c.id), titles[other], string(other)) || QualifierSiblings(titles[c.id], string(c.id), titles[other], string(other)) || qualifiedSatellite(c.id, other, titles) {
 					continue
 				}
 				if pairClosed(c.id, other, ts, tokens[other], links) {
@@ -684,6 +687,42 @@ func namedAfterParent(a, b okf.ConceptID, titles map[okf.ConceptID]string) bool 
 	}
 	pt, ct := strings.TrimSpace(titles[parent]), strings.TrimSpace(titles[child])
 	return pt != "" && len(ct) > len(pt) && strings.HasPrefix(ct, pt)
+}
+
+// qualifiedSatellite reports a satellite that is a variant of its parent (D-new
+// qualified-satellite-is-not-a-duplicate-candidate): its title holds all the
+// parent's words, and every word it adds is a word of its own last id segment
+// ("Vulnerability 1" / "Lang-A Vulnerability 1" at .../lang-a-vulnerability-1),
+// the QualifierSiblings test applied to a parent/child pair. Links cannot close
+// such a pair (D854), so it is skipped. Titles with the same words, a parent
+// word the child lacks, or an added word the segment does not carry stay
+// candidates.
+func qualifiedSatellite(a, b okf.ConceptID, titles map[okf.ConceptID]string) bool {
+	parent, child, ok := satellitePair(a, b)
+	if !ok {
+		return false
+	}
+	pt, ct := TitleTokens(titles[parent]), TitleTokens(titles[child])
+	if len(pt) == 0 {
+		return false
+	}
+	for t := range pt {
+		if !ct[t] {
+			return false
+		}
+	}
+	seg := idSegmentTokens(string(child)[strings.LastIndex(string(child), "/")+1:])
+	added := 0
+	for t := range ct {
+		if pt[t] {
+			continue
+		}
+		if !seg[t] {
+			return false
+		}
+		added++
+	}
+	return added > 0
 }
 
 // pairClosed reports a pair each page links the other in its body (D854):
@@ -729,7 +768,7 @@ func satellitePair(a, b okf.ConceptID) (parent, child okf.ConceptID, ok bool) {
 func duplicateAction(ids []okf.ConceptID, sameTitleWords bool) string {
 	if len(ids) == 2 {
 		if parent, child, ok := satellitePair(ids[0], ids[1]); ok {
-			return fmt.Sprintf("concept_merge %s into its parent %s (not in tools/list; if the client cannot call it by name, link each to the other saying how they differ, or, only when the KB's maintainers choose it, fold the child into the parent with concept_patch and delete the child after their choice)", child, parent)
+			return fmt.Sprintf("concept_merge %s into its parent %s (not in tools/list; if the client cannot call it by name, only when the KB's maintainers choose it, fold the child into the parent with concept_patch and delete the child after their choice), or, if the child is a variant, make its id segment carry the words its title adds (concept_move, or retitle); links do not close a satellite pair", child, parent)
 		}
 	}
 	if sameTitleWords {

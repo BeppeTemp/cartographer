@@ -183,7 +183,7 @@ An alternative never weakens a rule: a delegated session never deletes a concept
    silence it.
 5. **Review items.** `kb_review` with `limit` set to the session budget (10 unless the operator named another) minus the decisions steps 3-4 used.
    Assisted: present **one numbered list**; for each item the kind, the concepts, the evidence and 2-3 options:
-   - **act** with the ordinary tools: `concept_merge` (see "Tools not in `tools/list`") or a link from each page to the other saying how they differ (`duplicate_candidate`), close
+   - **act** with the ordinary tools: `concept_merge` (see "Tools not in `tools/list`") or a link from each page to the other saying how they differ (`duplicate_candidate`; a satellite pair is not closed by links), close
      or update (`zombie_work`, `stale_open`, `closed_with_open_items`), `concept_new` from the target
      map's template and links both ways (`promotion_candidate`), a glossary entry
      (`glossary_gap`); an `observation` item is a state with no single right answer, never a lint
@@ -207,7 +207,7 @@ An alternative never weakens a rule: a delegated session never deletes a concept
      move on (assisted: ask the operator first);
    - **settle as it is**: nothing dismisses an item (D907); it closes when its pages are in the
      state it asks for, so an item that is right as it stands is settled by writing the state that
-     says so: `duplicate_candidate`, each page links the other saying how they differ;
+     says so: `duplicate_candidate`, each page links the other saying how they differ (not for a satellite pair);
      `zombie_work`, the open page is closed, its origin link points at the successor, or a
      precedent cited as history leaves the origin section (a group whose first concept is retired
      is a shared origin: retarget or close the openers); `promotion_candidate`, the entry links the
