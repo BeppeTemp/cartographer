@@ -49,6 +49,9 @@ func unplacedSentence(opts ApplyOptions) string {
 	skills, agents := map[string][]string{}, map[string][]string{}
 	var kbs []string
 	for _, a := range opts.Unplaced {
+		if kbWithheld(a.Source, opts) {
+			continue
+		}
 		kb := strings.TrimPrefix(a.Source, "kb:")
 		if skills[kb] == nil && agents[kb] == nil {
 			kbs = append(kbs, kb)

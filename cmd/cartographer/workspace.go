@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -83,6 +84,10 @@ type syncProjection struct {
 	// projection registers its hooks in instead of .claude/settings.json
 	// (#1198); empty otherwise.
 	HookSettingsRel string
+	// LineageHints maps each KB this projection holds by lineage to the
+	// sentence a collision involving it ends with: where it comes from and the
+	// command that opts out. Its keys are the projection's lineage KBs.
+	LineageHints map[string]string
 }
 
 // ownKBs is the KB list a printed `workspace bind` command names: OwnKBs when
@@ -143,10 +148,11 @@ func projectionsFor(cfg *clientconfig.Config, provider, clientBaseDir string) ([
 	if cfg.WorkspaceScope(provider) != clientconfig.ScopeWorkspace {
 		bound, _ := cfg.BoundKBs(provider)
 		return []syncProjection{{
-			Provider: provider,
-			BaseDir:  clientBaseDir,
-			KBs:      bound,
-			Scope:    contract.ScopeGlobal,
+			Provider:     provider,
+			BaseDir:      clientBaseDir,
+			KBs:          bound,
+			Scope:        contract.ScopeGlobal,
+			LineageHints: providerLineageHints(cfg, provider),
 		}}, nil
 	}
 
@@ -202,6 +208,8 @@ func projectionsFor(cfg *clientconfig.Config, provider, clientBaseDir string) ([
 			OwnKBs:    w.OwnKBs(),
 			Scope:     contract.ScopeProject,
 			Derived:   w.Derived,
+
+			LineageHints: workspaceLineageHints(provider, w),
 		}
 		if unreadable != "" {
 			// Nothing in it can be read: no git, no worktree listing. Its
@@ -480,6 +488,11 @@ func cmdWorkspaceBind(args []string) int {
 		fmt.Printf("bound %s in %s to no KBs%s\n", provider, canonical, suffix)
 	} else {
 		fmt.Printf("bound %s in %s to %s%s%s\n", provider, canonical, strings.Join(kbs, ", "), lineageSuffix(cfg, provider, canonical), suffix)
+		for _, w := range cfg.WorkspaceBindings(provider) {
+			if note := lineageInstructionsNote(provider, w); w.Path == canonical && note != "" {
+				fmt.Println(note)
+			}
+		}
 		if !noLineage && !lineageKnown(cfg, kbs) {
 			fmt.Println("lineage is computed by sync")
 		}
@@ -1194,9 +1207,21 @@ func buildProjectionManifests(st syncStreams, cfg *clientconfig.Config, projecti
 		if needsAny(p.KBs, unavailable) {
 			continue
 		}
-		merged, err := mergeAcrossPlugins(cs.forProjection(cfg, p), report)
+		arts, pi := cs.forProjection(cfg, p), p
+		if lineageInstructionsWithheld(p) {
+			// A KB that is not hand-bound never adds to a block git tracks:
+			// its instructions and its feedback mode are left out, while its
+			// skills, agents, hooks and MCP scope stay. Its path registries,
+			// placeholders and issues are read from the whole projection p:
+			// its artifacts are expanded with them and its pull issues are
+			// the operator's to see; the block's "Local paths" table is
+			// emptied by WithholdLocalPaths.
+			arts = withoutInstructionsOf(arts, p.lineageKBs())
+			pi.KBs = slices.DeleteFunc(slices.Clone(p.KBs), func(k string) bool { return slices.Contains(p.lineageKBs(), k) })
+		}
+		merged, err := mergeAcrossPlugins(arts, report)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("%s: %w", p.Label(), err)
+			return nil, nil, nil, fmt.Errorf("%s: %w%s", p.Label(), err, lineageCollisionHint(p, err))
 		}
 		verified, err := provisioning.VerifiedManifest(merged, pins)
 		if err != nil {
@@ -1206,11 +1231,131 @@ func buildProjectionManifests(st syncStreams, cfg *clientconfig.Config, projecti
 		// Set after verification, which copies only the signed catalogue.
 		verified.Placeholders = cs.placeholdersForProjection(cfg, p)
 		verified.PathRegistries = cs.pathRegistriesForProjection(cfg, p)
-		verified.FeedbackMode = cs.feedbackForProjection(cfg, p)
+		verified.FeedbackMode = cs.feedbackForProjection(cfg, pi)
 		verified.KBIssues, verified.ReadKBs = cs.issuesForProjection(cfg, p)
 		out[projectionKey(p)] = verified
 	}
 	return out, failed, cs.Relations, nil
+}
+
+// lineageKBs are the KBs the projection holds by lineage, sorted.
+func (p syncProjection) lineageKBs() []string {
+	out := make([]string, 0, len(p.LineageHints))
+	for k := range p.LineageHints {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// lineageInstructionsWithheld reports whether the lineage KBs of p leave the
+// instructions block alone: it goes into a file git tracks, which only a KB the
+// user bound by hand may add to (same test as withholdLocalPaths, so sync and
+// status agree). A projection with no lineage KB, or unreadable, never asks git.
+func lineageInstructionsWithheld(p syncProjection) bool {
+	return len(p.LineageHints) > 0 && p.Unreadable == "" && withholdLocalPaths(p)
+}
+
+// withoutInstructionsOf drops the instructions artifacts of the named KBs.
+func withoutInstructionsOf(arts []contract.Artifact, kbs []string) []contract.Artifact {
+	out := make([]contract.Artifact, 0, len(arts))
+	for _, a := range arts {
+		if a.Kind == "instructions" && slices.Contains(kbs, strings.TrimPrefix(a.Source, "kb:")) && strings.HasPrefix(a.Source, "kb:") {
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
+}
+
+// lineageHint is the sentence a collision involving a lineage KB ends with.
+func lineageHint(kb string, seeds []string, optOut string) string {
+	return fmt.Sprintf("%s comes by lineage from %s; opt out with: %s", kb, strings.Join(seeds, ", "), optOut)
+}
+
+// workspaceLineageHints is the hint of each lineage KB of binding w.
+func workspaceLineageHints(provider string, w clientconfig.WorkspaceBinding) map[string]string {
+	var out map[string]string
+	for _, k := range w.KBs {
+		if seeds, ok := w.Lineage[k]; ok {
+			opt := w
+			opt.NoLineage = false
+			opt.Exclude = dedupe(append(slices.Clone(w.Exclude), k))
+			if out == nil {
+				out = map[string]string{}
+			}
+			out[k] = lineageHint(k, seeds, bindCommand(provider, w.Path, opt))
+		}
+	}
+	return out
+}
+
+// providerLineageHints is the same for a provider-scope binding.
+func providerLineageHints(cfg *clientconfig.Config, provider string) map[string]string {
+	var out map[string]string
+	for k, seeds := range providerLineage(cfg, provider) {
+		if out == nil {
+			out = map[string]string{}
+		}
+		opt := *cfg
+		opt.Clients = maps.Clone(cfg.Clients)
+		b := opt.Clients[provider]
+		b.NoLineage = false
+		b.Exclude = dedupe(append(slices.Clone(b.Exclude), k))
+		opt.Clients[provider] = b
+		out[k] = lineageHint(k, seeds, providerBindCommand(&opt, provider))
+	}
+	return out
+}
+
+// lineageCollisionHint is the line a projection's collision error gains when it
+// involves a KB the projection holds by lineage: the error and the projections
+// it refuses are unchanged (D171), the operator learns where the KB came from.
+func lineageCollisionHint(p syncProjection, err error) string {
+	var ce *provisioning.CollisionError
+	if len(p.LineageHints) == 0 || !errors.As(err, &ce) {
+		return ""
+	}
+	var lines []string
+	for _, k := range p.lineageKBs() {
+		src := "kb:" + k
+		if slices.ContainsFunc(ce.Collisions, func(c provisioning.Collision) bool { return slices.Contains(c.Sources, src) }) ||
+			slices.ContainsFunc(ce.Directives, func(d provisioning.DirectiveCollision) bool {
+				return slices.ContainsFunc(d.Values, func(v provisioning.DirectiveValue) bool { return v.Source == src })
+			}) {
+			lines = append(lines, p.LineageHints[k])
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return "\n" + strings.Join(lines, "\n")
+}
+
+// lineageInstructionsNote says, for a binding that holds KBs by lineage, that
+// their instructions are not written because the file is tracked by git ("" when
+// they are, or the binding has none). Status and `workspace bind` print it.
+func lineageInstructionsNote(provider string, w clientconfig.WorkspaceBinding) string {
+	hints := workspaceLineageHints(provider, w)
+	if len(hints) == 0 {
+		return ""
+	}
+	sp := syncProjection{Provider: provider, Workspace: w.Path, BaseDir: w.Path, Scope: contract.ScopeProject, LineageHints: hints}
+	if w.Derived {
+		var skipped string
+		sp.InstructionsRel, skipped = derivedInstructions(provider, w.Path)
+		if skipped != "" {
+			return "" // a derived binding writes no instructions at all, said elsewhere
+		}
+	}
+	if !lineageInstructionsWithheld(sp) {
+		return ""
+	}
+	file := sp.InstructionsRel
+	if file == "" {
+		file = provisioning.ProjectDestination("instructions", "", configurator.Provider(provider))
+	}
+	return fmt.Sprintf("instructions of %s (lineage) not written: %s is tracked by git", strings.Join(sp.lineageKBs(), ", "), file)
 }
 
 // needsAny reports whether a projection bound to kbs would receive any KB in
@@ -1472,6 +1617,12 @@ func workspaceStatuses(cfg *clientconfig.Config, provider, clientBaseDir string)
 				}
 				st.Detail = note
 			}
+		}
+		if note := lineageInstructionsNote(provider, w); note != "" {
+			if st.Detail != "" {
+				note = st.Detail + "; " + note
+			}
+			st.Detail = note
 		}
 		if w.Derived {
 			if files, kinds := derivedSharedSkips(provider, w.Path); len(files) > 0 {

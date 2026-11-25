@@ -325,6 +325,16 @@ type ApplyOptions struct {
 	// so the two callers set it from the same answer.
 	WithholdLocalPaths bool
 
+	// WithholdKBs are KBs the instructions block must not name: a lineage KB
+	// (not bound by hand) whose instructions the client left out of a block
+	// written into a file git tracks. The environment lines (subagents
+	// installed, agents as skills, not installed, hooks that never fire,
+	// skills and agents with no file) skip its artifacts too, so the tracked
+	// file learns neither the KB's name nor its artifacts'; they still
+	// install. The client sets it from the same answer as WithholdLocalPaths,
+	// for Apply and the status diff alike.
+	WithholdKBs []string
+
 	// HookSettingsRel, when non-empty, is the project-scope settings file
 	// Claude Code hooks are registered in, instead of .claude/settings.json:
 	// a derived workspace binding never edits a settings.json git tracks, so
@@ -3026,7 +3036,7 @@ func installedSubagentSentence(m contract.Manifest, opts ApplyOptions) string {
 		if contract.DestDirScoped("agent", a.Name, opts.Provider, opts.Scope) == "" || contract.AgentSkipped(a, opts.Provider) {
 			continue
 		}
-		if !artifactAuthorized(a, opts) {
+		if !artifactAuthorized(a, opts) || kbWithheld(a.Source, opts) {
 			continue
 		}
 		kbName := strings.TrimPrefix(a.Source, "kb:")
@@ -3044,6 +3054,12 @@ func installedSubagentSentence(m contract.Manifest, opts ApplyOptions) string {
 		return fmt.Sprintf("Subagents installed by the %q KB: %s — their descriptions are in the client's agent registry: delegate to them the tasks they cover.",
 			kbName, strings.Join(names, ", "))
 	})
+}
+
+// kbWithheld reports whether the artifact source names a KB the block must not
+// mention (ApplyOptions.WithholdKBs).
+func kbWithheld(source string, opts ApplyOptions) bool {
+	return strings.HasPrefix(source, "kb:") && slices.Contains(opts.WithholdKBs, strings.TrimPrefix(source, "kb:"))
 }
 
 // perKBLines renders one line per KB, KBs and names sorted.
@@ -3071,7 +3087,7 @@ func perKBLines(byKB map[string][]string, line func(kbName string, names []strin
 func degradedAgentSentence(m contract.Manifest, opts ApplyOptions) string {
 	byKB := map[string][]string{}
 	for _, a := range m.Artifacts {
-		if a.DerivedFrom == nil || a.DerivedFrom.Kind != "agent" || !strings.HasPrefix(a.Source, "kb:") || !artifactAuthorized(a, opts) {
+		if a.DerivedFrom == nil || a.DerivedFrom.Kind != "agent" || !strings.HasPrefix(a.Source, "kb:") || !artifactAuthorized(a, opts) || kbWithheld(a.Source, opts) {
 			continue
 		}
 		kbName := strings.TrimPrefix(a.Source, "kb:")
@@ -3127,7 +3143,7 @@ func AuthorizedSkipped(notes []SkippedNote, source contract.Manifest, opts Apply
 	}
 	var out []SkippedNote
 	for _, n := range notes {
-		if a, ok := byID[n.Artifact]; ok && artifactAuthorized(a, opts) {
+		if a, ok := byID[n.Artifact]; ok && artifactAuthorized(a, opts) && !kbWithheld(a.Source, opts) {
 			out = append(out, n)
 		}
 	}
@@ -3153,7 +3169,7 @@ func silentHookSentence(m contract.Manifest, opts ApplyOptions) string {
 	var parts []string
 	for _, a := range m.Artifacts {
 		if a.Kind != "hook" || a.BuiltIn || a.DerivedFrom != nil || !strings.HasPrefix(a.Source, "kb:") ||
-			contract.DestDirScoped("hook", a.Name, opts.Provider, opts.Scope) == "" || contract.IsReservedHook(a.Kind, a.Name) || !artifactAuthorized(a, opts) {
+			contract.DestDirScoped("hook", a.Name, opts.Provider, opts.Scope) == "" || contract.IsReservedHook(a.Kind, a.Name) || !artifactAuthorized(a, opts) || kbWithheld(a.Source, opts) {
 			continue
 		}
 		spec, ok := contract.HookSpecOf(a, opts.BundleFS, opts.KBRoots)

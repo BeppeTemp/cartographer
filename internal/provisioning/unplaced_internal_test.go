@@ -129,3 +129,26 @@ func TestApply_NoUnplacedSentenceWhenTheScopeHasASkillCell(t *testing.T) {
 		t.Errorf("sentence on a client with a skill cell:\n%s", b)
 	}
 }
+
+// A KB in WithholdKBs is named by no environment line, whatever the line.
+func TestEnvironmentSection_WithholdKBsLeavesThemOut(t *testing.T) {
+	m := contract.Manifest{Artifacts: []contract.Artifact{kbAgent("kb-a", "scout"), kbAgent("kb-b", "ranger")}}
+	opts := ApplyOptions{
+		Provider: configurator.ProviderClaudeCode, Scope: contract.ScopeProject,
+		Unplaced: []contract.Artifact{kbSkill("kb-a", "a1"), kbSkill("kb-b", "b1")},
+		Skipped:  []SkippedNote{{Artifact: "agent/ranger", Reason: "r"}},
+	}
+	all := environmentSection(m, opts)
+	if !strings.Contains(all, "kb-b") || !strings.Contains(all, "ranger") {
+		t.Fatalf("setup: the KB is not named without the filter:\n%s", all)
+	}
+	opts.WithholdKBs = []string{"kb-b"}
+	opts.Skipped = AuthorizedSkipped(opts.Skipped, m, opts) // the client's own filter
+	got := environmentSection(m, opts)
+	if strings.Contains(got, "kb-b") || strings.Contains(got, "ranger") || strings.Contains(got, "b1") {
+		t.Errorf("a withheld KB is named:\n%s", got)
+	}
+	if !strings.Contains(got, "kb-a") || !strings.Contains(got, "scout") {
+		t.Errorf("the other KB went missing:\n%s", got)
+	}
+}

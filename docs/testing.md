@@ -625,6 +625,11 @@ never prefixes them. Each call asserts on
 one does not) stays an `isError` *result* whose text says "tool not found"; the
 script must catch both, or it would print and count either as a pass.
 
+`31_workspace_lineage` asserts the lineage of a binding (D2400): a repository
+derived under an explicitly bound folder keeps the core KB a KB depends on, a provider bound to the client KB receives
+it, a repository tracking `CLAUDE.md` gets the core KB's skills and leaves the file untouched, and `--exclude core-kb`
+opts out at the next `sync`.
+
 `15_operational_audit` closes the loop end-to-end by tampering with a recorded
 entry and requiring `audit verify` and `audit export` to fail on it. It also
 strips every signature from a copy of the log (the chain stays valid, the
