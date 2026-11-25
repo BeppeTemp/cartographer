@@ -179,6 +179,28 @@ func (kb *KB) CrossIncoming(id okf.ConceptID) ([]CrossRef, error) {
 	return out, nil
 }
 
+// CrossInboundRef is one link of a page of another KB toward Target of this one.
+type CrossInboundRef struct {
+	Target okf.ConceptID
+	KB     string
+	ID     okf.ConceptID
+}
+
+// CrossIncomingAll lists, sorted, every page of the other mounted KBs that
+// links a page of this one (CrossIncoming for all targets at once). The error
+// says another KB could not be read: the list is then unknown, not empty.
+func (kb *KB) CrossIncomingAll() ([]CrossInboundRef, error) {
+	ins, _, err := kb.inbounds("")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]CrossInboundRef, 0, len(ins))
+	for _, in := range ins {
+		out = append(out, CrossInboundRef{Target: in.target, KB: in.kb, ID: in.src})
+	}
+	return out, nil
+}
+
 // CrossInboundKBs lists, sorted, the current names of the other mounted KBs
 // with a page that links to this one (by its name or an alias). The error says
 // a KB could not be read: the list is then unknown.

@@ -1645,6 +1645,13 @@ func toolGraphNeighbors(k *kb.KB) Tool {
 				"neighbors": list,
 				"count":     len(list),
 			}
+			// Cross-KB edges of the requested page only: the walk does not cross
+			// KBs. Nothing for a page the caller cannot see.
+			if _, there := graph.Exists[okf.ConceptID(params.ID)]; there && visible(okf.ConceptID(params.ID)) {
+				if cross := crossEdgesOf(ctx, k, okf.ConceptID(params.ID), direction != "in", direction != "out"); len(cross) > 0 {
+					result["cross"], result["cross_count"] = cross, len(cross)
+				}
+			}
 			return jsonResult(result), nil
 		},
 	}

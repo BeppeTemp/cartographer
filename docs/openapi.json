@@ -268,6 +268,12 @@
           "content_hash": {
             "type": "string"
           },
+          "cross": {
+            "items": {
+              "$ref": "#/components/schemas/CrossEdge"
+            },
+            "type": "array"
+          },
           "frontmatter": {
             "additionalProperties": {},
             "type": "object"
@@ -321,6 +327,7 @@
           "broken",
           "collection",
           "content_hash",
+          "cross",
           "frontmatter",
           "id",
           "inbound",
@@ -356,6 +363,32 @@
           "by_status",
           "by_type",
           "total"
+        ],
+        "type": "object"
+      },
+      "CrossEdge": {
+        "additionalProperties": false,
+        "properties": {
+          "bind": {
+            "type": "string"
+          },
+          "direction": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kb": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "direction",
+          "id",
+          "kb"
         ],
         "type": "object"
       },
@@ -396,6 +429,59 @@
         },
         "required": [
           "error"
+        ],
+        "type": "object"
+      },
+      "ExternalEdge": {
+        "additionalProperties": false,
+        "properties": {
+          "bind": {
+            "type": "string"
+          },
+          "direction": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kb": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "direction",
+          "from",
+          "id",
+          "kb"
+        ],
+        "type": "object"
+      },
+      "GraphExternalBody": {
+        "additionalProperties": false,
+        "properties": {
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/ExternalEdge"
+            },
+            "type": "array"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "edges",
+          "limit",
+          "truncated"
         ],
         "type": "object"
       },
@@ -1659,6 +1745,84 @@
           }
         },
         "summary": "The link graph as clusters",
+        "x-stability": "preview"
+      }
+    },
+    "/api/v1/kbs/{kb}/graph/external": {
+      "get": {
+        "operationId": "kbsGraphExternal",
+        "parameters": [
+          {
+            "description": "KB name",
+            "in": "path",
+            "name": "kb",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "One top-level collection",
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Maximum number of items",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphExternalBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "summary": "The cross-KB edges of the pages the caller sees",
         "x-stability": "preview"
       }
     },

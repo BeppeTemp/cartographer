@@ -68,6 +68,8 @@ const overview = await api(`${k}/overview`);
 // the Atlas reads the 404 as "no branding".
 const graph = await api(`${k}/graph?limit=7500`);
 for (const c of overview.collections) await api(`${k}/graph?limit=7500&scope=${q(c.name)}`);
+// The cross-KB edges of the pages, fetched beside the graph and never inside it (D745): the demo is one KB, so the list is empty.
+await api(`${k}/graph/external`);
 
 // Every concept the graph draws, plus the search index built from them.
 const index = [];
