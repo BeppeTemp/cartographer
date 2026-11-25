@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -259,6 +260,9 @@ func TestWriteFindingsScript_Guarantees(t *testing.T) {
 	s := provisioning.WriteFindingsScriptContentForTest
 	if !strings.Contains(s, "cartographer hook write-findings") {
 		t.Error("does not run the subcommand")
+	}
+	if runtime.GOOS == "windows" && !strings.Contains(s, "call cartographer hook write-findings") {
+		t.Error("a cartographer.cmd shim never returns unless called: `call` is required (#2343)")
 	}
 	if strings.Contains(s, "command -v cartographer") == strings.Contains(s, "where cartographer") {
 		t.Error("must check that cartographer is resolvable (exactly the platform's spelling)")
