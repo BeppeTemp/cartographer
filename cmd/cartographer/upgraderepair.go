@@ -103,11 +103,15 @@ func cmdUpgradeRepair(args []string) int {
 	}
 	if !st.Installed {
 		// A client-only machine's tray may still run the previous binary (an
-		// in-place update moves the exe aside): refresh it, never create one.
+		// in-place update moves the exe aside): refresh it. One that has none
+		// gets it once (#2357, amends D1862): D1862's icon never reached a
+		// client connected before that release. Never an error of the repair.
 		if trayInstalledFn() {
 			if err := repairEnsureTrayFn(); err != nil {
 				fmt.Fprintln(os.Stderr, "Warning: could not refresh the status icon:", err)
 			}
+		} else {
+			installClientTrayOnRepair()
 		}
 		fmt.Println("native service not installed — nothing to repair; this command does not sync the providers then: run `cartographer sync` for that")
 		return exitRepairOK

@@ -145,6 +145,26 @@ func warnTrayInstall(err error, hint string) {
 // clientTrayNeeded: not opted out and not installed yet.
 func clientTrayNeeded() bool { return !trayOptedOut() && !trayInstalledFn() }
 
+// installClientTrayOnRepair is the tray half of `upgrade-repair` on a machine
+// with no local service (#2357, D2364): a client
+// with a connected agent, no remembered opt-out and no tray gets the icon once.
+// A failure, an unstable binary or an unsupported platform is a warning or
+// silence, never an exit code.
+func installClientTrayOnRepair() {
+	if !traySupported() || !trayInUseByClient() || !clientTrayNeeded() {
+		return
+	}
+	if err := trayStableBinaryFn(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: the status icon was not installed: %s\n", unstableTrayText(err))
+		return
+	}
+	if err := trayInstallFn(); err != nil {
+		warnTrayInstall(err, "; a session with no GUI, such as ssh, cannot show one: run `cartographer service tray install` from the desktop session")
+		return
+	}
+	fmt.Println("status icon installed: it follows the server this client is connected to (remove it with `cartographer service tray uninstall`)")
+}
+
 // wouldInstallClientTray is the dry-run question of ensureClientTray: the same
 // guards, in the same order, so a dry run never promises what the real run skips.
 func wouldInstallClientTray(opts connectOptions, res connectResult) bool {
