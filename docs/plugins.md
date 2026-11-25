@@ -274,7 +274,11 @@ behaviour is carried by the KB and must not differ per server (D746, D906):
   section re-applies the plugins loaded at start.
 - **Presets** are handed to an authorised writer by `preset_list` (advanced, read-only: `docs/control-plane.md`),
   who applies them with `artifact_write` for each template and `map_create`, under the caller's own scopes. The tool
-  returns no KB data and the same result for every principal.
+  returns no KB data and the same result for every principal. A preset's dashboards (`presets/<name>/dashboards/<name>.yaml`,
+  judged by shape only: a field or id a widget names is not checked, the KB does not exist yet) come back as ready `ops`:
+  the writer sends them as they are to `dashboard_patch {name, if_match: "", ops}`, which creates the dashboard and refuses an
+  existing name (applying a preset never overwrites a dashboard the owner edited). The KB then keeps the dashboard as an
+  ordinary versioned file; nothing is served live from the plugin. A preset made of dashboards only has no map to create.
 
 The start log says `roles N, presets M` per plugin. The preview of a server side (`plugin vendor` prints it) lists both, and the dashboards each preset carries.
 
