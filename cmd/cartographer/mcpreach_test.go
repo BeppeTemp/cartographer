@@ -142,3 +142,14 @@ func TestMCPNotReceivedReasonsOfPluginProviders(t *testing.T) {
 		t.Errorf("status: %+v", st)
 	}
 }
+
+// A lineage KB is never bound by hand: the printed command names OwnKBs only.
+func TestMCPNotReceivedNamesOwnKBsOnly(t *testing.T) {
+	manifests, approvals := reachFixture(true)
+	ps := []syncProjection{{Provider: "opencode", Workspace: "/ws", BaseDir: "/ws", Scope: contract.ScopeProject, Derived: true,
+		KBs: []string{"kb-a", "kb-lineage"}, OwnKBs: []string{"kb-a"}, SkipKinds: []string{"mcp"}, SharedSkipped: []string{"opencode.json"}}}
+	got := mcpNotReceivedReasons(ps, manifests, approvals, t.TempDir())["opencode\x00/ws"]
+	if len(got) != 1 || !strings.Contains(got[0].Reason, "--kb kb-a` is the explicit alternative") || strings.Contains(got[0].Reason, "kb-lineage") {
+		t.Errorf("reason: %+v", got)
+	}
+}

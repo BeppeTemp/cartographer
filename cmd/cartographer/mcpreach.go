@@ -50,7 +50,7 @@ func mcpNotReceivedReasons(projections []syncProjection, manifests map[string]co
 			case provisioning.PendingApproval(a, provisioning.ApplyOptions{Provider: provider, Scope: p.Scope, ApprovedMCP: approvals}):
 				reason = fmt.Sprintf("needs approval: cartographer approve mcp %s --kb %s", a.Name, kb)
 			case p.Derived && slices.Contains(p.SkipKinds, "mcp"):
-				reason = strings.TrimPrefix(trackedMCPNote(p.SharedSkipped, p.Provider, p.Workspace, p.KBs), "not written: ")
+				reason = strings.TrimPrefix(trackedMCPNote(p.SharedSkipped, p.Provider, p.Workspace, p.ownKBs()), "not written: ")
 			case provider == configurator.ProviderCodex && p.Workspace != "" &&
 				!provisioning.CodexProjectTrusted(provisioning.CodexConfigPath(clientBaseDir), p.Workspace):
 				reason = "codex does not trust this project, so it ignores its .codex/ layer; `cartographer workspace status` says how to trust it"

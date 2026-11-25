@@ -254,6 +254,9 @@ type workspaceStatus struct {
 	// local clone: its Path is "repo:<key>".
 	Derived bool   `json:"derived,omitempty"`
 	Source  string `json:"source,omitempty"`
+	// Bind is the `workspace bind` command that rebinds the folder as it is
+	// bound, lineage options included (bindCommand); never serialized.
+	Bind string `json:"-"`
 }
 
 type statusArtifact struct {
