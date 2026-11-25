@@ -142,8 +142,8 @@ func TestCmdStatus_VersionReport(t *testing.T) {
 			statusHealthFn = func(*clientconfig.Config) (*client.Health, error) {
 				return &client.Health{Version: tc.serverVersion, Build: tc.serverBuild}, nil
 			}
-			statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, error) {
-				return uniformManifests(served, projectionProviders(ps)), nil
+			statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, map[string]contract.Relations, error) {
+				return uniformManifests(served, projectionProviders(ps)), nil, nil
 			}
 			statusServiceFn = func() (service.Status, error) { return service.Status{Installed: tc.serviceInstalled}, nil }
 			t.Cleanup(func() {
@@ -211,8 +211,8 @@ func TestStatus_OnDiskDriftExitsOne(t *testing.T) {
 	oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
 	version = "v1.0.0"
 	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
-	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, error) {
-		return uniformManifests(served, projectionProviders(ps)), nil
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, map[string]contract.Relations, error) {
+		return uniformManifests(served, projectionProviders(ps)), nil, nil
 	}
 	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
 	t.Cleanup(func() {
@@ -277,8 +277,8 @@ func TestStatus_ShadowedInstructionsNotCountedAsInstalled(t *testing.T) {
 	oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
 	version = "v1.0.0"
 	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
-	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, error) {
-		return uniformManifests(served, projectionProviders(ps)), nil
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, map[string]contract.Relations, error) {
+		return uniformManifests(served, projectionProviders(ps)), nil, nil
 	}
 	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
 	t.Cleanup(func() {
@@ -352,7 +352,7 @@ func TestStatus_WorkspaceScopedProviderInSyncAfterCleanSync(t *testing.T) {
 	oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
 	version = "v1.0.0"
 	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
-	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, error) {
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, map[string]contract.Relations, error) {
 		out := map[string]contract.Manifest{}
 		for _, p := range ps {
 			if p.BundleOnly {
@@ -361,7 +361,7 @@ func TestStatus_WorkspaceScopedProviderInSyncAfterCleanSync(t *testing.T) {
 				out[projectionKey(p)] = wsM
 			}
 		}
-		return out, nil
+		return out, nil, nil
 	}
 	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
 	t.Cleanup(func() {
@@ -438,13 +438,13 @@ func TestStatus_BuildsAllProjectionsInOneCall(t *testing.T) {
 	version = "v1.0.0"
 	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
 	var calls [][]syncProjection
-	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, error) {
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, map[string]contract.Relations, error) {
 		calls = append(calls, ps)
 		out := map[string]contract.Manifest{}
 		for _, p := range ps {
 			out[projectionKey(p)] = contract.Manifest{}
 		}
-		return out, nil
+		return out, nil, nil
 	}
 	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
 	t.Cleanup(func() {
@@ -488,8 +488,8 @@ func TestStatus_WorkspaceProblemNamesTheCause(t *testing.T) {
 	oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
 	version = "v1.0.0"
 	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
-	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, error) {
-		return map[string]contract.Manifest{}, nil
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, map[string]contract.Relations, error) {
+		return map[string]contract.Manifest{}, nil, nil
 	}
 	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
 	t.Cleanup(func() {
@@ -531,8 +531,8 @@ func TestStatus_UnreadableWorkspaceNamesTheCause(t *testing.T) {
 	oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
 	version = "v1.0.0"
 	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
-	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, error) {
-		return map[string]contract.Manifest{}, nil
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, map[string]contract.Relations, error) {
+		return map[string]contract.Manifest{}, nil, nil
 	}
 	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
 	t.Cleanup(func() {
@@ -590,8 +590,8 @@ func TestStatus_PlaceholderResolutionDriftIsDrift(t *testing.T) {
 	oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
 	version = "v1.0.0"
 	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
-	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, error) {
-		return uniformManifests(served, projectionProviders(ps)), nil
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, map[string]contract.Relations, error) {
+		return uniformManifests(served, projectionProviders(ps)), nil, nil
 	}
 	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
 	t.Cleanup(func() {
@@ -650,8 +650,8 @@ func TestStatus_HeldPreExistingHookIsPendingUntilApproved(t *testing.T) {
 	oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
 	version = "v1.0.0"
 	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
-	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, error) {
-		return uniformManifests(served, projectionProviders(ps)), nil
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, map[string]contract.Relations, error) {
+		return uniformManifests(served, projectionProviders(ps)), nil, nil
 	}
 	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
 	t.Cleanup(func() {
@@ -808,8 +808,8 @@ func TestStatus_StaleBridgeEntryIsDrift(t *testing.T) {
 	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) {
 		return &client.Health{Version: "v1.0.0", MountMode: "routed", RoutedPath: "/mcp/routed"}, nil
 	}
-	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, error) {
-		return uniformManifests(served, projectionProviders(ps)), nil
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, map[string]contract.Relations, error) {
+		return uniformManifests(served, projectionProviders(ps)), nil, nil
 	}
 	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
 	t.Cleanup(func() {
@@ -862,8 +862,8 @@ func TestStatus_ManifestFailureAfterHealthyServer(t *testing.T) {
 			oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
 			version = "v1.0.0"
 			statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return &client.Health{Version: "v1.0.0"}, nil }
-			statusManifestsFn = func(*clientconfig.Config, []syncProjection) (map[string]contract.Manifest, error) {
-				return nil, tc.err
+			statusManifestsFn = func(*clientconfig.Config, []syncProjection) (map[string]contract.Manifest, map[string]contract.Relations, error) {
+				return nil, nil, tc.err
 			}
 			statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
 			t.Cleanup(func() {

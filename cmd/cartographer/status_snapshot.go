@@ -122,6 +122,10 @@ type providerStatus struct {
 	// counts above describe its bundle-only global projection, which is
 	// deliberately not the interesting part: the KB artifacts live here.
 	Workspaces []workspaceStatus `json:"workspaces,omitempty"`
+	// Lineage and LineageUnresolved are workspaceStatus's, for the provider's
+	// own KB list (additive).
+	Lineage           map[string][]string       `json:"lineage,omitempty"`
+	LineageUnresolved []lineageUnresolvedStatus `json:"lineage_unresolved,omitempty"`
 	// InstructionsBlocks measures the managed instructions block of each
 	// projection that wrote one (D1182): the block is paid on every model call
 	// of every session. Informational, never drift.
@@ -254,6 +258,11 @@ type workspaceStatus struct {
 	// local clone: its Path is "repo:<key>".
 	Derived bool   `json:"derived,omitempty"`
 	Source  string `json:"source,omitempty"`
+	// Lineage names each KB bound by lineage with the KBs it came from;
+	// LineageUnresolved the relations of the own KBs the server could not
+	// resolve (the same sentence for an absent and an unreadable KB).
+	Lineage           map[string][]string       `json:"lineage,omitempty"`
+	LineageUnresolved []lineageUnresolvedStatus `json:"lineage_unresolved,omitempty"`
 	// Bind is the `workspace bind` command that rebinds the folder as it is
 	// bound, lineage options included (bindCommand); never serialized.
 	Bind string `json:"-"`
@@ -354,11 +363,14 @@ type statusSnapshot struct {
 	Providers         []providerStatus `json:"providers"`
 	// Plugins lists the configured plugins (additive, schema unchanged); absent
 	// when none is configured.
-	Plugins   []pluginStatus   `json:"plugins,omitempty"`
-	Artifacts int              `json:"artifact_count"`
-	State     string           `json:"state"`
-	Error     *statusError     `json:"error,omitempty"`
-	Service   *serviceSnapshot `json:"service,omitempty"`
+	Plugins []pluginStatus `json:"plugins,omitempty"`
+	// LastChange is what the last sync that changed derived bindings or lineage
+	// added and removed (additive); absent when nothing was recorded.
+	LastChange *clientconfig.DerivedChange `json:"last_change,omitempty"`
+	Artifacts  int                         `json:"artifact_count"`
+	State      string                      `json:"state"`
+	Error      *statusError                `json:"error,omitempty"`
+	Service    *serviceSnapshot            `json:"service,omitempty"`
 	// MountMode is the topology the server is serving right now, and
 	// ConfiguredMountMode the one this client's MCP entries were written
 	// against (D187). When they differ the entries are for the wrong endpoint
@@ -493,7 +505,7 @@ func outputFlag(args []string) (string, []string, error) {
 }
 
 func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool) statusSnapshot {
-	s := statusSnapshot{Schema: statusSchema, Client: version, State: "in_sync", Providers: providerStatuses(cfg), ServerURL: cfg.ServerURL, Update: snapshotUpdate(), Plugins: snapshotPlugins(cfg)}
+	s := statusSnapshot{Schema: statusSchema, Client: version, State: "in_sync", Providers: providerStatuses(cfg), ServerURL: cfg.ServerURL, Update: snapshotUpdate(), Plugins: snapshotPlugins(cfg), LastChange: cfg.Derived().LastChange}
 	if includeService && isLoopbackURL(cfg.ServerURL) {
 		if st, err := statusServiceFn(); err == nil {
 			s.Service = newServiceSnapshot(st)
@@ -581,8 +593,9 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		allProjs = append(allProjs, ps...)
 	}
 	var manifests map[string]contract.Manifest
+	var rels map[string]contract.Relations
 	if len(allProjs) > 0 || len(connectedProviders) == 0 {
-		manifests, err = statusManifestsFn(cfg, allProjs)
+		manifests, rels, err = statusManifestsFn(cfg, allProjs)
 	}
 	if err != nil {
 		s.State = "unavailable"
@@ -693,7 +706,11 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		p.BindingOrigin = "default"
 		if explicit {
 			p.BindingOrigin = "explicit"
+			p.Lineage = providerLineage(cfg, p.Name)
+			own, _ := cfg.BoundOwnKBs(p.Name)
+			p.LineageUnresolved = storedUnresolved(cfg, own)
 		}
+		reasons = append(reasons, lineageDrift(cfg, p.Name, rels)...)
 		p.KBCounts = countBySource(lock)
 		p.Diverged = snapshotDiverged(append(provisioning.VerifyManaged(lock, configurator.Provider(p.Name), provisioning.LockBaseDir(lock, dir)), wsDiverged...))
 		p.Diverged = append(p.Diverged, snapshotStaleBridge(cfg, p.Name, dir, routedPath)...)
@@ -705,7 +722,7 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		}
 		p.PendingPrune = pendingPrunes(lockFile, p.Name, provProjections[p.Name], dir)
 		held := heldArtifacts(pm, d, cfg, configurator.Provider(p.Name))
-		if d.InSync && len(p.Diverged) == 0 && len(held) == 0 && len(p.PendingPrune) == 0 {
+		if d.InSync && len(p.Diverged) == 0 && len(held) == 0 && len(p.PendingPrune) == 0 && len(reasons) == 0 {
 			p.State = "in_sync"
 			continue
 		}

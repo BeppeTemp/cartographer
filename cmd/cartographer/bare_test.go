@@ -22,8 +22,8 @@ func stubBareStatus(t *testing.T, health *client.Health, healthErr error, served
 	oldVersion, oldHealth, oldManifest, oldService := version, statusHealthFn, statusManifestsFn, statusServiceFn
 	version = "v1.0.0"
 	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) { return health, healthErr }
-	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, error) {
-		return uniformManifests(served, projectionProviders(ps)), nil
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, map[string]contract.Relations, error) {
+		return uniformManifests(served, projectionProviders(ps)), nil, nil
 	}
 	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
 	t.Cleanup(func() {
