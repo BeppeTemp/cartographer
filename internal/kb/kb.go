@@ -115,6 +115,9 @@ type KB struct {
 	// serve start; read it through Mounts().
 	mounts mountsHolder
 
+	// crossDigest memoizes CrossInboundDigest (crosslink_resolve.go).
+	crossDigest crossDigestMemo
+
 	// SiblingRoots maps every other KB the same server mounts to its absolute
 	// root (D316). Set by the HTTP server at mount time when it mounts more
 	// than one KB; nil otherwise. Lint reads it for cross_kb_path: an

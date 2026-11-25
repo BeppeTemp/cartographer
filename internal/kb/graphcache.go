@@ -275,8 +275,10 @@ type graphView struct {
 	// linkLines merges every entry's linkLines per id, as adj merges links.
 	linkLines map[okf.ConceptID]map[okf.ConceptID][]string
 	// cross is each id's cross-KB links; when two files emit one id the later
-	// in walk order wins, as facets does.
-	cross map[okf.ConceptID][]CrossLink
+	// in walk order wins, as facets does. crossByTarget indexes them by target:
+	// name as written, target id, source ids (crosslink_resolve.go).
+	cross         map[okf.ConceptID][]CrossLink
+	crossByTarget map[string]map[okf.ConceptID][]okf.ConceptID
 }
 
 type graphCache struct {
@@ -645,6 +647,7 @@ func buildGraphView(entries []*graphEntry, generation uint64) *graphView {
 			v.adj.in[target][e.id] = struct{}{}
 		}
 	}
+	v.crossByTarget = indexCrossByTarget(v.cross)
 	return v
 }
 

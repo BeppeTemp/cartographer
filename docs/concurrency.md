@@ -408,6 +408,14 @@ view. Writes are atomic renames (`writeFileAtomic`: temp file in the same direct
 the new one, never a torn one. The maps a view exposes (`Links`,
 `IncomingLinks`) are shared across readers and must never be mutated.
 
+Resolving a cross-KB link (`CrossTarget`, `CrossIncoming`, `CrossInboundDigest`)
+reads the *other* KB's graph snapshot under its graph cache mutex only, never its
+git lock: that mutex is a leaf (no code holding it takes a git lock, and this
+KB's view is released before another's is read), so a lint or a write of KB A
+under A's git lock cannot deadlock with a transfer holding both locks. It never
+writes to the other KB. The price: it sees the other KB's working tree as served,
+which can be a few milliseconds ahead of its commit; the next read corrects it.
+
 ## Operator recovery
 
 Cartographer does not promise automatic repair of arbitrary interrupted git
