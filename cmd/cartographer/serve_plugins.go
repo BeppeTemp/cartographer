@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"sort"
@@ -9,6 +10,7 @@ import (
 	_ "github.com/BeppeTemp/cartographer/internal/atlasext" // registers the views/ and apps/ points of the atlas side
 	"github.com/BeppeTemp/cartographer/internal/branding"
 	"github.com/BeppeTemp/cartographer/internal/config"
+	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/mcpserver"
 	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"github.com/BeppeTemp/cartographer/internal/plugin/star"
@@ -44,9 +46,19 @@ func presetEntries(plugins []*core.Plugin) []mcpserver.PresetEntry {
 	var out []mcpserver.PresetEntry
 	for _, p := range plugins {
 		for _, c := range p.Contributions["presets"] {
-			e := mcpserver.PresetEntry{ID: p.Manifest.Name + "/" + c.Name, PluginVersion: p.Manifest.Version, Description: c.Preset.Description, Kind: c.Preset.Kind, Create: c.Preset.Create, Templates: []mcpserver.PresetTemplate{}}
+			e := mcpserver.PresetEntry{ID: p.Manifest.Name + "/" + c.Name, PluginVersion: p.Manifest.Version, Description: c.Preset.Description, Kind: c.Preset.Kind, Create: c.Preset.Create, Templates: []mcpserver.PresetTemplate{}, Dashboards: []mcpserver.PresetDashboard{}}
 			for _, t := range c.Preset.Templates {
 				e.Templates = append(e.Templates, mcpserver.PresetTemplate{Slug: t.Slug, Path: "templates/" + t.Slug + ".md", Content: string(t.Content)})
+			}
+			for _, d := range c.Preset.Dashboards {
+				// The loader validated the file (ValidateDashboard), so a failure here is a
+				// build defect; the entry then lists no ops rather than a half recipe.
+				title, desc, ops, err := kb.DashboardFileOps(d.Content)
+				pd := mcpserver.PresetDashboard{Name: d.Name, Path: "dashboards/" + d.Name + ".yaml", Title: title, Description: desc}
+				if err == nil {
+					pd.Ops, _ = json.Marshal(ops)
+				}
+				e.Dashboards = append(e.Dashboards, pd)
 			}
 			out = append(out, e)
 		}

@@ -3,11 +3,13 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/config"
+	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/mcpserver"
 	"github.com/BeppeTemp/cartographer/internal/plugin/core"
 	"github.com/BeppeTemp/cartographer/internal/pluginserver"
@@ -167,6 +169,49 @@ func TestServerPresetsReachPresetList(t *testing.T) {
 	got := presetEntries(plugins)
 	if len(got) != 1 || got[0].ID != "team-data/runbooks" || got[0].PluginVersion != "1.2.0" || got[0].Templates[0].Path != "templates/runbook.md" || got[0].Templates[0].Content == "" {
 		t.Fatalf("presets = %+v", got)
+	}
+}
+
+// AC-plugdash-6: a preset's dashboard reaches preset_list as ops that decode as
+// dashboard_patch decodes them and, applied to an empty dashboard, give back the
+// widgets of the file (the tool round trip is TestPresetListOpsApplyWithDashboardPatch).
+func TestPresetDashboardAppliesWithDashboardPatch(t *testing.T) {
+	old := version
+	version = "0.29.0"
+	t.Cleanup(func() { version = old })
+	const dash = "title: Week\ndescription: What moves.\nwidgets:\n  - id: open\n    type: list\n  - id: memo\n    type: note\n    text: hello\n"
+	root, digest := vendorTree(t, serverTree(
+		"presets/planner/preset.yaml", "description: Planner.\ntitle: Planner\nkind: map\n",
+		"presets/planner/dashboards/week.yaml", dash,
+		"presets/only/preset.yaml", "description: Dashboards only.\n",
+		"presets/only/dashboards/week.yaml", dash,
+	))
+	cfg := &config.Config{PluginsDir: root, Plugins: map[string]config.PluginPin{"team-data": {Digest: digest, Enabled: true}}}
+	plugins, _, err := loadPinnedPlugins(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := presetEntries(plugins)
+	if len(got) != 2 || got[0].ID != "team-data/only" || got[0].Kind != "" || got[0].Create != nil {
+		t.Fatalf("presets = %+v", got)
+	}
+	for _, e := range got {
+		if len(e.Dashboards) != 1 || e.Dashboards[0].Path != "dashboards/week.yaml" || e.Dashboards[0].Title != "Week" {
+			t.Fatalf("%s dashboards = %+v", e.ID, e.Dashboards)
+		}
+		ops, err := kb.DecodeDashboardOps(e.Dashboards[0].Ops)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := kb.ApplyDashboardOps(nil, ops)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, _ := kb.ParseDashboard([]byte(dash))
+		have, _ := kb.ParseDashboard(out)
+		if !reflect.DeepEqual(have, want) {
+			t.Errorf("applied %+v, want %+v", have, want)
+		}
 	}
 }
 

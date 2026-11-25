@@ -396,6 +396,8 @@ func agentProfileNames(t *testing.T) ([]string, int) {
 // outgrows its budget in any cell: instructions block × {1, 9 KBs}, tools/list
 // × {agent, access=read, access=read-min} × {1, 9 KBs}, plus the growth with
 // the KB count of each.
+// AC-plugdash-9 (with TestReadOnlyToolsGolden and TestToolResultGolden): the longer
+// preset_list description fits the budgets.
 func TestFixedCallCostBudget(t *testing.T) {
 	t.Parallel()
 	one, nine := measureFixedCost(t, 1), measureFixedCost(t, 9)
