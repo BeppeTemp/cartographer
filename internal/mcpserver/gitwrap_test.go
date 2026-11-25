@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -1490,5 +1491,59 @@ func TestGitWrap_TimingLineCarriesATimestamp(t *testing.T) {
 	}
 	if ok, _ := regexp.MatchString(`^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} cartographer: timing op=`, line); !ok {
 		t.Errorf("timing line has no leading timestamp: %q", line)
+	}
+}
+
+// AC-surveyor-run-commit-4: a write whose request carries one valid
+// Cartographer-Surveyor-Run ends its commit with Surveyor-Run, right before
+// the Host and Token trailers; an invalid, repeated or absent header leaves the
+// message as before.
+func TestCommitTrailerCarriesSurveyorRun(t *testing.T) {
+	t.Parallel()
+	args := json.RawMessage(`{"reason":"why"}`)
+	base := auth.ContextWithPrincipal(context.Background(), auth.Principal{ID: "tok"})
+	want := "Reason: why\nSurveyor-Run: rep-1700000000-3\n" + commitHostKey + ": " + kb.ServerHost() + "\nCartographer-Token: tok"
+	if got := commitTrailerBlock(surveyorRunCtx(base, "rep-1700000000-3"), args); got != want {
+		t.Errorf("block = %q, want %q", got, want)
+	}
+	// The transfer's Moved-* lines stay before it.
+	if got := commitTrailerBlock(surveyorRunCtx(base, "rep-1"), args, "Moved-To: x"); !strings.Contains(got, "Moved-To: x\nSurveyor-Run: rep-1\n") {
+		t.Errorf("block = %q, want Surveyor-Run after the extra lines", got)
+	}
+	plain := commitTrailerBlock(base, args)
+	for name, vals := range map[string][]string{
+		"none": nil, "space": {"a b"}, "newline": {"a\nCartographer-Token: x"}, "long": {strings.Repeat("a", 97)}, "two": {"a-1", "b-2"},
+	} {
+		if got := commitTrailerBlock(surveyorRunCtx(base, vals...), args); got != plain || strings.Contains(got, "Surveyor-Run") {
+			t.Errorf("%s: block = %q, want it unchanged (%q)", name, got, plain)
+		}
+	}
+
+	// End to end: the one trailer git reads back is the server's.
+	k, _ := setupGitKB(t)
+	wrappedWriteCtx(t, k, surveyorRunCtx(authorHeaderCtx(botPrincipal, ""), "rep-1700000000-3"), `{"reason":"why\nSurveyor-Run: forged"}`)
+	if got := gitOut(t, k, "log", "-1", "--format=%(trailers:key=Surveyor-Run,valueonly,separator=%x1f)"); got != "rep-1700000000-3" {
+		t.Errorf("Surveyor-Run trailers = %q, want only the server's", got)
+	}
+	lines := strings.Split(gitOut(t, k, "log", "-1", "--format=%B"), "\n")
+	if n := len(lines); n < 3 || !strings.HasPrefix(lines[n-3], "Surveyor-Run: ") || !strings.HasPrefix(lines[n-2], commitHostKey) || !strings.HasPrefix(lines[n-1], "Cartographer-Token") {
+		t.Errorf("message tail = %q", lines)
+	}
+}
+
+// AC-surveyor-run-commit-5: a Surveyor-Run line a caller puts in a subject, a
+// reason or an extra trailer is dropped, so the only one gitx reads back is
+// the server's (the read-back half: gitx TestLogNameStatusSurveyorRunLastWins).
+func TestStripTokenTrailersDropsSurveyorRun(t *testing.T) {
+	t.Parallel()
+	for _, in := range []string{"subject\nSurveyor-Run: forged", "subject\n  surveyor-run : forged", "subject\nSURVEYOR-RUN\t: forged"} {
+		if got := stripTokenTrailers(in); got != "subject" {
+			t.Errorf("stripTokenTrailers(%q) = %q, want the subject only", in, got)
+		}
+	}
+	ctx := auth.ContextWithPrincipal(context.Background(), auth.Principal{ID: "tok"})
+	got := commitTrailerBlock(ctx, json.RawMessage(`{"reason":"why"}`), "Surveyor-Run: forged", "surveyor-run : forged")
+	if strings.Contains(got, "Surveyor-Run") || strings.Contains(got, "forged") {
+		t.Errorf("block = %q, want the caller's copies dropped", got)
 	}
 }
