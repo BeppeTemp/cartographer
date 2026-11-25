@@ -955,8 +955,8 @@ recipe and its host list, leases the feed (`feed_checked_at`, compare-and-swap: 
 modified entry it looks for the document's Source by locator, shapes the unit, then registers the Source (never
 `sha256`; an `ingested` Source returns to `pending`) just before it creates an `IngestUnit` at the ID
 `<unit map>/<slug>-<8 hex of sha256(feed|locator|revision)>`; a unit that exists means the entry was handled and costs
-nothing. A new unit costs one model call with no tools (plan, feed and entry as delimited data; the answer is JSON the
-Surveyor validates and retries once), made before the Source is registered, so a failed call leaves no Source without
+nothing. A new unit costs one model call with no tools (plan, feed and entry as delimited data, plus, when the entry has text, inline or fetched,
+a `content` data block with its first 6 KiB, cut with a `[truncated n bytes]` marker; the answer is JSON the Surveyor validates and retries once), made before the Source is registered, so a failed call leaves no Source without
 its unit; a changed document reuses the previous unit's fields with no call. The cursor advances only after every entry is handled; a spent grant leaves it, and the next poll
 skips the finished entries. Removed entries are counted, never acted on. A feed that cannot be polled gets
 `feed_error: <code>: <detail>` (`bad_field`, `recipe_unknown`, `recipe_shape`, `host_not_allowed`, `no_ingest_plan`,
