@@ -1146,6 +1146,34 @@ button.row {
   color: var(--sev-error);
   font-size: var(--text-sm);
 }
+/* Kanban columns and list rows: the Work page's card inside a dashboard card. */
+.dashboard__columns {
+  display: flex;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+  overflow-x: auto;
+}
+.dashboard__column {
+  flex: 1 0 12rem;
+  min-width: 0;
+}
+.dashboard__column-title {
+  margin: var(--space-2) 0 var(--space-1);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.dashboard__entries {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.dashboard__due {
+  color: var(--sev-error);
+  font-weight: 600;
+}
 .dashboard__flash {
   position: absolute;
   inset: 0;
