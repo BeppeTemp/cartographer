@@ -1175,3 +1175,100 @@ func TestUpgradeRepair_RepairsTheLiveTaskDescriptor(t *testing.T) {
 		})
 	}
 }
+
+// clientOnlyTrayFixture sets a client-only machine: HOME is a temp dir holding
+// a client config, the tray is never the real one.
+func clientOnlyTrayFixture(t *testing.T, agents []string, installed bool) *int {
+	t.Helper()
+	saveRepairFns(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	writeRepairClientConfig(t, home, "https://example.com", agents)
+	origOS, origInst, origInstalled, origStable := trayGOOS, trayInstallFn, trayInstalledFn, trayStableBinaryFn
+	t.Cleanup(func() {
+		trayGOOS, trayInstallFn, trayInstalledFn, trayStableBinaryFn = origOS, origInst, origInstalled, origStable
+	})
+	trayGOOS = "darwin"
+	trayInstalledFn = func() bool { return installed }
+	trayStableBinaryFn = func() error { return nil }
+	calls := 0
+	trayInstallFn = func() error { calls++; return nil }
+	repairEffectiveConfigFn = func(string) (string, error) { return "/cfg.yaml", nil }
+	repairServiceStatusFn = func(string) (service.Status, error) { return service.Status{Installed: false}, nil }
+	return &calls
+}
+
+func TestUpgradeRepair_ClientOnlyInstallsTray(t *testing.T) {
+	calls := clientOnlyTrayFixture(t, []string{"claude"}, false)
+	out := withStdout(t, func() {
+		if code := cmdUpgradeRepair(nil); code != exitRepairOK {
+			t.Errorf("exit = %d", code)
+		}
+	})
+	if *calls != 1 || !strings.Contains(out, "status icon installed") {
+		t.Errorf("installs = %d, output = %q", *calls, out)
+	}
+}
+
+func TestUpgradeRepair_ClientOnlyTraySkips(t *testing.T) {
+	t.Run("opt-out", func(t *testing.T) {
+		calls := clientOnlyTrayFixture(t, []string{"claude"}, false)
+		home, _ := os.UserHomeDir()
+		if err := clientconfig.Save(home, &clientconfig.Config{ServerURL: "https://example.com", Agents: []string{"claude"}, TrayOptOut: true}); err != nil {
+			t.Fatal(err)
+		}
+		withStdout(t, func() { cmdUpgradeRepair(nil) })
+		if *calls != 0 {
+			t.Errorf("installed over an opt-out")
+		}
+	})
+	t.Run("already installed", func(t *testing.T) {
+		calls := clientOnlyTrayFixture(t, []string{"claude"}, true)
+		withStdout(t, func() { cmdUpgradeRepair(nil) })
+		if *calls != 0 {
+			t.Errorf("installed over an installed tray")
+		}
+	})
+	t.Run("no connected agent", func(t *testing.T) {
+		calls := clientOnlyTrayFixture(t, nil, false)
+		withStdout(t, func() { cmdUpgradeRepair(nil) })
+		if *calls != 0 {
+			t.Errorf("installed with no agent")
+		}
+	})
+	t.Run("unstable binary", func(t *testing.T) {
+		calls := clientOnlyTrayFixture(t, []string{"claude"}, false)
+		trayStableBinaryFn = func() error { return errors.New("service: unstable") }
+		withStdout(t, func() { cmdUpgradeRepair(nil) })
+		if *calls != 0 {
+			t.Errorf("installed from an unstable binary")
+		}
+	})
+	t.Run("linux", func(t *testing.T) {
+		calls := clientOnlyTrayFixture(t, []string{"claude"}, false)
+		trayGOOS = "linux"
+		withStdout(t, func() { cmdUpgradeRepair(nil) })
+		if *calls != 0 {
+			t.Errorf("installed on linux")
+		}
+	})
+	t.Run("local service", func(t *testing.T) {
+		calls := clientOnlyTrayFixture(t, []string{"claude"}, false)
+		repairServiceStatusFn = func(string) (service.Status, error) { return service.Status{Installed: true}, nil }
+		withStdout(t, func() { cmdUpgradeRepair(nil) })
+		if *calls != 0 {
+			t.Errorf("client path ran with a local service")
+		}
+	})
+}
+
+func TestUpgradeRepair_ClientOnlyTrayFailureIsAWarning(t *testing.T) {
+	calls := clientOnlyTrayFixture(t, []string{"claude"}, false)
+	trayInstallFn = func() error { *calls++; return errors.New("no gui") }
+	var code int
+	withStdout(t, func() { code = cmdUpgradeRepair(nil) })
+	if code != exitRepairOK || *calls != 1 {
+		t.Errorf("exit = %d, installs = %d", code, *calls)
+	}
+}
