@@ -389,9 +389,12 @@ func removeBindings(name string) error {
 	}
 	return withClientConfig(dir, func(cfg *clientconfig.Config) error {
 		for p, b := range cfg.Clients {
-			if containsString(b.KBs, name) {
-				b.KBs = removeFromList(b.KBs, name)
-				b.KBsSet = true
+			if containsString(b.KBs, name) || containsString(b.Exclude, name) {
+				if containsString(b.KBs, name) {
+					b.KBs = removeFromList(b.KBs, name)
+					b.KBsSet = true
+				}
+				b.Exclude = removeFromList(b.Exclude, name)
 				cfg.Clients[p] = b
 			}
 		}

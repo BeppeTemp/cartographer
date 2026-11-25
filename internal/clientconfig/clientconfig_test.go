@@ -835,3 +835,74 @@ func TestMCPApprovalContentRoundTrip(t *testing.T) {
 		t.Errorf("an approval without content must stay empty, got %q", got)
 	}
 }
+
+func providerLineageCfg(t *testing.T, kbs ...string) *clientconfig.Config {
+	t.Helper()
+	cfg := clientconfig.Default()
+	cfg.KnownKBs = []string{"client-kb", "core-kb", "other-kb"}
+	for _, kb := range kbs {
+		if err := cfg.Bind("claude", kb); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg.SetDerived(clientconfig.DerivedState{Lineage: map[string]clientconfig.DerivedLineage{
+		"client-kb": {Closure: []string{"core-kb"}},
+	}})
+	return cfg
+}
+
+// AC-lineage-7: a provider bound to a KB receives its stored closure too, from
+// the one resolver, and BoundOwnKBs is the list as written.
+func TestBoundKBsLineage(t *testing.T) {
+	cfg := providerLineageCfg(t, "client-kb")
+	got, explicit := cfg.BoundKBs("claude")
+	if !explicit || strings.Join(got, ",") != "client-kb,core-kb" {
+		t.Fatalf("BoundKBs = %v, %v", got, explicit)
+	}
+	if own, _ := cfg.BoundOwnKBs("claude"); strings.Join(own, ",") != "client-kb" {
+		t.Errorf("BoundOwnKBs = %v", own)
+	}
+	if l := cfg.ProviderLineage("claude"); strings.Join(l, ",") != "core-kb" {
+		t.Errorf("ProviderLineage = %v", l)
+	}
+
+	if err := cfg.SetProviderLineage("claude", true, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := cfg.BoundKBs("claude"); strings.Join(got, ",") != "client-kb" {
+		t.Errorf("no_lineage: %v", got)
+	}
+	if err := cfg.SetProviderLineage("claude", false, []string{"core-kb"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := cfg.BoundKBs("claude"); strings.Join(got, ",") != "client-kb" {
+		t.Errorf("exclude: %v", got)
+	}
+	if err := cfg.SetProviderLineage("claude", false, []string{"client-kb"}); err == nil {
+		t.Error("a KB both bound and excluded must be refused")
+	}
+
+	// A bound own KB is never dropped by lineage, and is not duplicated.
+	both := providerLineageCfg(t, "client-kb", "core-kb")
+	if got, _ := both.BoundKBs("claude"); strings.Join(got, ",") != "client-kb,core-kb" {
+		t.Errorf("own + lineage = %v", got)
+	}
+
+	// The default and `kbs: []` get nothing.
+	def := providerLineageCfg(t)
+	if got, explicit := def.BoundKBs("claude"); explicit || strings.Join(got, ",") != "client-kb,core-kb,other-kb" {
+		t.Errorf("default = %v, %v", got, explicit)
+	}
+	if err := def.Bind("claude", "client-kb"); err != nil {
+		t.Fatal(err)
+	}
+	if err := def.Unbind("claude", "client-kb"); err != nil {
+		t.Fatal(err)
+	}
+	if got, explicit := def.BoundKBs("claude"); !explicit || len(got) != 0 {
+		t.Errorf("kbs: [] = %v, %v", got, explicit)
+	}
+	if err := def.SetProviderLineage("codex", false, nil); err == nil {
+		t.Error("lineage options on a provider with no explicit list must be refused")
+	}
+}

@@ -245,6 +245,12 @@ type ClientBinding struct {
 	// (providers.<provider>.allow_symlinks, D148 refined): each entry is the link
 	// itself, as the client addresses it. Not a KB binding either.
 	AllowSymlinks []string
+	// NoLineage and Exclude are the lineage opt-outs of an explicit binding, as
+	// on a workspace binding: the person's choice on this machine, never the
+	// KB's. They are inert on a binding with no `kbs` key (it already receives
+	// every KB) and on `kbs: []` (no seed).
+	NoLineage bool
+	Exclude   []string
 }
 
 // AccessReadMin is the one value of ClientBinding.Access: the routed mount's
@@ -260,6 +266,8 @@ type clientBindingYAML struct {
 	Access     string   `yaml:"access,omitempty"`
 
 	AllowSymlinks []string `yaml:"allow_symlinks,omitempty"`
+	NoLineage     bool     `yaml:"no_lineage,omitempty"`
+	Exclude       []string `yaml:"exclude,omitempty"`
 }
 
 // UnmarshalYAML tells an absent `kbs` key from an empty one.
@@ -268,7 +276,8 @@ func (b *ClientBinding) UnmarshalYAML(node *yaml.Node) error {
 	if err := node.Decode(&raw); err != nil {
 		return err
 	}
-	*b = ClientBinding{KBs: raw.KBs, ConfigDirs: raw.ConfigDirs, Access: raw.Access, AllowSymlinks: raw.AllowSymlinks}
+	*b = ClientBinding{KBs: raw.KBs, ConfigDirs: raw.ConfigDirs, Access: raw.Access, AllowSymlinks: raw.AllowSymlinks,
+		NoLineage: raw.NoLineage, Exclude: raw.Exclude}
 	if node.Kind == yaml.MappingNode {
 		for i := 0; i+1 < len(node.Content); i += 2 {
 			if node.Content[i].Value == "kbs" {
@@ -289,6 +298,12 @@ func (b ClientBinding) MarshalYAML() (interface{}, error) {
 			kbs = []string{}
 		}
 		out["kbs"] = kbs
+		if b.NoLineage {
+			out["no_lineage"] = true
+		}
+		if len(b.Exclude) > 0 {
+			out["exclude"] = b.Exclude
+		}
 	}
 	if len(b.ConfigDirs) > 0 {
 		out["config_dirs"] = b.ConfigDirs
@@ -995,14 +1010,87 @@ func (c *Config) AddAgent(name string) {
 // today's behaviour, so an upgrade never strips artifacts from an already
 // connected client; default-deny is what declaring an entry buys.
 //
+// An explicit binding resolves to its own KBs, then the stored lineage closure
+// of each, minus Exclude (own KBs are never excluded), unless NoLineage: the
+// closure is read from the derived state sync stored and never pulled here (the
+// bridge and approve call this and never pull). The default and a `kbs: []`
+// binding get no lineage.
+//
+// A caller that edits or prints the written list, or seeds a derivation from it
+// (a lineage KB is never a seed), calls BoundOwnKBs; every caller that decides
+// what the provider receives calls BoundKBs.
+//
 // The returned slice is a copy: mutating it cannot corrupt the config.
 func (c *Config) BoundKBs(provider string) (kbs []string, explicit bool) {
+	own, explicit := c.BoundOwnKBs(provider)
+	if !explicit {
+		return own, false
+	}
+	b := c.Clients[provider]
+	if b.NoLineage || len(own) == 0 || len(c.derived.Lineage) == 0 {
+		return own, true
+	}
+	kbs = own
+	for _, seed := range own {
+		for _, k := range c.derived.Lineage[seed].Closure {
+			if !containsString(kbs, k) && !containsString(b.Exclude, k) {
+				kbs = append(kbs, k)
+			}
+		}
+	}
+	return kbs, true
+}
+
+// BoundOwnKBs is the KB list of provider as written, with no lineage: what
+// BoundKBs returned before lineage existed. The default is every known KB.
+func (c *Config) BoundOwnKBs(provider string) (kbs []string, explicit bool) {
 	// Presence of the `kbs` key decides, not presence of the entry: an entry
 	// with only config_dirs (D755) is not a binding.
 	if binding, ok := c.Clients[provider]; ok && binding.Explicit() {
 		return append([]string(nil), binding.KBs...), true
 	}
 	return append([]string(nil), c.KnownKBs...), false
+}
+
+// ProviderLineage is the KBs BoundKBs adds to provider's written list, in
+// resolution order (none for the default).
+func (c *Config) ProviderLineage(provider string) []string {
+	own, explicit := c.BoundOwnKBs(provider)
+	if !explicit {
+		return nil
+	}
+	eff, _ := c.BoundKBs(provider)
+	var out []string
+	for _, k := range eff {
+		if !containsString(own, k) {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+// SetProviderLineage sets the lineage opt-outs of an explicit provider binding,
+// replacing the ones it had (a KB both bound and excluded is an error).
+func (c *Config) SetProviderLineage(provider string, noLineage bool, exclude []string) error {
+	b, ok := c.Clients[provider]
+	if !ok || !b.Explicit() {
+		return fmt.Errorf("clientconfig: provider %q has no explicit KB list: there is no lineage to opt out of", provider)
+	}
+	var ex []string
+	for _, kb := range exclude {
+		if !validKBName(kb) {
+			return fmt.Errorf("clientconfig: invalid KB name %q in exclude", kb)
+		}
+		if containsString(b.KBs, kb) {
+			return fmt.Errorf("clientconfig: KB %q is both bound and excluded: drop it from one of the two", kb)
+		}
+		if !containsString(ex, kb) {
+			ex = append(ex, kb)
+		}
+	}
+	b.NoLineage, b.Exclude = noLineage, ex
+	c.Clients[provider] = b
+	return nil
 }
 
 // Bind adds kb to provider's binding, creating the binding if the provider had
@@ -1192,6 +1280,7 @@ func (c *Config) ResetBinding(provider string) {
 	// config_dirs is not part of the KB binding (D755): keep it.
 	// access is the connection's profile (D1184), not a KB binding: keep it too.
 	if b, ok := c.Clients[provider]; ok && (len(b.ConfigDirs) > 0 || b.Access != "" || len(b.AllowSymlinks) > 0) {
+		// KBs, NoLineage and Exclude go with the binding.
 		c.Clients[provider] = ClientBinding{ConfigDirs: b.ConfigDirs, Access: b.Access, AllowSymlinks: b.AllowSymlinks}
 		return
 	}

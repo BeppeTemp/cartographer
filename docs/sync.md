@@ -630,6 +630,11 @@ unchanged.
   closure and the relations the server could not resolve, and `last_change`), and is read from there by the
   bridge and `approve`, which never pull; an edited `exclude` therefore takes effect with no sync. A stored
   name is kept on load only if it is a valid KB name, is not its seed and fits the cap of 64 per KB.
+  The same rule holds in provider scope: a provider with an explicit `kbs` list receives its own
+  KBs, then the stored closure of each, minus `exclude` (`providers.<provider>.no_lineage` and
+  `.exclude`, or `clients.<provider>.…` in the flat layout; the one resolver, `BoundKBs`, applies it). The
+  default (no `kbs`) and `kbs: []` get no lineage, and a lineage KB is never a seed of derivation
+  (`BoundOwnKBs` is the list as written, which `client bind`, `unbind` and the derivation read).
 - **Derived state, not a preference.** The list is recomputed by every `sync` from the registries
   it pulls and stored apart from `.cartographer.yaml`, next to the repo index cache
   (`workspace-derived.json`). A repository that stops being declared, gets `bind: false` or

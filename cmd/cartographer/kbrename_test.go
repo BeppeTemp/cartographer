@@ -353,3 +353,48 @@ func TestRewriteServerConfig_KeepsTwoSpaceSequences(t *testing.T) {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 }
+
+// writeExcludeOnlyBindings writes a client config where wiki appears only in
+// exclude lists: a provider's and a workspace binding's.
+func writeExcludeOnlyBindings(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	setHome(t, home)
+	body := "schema_version: 1\nserver_url: http://127.0.0.1:39273\n" +
+		"clients:\n  claude:\n    kbs: [kb-b]\n    exclude: [wiki]\n" +
+		"workspaces:\n  kiro:\n    - path: /work/repo-a\n      kbs: [kb-b]\n      exclude: [wiki]\n"
+	if err := os.WriteFile(filepath.Join(home, clientconfig.FileName), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return home
+}
+
+// A KB named only in an exclude list is still a reference: a rename that left
+// it would silently stop the exclusion from applying.
+func TestCmdKBRename_RewritesAnExcludeOnlyReference(t *testing.T) {
+	if !hasGitBinary() {
+		t.Skip("git not available")
+	}
+	home := writeExcludeOnlyBindings(t)
+	dataDir := seedRenameKB(t, "wiki")
+	cfgPath := writeServerConfig(t, "data: "+dataDir+"\n")
+	var code int
+	out := withStdout(t, func() {
+		withNoGuidance(t, func() {
+			code = cmdKBRename([]string{"wiki", "atlas", "--data", dataDir, "--config", cfgPath})
+		})
+	})
+	if code != 0 {
+		t.Fatalf("exit = %d:\n%s", code, out)
+	}
+	cfg, err := clientconfig.Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Clients["claude"].Exclude; !slices.Equal(got, []string{"atlas"}) {
+		t.Errorf("clients.claude.exclude = %v, want [atlas]", got)
+	}
+	if got := cfg.Workspaces["kiro"][0].Exclude; !slices.Equal(got, []string{"atlas"}) {
+		t.Errorf("workspaces.kiro[0].exclude = %v, want [atlas]", got)
+	}
+}
