@@ -133,6 +133,10 @@ func toolValidate(k *kb.KB) Tool {
 // the caller's context window (~150 bytes a finding), not a protocol limit.
 const lintMaxPage = 200
 
+// lintRunFn is lint.Run for the whole-KB tools; a test swaps it to feed them a
+// finding no check produces yet (a cross-KB one).
+var lintRunFn = lint.Run
+
 func toolLint(k *kb.KB) Tool {
 	return Tool{
 		Name:        "lint",
@@ -208,10 +212,13 @@ func toolLint(k *kb.KB) Tool {
 			if err := k.CheckScope(params.Scope); err != nil {
 				return errorResult(err.Error()), nil
 			}
-			findings, err := lint.Run(k, params.Scope, params.ScopeNeighbors)
+			findings, err := lintRunFn(k, params.Scope, params.ScopeNeighbors)
 			if err != nil {
 				return errorResult(fmt.Sprintf("lint: %v", err)), nil
 			}
+			// Before any count: a finding about a KB the caller cannot read is
+			// not part of what it is told, total included.
+			findings = lintFilteredFor(ctx, k, findings)
 
 			// No early return for a clean KB: the empty result keeps the shape
 			// of a non-empty one, so a caller that parses JSON never meets a
@@ -540,11 +547,12 @@ func toolGateCheck(k *kb.KB) Tool {
 				lintFindings = writeLintFindings(k, params.ChangedIDs, nil)
 			} else {
 				var err error
-				lintFindings, err = lint.Run(k, params.Scope, params.ScopeNeighbors)
+				lintFindings, err = lintRunFn(k, params.Scope, params.ScopeNeighbors)
 				if err != nil {
 					return errorResult(fmt.Sprintf("gate_check: lint: %v", err)), nil
 				}
 			}
+			lintFindings = lintFilteredFor(ctx, k, lintFindings)
 			// validate and lint report the same invalid pages (D356): a lint
 			// finding that mirrors a validation error on the same path is the
 			// same fact, listed once, under validation_errors.

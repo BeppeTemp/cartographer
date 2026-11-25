@@ -262,6 +262,10 @@ type ReviewItem struct {
 	// Impact previews, per map, what declaring the proposed template does to the
 	// pages already there: the template findings they would gain.
 	Impact []TemplateImpact `json:"impact,omitempty"`
+	// OtherKBs are the other KBs the finding behind a lint_judgement item names
+	// (Finding.OtherKBs); never serialized. A caller who cannot read them all is
+	// not given the item (internal/mcpserver visibleReview).
+	OtherKBs []string `json:"-"`
 	// wholeGraph marks an item derived from a check that reads the whole
 	// graph (WholeGraphChecks): a caller who cannot see the whole KB must not
 	// receive it.
@@ -1538,6 +1542,7 @@ func lintJudgementItems(findings []Finding, zombies map[okf.ConceptID]bool) []Re
 			SuggestedAction: suggestedLintAction(f.Check),
 			Weight:          categoryWeight(categoryOf(f.Check)),
 			wholeGraph:      WholeGraphChecks[f.Check],
+			OtherKBs:        f.OtherKBs,
 		})
 	}
 	return out

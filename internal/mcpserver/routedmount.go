@@ -363,6 +363,14 @@ func (m *MultiKBServer) SetKBAliases(aliases []config.KBAlias) {
 const routedScopeHint = "If the client has a workspace binding, this connection's KB set comes from the folder " +
 	"the session was started in: run `cartographer workspace resolve` there to see which binding applies."
 
+// The two wordings that bind a KB to a connection (D712), shared by the
+// refusal of a call and by bindHint (the state out_of_scope of a cross-KB link).
+const (
+	bindTextGeneric = "The connection's KB set is fixed when the integration connects: whoever runs the integration adds the KB to its URL (?kbs=), " +
+		"then the integration reconnects or re-synchronizes its tool list — an open session keeps the tool list it started with."
+	bindSyncTail = "run cartographer sync, then start a new agent session — an open session keeps the tool list it started with. "
+)
+
 // splitNames splits comma-joined query values into trimmed, non-empty names.
 func splitNames(raws []string) map[string]bool {
 	seen := map[string]bool{}
@@ -669,13 +677,10 @@ func (m *MultiKBServer) routedHandler(toolName string, set []string, sink *Serve
 			}
 			if _, mounted := m.servers[kbName]; mounted && kbRosterVisible(ctx, kbName) {
 				if !operator {
-					return refuse("", errorResult(fmt.Sprintf("kb %q is mounted on this server but is not part of this connection (allowed: %s). "+
-						"The connection's KB set is fixed when the integration connects: whoever runs the integration adds the KB to its URL (?kbs=), "+
-						"then the integration reconnects or re-synchronizes its tool list — an open session keeps the tool list it started with.", kbName, allowed)))
+					return refuse("", errorResult(fmt.Sprintf("kb %q is mounted on this server but is not part of this connection (allowed: %s). "+bindTextGeneric, kbName, allowed)))
 				}
 				return refuse("", errorResult(fmt.Sprintf("kb %q is mounted on this server but not bound to this connection (allowed: %s): "+
-					"bind it to this client (cartographer client bind), run cartographer sync, then start a new agent session — "+
-					"an open session keeps the tool list it started with. "+routedScopeHint, kbName, allowed)))
+					"bind it to this client (cartographer client bind), "+bindSyncTail+routedScopeHint, kbName, allowed)))
 			}
 			if containsString(routedUnknown(ctx), kbName) {
 				if !operator {

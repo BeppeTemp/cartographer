@@ -71,6 +71,7 @@ test or a decision record: none of them is a preference.
   not a cleanup.
 - **Age and recency are computed on the server's clock, from the time the server received the datum**, never from a time a client or a Surveyor declares: a skewed or hostile clock would make a stale report look fresh (the surveyor and component routes: `uiapi_surveyors.go`, `uiapi_surveyorruns.go`, `uiapi_components.go`).
 - **A free-text field that reaches the server unchecked is not shown to a principal that sees other KBs**: check its scope first, because what one KB's writer typed would otherwise read as another's.
+- **A finding, API field or view that names another KB goes through `Finding.OtherKBs`/`crossFindingVisible` (findings), `crossStateFor` (links) or `kbRosterVisible` (the relation view); no cross state goes into a cached UI body; a cached whole-KB body whose content depends on the caller's rights on other KBs carries them in its key via `crossFingerprint`.**
 - **A surface exposed outside (a route, a tier, a method set) is admitted by an explicit list**, never by "everything except": a new member is then closed until someone opens it on purpose.
 - Registration is per-KB: a tool added outside `RegisterKBTools` is invisible in
   multi-KB mounts.

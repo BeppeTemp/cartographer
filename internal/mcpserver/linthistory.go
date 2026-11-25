@@ -46,6 +46,13 @@ func newLintSample(k *kb.KB, findings []lint.Finding, now time.Time) lintSample 
 	}
 	auto := uiAutoChecks()
 	for _, f := range findings {
+		// A finding that names another KB is left out: the sample is shown to
+		// whole-KB callers, and its totals are of the unfiltered list, so a
+		// caller who cannot read that KB would learn the page links there.
+		if len(f.OtherKBs) > 0 || f.Check == "broken_cross_kb_link" {
+			s.Total--
+			continue
+		}
 		s.ByHandler[findingHandler(f, auto)]++
 	}
 	return s

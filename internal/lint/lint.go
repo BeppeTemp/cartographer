@@ -135,6 +135,11 @@ type Finding struct {
 	// ends in .md (D316): a caller mapping a path back to a concept must not
 	// invent one from it.
 	Artifact bool
+	// OtherKBs are the current mount names of the other KBs the finding is
+	// about; empty for a finding that names none, which then follows its page.
+	// It is never serialized: a caller who cannot read all of them is not told
+	// of the finding (internal/mcpserver crossFindingVisible).
+	OtherKBs []string
 }
 
 // Now is used for date comparison in stale_claim checks. Override in tests.

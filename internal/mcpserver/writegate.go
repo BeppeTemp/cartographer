@@ -168,7 +168,9 @@ func judgeWrite(k *kb.KB, toolName string, view *callerView) *ToolResult {
 		return nil
 	}
 	pairUnmatchedMoves(changes, renamedFrom, func(o, n string) bool { return samePage(k, o, n) })
-	post := avoidableFindings(writeLintFindings(k, written, gone))
+	// Only what the caller may be told of decides whether the baseline is paid:
+	// a finding it cannot see must not change the latency of the call.
+	post := slices.DeleteFunc(avoidableFindings(writeLintFindings(k, written, gone)), func(f lint.Finding) bool { return !view.sees(f) })
 	if toolName == "source_register" {
 		// A registration that worked before the gate must still work: the
 		// shape of a Source is bound when one template says so, and a journal

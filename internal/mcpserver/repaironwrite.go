@@ -62,17 +62,7 @@ func repairWritten(k *kb.KB, written, gone []string, view *callerView) (findings
 	for _, id := range written {
 		isWritten[id] = true
 	}
-	byConcept := map[string][]lint.Finding{} // concept -> its repairable findings
-	for _, f := range found {
-		if f.Fix == nil || f.Artifact || !inChecks[f.Check] || !unattendedFix(f) {
-			continue
-		}
-		id := uiFindingConcept(f.Path)
-		if id == "" || !isWritten[id] {
-			continue
-		}
-		byConcept[id] = append(byConcept[id], f)
-	}
+	byConcept := repairCandidates(found, inChecks, isWritten, view)
 	if len(byConcept) == 0 {
 		return findingsOrNil(view.filter(found)), nil, nil
 	}
@@ -133,6 +123,26 @@ func repairWritten(k *kb.KB, written, gone []string, view *callerView) (findings
 		}
 	}
 	return findingsOrNil(view.filter(after)), repaired, hashes
+}
+
+// repairCandidates picks, per written concept, the findings repairWritten may
+// fix. A finding that names a KB the caller cannot read is never one: a fix
+// applied for it would rewrite a page for a writer who cannot read what the
+// finding is about, and the repaired count and the new content hash would say
+// so. Every other finding keeps the repair it always had.
+func repairCandidates(found []lint.Finding, inChecks, isWritten map[string]bool, view *callerView) map[string][]lint.Finding {
+	byConcept := map[string][]lint.Finding{} // concept -> its repairable findings
+	for _, f := range found {
+		if f.Fix == nil || f.Artifact || !inChecks[f.Check] || !unattendedFix(f) || !view.seesCross(f) {
+			continue
+		}
+		id := uiFindingConcept(f.Path)
+		if id == "" || !isWritten[id] {
+			continue
+		}
+		byConcept[id] = append(byConcept[id], f)
+	}
+	return byConcept
 }
 
 // applyRepairResult adds what repairWritten did to a single-concept write

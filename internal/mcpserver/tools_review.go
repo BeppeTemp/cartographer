@@ -123,7 +123,21 @@ func visibleReview(ctx requestContext, k *kb.KB, cc *conformanceCache) ([]lint.R
 	if err != nil {
 		return nil, err
 	}
-	return lint.FilterReview(items, func(id string) bool { return Visible(ctx, k, id) }, WholeVisible(ctx, k, false)), nil
+	return lint.FilterReview(dropCrossReview(ctx, k, items), func(id string) bool { return Visible(ctx, k, id) }, WholeVisible(ctx, k, false)), nil
+}
+
+// dropCrossReview drops the items whose finding names a KB the caller cannot
+// read, so the review totals (kb_status.review, the doctor nudge) never count a
+// hidden cross-KB finding. The cached list itself stays caller-agnostic.
+func dropCrossReview(ctx requestContext, k *kb.KB, items []lint.ReviewItem) []lint.ReviewItem {
+	out := make([]lint.ReviewItem, 0, len(items))
+	for _, it := range items {
+		if len(it.OtherKBs) > 0 && !crossFindingVisible(ctx, k, lint.Finding{OtherKBs: it.OtherKBs}) {
+			continue
+		}
+		out = append(out, it)
+	}
+	return out
 }
 
 // reviewSummary is kb_status.review: the size of the work list by kind.

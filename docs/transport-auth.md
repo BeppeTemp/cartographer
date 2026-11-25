@@ -385,6 +385,25 @@ scopes nor roles has full access to every mounted KB — that absence is the
 declaration. A token that declares restrictions and ends up with none grants
 nothing: unrestricted access is never inferred from an empty policy (D179).
 
+## Links to another KB
+
+A page may link a page of another KB mounted on the same server. What a caller
+is told of such a link is one of four states: `resolved` (the caller reads the
+target page), `missing` (the page is not there, and the caller reads the target
+KB whole), `unresolved` and `out_of_scope`. `unresolved` is one neutral value:
+the same for a KB that is absent, one that is not mounted, a link with a server
+qualifier, a KB the caller has no read grant on, a page the caller cannot read,
+and a page missing in a KB the caller does not read whole, so existence is never
+revealed and nothing but the id the linking page holds is shown. `out_of_scope`
+goes only to a caller who holds a read grant on the target KB that the
+connection's KB set does not reach; it carries the text that binds the KB: the
+`client bind` and `workspace bind` commands on a connection addressed to the
+operator, the generic wording (whoever runs the integration adds the KB to its
+`?kbs=` URL) otherwise (D1101). A finding that names another KB is shown only to
+a caller who reads that KB whole, in every surface (`lint` and its totals,
+`gate_check`, the write gate, `kb_status`, the Atlas), and a lint sample never
+counts it. This is the mechanism: no check emits such a finding yet (`cross-kb-links-lint` will).
+
 For HTTP requests:
 
 - protocol methods such as `initialize`, `tools/list` and `ping` require read
