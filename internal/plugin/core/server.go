@@ -30,9 +30,16 @@ type RoleRule struct {
 // writer by preset_list. It carries no KB data.
 type Preset struct {
 	Description string
-	Kind        string
-	Create      json.RawMessage // the map_create arguments, minus name
+	Kind        string          // empty for a dashboard-only preset
+	Create      json.RawMessage // the map_create arguments, minus name; nil for a dashboard-only preset
 	Templates   []PresetTemplate
+	Dashboards  []PresetDashboard
+}
+
+// PresetDashboard is a dashboard of a preset: its name and its validated file.
+type PresetDashboard struct {
+	Name    string
+	Content []byte
 }
 
 // PresetTemplate is a template of a preset: a plugin-local slug and its file.

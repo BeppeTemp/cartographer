@@ -51,6 +51,7 @@ func loadPreset(name string, files []core.TreeFile) (core.Contribution, []string
 	}
 	var spec []byte
 	var tpls []core.PresetTemplate
+	var dashes []core.PresetDashboard
 	var slugs []string
 	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
 	for _, f := range files {
@@ -70,8 +71,24 @@ func loadPreset(name string, files []core.TreeFile) (core.Contribution, []string
 			}
 			tpls = append(tpls, core.PresetTemplate{Slug: slug, Content: f.Content})
 			slugs = append(slugs, slug)
+		case strings.HasPrefix(rest, "dashboards/"):
+			dname, isYAML := strings.CutSuffix(strings.TrimPrefix(rest, "dashboards/"), ".yaml")
+			switch {
+			case !isYAML || strings.Contains(dname, "/") || !kb.ValidDashboardName(dname):
+				bad(f, "expected presets/%s/dashboards/<name>.yaml with a valid dashboard name", name)
+			case len(dashes) >= kb.MaxDashboards:
+				bad(f, "a preset holds at most %d dashboards", kb.MaxDashboards)
+			default:
+				// Shape only: a preset is written before the KB it lands in, so the
+				// fields and ids a widget names are never checked here.
+				if err := kb.ValidateDashboard(f.Content); err != nil {
+					bad(f, "%v", err)
+					continue
+				}
+				dashes = append(dashes, core.PresetDashboard{Name: dname, Content: f.Content})
+			}
 		default:
-			bad(f, "expected presets/%s/preset.yaml or presets/%s/templates/<slug>.md", name, name)
+			bad(f, "expected presets/%s/preset.yaml, presets/%s/templates/<slug>.md or presets/%s/dashboards/<name>.yaml", name, name, name)
 		}
 	}
 	where := "presets/" + name + "/preset.yaml"
@@ -85,14 +102,18 @@ func loadPreset(name string, files []core.TreeFile) (core.Contribution, []string
 	if msg := oneLine(pf.Description); msg != "" {
 		problems = append(problems, where+": "+msg)
 	}
-	if err := mcpserver.CheckPresetCreate(pf.Contract, slugs); err != nil {
+	if err := mcpserver.CheckPreset(pf.Contract, slugs, len(dashes)); err != nil {
 		problems = append(problems, where+": "+err.Error())
 	}
 	if len(problems) > 0 {
 		return core.Contribution{}, problems
 	}
-	create, _ := json.Marshal(pf.Contract)
-	p := core.Preset{Description: pf.Description, Kind: pf.Contract.Kind, Create: create, Templates: tpls}
+	// The count is of the dashboards loaded and validated above, never a number
+	// the manifest or preset.yaml declares.
+	p := core.Preset{Description: pf.Description, Kind: pf.Contract.Kind, Templates: tpls, Dashboards: dashes}
+	if !pf.Contract.IsZero() {
+		p.Create, _ = json.Marshal(pf.Contract)
+	}
 	var cf []contract.ArtifactFile
 	for _, f := range files {
 		cf = append(cf, contract.ArtifactFile{Path: strings.TrimPrefix(f.Path, "presets/"+name+"/"), Content: f.Content})
@@ -100,18 +121,39 @@ func loadPreset(name string, files []core.TreeFile) (core.Contribution, []string
 	return core.Contribution{Point: "presets", Kind: "preset", Name: name, Files: cf, Description: pf.Description, Preset: &p}, nil
 }
 
-// previewPreset prints a preset's kind, templates and the keys of its contract.
+// previewPreset prints a preset's kind, templates and the keys of its contract,
+// then each dashboard it carries (title and widget counts; never file content).
 func previewPreset(w io.Writer, c core.Contribution) {
 	p := c.Preset
-	var keys map[string]json.RawMessage
-	_ = json.Unmarshal(p.Create, &keys)
-	var ks, ts []string
-	for k := range keys {
-		ks = append(ks, k)
+	if len(p.Create) == 0 {
+		fmt.Fprintf(w, "preset %q: dashboards only\n", c.Name)
+	} else {
+		var keys map[string]json.RawMessage
+		_ = json.Unmarshal(p.Create, &keys)
+		var ks, ts []string
+		for k := range keys {
+			ks = append(ks, k)
+		}
+		for _, t := range p.Templates {
+			ts = append(ts, t.Slug)
+		}
+		sort.Strings(ks)
+		fmt.Fprintf(w, "preset %q: a %s, contract keys %s, templates %s\n", c.Name, p.Kind, strings.Join(ks, ", "), strings.Join(ts, ", "))
 	}
-	for _, t := range p.Templates {
-		ts = append(ts, t.Slug)
+	for _, d := range p.Dashboards {
+		dash, err := kb.ParseDashboard(d.Content)
+		if err != nil {
+			continue
+		}
+		counts := map[string]int{}
+		for _, wd := range dash.Widgets {
+			counts[wd.Type]++
+		}
+		types := make([]string, 0, len(counts))
+		for t, n := range counts {
+			types = append(types, fmt.Sprintf("%d %s", n, t))
+		}
+		sort.Strings(types)
+		fmt.Fprintf(w, "  dashboard %s: %q, %d widgets (%s)\n", d.Name, dash.Title, len(dash.Widgets), strings.Join(types, ", "))
 	}
-	sort.Strings(ks)
-	fmt.Fprintf(w, "preset %q: a %s, contract keys %s, templates %s\n", c.Name, p.Kind, strings.Join(ks, ", "), strings.Join(ts, ", "))
 }
