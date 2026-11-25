@@ -55,7 +55,7 @@ var (
 // sides equal. Icons are names of the Atlas icon set; accents are names of
 // its colour tokens, never a colour (D227: appearance is not free).
 var (
-	dashboardWidgetTypes = []string{"kanban", "list", "stat", "agenda", "note"}
+	dashboardWidgetTypes = []string{"kanban", "list", "stat", "agenda", "note", "table", "timeline"}
 	dashboardIcons       = []string{"list", "work", "health", "maps", "sources", "services", "artifacts", "components", "key", "paths", "eye", "lock", "alert", "person", "check", "info", "activity", "search", "grow", "settings"}
 	dashboardAccents     = []string{"neutral", "primary", "accent", "clay", "ok", "info", "warning", "error"}
 )
@@ -95,7 +95,7 @@ type DashboardWidget struct {
 	Limit   int              `yaml:"limit,omitempty"    json:"limit,omitempty"`
 
 	Text        string `yaml:"text,omitempty"         json:"text,omitempty"`         // note only, 8000 bytes
-	DateField   string `yaml:"date_field,omitempty"   json:"date_field,omitempty"`   // agenda; default review_after
+	DateField   string `yaml:"date_field,omitempty"   json:"date_field,omitempty"`   // agenda, timeline; default review_after
 	HorizonDays int    `yaml:"horizon_days,omitempty" json:"horizon_days,omitempty"` // agenda, default 14
 	Show        string `yaml:"show,omitempty"         json:"show,omitempty"`         // stat: count | groups
 
@@ -335,6 +335,13 @@ func checkWidget(w DashboardWidget, seen map[string]bool) []string {
 		add("%d columns, the cap is %d", len(w.Columns), dashboardMaxColumns)
 	}
 	for _, c := range w.Columns {
+		if w.Type == "table" {
+			// A table column is a field of the entry or a frontmatter key.
+			if !dashboardFieldRE.MatchString(c) {
+				add("column %q is not a field name", c)
+			}
+			continue
+		}
 		// A column is a value of the group-by field ("in progress", "2026"),
 		// not a field name.
 		if c == "" || len(c) > dashboardColumnMaxBytes || strings.ContainsFunc(c, unicode.IsControl) {
@@ -350,8 +357,14 @@ func checkWidget(w DashboardWidget, seen map[string]bool) []string {
 	if len(w.Text) > dashboardTextMaxBytes {
 		add("text is longer than %d bytes", dashboardTextMaxBytes)
 	}
-	if (w.DateField != "" || w.HorizonDays != 0) && w.Type != "agenda" {
-		add("date_field and horizon_days are only for an agenda")
+	if w.HorizonDays != 0 && w.Type != "agenda" {
+		add("horizon_days is only for an agenda")
+	}
+	if w.DateField != "" && w.Type != "agenda" && w.Type != "timeline" {
+		add("date_field is only for an agenda or a timeline")
+	}
+	if w.Type == "table" && w.GroupBy != "" {
+		add("a table has no group_by: it is rows and columns")
 	}
 	if w.DateField != "" && !dashboardFieldRE.MatchString(w.DateField) {
 		add("date_field %q is not a field name", w.DateField)
