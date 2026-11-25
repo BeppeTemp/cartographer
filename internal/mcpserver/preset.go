@@ -29,6 +29,28 @@ func ValidateTemplate(data []byte) error {
 	return err
 }
 
+// IsZero reports a contract made of nothing: no title, no kind, no other key.
+func (c PresetCreate) IsZero() bool {
+	return c.Title == "" && c.Kind == "" && len(c.ConceptTypes) == 0 && len(c.RequiredFields) == 0 &&
+		len(c.FieldValues) == 0 && len(c.ForbiddenFields) == 0 && len(c.Templates) == 0 && c.DefaultTemplate == ""
+}
+
+// CheckPreset judges a whole preset: its contract as CheckPresetCreate does, or
+// no contract at all when the preset carries dashboards and no templates (a
+// template is applied through a contract's templates, so it needs one).
+func CheckPreset(c PresetCreate, slugs []string, dashboards int) error {
+	if !c.IsZero() {
+		return CheckPresetCreate(c, slugs)
+	}
+	if len(slugs) > 0 {
+		return fmt.Errorf("templates need a map contract")
+	}
+	if dashboards == 0 {
+		return fmt.Errorf("a preset needs a map contract, dashboards or both")
+	}
+	return nil
+}
+
 // CheckPresetCreate judges a preset's contract as map_create would, and checks
 // that every template it names is one of slugs (the preset's own templates).
 func CheckPresetCreate(c PresetCreate, slugs []string) error {
