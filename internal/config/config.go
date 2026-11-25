@@ -36,6 +36,8 @@ type Config struct {
 	Web WebConfig
 	// API controls the public read-only API at /api/v1.
 	API APIConfig
+	// TLS serves the HTTP listener over TLS 1.3 itself (YAML `tls:`).
+	TLS TLSConfig
 	// UpdateCheck makes the server look up the latest release once a day and
 	// report it in /health and kb_status when newer (D254). Default true;
 	// YAML `update_check`, env CARTOGRAPHER_UPDATE_CHECK, flag --update-check.
@@ -433,6 +435,7 @@ func Default() *Config {
 		Audit:       AuditConfig{RetentionDays: DefaultAuditRetentionDays, MaxSegmentBytes: DefaultAuditMaxSegmentBytes},
 		Web:         WebConfig{Enabled: true},
 		API:         APIConfig{MaxStreamsPerToken: DefaultAPIMaxStreamsPerToken, MaxStreams: DefaultAPIMaxStreams},
+		TLS:         TLSConfig{HSTSMaxAge: DefaultTLSHSTSMaxAge, ReloadInterval: DefaultAuthReloadInterval},
 		UpdateCheck: true,
 		Feedback:    FeedbackConfig{Destination: "github"},
 		Maintenance: MaintenanceConfig{AutoRepair: true},
@@ -452,6 +455,7 @@ type rawConfig struct {
 	Git            rawGit   `yaml:"git"`
 	Web            rawWeb   `yaml:"web"`
 	API            rawAPI   `yaml:"api"`
+	TLS            rawTLS   `yaml:"tls"`
 	// UpdateCheck is a pointer for the same reason rawWeb.Enabled is: the
 	// default is true.
 	UpdateCheck *bool                   `yaml:"update_check"`
@@ -560,6 +564,15 @@ func checkAuthKeys(data []byte) error {
 		if k.Value == "auth" {
 			if err := checkKnownKeys(vals[i], reflect.TypeOf(rawAuth{}), "auth"); err != nil {
 				return err
+			}
+		}
+		// tls is strict, unlike the warn-only convention of the other blocks: a
+		// misspelled or not-yet-supported key (client_auth: require) that only
+		// warned would leave the server with weaker transport security than the
+		// operator wrote, so it stops the load and names the valid keys.
+		if k.Value == "tls" {
+			if err := checkKnownKeys(vals[i], reflect.TypeOf(rawTLS{}), "tls"); err != nil {
+				return fmt.Errorf("%w (valid keys: enabled, health_addr, hsts_max_age, reload_interval)", err)
 			}
 		}
 	}
@@ -796,6 +809,12 @@ func Load(path string) (*Config, error) {
 	if raw.API.MaxStreams != nil {
 		cfg.API.MaxStreams = *raw.API.MaxStreams
 	}
+	if err := applyRawTLS(&cfg.TLS, raw.TLS); err != nil {
+		return nil, fmt.Errorf("config: %w", err)
+	}
+	if err := ValidateTLS(cfg); err != nil {
+		return nil, fmt.Errorf("config: %w", err)
+	}
 	if err := validateAPI(cfg.API); err != nil {
 		return nil, fmt.Errorf("config: %w", err)
 	}
@@ -861,6 +880,14 @@ func FromEnv(cfg *Config) error {
 		cfg.mark(OriginEnv, "web.enabled")
 		cfg.Web.Enabled = b
 	}
+	if v := os.Getenv("CARTOGRAPHER_TLS_ENABLED"); v != "" {
+		b, err := parseBool("CARTOGRAPHER_TLS_ENABLED", v)
+		if err != nil {
+			return err
+		}
+		cfg.mark(OriginEnv, "tls.enabled")
+		cfg.TLS.Enabled = b
+	}
 	if v := os.Getenv("CARTOGRAPHER_API_ENABLED"); v != "" {
 		b, err := parseBool("CARTOGRAPHER_API_ENABLED", v)
 		if err != nil {
@@ -912,6 +939,7 @@ type FlagOverrides struct {
 	Data        *string
 	Tokens      *string // comma-separated, replaces Auth.Tokens
 	WebEnabled  *bool
+	TLSEnabled  *bool
 	APIEnabled  *bool
 	UpdateCheck *bool
 }
@@ -945,6 +973,10 @@ func ApplyFlags(cfg *Config, o FlagOverrides) {
 	if o.WebEnabled != nil {
 		cfg.mark(OriginFlag, "web.enabled")
 		cfg.Web.Enabled = *o.WebEnabled
+	}
+	if o.TLSEnabled != nil {
+		cfg.mark(OriginFlag, "tls.enabled")
+		cfg.TLS.Enabled = *o.TLSEnabled
 	}
 	if o.APIEnabled != nil {
 		cfg.mark(OriginFlag, "api.enabled")

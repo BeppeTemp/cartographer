@@ -71,6 +71,7 @@ func TestLoadFullYAML(t *testing.T) {
 		// The UI is on by default in HTTP mode; this YAML does not mention it.
 		Web:         WebConfig{Enabled: true},
 		API:         APIConfig{MaxStreamsPerToken: DefaultAPIMaxStreamsPerToken, MaxStreams: DefaultAPIMaxStreams},
+		TLS:         TLSConfig{HSTSMaxAge: DefaultTLSHSTSMaxAge, ReloadInterval: DefaultAuthReloadInterval},
 		UpdateCheck: true,
 		Feedback:    FeedbackConfig{Destination: "github"},
 		Maintenance: MaintenanceConfig{AutoRepair: true},

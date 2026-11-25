@@ -21,7 +21,7 @@ func TestServeHTTPBusyPortSaysWhatToDo(t *testing.T) {
 	addr := ln.Addr().String()
 
 	boot := func(func(string)) kbBootstrap { return kbBootstrap{} }
-	err = serveHTTP(addr, boot, config.AuthConfig{Mode: "off"}, nil, false, nil, nil, nil)
+	err = serveHTTP(addr, boot, config.AuthConfig{Mode: "off"}, nil, false, nil, nil, nil, config.TLSConfig{})
 	if err == nil {
 		t.Fatal("serveHTTP on a taken port returned nil")
 	}
