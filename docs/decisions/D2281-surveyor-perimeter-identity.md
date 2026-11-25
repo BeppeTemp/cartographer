@@ -1,5 +1,6 @@
 ---
 topic: deployment-release
+amended_by: D2392
 ---
 
 # D2281 — The perimeter is a Surveyor's identity for orphaned claims, and a poll that finds nothing writes nothing

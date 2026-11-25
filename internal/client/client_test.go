@@ -877,3 +877,37 @@ func TestSurveyorRunHeaderOnToolsCallOnly(t *testing.T) {
 		t.Fatalf("run headers:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
 	}
 }
+
+// The Surveyor identity travels on tools/call only, and only when valid; it is
+// never an author.
+func TestSurveyorHeaderOnToolsCallOnly(t *testing.T) {
+	var mu sync.Mutex
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		got = append(got, r.Header.Get("Mcp-Method")+" "+strings.Join(r.Header.Values(client.SurveyorHeader), "|")+" author="+r.Header.Get(client.AuthorHeader))
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{}"}]}}`))
+	}))
+	defer srv.Close()
+
+	c := client.New(srv.URL, "").WithSurveyor("perimeter/replica-1")
+	if err := c.Ping(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Call("ok_tool", map[string]any{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"", "no-slash", "a/has space", "a/line\nbreak"} {
+		if _, err := client.New(srv.URL, "").WithSurveyor(bad).Call("ok_tool", map[string]any{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	want := "server/discover  author=\ntools/call perimeter/replica-1 author=" + strings.Repeat("\ntools/call  author=", 4)
+	if strings.Join(got, "\n") != want {
+		t.Fatalf("headers:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
+	}
+}

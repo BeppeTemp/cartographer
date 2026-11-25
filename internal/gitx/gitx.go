@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/BeppeTemp/cartographer/internal/componentproto"
 	"github.com/BeppeTemp/cartographer/internal/procattr"
 )
 
@@ -2077,7 +2078,7 @@ func logNameStatus(dir string, rangeArgs ...string) ([]CommitChanges, error) {
 	// Reason must stay the LAST field (after Moved-To/Moved-From/Cartographer-Token/Surveyor-Run): the name-status block is split off at the
 	// first newline after it. The format and the field count of the split below
 	// change together.
-	format := "%x1e%H%x00%aI%x00%an%x00%s%x00%(trailers:key=Accepted-Finding,valueonly,separator=%x1f)%x00%(trailers:key=Agent,valueonly,separator=%x1f)%x00%(trailers:key=Moved-To,valueonly,separator=%x1f)%x00%(trailers:key=Moved-From,valueonly,separator=%x1f)%x00%(trailers:key=Cartographer-Token,valueonly,separator=%x1f)%x00%(trailers:key=Surveyor-Run,valueonly,separator=%x1f)%x00%(trailers:key=Reason,valueonly,separator=%x1f)"
+	format := "%x1e%H%x00%aI%x00%an%x00%s%x00%(trailers:key=Accepted-Finding,valueonly,separator=%x1f)%x00%(trailers:key=Agent,valueonly,separator=%x1f)%x00%(trailers:key=Moved-To,valueonly,separator=%x1f)%x00%(trailers:key=Moved-From,valueonly,separator=%x1f)%x00%(trailers:key=Cartographer-Token,valueonly,separator=%x1f)%x00%(trailers:key=Surveyor-Run,valueonly,separator=%x1f)%x00%(trailers:key=Cartographer-Surveyor,valueonly,separator=%x1f)%x00%(trailers:key=Reason,valueonly,separator=%x1f)"
 	// -z: the name-status block is NUL-separated ("S\0path\0", a rename
 	// "R100\0old\0new\0", a "\0" after the commit), so a path is never quoted
 	// and may hold a tab or a newline.
@@ -2093,8 +2094,8 @@ func logNameStatus(dir string, rangeArgs ...string) ([]CommitChanges, error) {
 		if record == "" {
 			continue
 		}
-		head := strings.SplitN(record, "\x00", 11)
-		if len(head) != 11 {
+		head := strings.SplitN(record, "\x00", 12)
+		if len(head) != 12 {
 			continue
 		}
 		at, err := time.Parse(time.RFC3339, head[1])
@@ -2105,7 +2106,7 @@ func logNameStatus(dir string, rangeArgs ...string) ([]CommitChanges, error) {
 		// block, so the block is whatever follows the first newline.
 		// With -z a commit with no changed file (a merge, --allow-empty) ends
 		// with a lone NUL right after the trailers: not part of the reason.
-		reasonAndFiles := strings.SplitN(strings.TrimRight(head[10], "\x00"), "\n", 2)
+		reasonAndFiles := strings.SplitN(strings.TrimRight(head[11], "\x00"), "\n", 2)
 		accepted := splitTrailerValues(head[4])
 		reason, _, _ := strings.Cut(reasonAndFiles[0], "\x1f")
 		agent, _, _ := strings.Cut(head[5], "\x1f")
@@ -2113,7 +2114,7 @@ func logNameStatus(dir string, rangeArgs ...string) ([]CommitChanges, error) {
 		movedFrom, _, _ := strings.Cut(head[7], "\x1f")
 		token := lastTrailerValue(head[8])
 		surveyorRun := lastTrailerValue(head[9])
-		commit := CommitChanges{SHA: head[0], At: at, Author: head[2], Subject: head[3], Agent: strings.TrimSpace(agent), MovedTo: strings.TrimSpace(movedTo), MovedFrom: strings.TrimSpace(movedFrom), Token: token, SurveyorRun: surveyorRun, Reason: strings.TrimSpace(reason), AcceptedFindings: accepted}
+		commit := CommitChanges{SHA: head[0], At: at, Author: SurveyorAuthor(head[2], lastTrailerValue(head[10])), Subject: head[3], Agent: strings.TrimSpace(agent), MovedTo: strings.TrimSpace(movedTo), MovedFrom: strings.TrimSpace(movedFrom), Token: token, SurveyorRun: surveyorRun, Reason: strings.TrimSpace(reason), AcceptedFindings: accepted}
 		if len(reasonAndFiles) == 2 {
 			commit.Files = parseNameStatusZ(reasonAndFiles[1])
 		}
@@ -2415,7 +2416,7 @@ func movedFrom(dir, sha, dest string) string {
 // ("" is HEAD).
 func fileHistoryOnce(dir, startRev, path string, limit int) ([]FileRevision, error) {
 	// Reason must stay the LAST field (see LogNameStatus).
-	format := "%x1e%H%x00%aI%x00%an%x00%s%x00%(trailers:key=Accepted-Finding,valueonly,separator=%x1f)%x00%(trailers:key=Agent,valueonly,separator=%x1f)%x00%(trailers:key=Moved-To,valueonly,separator=%x1f)%x00%(trailers:key=Moved-From,valueonly,separator=%x1f)%x00%(trailers:key=Cartographer-Token,valueonly,separator=%x1f)%x00%(trailers:key=Reason,valueonly,separator=%x1f)"
+	format := "%x1e%H%x00%aI%x00%an%x00%s%x00%(trailers:key=Accepted-Finding,valueonly,separator=%x1f)%x00%(trailers:key=Agent,valueonly,separator=%x1f)%x00%(trailers:key=Moved-To,valueonly,separator=%x1f)%x00%(trailers:key=Moved-From,valueonly,separator=%x1f)%x00%(trailers:key=Cartographer-Token,valueonly,separator=%x1f)%x00%(trailers:key=Cartographer-Surveyor,valueonly,separator=%x1f)%x00%(trailers:key=Reason,valueonly,separator=%x1f)"
 	args := []string{"--literal-pathspecs", "-c", "core.quotepath=off", "log", "-M", "--name-status", "--pretty=format:" + format}
 	if limit > 0 {
 		args = append(args, "-n", strconv.Itoa(limit))
@@ -2439,22 +2440,22 @@ func fileHistoryOnce(dir, startRev, path string, limit int) ([]FileRevision, err
 		if record == "" {
 			continue
 		}
-		head := strings.SplitN(record, "\x00", 10)
-		if len(head) != 10 {
+		head := strings.SplitN(record, "\x00", 11)
+		if len(head) != 11 {
 			continue
 		}
 		at, err := time.Parse(time.RFC3339, head[1])
 		if err != nil {
 			return nil, fmt.Errorf("parse git commit time %q: %w", head[1], err)
 		}
-		reasonAndFiles := strings.SplitN(head[9], "\n", 2)
+		reasonAndFiles := strings.SplitN(head[10], "\n", 2)
 		accepted := splitTrailerValues(head[4])
 		reason, _, _ := strings.Cut(reasonAndFiles[0], "\x1f")
 		agent, _, _ := strings.Cut(head[5], "\x1f")
 		movedTo, _, _ := strings.Cut(head[6], "\x1f")
 		movedFrom, _, _ := strings.Cut(head[7], "\x1f")
 		token := lastTrailerValue(head[8])
-		rev := FileRevision{SHA: head[0], At: at, Author: head[2], Subject: head[3], Agent: strings.TrimSpace(agent), MovedTo: strings.TrimSpace(movedTo), MovedFrom: strings.TrimSpace(movedFrom), Token: token, Reason: strings.TrimSpace(reason), AcceptedFindings: accepted, Path: path, Status: "M"}
+		rev := FileRevision{SHA: head[0], At: at, Author: SurveyorAuthor(head[2], lastTrailerValue(head[9])), Subject: head[3], Agent: strings.TrimSpace(agent), MovedTo: strings.TrimSpace(movedTo), MovedFrom: strings.TrimSpace(movedFrom), Token: token, Reason: strings.TrimSpace(reason), AcceptedFindings: accepted, Path: path, Status: "M"}
 		if len(reasonAndFiles) == 2 {
 			for _, line := range strings.Split(reasonAndFiles[1], "\n") {
 				parts := strings.Split(line, "\t")
@@ -2739,6 +2740,30 @@ func StashPushAllEnv(dir string, env ...string) error {
 		return fmt.Errorf("git stash push --include-untracked: %w: %s%s", err, out, indexLockHint(dir, out))
 	}
 	return nil
+}
+
+// SurveyorTrailer is the key of the trailer that names the Surveyor a write
+// came from, "<perimeter>/<replica>" (D-new surveyor-trailer-identity). The
+// server appends it from the request's Cartographer-Surveyor header, so the
+// commit's author and committer stay the KB's own identity.
+const SurveyorTrailer = "Cartographer-Surveyor"
+
+// SurveyorAuthorPrefix starts the author name the readers show for a
+// Surveyor's change: "surveyor/<perimeter>/<replica>". Commits written before
+// the trailer carry it as their git author name.
+const SurveyorAuthorPrefix = "surveyor/"
+
+// SurveyorAuthor is the author a reader shows for a commit by git author
+// author and Cartographer-Surveyor trailer value surveyor: the Surveyor's
+// "surveyor/<id>" when the trailer is there and well-formed, else the git author unchanged (an
+// older Surveyor commit already has that form as its name).
+func SurveyorAuthor(author, surveyor string) string {
+	// A trailer from a pushed or pulled commit is not the server's: one that
+	// is not a well-formed id is ignored, never shown.
+	if !componentproto.ValidSurveyorID(surveyor) {
+		return author
+	}
+	return SurveyorAuthorPrefix + surveyor
 }
 
 // lastTrailerValue is the last value of a %(trailers:...separator=%x1f) field.

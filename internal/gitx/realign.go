@@ -41,7 +41,7 @@ func RealignCommitters(dir, upstream, serverName, serverEmail, defName, defEmail
 				an, ae = defName, defEmail
 			}
 			return an, ae, an, ae
-		})
+		}, nil)
 	return len(done), err
 }
 
@@ -54,7 +54,7 @@ type Rewritten struct{ Old, New string }
 // it replaces a token-authored commit's author too: it is the operator's
 // explicit repair, not a sync step. It keeps messages (and so the
 // Cartographer-Author, -Token and -Host trailers, the record of who really
-// wrote), trees and both dates, and moves the checked-out branch with the same
+// wrote; an old Surveyor author moves to a Cartographer-Surveyor trailer), trees and both dates, and moves the checked-out branch with the same
 // compare-and-swap update-ref, so a commit another process adds meanwhile
 // makes it fail and nothing is lost. A merge or a root commit in the range
 // returns ErrNotLinear and changes nothing. It returns the old → new ids of
@@ -64,15 +64,60 @@ func ReauthorCommits(dir, upstream, name, email string, env ...string) ([]Rewrit
 		return nil, errors.New("gitx: reauthor needs a name and an email")
 	}
 	return rewriteLinear(dir, upstream, "cartographer: kb reauthor (D1063)", env,
-		func(_, _, _, _ string) (string, string, string, string) { return name, email, name, email })
+		func(_, _, _, _ string) (string, string, string, string) { return name, email, name, email },
+		oldSurveyorTrailer)
+}
+
+// oldSurveyorEmail is the address the Surveyor used as git author before the
+// Cartographer-Surveyor trailer (D2281): such a commit is a Surveyor's by its
+// author name "surveyor/<perimeter>/<replica>".
+const oldSurveyorEmail = "@surveyor.invalid"
+
+// oldSurveyorTrailer keeps a Surveyor's commit attributable when a reauthor
+// replaces its author: the "surveyor/<id>" name moves to a
+// Cartographer-Surveyor trailer, unless the message already has one.
+func oldSurveyorTrailer(an, ae, msg string) string {
+	id, ok := strings.CutPrefix(an, SurveyorAuthorPrefix)
+	if !ok || id == "" || !strings.HasSuffix(ae, oldSurveyorEmail) || hasTrailerKey(msg, SurveyorTrailer) {
+		return msg
+	}
+	msg = strings.TrimRight(msg, "\n")
+	sep := "\n\n"
+	if i := strings.LastIndex(msg, "\n\n"); i >= 0 && isTrailerBlock(msg[i+2:]) {
+		sep = "\n"
+	}
+	return msg + sep + SurveyorTrailer + ": " + id + "\n"
+}
+
+func hasTrailerKey(msg, key string) bool {
+	for _, l := range strings.Split(msg, "\n") {
+		if k, _, ok := strings.Cut(l, ":"); ok && strings.EqualFold(strings.TrimSpace(k), key) {
+			return true
+		}
+	}
+	return false
+}
+
+// isTrailerBlock reports whether every line of para is "Key: value".
+func isTrailerBlock(para string) bool {
+	for _, l := range strings.Split(para, "\n") {
+		k, _, ok := strings.Cut(l, ": ")
+		if !ok || k == "" || strings.ContainsAny(k, " \t") {
+			return false
+		}
+	}
+	return true
 }
 
 // rewriteLinear is the commit-by-commit loop both rewrites share: decide gives
 // the author and committer (name, email) a commit should have from the ones it
 // has; a commit that already has them, with an unmoved parent, is kept as is.
 // HEAD is read once, first, and the final update-ref swaps from it.
+// amend, when not nil, may change a rewritten commit's message from its old
+// author (name, email).
 func rewriteLinear(dir, upstream, reflogMsg string, env []string,
-	decide func(an, ae, cn, ce string) (nan, nae, ncn, nce string)) ([]Rewritten, error) {
+	decide func(an, ae, cn, ce string) (nan, nae, ncn, nce string),
+	amend func(an, ae, msg string) string) ([]Rewritten, error) {
 	oldHead, err := HeadSHA(dir)
 	if err != nil {
 		return nil, err
@@ -117,6 +162,9 @@ func rewriteLinear(dir, upstream, reflogMsg string, env []string,
 		_, msg, ok := strings.Cut(body, "\n\n")
 		if !ok {
 			return nil, fmt.Errorf("commit %s: no message", sha)
+		}
+		if amend != nil {
+			msg = amend(f[2], f[3], msg)
 		}
 		tree, err := gitStdout(dir, "rev-parse", sha+"^{tree}")
 		if err != nil {

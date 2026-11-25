@@ -1,6 +1,7 @@
 ---
 topic: concurrency-git
 amends: D46, D265, D904, D906
+amended_by: D2392
 ---
 
 # D950 — The writer commits: author and committer are the same identity, and the server file names it per KB

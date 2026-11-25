@@ -147,19 +147,19 @@ func commitToken(ctx context.Context) string {
 }
 
 // stripTokenTrailers drops every line that would read as a Cartographer-Token,
-// Cartographer-Host or Surveyor-Run trailer: the real ones are appended last by
+// Cartographer-Host, Cartographer-Surveyor or Surveyor-Run trailer: the real ones are appended last by
 // commitTrailerBlock, and a copy supplied through a subject or any caller text
 // must not be read in their place (gitx reads the last value of each).
 func stripTokenTrailers(s string) string {
 	lower := strings.ToLower(s)
 	if !strings.Contains(lower, strings.ToLower(commitTokenKey)) && !strings.Contains(lower, strings.ToLower(commitHostKey)) &&
-		!strings.Contains(lower, strings.ToLower(commitSurveyorRunKey)) {
+		!strings.Contains(lower, strings.ToLower(commitSurveyorRunKey)) && !strings.Contains(lower, strings.ToLower(commitSurveyorKey)) {
 		return s
 	}
 	lines := strings.Split(s, "\n")
 	kept := lines[:0]
 	for _, l := range lines {
-		if isTrailerLine(l, commitTokenKey) || isTrailerLine(l, commitHostKey) || isTrailerLine(l, commitSurveyorRunKey) {
+		if isTrailerLine(l, commitTokenKey) || isTrailerLine(l, commitHostKey) || isTrailerLine(l, commitSurveyorRunKey) || isTrailerLine(l, commitSurveyorKey) {
 			continue
 		}
 		kept = append(kept, l)

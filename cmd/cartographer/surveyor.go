@@ -78,26 +78,25 @@ type surveyorEnv struct {
 	// the perimeter in ?kbs= (#2088): each KB's caller then names it as a tool
 	// argument instead of ?kb=.
 	routed bool
-	// author is who the writes are by (surveyorAuthor), set once the runner's
+	// surveyor is "<perimeter>/<replica>" (surveyorID), set once the runner's
 	// replica id is known; empty before that.
-	author string
+	surveyor string
 }
 
-// surveyorAuthor is the Cartographer-Author of a Surveyor's writes, in the form
-// the Atlas reads as a Surveyor's (web/src/lib/activity.ts isSurveyorAuthor and
-// touchedByRun): surveyor/<perimeter>/<replica>. Without it the server falls
-// back to the token's name and the Atlas attributes nothing. The email is a
-// fixed address that cannot receive mail (RFC 2606), valid for the server's
-// check whatever the perimeter is called.
-func surveyorAuthor(perimeter, replica string) string {
-	return "surveyor/" + perimeter + "/" + replica + " <surveyor@surveyor.invalid>"
+// surveyorID is the identity of a Surveyor's writes, "<perimeter>/<replica>",
+// sent in the Cartographer-Surveyor header and recorded by the server as a
+// commit trailer. The Atlas reads it as the author "surveyor/<id>". It is not a
+// Cartographer-Author: a forge with a membership push rule refuses any author
+// or committer that is not a member (D950), so the writes keep the KB's identity.
+func surveyorID(perimeter, replica string) string {
+	return perimeter + "/" + replica
 }
 
 // kbClient is the client of one KB of the perimeter.
 func (e *surveyorEnv) kbClient(kb string) *client.MCPClient {
 	c := e.client
-	if e.author != "" {
-		c = c.WithAuthor(e.author)
+	if e.surveyor != "" {
+		c = c.WithSurveyor(e.surveyor)
 	}
 	if e.routed {
 		return c.WithRoutedKB(kb)
@@ -171,7 +170,7 @@ var surveyorRunFn = func(ctx context.Context, env *surveyorEnv, once bool) int {
 		return surveyorExitStart
 	}
 	beater.Surveyor = r.Replica()
-	env.author = surveyorAuthor(env.cfg.Name, r.Replica())
+	env.surveyor = surveyorID(env.cfg.Name, r.Replica())
 	if env.settings != nil {
 		env.settings.Surveyor = r.Replica()
 	}

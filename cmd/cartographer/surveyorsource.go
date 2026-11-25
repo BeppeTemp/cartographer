@@ -123,7 +123,7 @@ func cmdSurveyorSourceTest(args []string) int {
 		if err := applySurveyorCA(cfg); err != nil {
 			return usage("surveyor config %s: %v", *configF, err)
 		}
-		c := surveyorKBClient(client.New(cfg.ServerURL, cfg.Token()).WithInsecureHTTP(cfg.AllowInsecureHTTP).WithTokenEnv(cfg.TokenEnv).WithAuthor(surveyorAuthor(cfg.Name, "source-test")), cfg, kb)
+		c := surveyorKBClient(client.New(cfg.ServerURL, cfg.Token()).WithInsecureHTTP(cfg.AllowInsecureHTTP).WithTokenEnv(cfg.TokenEnv).WithSurveyor(surveyorID(cfg.Name, "source-test")), cfg, kb)
 		if err := c.Ping(startupCallTimeout); err != nil {
 			return usage("the server at %s did not answer or refused the token: %v", cfg.ServerURL, err)
 		}

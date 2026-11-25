@@ -294,6 +294,9 @@ func commitTrailerBlock(ctx context.Context, args json.RawMessage, extra ...stri
 			block = append(block, line)
 		}
 	}
+	if id := callerSurveyor(ctx); id != "" {
+		block = append(block, commitSurveyorKey+": "+id)
+	}
 	if run := callerSurveyorRun(ctx); run != "" {
 		block = append(block, commitSurveyorRunKey+": "+run)
 	}
