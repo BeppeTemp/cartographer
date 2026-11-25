@@ -31,6 +31,7 @@ import type {
   FeedList,
   MaintenanceSummary,
   ComponentsResponse,
+  SurveyorHistoryResponse,
   Extensions,
   Branding,
   ReportCandidateList,
@@ -315,6 +316,11 @@ export function fetchComponents(kb: string, signal?: AbortSignal): Promise<Compo
     setServerNow(res?.server?.now);
     return res;
   });
+}
+
+/** The persisted daily Surveyor run counters of the KB; 404 for a caller that does not see the whole KB, or an older server. */
+export function fetchSurveyorHistory(kb: string, days: number, signal?: AbortSignal): Promise<SurveyorHistoryResponse> {
+  return get<SurveyorHistoryResponse>(`/kbs/${encodeURIComponent(kb)}/surveyor-history?days=${days}`, signal);
 }
 
 /**
