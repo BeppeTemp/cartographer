@@ -95,6 +95,7 @@ nav:
       - Transport and auth: transport-auth.md
       - Operating loop: loop.md
       - Interoperability: interoperability.md
+      - Cross-KB links: cross-kb-links.md
       - Harness ledger: harnesses.md
       - Decisions: decisions.md
       - Go conventions: conventions.md

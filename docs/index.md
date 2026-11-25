@@ -32,6 +32,7 @@ only the pages relevant to your task.
 | [transport-auth.md](transport-auth.md) | stdio / HTTP transport, static bearer tokens, per-KB scopes and statelessness |
 | [loop.md](loop.md) | Current read, write, validate and lint workflow |
 | [interoperability.md](interoperability.md) | OKF boundaries and ownership of provider-specific compatibility documentation |
+| [cross-kb-links.md](cross-kb-links.md) | Cross-KB links: the mounts a KB reaches its siblings through, the `[[kb:<name>/<id>]]` syntax and its resolution |
 | [harnesses.md](harnesses.md) | Harness ledger: per agent client, the version last aligned with, where changes are announced, which provider-matrix cells depend on it and the open watch items |
 | [decisions.md](decisions.md) | How to refer to and add a decision, plus the generated list of every record under `docs/decisions/` (one file each); decisions explain why, while topic docs define current behavior |
 | [conventions.md](conventions.md) | Go conventions (language, style, errors, data-plane safety, tests, dependencies) |

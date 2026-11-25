@@ -6,6 +6,9 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/BeppeTemp/cartographer/internal/config"
+	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
 func TestStdioMountsError(t *testing.T) {
@@ -47,5 +50,36 @@ func TestMountRootKeyUnifiesSpellings(t *testing.T) {
 	}
 	if got, want := mountRootKey(link), mountRootKey(a); got != want {
 		t.Errorf("symlink = %q, want %q", got, want)
+	}
+}
+
+// AC-cross-kb-links-3
+func TestServeWiresMounts(t *testing.T) {
+	data := t.TempDir()
+	if err := config.WriteServerState(data, config.ServerState{KBAliases: []config.KBAlias{{From: "old-b", To: "kb-b"}}}); err != nil {
+		t.Fatal(err)
+	}
+	a, b := &kb.KB{Root: t.TempDir()}, &kb.KB{Root: t.TempDir()}
+	wireMounts([]*kb.KB{a, b}, map[string]*kb.KB{"kb-a": a, "kb-b": b}, []string{"kb-a", "kb-b"}, &config.Config{Data: data})
+	for _, k := range []*kb.KB{a, b} {
+		m := k.Mounts()
+		if m == nil {
+			t.Fatal("a mounted KB has no Mounts()")
+		}
+		if got, ok := m.Lookup("kb-b"); !ok || got != b {
+			t.Errorf("sibling kb-b not found")
+		}
+		if got, ok := m.Lookup("old-b"); !ok || got != b {
+			t.Errorf("alias old-b of the server state not followed")
+		}
+	}
+	if a.MountName() != "kb-a" || b.MountName() != "kb-b" {
+		t.Errorf("MountName = %q, %q", a.MountName(), b.MountName())
+	}
+	// No settings: mounts without aliases.
+	c := &kb.KB{Root: t.TempDir()}
+	wireMounts([]*kb.KB{c}, map[string]*kb.KB{"kb-c": c}, []string{"kb-c"}, nil)
+	if _, ok := c.Mounts().Lookup("old-b"); ok || c.MountName() != "kb-c" {
+		t.Errorf("nil config: unexpected aliases or name %q", c.MountName())
 	}
 }

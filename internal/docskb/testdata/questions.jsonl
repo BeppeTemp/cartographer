@@ -74,3 +74,5 @@
 {"q": "why does lint cover the artifacts of a KB and not only its concepts?", "want": ["decisions/d316-lint-covers-the-kbs-artifacts"]}
 {"q": "why does sync restore what diverged on disk?", "want": ["decisions/d139-on-disk-verification-sync-restores-what-diverged"]}
 {"q": "why do paths in a KB use placeholders instead of absolute paths?", "want": ["decisions/d75-path-portability-across-machines-placeholders-auto", "decisions/d263-a-kb-declares-its-path-placeholder-registry"]}
+{"q": "how does a KB find the sibling KBs mounted on the same server?", "want": ["internals-contributing/cross-kb-links"]}
+{"q": "does a mounted name beat a kb_aliases alias when a KB looks up a sibling?", "want": ["internals-contributing/cross-kb-links"]}

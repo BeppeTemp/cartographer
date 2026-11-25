@@ -674,6 +674,29 @@ func serveStdio(k *kb.KB, artifactSigner ed25519.PrivateKey, sqlIdxs map[string]
 	}
 }
 
+// wireMounts gives every KB the set of its siblings (kb.Mounts; byName and
+// names are the one mounted set the caller built), with the
+// kb_aliases of the server state so an old name keeps resolving after
+// `kb rename`. An unreadable alias list is logged and means no aliases, as at
+// the routed mount. The map is fixed at start ("a restart to apply", D772).
+// Single-KB stdio never calls it: its KB keeps nil mounts.
+func wireMounts(kbs []*kb.KB, byName map[string]*kb.KB, names []string, cfg *config.Config) {
+	aliasMap := map[string]string{}
+	if cfg != nil {
+		aliases, err := cfg.KBAliases()
+		if err != nil {
+			log.Printf("warning: kb_aliases are not applied to cross-KB lookups: %v", err)
+		}
+		for _, a := range aliases {
+			aliasMap[a.From] = a.To
+		}
+	}
+	m := kb.NewMounts(byName, names, aliasMap)
+	for _, k := range kbs {
+		k.SetMounts(m)
+	}
+}
+
 // serveHTTP binds the port first and bootstraps the KBs in the background
 // (D348): until boot returns and the real handler is built, a BootGate answers
 // /health (live, bootstrapping) and /ready (503) and refuses everything else
@@ -879,6 +902,7 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 			byName[names[i]] = k
 		}
 		kbByName := func(n string) (*kb.KB, bool) { k, ok := byName[n]; return k, ok } // concept_transfer (D760)
+		wireMounts(kbs, byName, names, settingsCfg)                                    // cross-KB lookups (D772 aliases), before any KB serves
 		for i, k := range kbs {
 			k := k
 			name := names[i]
