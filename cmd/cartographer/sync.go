@@ -451,7 +451,13 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	// provider in workspace scope. The derivation pulls the KBs once, the
 	// manifests below reuse the pulls, and the derived list is only persisted
 	// with the rest of the state, after the manifests are in hand.
-	pre, commitDerived, err := deriveWorkspaceBindings(cfg, targets, dir, opts.DryRun)
+	var skippedKBNames []string
+	if healthErr == nil && facts.health != nil {
+		for _, k := range facts.health.SkippedKBs {
+			skippedKBNames = append(skippedKBNames, k.Name)
+		}
+	}
+	pre, commitDerived, err := deriveWorkspaceBindings(cfg, targets, dir, opts.DryRun, skippedKBNames, errw)
 	if err != nil {
 		return syncResult{}, fmt.Errorf("%w (no configuration was modified)", err)
 	}

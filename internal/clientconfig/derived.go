@@ -64,6 +64,13 @@ const (
 	lastChangeViaLineage = "lineage"
 )
 
+// lineageReasons is the closed set of reasons the server gives for a relation
+// it could not resolve (kb-relations); anything else is not kept.
+var lineageReasons = []string{"not_mounted", "remote_mismatch", "no_remote", "self", "cycle", "too_deep"}
+
+// ValidLineageReason reports whether reason is one the server may give.
+func ValidLineageReason(reason string) bool { return containsString(lineageReasons, reason) }
+
 // LineageUnresolved is a relation of a seed KB the server could not resolve.
 // Reason is the server's closed set (not_mounted, remote_mismatch, no_remote,
 // self, cycle, too_deep), kept verbatim.
@@ -174,7 +181,7 @@ func cleanLineage(in map[string]DerivedLineage) map[string]DerivedLineage {
 			if len(c.Unresolved) == MaxLineageClosure {
 				break
 			}
-			if validKBName(u.Name) {
+			if validKBName(u.Name) && ValidLineageReason(u.Reason) && !hasUnresolved(c.Unresolved, u.Name) {
 				c.Unresolved = append(c.Unresolved, u)
 			}
 		}
@@ -182,6 +189,19 @@ func cleanLineage(in map[string]DerivedLineage) map[string]DerivedLineage {
 	}
 	return out
 }
+
+// hasUnresolved reports whether list already names name.
+func hasUnresolved(list []LineageUnresolved, name string) bool {
+	for _, u := range list {
+		if u.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+// HasUnresolved is hasUnresolved for the sync that stores the server's list.
+func HasUnresolved(list []LineageUnresolved, name string) bool { return hasUnresolved(list, name) }
 
 // cleanLastChange drops a last change that is not well formed: a time that is
 // not RFC 3339, an item with an invalid KB name or an unknown Via, or more

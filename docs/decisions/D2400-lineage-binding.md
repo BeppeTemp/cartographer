@@ -15,3 +15,6 @@ topic: sync-provisioning
 - *The opt-out in the KB.* The person working in a folder decides what it receives, not the KB that declares the relation.
 
 **Consequences.** `exclude` removes only KBs that came by lineage and only the named ones. A rebind replaces the binding whole, so an option not repeated is off. A derived binding has no keys: opting out there is an explicit binding on its path.
+
+**Pulling and storing.** `sync` stores the lineage of every seed KB (the written list of each provider with an explicit one, the KBs of explicit workspace bindings, the KBs of derived bindings) from the `relations` of the pulls it already makes. An absent or failed answer never means "none": a failed pull, a seed another provider's run left alone, an answer with no `relations` (an older server) and `relations_unavailable` (a fresh clone with no `origin/HEAD` yet) each keep the stored entry, and only an explicit empty `relations` removes it. A lineage KB the server could not mount (`skipped_kbs`) and that left the closure is held, not unbound: the seed's entry stays, so the KB stays in the projection and its failed pull keeps every holder's state (#350); this does not use `HeldKBs`, which `connect-all-dynamic` introduces for another case.
+

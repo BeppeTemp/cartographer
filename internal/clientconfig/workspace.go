@@ -96,6 +96,10 @@ func (w WorkspaceBinding) OwnKBs() []string {
 	return out
 }
 
+// ValidKBName reports whether name follows the rule a KB name written into the
+// configuration follows (what sync applies to the names a server sends).
+func ValidKBName(name string) bool { return validKBName(name) }
+
 // validKBName is the rule a KB name written into the configuration follows:
 // non-empty, trimmed, no control character.
 func validKBName(name string) bool {

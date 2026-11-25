@@ -289,7 +289,7 @@ func TestLoadDerivedCleansLineage(t *testing.T) {
 		Lineage: map[string]DerivedLineage{
 			"client-kb": {
 				Closure:    []string{"core-kb", "", " pad", "bad\x1bname", "client-kb", "core-kb", "not-mounted-kb"},
-				Unresolved: []LineageUnresolved{{Name: "gone-kb", Reason: "not_mounted"}, {Name: "bad\nname", Reason: "cycle"}},
+				Unresolved: []LineageUnresolved{{Name: "gone-kb", Reason: "not_mounted"}, {Name: "bad\nname", Reason: "cycle"}, {Name: "gone-kb", Reason: "cycle"}, {Name: "evil-kb", Reason: "x\x1b[0m"}},
 			},
 			"big-kb": {Closure: long},
 			" bad":   {Closure: []string{"core-kb"}},
