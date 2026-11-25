@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"slices"
 	"sort"
 
@@ -66,7 +67,11 @@ func (p *prefetched) failedFor(kbs []string) []kbPullFailure {
 // list: a failed pull is not a declaration that a repository went away. A
 // provider outside workspace scope loses its entries, as it has no use for
 // them.
-func deriveWorkspaceBindings(cfg *clientconfig.Config, targets []string, dir string, dryRun bool) (*prefetched, func() error, error) {
+//
+// It also stores the lineage of every seed KB (computeLineage). skipped names
+// the KBs the server was told to serve and could not mount (nil when /health
+// was not read): a lineage KB in it is held, not unbound.
+func deriveWorkspaceBindings(cfg *clientconfig.Config, targets []string, dir string, dryRun bool, skipped []string, errw io.Writer) (*prefetched, func() error, error) {
 	providers, candidates := derivationScope(cfg, targets)
 	var pre *prefetched
 	if len(candidates) > 0 {
@@ -82,6 +87,19 @@ func deriveWorkspaceBindings(cfg *clientconfig.Config, targets []string, dir str
 	}
 	resolver := repoindex.NewResolver(cfg.Paths, cfg.ScanRoots(), repoindex.DefaultDepth)
 	next := computeDerived(cfg, targets, providers, pre, resolver)
+	notes := computeLineage(cfg, pre, &next, skipped)
+	for _, kb := range notes.Held {
+		fmt.Fprintf(errw, "held %s: the server could not mount it\n", escapeControl(kb))
+	}
+	for _, kb := range notes.Unavailable {
+		fmt.Fprintf(errw, "relations of %s unavailable on the server: lineage left as it was\n", escapeControl(kb))
+	}
+	for _, kb := range notes.Unlisted {
+		fmt.Fprintf(errw, "KB list unknown: lineage of %s left as it was\n", escapeControl(kb))
+	}
+	if notes.Predates {
+		fmt.Fprintln(errw, "server predates KB relations: lineage left as it was")
+	}
 	cfg.SetDerived(next)
 
 	commit := func() error {
@@ -98,11 +116,29 @@ func deriveWorkspaceBindings(cfg *clientconfig.Config, targets []string, dir str
 }
 
 // derivationScope returns the targeted providers that derive bindings (in
-// workspace scope, able to project) and the KBs whose registries they need:
-// the KBs each one receives.
+// workspace scope, able to project) and the KBs to pull for them: the KBs each
+// one receives (whose registries derive bindings) plus the lineage seeds, whose
+// `relations` are read from the same pulls (lineageSeedsOf).
 func derivationScope(cfg *clientconfig.Config, targets []string) (providers, candidates []string) {
 	seen := map[string]bool{}
+	add := func(kbs []string) {
+		for _, kb := range kbs {
+			if !seen[kb] {
+				seen[kb] = true
+				candidates = append(candidates, kb)
+			}
+		}
+	}
+	defer func() { sort.Strings(candidates) }()
 	for _, p := range targets {
+		if own, explicit := cfg.BoundOwnKBs(p); explicit {
+			add(own)
+		}
+		for _, w := range cfg.Workspaces[p] {
+			if cfg.DerivesBindings(p) {
+				add(w.KBs)
+			}
+		}
 		// A cli provider derives whatever its scope: its bindings narrow the
 		// bridge `call` runs, and need no project-local destination (#1804).
 		inWorkspace := cfg.WorkspaceScope(p) == clientconfig.ScopeWorkspace && provisioning.SupportsProjectScope(configurator.Provider(p))
@@ -112,15 +148,171 @@ func derivationScope(cfg *clientconfig.Config, targets []string) (providers, can
 		providers = append(providers, p)
 		// The own list: a lineage KB is never a seed of derivation.
 		bound, _ := cfg.BoundOwnKBs(p)
-		for _, kb := range bound {
-			if !seen[kb] {
-				seen[kb] = true
-				candidates = append(candidates, kb)
+		add(bound)
+	}
+	return providers, candidates
+}
+
+// lineageSeedsOf is every KB whose lineage may be read: the written list of
+// every provider with an explicit one, the KBs of every explicit workspace
+// binding of a provider that projects them, and the KBs of the derived
+// bindings. A lineage KB is never a seed of anything (its closure is already
+// inside its seed's), and a provider with no `kbs` (default) has none of its own.
+func lineageSeedsOf(cfg *clientconfig.Config, derived map[string][]clientconfig.DerivedBinding) map[string]bool {
+	seeds := map[string]bool{}
+	for p := range cfg.Clients {
+		if own, explicit := cfg.BoundOwnKBs(p); explicit {
+			for _, kb := range own {
+				seeds[kb] = true
 			}
 		}
 	}
-	sort.Strings(candidates)
-	return providers, candidates
+	for p, list := range cfg.Workspaces {
+		if !cfg.DerivesBindings(p) {
+			continue
+		}
+		for _, w := range list {
+			for _, kb := range w.KBs {
+				seeds[kb] = true
+			}
+		}
+	}
+	for _, list := range derived {
+		for _, b := range list {
+			for _, kb := range b.KBs {
+				seeds[kb] = true
+			}
+		}
+	}
+	return seeds
+}
+
+// computeLineage stores in next the lineage of every seed KB, from the
+// `relations` of the pulls it holds. An absence is never read as none:
+//   - a seed not pulled this run (`sync --client`) or whose pull failed keeps
+//     its entry;
+//   - a seed pulled with no `relations` (an older server) keeps its entry, and
+//     Predates reports it; one whose pull said `relations_unavailable` (the
+//     server could not read them, e.g. a fresh clone with no origin/HEAD yet)
+//     keeps its entry too, and Unavailable names it;
+//   - only an explicit empty `relations` removes an entry;
+//   - a stored closure name missing from the new one while it is in skipped (the
+//     server could not mount it) is held: the seed's whole entry stays, so the
+//     KB stays bound and its failed pull keeps every holder's state (#350).
+//
+// What the server newly sends is untrusted: names must be valid, mounted
+// (cfg.KnownKBs), not the seed, and the closure is capped. Stored data is only
+// cleaned on load (clientconfig.LoadDerived). Entries of KBs that are no longer
+// a seed of anything are dropped. It also carries LastChange over.
+func computeLineage(cfg *clientconfig.Config, pre *prefetched, next *clientconfig.DerivedState, skipped []string) (notes lineageNotes) {
+	prev := cfg.Derived()
+	next.LastChange = prev.LastChange
+	out := map[string]clientconfig.DerivedLineage{}
+	for seed := range lineageSeedsOf(cfg, next.Bindings) {
+		old, hasOld := prev.Lineage[seed]
+		keep := func() {
+			if hasOld {
+				out[seed] = old
+			}
+		}
+		if !pre.answeredFor(seed) {
+			keep()
+			continue
+		}
+		rel, hasRel := pre.cs.Relations[seed]
+		if len(cfg.KnownKBs) == 0 {
+			// The mounted test below needs the server's KB list, which sync
+			// refreshes only when /health answered with one: without it an empty
+			// list would filter every name and unbind the stored lineage.
+			if hasOld {
+				notes.Unlisted = append(notes.Unlisted, seed)
+			}
+			keep()
+			continue
+		}
+		if pre.cs.RelationsUnavailable[seed] {
+			if hasOld {
+				notes.Unavailable = append(notes.Unavailable, seed)
+			}
+			keep()
+			continue
+		}
+		if !hasRel {
+			if hasOld {
+				notes.Predates = true
+			}
+			keep()
+			continue
+		}
+		fresh := lineageFromRelations(cfg, seed, rel)
+		var missing []string
+		for _, k := range old.Closure {
+			if !slices.Contains(fresh.Closure, k) && slices.Contains(skipped, k) {
+				missing = append(missing, k)
+			}
+		}
+		if len(missing) > 0 {
+			for _, k := range missing {
+				if !slices.Contains(notes.Held, k) {
+					notes.Held = append(notes.Held, k)
+				}
+			}
+			keep()
+			continue
+		}
+		if len(fresh.Closure) > 0 || len(fresh.Unresolved) > 0 {
+			out[seed] = fresh
+		}
+	}
+	sort.Strings(notes.Held)
+	sort.Strings(notes.Unavailable)
+	sort.Strings(notes.Unlisted)
+	next.Lineage = nil
+	if len(out) > 0 {
+		next.Lineage = out
+	}
+	return notes
+}
+
+// lineageNotes is what computeLineage leaves for sync to say.
+type lineageNotes struct {
+	Held        []string // lineage KBs kept because the server could not mount them
+	Unavailable []string // seeds whose relations the server could not read
+	Unlisted    []string // seeds kept because the server's KB list is not known this run
+	Predates    bool     // a seed answered with no relations: an older server
+}
+
+// answeredFor reports whether seed was pulled by this run and answered (a KB
+// that answered with no artifacts counts). A nil prefetch answered for nothing,
+// and the nameless endpoint carries no KB names to follow.
+func (p *prefetched) answeredFor(seed string) bool {
+	if p == nil || p.cs.HasBare {
+		return false
+	}
+	_, ok := p.cs.Named[seed]
+	return ok
+}
+
+// lineageFromRelations is the entry stored for seed from what the server sent.
+func lineageFromRelations(cfg *clientconfig.Config, seed string, rel contract.Relations) clientconfig.DerivedLineage {
+	var l clientconfig.DerivedLineage
+	for _, k := range rel.Closure {
+		if len(l.Closure) == clientconfig.MaxLineageClosure {
+			break
+		}
+		if clientconfig.ValidKBName(k) && k != seed && slices.Contains(cfg.KnownKBs, k) && !slices.Contains(l.Closure, k) {
+			l.Closure = append(l.Closure, k)
+		}
+	}
+	for _, u := range rel.Unresolved {
+		if len(l.Unresolved) == clientconfig.MaxLineageClosure {
+			break
+		}
+		if clientconfig.ValidKBName(u.Name) && clientconfig.ValidLineageReason(u.Reason) && !clientconfig.HasUnresolved(l.Unresolved, u.Name) {
+			l.Unresolved = append(l.Unresolved, clientconfig.LineageUnresolved{Name: u.Name, Reason: u.Reason})
+		}
+	}
+	return l
 }
 
 // computeDerived is the derivation itself, on KB registries already pulled:

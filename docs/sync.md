@@ -635,6 +635,20 @@ unchanged.
   `.exclude`, or `clients.<provider>.…` in the flat layout; the one resolver, `BoundKBs`, applies it). The
   default (no `kbs`) and `kbs: []` get no lineage, and a lineage KB is never a seed of derivation
   (`BoundOwnKBs` is the list as written, which `client bind`, `unbind` and the derivation read).
+- **`sync` reads the relations of every seed KB and stores the lineage.** Besides the KBs a
+  deriving provider receives, it pulls the explicit `kbs` of every targeted provider and the KBs of
+  the explicit workspace bindings, in the same round the manifest build reuses, and stores for each
+  the `closure` and `unresolved` of the `relations` its `sync_pull` served. The names the server
+  newly sends are kept only if valid, mounted, not the seed and within the cap of 64. An absence is
+  never read as "none": a KB whose pull failed, one pulled by another provider's run
+  (`sync --client`), one that answered without `relations` (an older server: `server predates KB
+  relations: lineage left as it was`) and one that answered `relations_unavailable` (`relations of
+  <kb> unavailable on the server: lineage left as it was`) all keep their stored entry; only an
+  explicit empty `relations` removes it, and an entry of a KB that is no longer a seed goes. A
+  lineage KB the server reports in `skipped_kbs` and that left the closure is **held**: the seed's
+  entry stays as it was, `sync` prints `held <kb>: the server could not mount it`, and the projections
+  that keep it are skipped like any failed pull, so nothing is pruned for a mount failure; the next
+  sync that finds it neither in the closure nor in `skipped_kbs` unbinds it.
 - **Derived state, not a preference.** The list is recomputed by every `sync` from the registries
   it pulls and stored apart from `.cartographer.yaml`, next to the repo index cache
   (`workspace-derived.json`). A repository that stops being declared, gets `bind: false` or
@@ -1035,8 +1049,8 @@ A KB declares the KBs it depends on in `depends_on` of its `settings.yaml`
 (`docs/kb-relations.md`). `sync_pull` serves, per KB, the resolved view as
 `relations` (`declared`, `resolved`, `closure`, `unresolved`; see
 `docs/control-plane.md`): always present, with empty arrays when the KB declares none, so an
-absent field means a server that predates it, unless `relations_unavailable: true` is there: the relations could not be read (the artifacts are delivered all the same, and `issues` says so), which a client must not read as "no dependencies". It is outside `revision` and every signature. The client
-does nothing with it yet.
+absent field means a server that predates it, unless `relations_unavailable: true` is there: the relations could not be read (the artifacts are delivered all the same, and `issues` says so), which a client must not read as "no dependencies". It is outside `revision` and every signature. `sync` reads it to store the
+lineage (§Workspace scope).
 
 ## MCP servers (D69, D116)
 

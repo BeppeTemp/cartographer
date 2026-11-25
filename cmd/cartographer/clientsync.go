@@ -56,6 +56,15 @@ type pulledManifestJSON struct {
 	// D263), unsigned and outside revision. nil when the KB has none or the
 	// server predates it.
 	PathRegistry *contract.PathRegistry `json:"path_registry,omitempty"`
+	// Relations is the KB's `depends_on` as the server resolved it, unsigned
+	// and outside revision. A server that supports it always sends it (empty
+	// arrays when the KB declares none): nil means an older server, never
+	// "no relations".
+	Relations *contract.Relations `json:"relations,omitempty"`
+	// RelationsUnavailable replaces Relations when the server could not read
+	// them (a fresh clone has no origin/HEAD yet): the artifacts are delivered,
+	// and the client must not read the absence as "no relations".
+	RelationsUnavailable bool `json:"relations_unavailable,omitempty"`
 	// Issues are the artifacts the server left out of this response and why
 	// (Manifest.Issues); server text, escaped wherever it is printed.
 	Issues []string `json:"issues,omitempty"`
@@ -153,6 +162,14 @@ type candidateSet struct {
 	// pathRegistriesForProjection, like the placeholder keys.
 	PathRegistries   map[string]contract.PathRegistry
 	BarePathRegistry *contract.PathRegistry
+	// Relations is, per KB whose sync_pull carried a `relations` field, that
+	// field. A KB that answered without one (an older server) has no entry:
+	// the lineage code reads that as "unknown", never as "none".
+	Relations map[string]contract.Relations
+	// RelationsUnavailable names the KBs whose sync_pull said it could not
+	// read its relations (relations_unavailable): neither "none" nor an older
+	// server.
+	RelationsUnavailable map[string]bool
 	// Plugins are the skills, agents and hooks of the active plugins
 	// (loadActivePlugins). They are not a KB's: no binding selects them and
 	// kb_options does not apply, so they join each projection after the KB
@@ -715,7 +732,7 @@ func fetchCandidatesPartial(cfg *clientconfig.Config, kbNames []string) (candida
 // already holds the response (doctor, via serverFacts) passes it instead of
 // probing the server again.
 func pullCandidatesPartial(cfg *clientconfig.Config, health *client.Health, kbNames []string) (candidateSet, []kbPullFailure, error) {
-	cs := candidateSet{Named: make(map[string][]contract.Artifact), Placeholders: make(map[string][]string), PathRegistries: make(map[string]contract.PathRegistry), Issues: make(map[string][]string), FeedbackModes: make(map[string]string), Plugins: loadActivePlugins(cfg).Artifacts}
+	cs := candidateSet{Named: make(map[string][]contract.Artifact), Placeholders: make(map[string][]string), PathRegistries: make(map[string]contract.PathRegistry), Relations: make(map[string]contract.Relations), Issues: make(map[string][]string), FeedbackModes: make(map[string]string), Plugins: loadActivePlugins(cfg).Artifacts}
 	token := resolveToken(cfg)
 	tokenEnv := tokenEnvName(cfg)
 	// A selection the server no longer advertises costs only the providers that
@@ -823,6 +840,15 @@ func pullCandidatesPartial(cfg *clientconfig.Config, health *client.Health, kbNa
 			if res.pathRegistry != nil {
 				cs.PathRegistries[target.Name] = *res.pathRegistry
 			}
+			if res.relations != nil {
+				cs.Relations[target.Name] = *res.relations
+			}
+			if res.relationsUnavailable {
+				if cs.RelationsUnavailable == nil {
+					cs.RelationsUnavailable = map[string]bool{}
+				}
+				cs.RelationsUnavailable[target.Name] = true
+			}
 		}
 		// A KB that answered with no artifacts at all still counts as answered:
 		// without this, a provider bound only to it would fall through the
@@ -852,10 +878,13 @@ type pullResult struct {
 	artifacts    []contract.Artifact
 	placeholders []string
 	pathRegistry *contract.PathRegistry
-	issues       []string
-	feedback     string
-	callErr      error
-	err          error
+	relations    *contract.Relations
+	// relationsUnavailable: the server could not read the relations.
+	relationsUnavailable bool
+	issues               []string
+	feedback             string
+	callErr              error
+	err                  error
 }
 
 // pullTarget calls sync_pull on one target and decodes and hash-checks its
@@ -914,7 +943,7 @@ func pullTarget(c *client.MCPClient, target kbTarget) pullResult {
 	if pm.Feedback != nil {
 		fb = pm.Feedback.Destination
 	}
-	return pullResult{artifacts: arts, placeholders: pm.Placeholders, pathRegistry: pm.PathRegistry, issues: pm.Issues, feedback: fb}
+	return pullResult{artifacts: arts, placeholders: pm.Placeholders, pathRegistry: pm.PathRegistry, relations: pm.Relations, relationsUnavailable: pm.RelationsUnavailable, issues: pm.Issues, feedback: fb}
 }
 
 // collisionsForProvider narrows DetectCollisions to the ones a single provider
