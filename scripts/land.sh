@@ -1289,8 +1289,29 @@ show_queue() {
   fi
 }
 
+# stale_scripts: the scripts/ of this lander (land.sh, signoff.sh) differ from origin/main's, as
+# fetched: a checkout behind main gates trains with an old gate (#2359). Prints which, else nothing.
+stale_scripts() {
+  local f mine theirs out=
+  for f in land.sh signoff.sh; do
+    mine=$(g hash-object "$here/$f" 2>/dev/null) || continue
+    theirs=$(g rev-parse "$main_ref:scripts/$f" 2>/dev/null) || continue
+    [ "$mine" = "$theirs" ] || out="$out $f"
+  done
+  echo "${out# }"
+}
+# check_stale: exits when the scripts are older than main's, unless LAND_ALLOW_STALE=1.
+check_stale() {
+  local st
+  [ "${LAND_ALLOW_STALE:-}" != 1 ] || return 0
+  st=$(stale_scripts)
+  [ -z "$st" ] || die "the lander runs scripts older than origin/main ($st): run it from an up-to-date tree (LAND_ALLOW_STALE=1 to run anyway)"
+}
+
 if [ "$action" = --status ]; then
   fetch || true
+  st=$(stale_scripts)
+  [ -z "$st" ] || echo "warning: this lander's scripts differ from origin/main's ($st): run it from an up-to-date tree"
   echo "queue:"; show_queue || true
   echo "open train PR:"; open_trains | cut -d' ' -f1,2 | sed 's/^/  #/' || true
   echo "rejected:"; g for-each-ref --format='%(refname:lstrip=4) %(contents:subject)' refs/remotes/origin/failed/ | sed 's/^/  /'
@@ -1318,6 +1339,7 @@ while :; do
       die "the lander's checkout of main, $src, does not hold main's scripts after its reset"
     run_main
   fi
+  check_stale
   if ! $dry; then
     # A failed read is not "no open PR": nothing is deleted on it (deleting a PR's head closes it).
     prs_known=true

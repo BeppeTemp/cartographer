@@ -262,6 +262,7 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
   and `plan-gate`; a maintainer's PR is pushed with `make signoff`, whose `signoff` status `gate` looks for; a train is
   gated once and `main` runs its jobs again on the push. The required checks are `gate`, `pr-title` and `plan-gate`.
   The train gate is hosted by default (D2040, D2293); `make land GATE=host` gates on the build host.
+  A lander whose `scripts/land.sh` or `scripts/signoff.sh` differs from `origin/main`'s exits at its start and before each train (`LAND_ALLOW_STALE=1` runs anyway; `make land-status` only warns): run it from an up-to-date tree.
   `make check` (affected packages) is the tier to iterate with and `make check-hosted` (on GitHub, with a Windows leg) the coordinator's, once on the tip beside the review.
   Which job runs on which event, and what each gate runs, is the generated table of `docs/testing.md` §Levels.
 - **A maintainer's change lands in a train** (D1706, D2304): finished and reviewed on its

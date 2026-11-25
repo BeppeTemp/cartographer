@@ -2020,7 +2020,7 @@ func TestLanderRunsMainsScriptsFromAnOlderWorktree(t *testing.T) {
 	e.git("checkout", "-q", "main")
 	src := filepath.Join(e.tmp, "lander", "src")
 
-	if out, ok := e.land(); !ok || strings.Contains(out, marker) {
+	if out, ok := e.land("LAND_ALLOW_STALE=1"); !ok || strings.Contains(out, marker) {
 		t.Fatalf("LAND_SELF=1 runs this clone's land.sh (ok=%v):\n%s", ok, out)
 	}
 	if _, err := os.Stat(src); err == nil {
@@ -3344,5 +3344,24 @@ func TestLanderInfraLineMatchesTheHostedRunnersLine(t *testing.T) {
 		if re.MatchString(line) != want {
 			t.Errorf("infra_line on %q = %v, want %v", line, !want, want)
 		}
+	}
+}
+
+// A lander whose scripts differ from origin/main's exits before any train (#2359), unless
+// LAND_ALLOW_STALE=1; --status only warns.
+func TestLanderRefusesScriptsOlderThanMain(t *testing.T) {
+	e := newLandEnv(t)
+	p := filepath.Join(e.work, "scripts", "signoff.sh")
+	e.write(p, readFileAbs(t, p)+"\n# stale\n")
+	out, rc := e.landArgs([]string{"--gate", "host"})
+	if rc == 0 || !strings.Contains(out, "older than origin/main") || !strings.Contains(out, "signoff.sh") {
+		t.Fatalf("a stale lander must exit with the message (rc=%d):\n%s", rc, out)
+	}
+	if out, rc := e.landArgs([]string{"--gate", "host"}, "LAND_ALLOW_STALE=1"); rc != 0 || strings.Contains(out, "older than origin/main") {
+		t.Fatalf("LAND_ALLOW_STALE=1 must run (rc=%d):\n%s", rc, out)
+	}
+	out, rc = e.landArgs([]string{"--status"})
+	if rc != 0 || !strings.Contains(out, "warning: this lander's scripts differ") {
+		t.Fatalf("--status must warn and exit 0 (rc=%d):\n%s", rc, out)
 	}
 }
