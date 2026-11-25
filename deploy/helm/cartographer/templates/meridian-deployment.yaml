@@ -4,6 +4,7 @@
 {{- $full := include "cartographer.fullname" . -}}
 {{- $p := $s.persistence -}}
 {{- $probes := $s.probes -}}
+{{- $tlsSecret := $s.tls.secretName -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -85,21 +86,31 @@ spec:
             httpGet:
               path: /health
               port: http
+              {{- if $tlsSecret }}
+              # The public port is TLS-only; the kubelet does not verify the certificate.
+              scheme: HTTPS
+              {{- end }}
             {{- toYaml (pick $probes.liveness "periodSeconds" "timeoutSeconds" "failureThreshold") | nindent 12 }}
           startupProbe:
             httpGet:
               path: /health
               port: http
+              {{- if $tlsSecret }}
+              # The public port is TLS-only; the kubelet does not verify the certificate.
+              scheme: HTTPS
+              {{- end }}
             {{- toYaml (pick $probes.startup "periodSeconds" "timeoutSeconds" "failureThreshold") | nindent 12 }}
           readinessProbe:
             exec:
               command:
                 - sh
                 - -c
+                {{- /* With TLS the public port refuses plain HTTP: the exec reads the loopback health listener of the same pod (tls.health_addr). */}}
+                {{- $probePort := ternary $s.tls.healthPort 39273 (not (empty $tlsSecret)) }}
                 {{- if $probes.readiness.tokenSecret.name }}
-                - wget -q -O /dev/null --header "Authorization: Bearer $PROBE_TOKEN" http://127.0.0.1:39273/ready
+                - wget -q -O /dev/null --header "Authorization: Bearer $PROBE_TOKEN" http://127.0.0.1:{{ $probePort }}/ready
                 {{- else }}
-                - wget -q -O - http://127.0.0.1:39273/health | grep -q '"ready":true'
+                - wget -q -O - http://127.0.0.1:{{ $probePort }}/health | grep -q '"ready":true'
                 {{- end }}
             {{- toYaml (pick $probes.readiness "periodSeconds" "timeoutSeconds" "failureThreshold") | nindent 12 }}
           {{- with $s.resources }}
@@ -110,7 +121,7 @@ spec:
             - name: config
               mountPath: /etc/cartographer
               readOnly: true
-            {{- if $s.credentials.enabled }}
+            {{- if or $s.credentials.enabled $tlsSecret }}
             - name: credentials
               mountPath: /etc/cartographer-credentials
               readOnly: true
@@ -121,7 +132,26 @@ spec:
         - name: config
           configMap:
             name: {{ $full }}-config
-        {{- if $s.credentials.enabled }}
+        {{- if $tlsSecret }}
+        # One projected volume, not a subPath: a subPath mount never sees a rotated
+        # certificate, and the server reloads tls.crt and tls.key when they change.
+        - name: credentials
+          projected:
+            # The kubelet adds the group read bit for fsGroup; the key is never world-readable.
+            defaultMode: 0440
+            sources:
+              {{- if $s.credentials.enabled }}
+              - secret:
+                  name: {{ $s.credentials.existingSecret.name | quote }}
+              {{- end }}
+              - secret:
+                  name: {{ $tlsSecret | quote }}
+                  items:
+                    - key: tls.crt
+                      path: tls.crt
+                    - key: tls.key
+                      path: tls.key
+        {{- else if $s.credentials.enabled }}
         - name: credentials
           secret:
             secretName: {{ $s.credentials.existingSecret.name | quote }}

@@ -157,6 +157,33 @@ must meridian-full "$d" 'http://127.0.0.1:39273/ready$' "the token readiness doe
 [ -z "$(docs meridian-full PersistentVolumeClaim)" ] || fail "meridian-full: a claim next to existingClaim"
 must meridian-full "$(one meridian-full Ingress)" 'secretName: wiki-tls$' "the Ingress has no TLS"
 
+# Native TLS (AC-tls-native-18): the TLS Secret is projected next to the credentials Secret, the
+# kubelet probes use HTTPS on the public port, the readiness exec reads the health port.
+d=$(one meridian-tls Deployment meridian)
+must meridian-tls "$d" 'scheme: HTTPS$' "the probes of a TLS release do not use scheme HTTPS"
+[ "$(grep -c 'scheme: HTTPS$' "$d")" = 2 ] || fail "meridian-tls: want HTTPS on the liveness and the startup probe only"
+must meridian-tls "$d" '^          projected:$' "the TLS Secret is not a projected volume"
+must meridian-tls "$d" 'name: "cartographer-tls"$' "the TLS Secret is not projected"
+must meridian-tls "$d" 'name: "cartographer-credentials"$' "the credentials Secret is hidden by the TLS mount"
+must meridian-tls "$d" 'path: tls.key$' "tls.key is not projected"
+must meridian-tls "$d" 'mountPath: /etc/cartographer-credentials$' "the credentials mount path"
+must meridian-tls "$d" '^            defaultMode: 0440$' "the projected volume is not 0440"
+must meridian-tls "$d" 'http://127.0.0.1:39280/health' "the readiness exec does not read the health port"
+mustnt meridian-tls "$d" 'http://127.0.0.1:39273' "a TLS readiness exec reads the public port in clear"
+c=$(one meridian-tls ConfigMap meridian)
+must meridian-tls "$c" '^      enabled: true$' "tls.enabled is not set"
+must meridian-tls "$c" '^      health_addr: 127.0.0.1:39280$' "tls.health_addr is not the healthPort"
+must meridian-tls "$c" '^      hsts_max_age: 720h$' "a user tls key was dropped"
+must meridian-tls "$c" '^    credentials_dir: /etc/cartographer-credentials$' "no credentials_dir"
+# Off: no TLS object at all, and a TLS Secret works without the credentials Secret.
+mustnt meridian-full "$(one meridian-full Deployment meridian)" 'scheme: HTTPS|projected:' "TLS objects without meridian.tls.secretName"
+mustnt meridian-full "$(one meridian-full ConfigMap meridian)" 'tls:' "a tls block without meridian.tls.secretName"
+neg "meridian.config.tls.enabled is owned by the chart" 'meridian: {tls: {secretName: t}, config: {tls: {enabled: false}}}'
+neg "must differ from the public port" 'meridian: {tls: {secretName: t, healthPort: 39273}}'
+helm template ci "$chart" -f "$chart/ci/meridian-minimal-values.yaml" --set meridian.tls.secretName=t >"$work/tls-only.yaml" \
+  || fail "a TLS Secret without the credentials Secret is refused"
+grep -q 'name: "t"$' "$work/tls-only.yaml" || fail "meridian-tls-only: the TLS Secret is not projected"
+
 d=$(one meridian-yaml-tokens Deployment meridian)
 mustnt meridian-yaml-tokens "$d" 'CARTOGRAPHER_TOKENS' "source (b) sets CARTOGRAPHER_TOKENS, which would replace the YAML tokens"
 must meridian-yaml-tokens "$d" 'name: "cartographer-token-env"$' "extraEnvFrom is not an envFrom secretRef"
@@ -231,6 +258,7 @@ neg "owned by the chart" '{meridian: {config: {http: ":1"}}}'
 neg "owned by the chart" '{meridian: {config: {data: /x}}}'
 neg "owned by the chart" '{meridian: {config: {credentials_dir: /x}}}'
 neg "owned by the chart" '{meridian: {config: {web: {enabled: false}}}}'
+neg "meridian.config.tls.enabled needs meridian.tls.secretName" '{meridian: {config: {tls: {enabled: true}}}}'
 neg "meridian.ingress.hosts" '{meridian: {ingress: {enabled: true}}}'
 neg "replicaCount" '{meridian: {replicaCount: 2}}'
 neg "autoscaling" '{meridian: {autoscaling: {enabled: true}}}'

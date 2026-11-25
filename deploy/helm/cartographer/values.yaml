@@ -62,6 +62,18 @@ meridian:
     existingSecret:
       name: ""
 
+  # Native TLS (the server terminates it). secretName is an existing kubernetes.io/tls
+  # Secret (keys tls.crt and tls.key); empty keeps plain HTTP. When set, the chart mounts
+  # both keys into the credentials directory (next to the credentials Secret, if any),
+  # sets tls.enabled and tls.health_addr in the config, and probes over HTTPS. The public
+  # port is then TLS-only: the Ingress must speak HTTPS to the Service (the Ingress `tls`
+  # block below is the proxy's own certificate and is independent). healthPort is the
+  # loopback listener of /health and /ready the readiness probe reads (the default is the
+  # public port + 1, the server's own default); it is never exposed by the Service.
+  tls:
+    secretName: ""
+    healthPort: 39274
+
   # The data volume. By default a claim the chart creates and keeps on uninstall.
   persistence:
     size: 10Gi
@@ -89,7 +101,7 @@ meridian:
     # [{ secretName: wiki-tls, hosts: [wiki.example.com] }]
     tls: []
 
-  # Liveness and startup are httpGet on /health. Readiness is an exec that reads the
+  # Liveness and startup are httpGet on /health (HTTPS with meridian.tls.secretName). Readiness is an exec that reads the
   # body of /health, because /ready needs a token when auth is on.
   probes:
     liveness:

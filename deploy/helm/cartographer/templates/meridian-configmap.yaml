@@ -13,8 +13,16 @@ data:
     data: /data
     web:
       enabled: {{ .Values.atlas.enabled }}
-    {{- if .Values.meridian.credentials.enabled }}
+    {{- if or .Values.meridian.credentials.enabled .Values.meridian.tls.secretName }}
     credentials_dir: /etc/cartographer-credentials
     {{- end }}
-    {{- toYaml .Values.meridian.config | nindent 4 }}
+    {{- $cfg := deepCopy .Values.meridian.config }}
+    {{- if .Values.meridian.tls.secretName }}
+    {{- /* tls.enabled and tls.health_addr are chart-owned with a TLS Secret (the probes read them); the other tls keys pass through. */}}
+    {{- $tls := default (dict) (get $cfg "tls") }}
+    {{- $_ := set $tls "enabled" true }}
+    {{- $_ := set $tls "health_addr" (printf "127.0.0.1:%v" .Values.meridian.tls.healthPort) }}
+    {{- $_ := set $cfg "tls" $tls }}
+    {{- end }}
+    {{- toYaml $cfg | nindent 4 }}
 {{- end }}

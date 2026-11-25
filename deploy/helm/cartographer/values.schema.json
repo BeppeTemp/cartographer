@@ -42,6 +42,14 @@
             }
           }
         },
+        "tls": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "secretName": { "type": "string" },
+            "healthPort": { "type": "integer", "minimum": 1, "maximum": 65535 }
+          }
+        },
         "persistence": {
           "type": "object",
           "additionalProperties": false,

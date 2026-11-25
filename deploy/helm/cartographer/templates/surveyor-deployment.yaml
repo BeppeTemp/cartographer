@@ -22,7 +22,10 @@ spec:
     metadata:
       annotations:
         # The file is read once at start: a config change restarts the pod.
-        checksum/config: {{ toJson (list .config .files (ternary $root.Values.meridian.service.port $root.Values.meridian.url $root.Values.meridian.enabled)) | sha256sum }}
+        {{- $sum := list .config .files (ternary $root.Values.meridian.service.port $root.Values.meridian.url $root.Values.meridian.enabled) }}
+        {{- /* The scheme of the server URL follows the TLS Secret: appended only when set, so a TLS-off release keeps its hash. */}}
+        {{- if and $root.Values.meridian.enabled $root.Values.meridian.tls.secretName }}{{ $sum = append $sum $root.Values.meridian.tls.secretName }}{{ end }}
+        checksum/config: {{ toJson $sum | sha256sum }}
         {{- with .podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}

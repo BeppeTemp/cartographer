@@ -557,7 +557,7 @@ the YAML-token source, a scheduled Surveyor, an exec-recipe Surveyor, the two Su
 secret in an environment, the credentials Secret mounted with `defaultMode: 0440` next to an `fsGroup`, the quoted
 `mode: "on"` and `http: ":39273"` in `config.yaml`, the Service selecting the server only, the kept claim (absent with
 `existingClaim`), the probes, the Surveyors (no port, probe or persistent volume, `--once` on a CronJob only, the
-injected `server_url` only when the entry sets none) and no object shared by the two partitioned releases. Every
+injected `server_url` only when the entry sets none) and no object shared by the two partitioned releases. `ci/meridian-tls-values.yaml` asserts HTTPS on the liveness and startup probes only (the readiness exec reads the health port), the projected TLS Secret, and the `https://` server URL of a Surveyor, whose checksum changes with the Secret. Every
 refusal of the chart is a negative case that must fail with its message, and the values schema must reject
 `meridian.replicaCount`, `meridian.autoscaling` and a top-level key it does not know. The chart's files may not contain
 the retired name, and `Chart.yaml` must keep the two placeholders the release workflows stamp.
