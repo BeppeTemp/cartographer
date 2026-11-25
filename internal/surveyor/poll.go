@@ -51,7 +51,13 @@ const (
 	codeProtocol      = "protocol_error"
 	codeUnitRefused   = "unit_refused"
 	codeGrant         = "grant_exhausted"
+	codeModelFailed   = "model_failed"
 )
+
+// pollRetryBackoff is how long a feed whose model call failed waits before the
+// poll tries it again, when its interval is longer: the failure may be a blip,
+// and the interval is a day by default.
+const pollRetryBackoff = 15 * time.Minute
 
 // builtinConnector is the connector a document Source of a built-in recipe names.
 var builtinConnector = map[string]string{"git-docs": "git"}
@@ -247,7 +253,8 @@ func strList(v any) []string {
 
 // Next offers the due feed checked longest ago. The runner's tried set is the
 // "attempted in this run" set: a feed is due again only after feed_checked_at
-// (which the lease and a failure both move) plus its interval.
+// (which the lease and a failure both move) plus its interval, or, after a
+// failure that may pass, at its feed_retry_after.
 func (in *pollInstance) Next(_ context.Context, kb string, tools ToolCaller) (*WorkItem, error) {
 	if in.regErr != nil {
 		return nil, in.regErr
@@ -264,8 +271,19 @@ func (in *pollInstance) Next(_ context.Context, kb string, tools ToolCaller) (*W
 		if err != nil {
 			return nil, err
 		}
+		// feed_retry_after is a ninth key, past the cap of one concept_list: a
+		// second list reads it. A failure of it only costs the shorter wait.
+		retry := map[string]any{}
+		if rl, rerr := conceptList(tools, map[string]any{"where": q.where, "fields": []string{feed.KeyRetryAfter}, "limit": pollFeedMax}); rerr == nil {
+			for _, r := range rl.Results {
+				retry[r.ID] = r.Fields[feed.KeyRetryAfter]
+			}
+		}
 		for _, r := range l.Results {
 			ent := feed.Entry{ID: r.ID, Fields: plainFields(r.Fields), ContentHash: r.ContentHash}
+			if v, ok := retry[r.ID]; ok {
+				ent.Fields[feed.KeyRetryAfter] = v
+			}
 			f, perr := feed.Parse(ent, in.def, in.min)
 			f.CheckedAt = in.checkedAt(kb, r.ID, f.CheckedAt)
 			due := perr == nil && f.Due(now)
@@ -355,18 +373,30 @@ func (r *pollRun) patch(args map[string]any, reason string) (string, error) {
 // fail records why the feed was not polled. The detail may come from a recipe
 // or a connector, so the values of the connectors' credential variables are
 // replaced before it reaches the Source (feed_error is KB text).
-func (r *pollRun) fail(code, detail string) error {
+func (r *pollRun) fail(code, detail string) error { return r.failRetry(code, detail, false) }
+
+// failRetry is fail for a failure that may pass by itself: with retry, the feed
+// is also due again after pollRetryBackoff (feed_retry_after) when that is
+// sooner than its interval. Only the first failure of a streak asks for it: a
+// Source that already carries this code is retried at its interval, or a feed
+// that stays down would be written to every few minutes.
+func (r *pollRun) failRetry(code, detail string, retry bool) error {
 	for _, k := range sortedKeys(r.in.secret) {
 		detail = connector.RedactEnv(detail, map[string]string{k: r.in.secret[k]})
 	}
 	r.code = code
-	if cur, rerr := readConcept(r.rt.Tools, r.f.ID); rerr == nil && str(cur.Frontmatter, feed.KeyError) == feed.ErrorLine(code, detail) {
+	cur, rerr := readConcept(r.rt.Tools, r.f.ID)
+	if rerr == nil && str(cur.Frontmatter, feed.KeyError) == feed.ErrorLine(code, detail) {
 		// The Source already says this: a repeated failure writes nothing, and
 		// the schedule moves in memory so it is not retried in a tight loop.
 		r.in.noteChecked(r.rt.KB, r.f.ID, r.now)
 		return nil
 	}
-	args, err := r.f.Fail(r.hash, code, detail, r.now)
+	var retryAfter time.Time
+	if retry && rerr == nil && pollRetryBackoff < r.f.Interval && !strings.HasPrefix(str(cur.Frontmatter, feed.KeyError), code+": ") {
+		retryAfter = r.now.Add(pollRetryBackoff)
+	}
+	args, err := r.f.FailRetry(r.hash, code, detail, r.now, retryAfter)
 	if err != nil {
 		return err
 	}
@@ -447,9 +477,10 @@ func (r *pollRun) run(ctx context.Context, pi pollItem) error {
 		return r.fail(pf.Code, pf.Detail)
 	}
 	// 5. Entries, in listing order. The unit is the idempotency token: the order
-	// per entry (unit exists -> skip; register the Source; reset it to pending;
-	// create the unit) lets a crash anywhere re-list the same entries and
-	// converge, and never repeats a model call for an entry that has its unit.
+	// per entry (unit exists -> skip; shape it; register the Source and reset it
+	// to pending; create the unit) lets a crash anywhere re-list the same entries
+	// and converge, never repeats a model call for an entry that has its unit,
+	// and leaves no Source without a unit behind a failed model call.
 	plan, _ := readConcept(tools, planID)
 	// Content the recipe lists without (the fetch verb) is asked for the entries
 	// that still need a unit, or a staged one that lacks its asset, before the
@@ -653,57 +684,32 @@ func oneLineClip(s string, n int) string {
 // entry handles one added or modified entry. stop means the run ends here with
 // the cursor untouched (a failure written, or the grant spent).
 func (r *pollRun) entry(ctx context.Context, rec recipe.Recipe, e recipe.Entry, locator, id, unitMap, planID, planBody string, maps []string) (stop bool, err error) {
-	f, tools := r.f, r.rt.Tools
-	reason := "poll " + f.ID
+	tools := r.rt.Tools
+	reason := "poll " + r.f.ID
 	title := oneLineClip(e.Title, 120)
 	if title == "" {
 		title = oneLineClip(e.Key, 120)
 	}
-	kind := f.SourceKind
-	if kind == "" {
-		kind = "document"
-	}
-	// b. Register the document Source: no sha256, which would make dedup by hash
-	// split a modified document into a second Source.
-	text, err := callOK(tools, "source_register", map[string]any{
-		"title": title, "source_kind": kind, "locator": locator, "source_shape": "document",
-		"connector": r.in.connector[f.Recipe], "recipe": f.Recipe, "ingest_status": "pending",
-		"map": strings.SplitN(f.ID, "/", 2)[0], "reason": reason,
-	})
+	// b. The document's Source, if it is registered already: its latest unit is
+	// reused (a changed document keeps its targets). Nothing is registered yet: a
+	// model call that fails must leave no Source without its unit behind, because
+	// a later poll could not tell it from a new document (#2379).
+	existing, err := r.findSource(locator)
 	if err != nil {
-		var te *toolError
-		if errors.As(err, &te) {
-			return true, r.fail(codeProtocol, "entry "+oneLineClip(e.Key, 80)+": "+oneLineClip(te.text, 200))
-		}
 		return true, err
 	}
-	var reg struct {
-		ID           string `json:"id"`
-		Duplicate    bool   `json:"duplicate"`
-		IngestStatus string `json:"ingest_status"`
+	var prev *prevUnit
+	if existing != "" {
+		prev = r.previous(unitMap, existing)
 	}
-	// First object only: a pending git sync appends a second block (#2104).
-	if client.DecodeResult(text, &reg) != nil || reg.ID == "" {
-		return true, r.fail(codeProtocol, "source_register answered nothing usable")
-	}
-	r.res.Commits++
-	if !reg.Duplicate {
-		r.sources++
-	} else if reg.IngestStatus == "ingested" {
-		r.reset(reg.ID, reason)
-	}
-	// c. Shape the unit: reuse the previous unit of this Source, else one model call.
-	fm := map[string]any{"type": "IngestUnit", "shape": "ingest-unit", "title": title, "source": reg.ID, "plan": planID,
+	fm := map[string]any{"type": "IngestUnit", "shape": "ingest-unit", "title": title, "plan": planID,
 		"status": "open", "timestamp": r.in.now().UTC().Format(time.RFC3339)}
 	if e.Content != "" {
 		// Inline content (WP7): staged as draft, which work_list never offers,
 		// until the asset exists.
 		fm["status"], fm["content_asset"] = "draft", poll.ContentAsset
 	}
-	var prev *prevUnit
-	if reg.Duplicate {
-		prev = r.previous(unitMap, reg.ID)
-	}
+	registered := false
 	var problem string
 	for attempt := 0; attempt < 2; attempt++ {
 		var body string
@@ -713,9 +719,10 @@ func (r *pollRun) entry(ctx context.Context, rec recipe.Recipe, e recipe.Entry, 
 			}
 			body = "Revision " + oneLineClip(e.Revision, 80) + " of this document changed since the previous unit of this Source; the brief below is that unit's.\n\n" + prev.body
 		} else {
+			// c. Shape the unit: one model call.
 			ans, cut, bad, err := r.model(ctx, rec, e, planBody, maps, problem)
 			if err != nil {
-				return true, err
+				return true, r.modelFailed(ctx, e, err)
 			}
 			if cut {
 				// Recorded, so the operator sees why the feed stalled; the cursor is
@@ -728,6 +735,16 @@ func (r *pollRun) entry(ctx context.Context, rec recipe.Recipe, e recipe.Entry, 
 			}
 			fm["targets"], fm["extract"], fm["verify"], fm["executor"] = ans.Targets, strings.TrimSpace(ans.Extract), strings.TrimSpace(ans.Verify), ans.Executor
 			body = ans.Body
+		}
+		// Register the document Source, once, just before the unit that names it:
+		// no sha256, which would make dedup by hash split a modified document into
+		// a second Source.
+		if !registered {
+			sid, stop, err := r.register(e, title, locator, reason)
+			if stop || err != nil {
+				return true, err
+			}
+			fm["source"], registered = sid, true
 		}
 		body = withPlanLink(body, planID)
 		// d. Create the unit, create-only (no if_match): a lost race is "exists".
@@ -754,6 +771,75 @@ func (r *pollRun) entry(ctx context.Context, rec recipe.Recipe, e recipe.Entry, 
 		}
 	}
 	return true, r.fail(codeUnitRefused, "entry "+oneLineClip(e.Key, 80)+": "+problem)
+}
+
+// findSource is the ID of the Source already registered for locator, "" when
+// there is none. It asks the same question source_register answers with
+// duplicate: true (an exact locator), without writing.
+func (r *pollRun) findSource(locator string) (string, error) {
+	l, err := conceptList(r.rt.Tools, map[string]any{"where": []string{"type=Source", "locator=" + locator}, "fields": []string{"locator"}})
+	if err != nil {
+		return "", err
+	}
+	if len(l.Results) == 0 {
+		return "", nil
+	}
+	return l.Results[0].ID, nil
+}
+
+// register records the document Source of an entry and returns its ID. A
+// refusal of the server ends the run with protocol_error (stop, nil error).
+func (r *pollRun) register(e recipe.Entry, title, locator, reason string) (id string, stop bool, err error) {
+	f, tools := r.f, r.rt.Tools
+	kind := f.SourceKind
+	if kind == "" {
+		kind = "document"
+	}
+	text, err := callOK(tools, "source_register", map[string]any{
+		"title": title, "source_kind": kind, "locator": locator, "source_shape": "document",
+		"connector": r.in.connector[f.Recipe], "recipe": f.Recipe, "ingest_status": "pending",
+		"map": strings.SplitN(f.ID, "/", 2)[0], "reason": reason,
+	})
+	if err != nil {
+		var te *toolError
+		if errors.As(err, &te) {
+			return "", true, r.fail(codeProtocol, "entry "+oneLineClip(e.Key, 80)+": "+oneLineClip(te.text, 200))
+		}
+		return "", true, err
+	}
+	var reg struct {
+		ID           string `json:"id"`
+		Duplicate    bool   `json:"duplicate"`
+		IngestStatus string `json:"ingest_status"`
+	}
+	// First object only: a pending git sync appends a second block (#2104).
+	if client.DecodeResult(text, &reg) != nil || reg.ID == "" {
+		return "", true, r.fail(codeProtocol, "source_register answered nothing usable")
+	}
+	r.res.Commits++
+	if !reg.Duplicate {
+		r.sources++
+	} else if reg.IngestStatus == "ingested" {
+		r.reset(reg.ID, reason)
+	}
+	return reg.ID, false, nil
+}
+
+// modelFailed records a failed model call on the feed: model_failed, with the
+// error clipped to one line, and a retry after pollRetryBackoff. The error is
+// returned too, so the runner still counts it and a 401 or 403 (ErrModelAuth)
+// still turns the profile off for the run; that one asks for no early retry,
+// since another poll would meet the same rejection. A cancelled run writes
+// nothing.
+func (r *pollRun) modelFailed(ctx context.Context, e recipe.Entry, err error) error {
+	if ctx.Err() != nil {
+		return err
+	}
+	detail := "entry " + oneLineClip(e.Key, 80) + ": " + oneLineClip(err.Error(), 200)
+	if ferr := r.failRetry(codeModelFailed, detail, !errors.Is(err, ErrModelAuth)); ferr != nil {
+		return ferr
+	}
+	return err
 }
 
 // reset returns an ingested Source to pending so a changed document is ingested

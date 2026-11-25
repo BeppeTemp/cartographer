@@ -952,15 +952,20 @@ max_entries: 200}`, at most once. It reads the feed Sources (`source_shape: feed
 checked longest ago (`feed_checked_at` plus `feed_interval`, else `default_interval`). One feed per run: it checks the
 recipe and its host list, leases the feed (`feed_checked_at`, compare-and-swap: the loser skips silently), finds the one
 `IngestPlan` that lists the feed in `sources` and lists the entries with the recipe, with no model. For each added or
-modified entry it registers a document Source (never `sha256`; an `ingested` Source returns to `pending`) and creates
-an `IngestUnit` at the ID `<unit map>/<slug>-<8 hex of sha256(feed|locator|revision)>`; a unit that exists means the
-entry was handled and costs nothing. A new unit costs one model call with no tools (plan, feed and entry as delimited
-data; the answer is JSON the Surveyor validates and retries once); a changed document reuses the previous unit's
-fields with no call. The cursor advances only after every entry is handled; a spent grant leaves it, and the next poll
+modified entry it looks for the document's Source by locator, shapes the unit, then registers the Source (never
+`sha256`; an `ingested` Source returns to `pending`) just before it creates an `IngestUnit` at the ID
+`<unit map>/<slug>-<8 hex of sha256(feed|locator|revision)>`; a unit that exists means the entry was handled and costs
+nothing. A new unit costs one model call with no tools (plan, feed and entry as delimited data; the answer is JSON the
+Surveyor validates and retries once), made before the Source is registered, so a failed call leaves no Source without
+its unit; a changed document reuses the previous unit's fields with no call. The cursor advances only after every entry is handled; a spent grant leaves it, and the next poll
 skips the finished entries. Removed entries are counted, never acted on. A feed that cannot be polled gets
 `feed_error: <code>: <detail>` (`bad_field`, `recipe_unknown`, `recipe_shape`, `host_not_allowed`, `no_ingest_plan`,
-`ambiguous_ingest_plan`, `list_failed`, `fetch_failed`, `protocol_error`, `cursor_invalid`, `unit_refused`, `grant_exhausted`) with the values of the
-connectors' credential variables replaced by `***`, and is retried at its interval.
+`ambiguous_ingest_plan`, `list_failed`, `fetch_failed`, `protocol_error`, `cursor_invalid`, `unit_refused`, `grant_exhausted`,
+`model_failed`) with the values of the connectors' credential variables replaced by `***`, and is retried at its interval.
+`model_failed` is a model call that failed (the API's error, one line, with the entry): the Source also gets
+`feed_retry_after`, 15 minutes later, and the feed is polled again then if its interval is longer; a second failure of
+the same streak waits the interval. A 401 or 403 is written too, with no early retry, and still turns the profile off
+for the run. The Atlas feeds view lists the code like any other.
 
 The **budget is per model profile** (`budget.daily_tokens` across the perimeter's KBs, `budget.run_tokens`
 for one run) and is **rebuilt from the KBs' logs**, never from local disk: each run that touched a KB

@@ -1032,8 +1032,10 @@ validate a nested per-type grammar.
   (the stale write is the lease between replicas): `feed_cursor` (opaque string
   owned by the recipe, at most 1024 bytes), `feed_checked_at` (RFC 3339),
   `feed_interval` (a Go duration; absent means the poll task's default),
-  `feed_include` (a list of globs the recipe interprets) and `feed_error`
-  (`<code>: <detail>`, one line, removed on success). They are optional in the
+  `feed_include` (a list of globs the recipe interprets), `feed_error`
+  (`<code>: <detail>`, one line, removed on success) and `feed_retry_after` (RFC 3339: when a feed whose last poll
+  failed for a reason that may pass is polled again, ahead of its interval; it counts only while it is later than
+  `feed_checked_at`, and a success removes it). They are optional in the
   template; `source_register` has no parameter for them on purpose (a feed is
   registered once, the cursor is the Surveyor's). Clearing `feed_cursor` makes the
   next poll list everything again.

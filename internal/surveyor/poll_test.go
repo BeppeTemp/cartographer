@@ -298,10 +298,15 @@ type rmodel struct {
 	answers []string
 	usage   int
 	reqs    []Request
+	// err, when set, fails every call after recording the request.
+	err error
 }
 
 func (m *rmodel) Complete(_ context.Context, r Request) (Response, error) {
 	m.reqs = append(m.reqs, r)
+	if m.err != nil {
+		return Response{}, m.err
+	}
 	if len(m.reqs) > len(m.answers) {
 		return Response{}, errors.New("the script has no answer left")
 	}
@@ -535,9 +540,9 @@ func TestPollCrashBetweenStepsConverges(t *testing.T) {
 		units int
 		model int // model calls over the whole test
 	}{
-		"after the registration": {"concept_batch", 1, nil, 2, 3}, // the entry without a unit asks the model again
-		"before the unit":        {"source_register", 2, nil, 2, 2},
-		"after the unit":         {"concept_patch", 2, nil, 2, 2}, // the first patch is the lease, the second Advance... of a 2-entry run is the last
+		"after the registration": {"concept_batch", 1, nil, 2, 3},   // the entry without a unit asks the model again
+		"before the unit":        {"source_register", 2, nil, 2, 3}, // the model call precedes the registration, so a crash at it asks again
+		"after the unit":         {"concept_patch", 2, nil, 2, 2},   // the first patch is the lease, the second Advance... of a 2-entry run is the last
 		"after the reset": {"concept_batch", 1, func(e *pollEnv) {
 			e.mustPoll()
 			for _, p := range e.k.pages {
@@ -974,5 +979,131 @@ func TestPollReadsTheHashOfAWriteResultWithASyncBlock(t *testing.T) {
 	res := e.mustPoll()
 	if res.Units != 2 || e.feed()["feed_cursor"] != e.repo.head() || e.feed()["feed_error"] != nil {
 		t.Fatalf("result %+v (%s), feed %v", res, res.Summary, e.feed())
+	}
+}
+
+// documentSources returns the document Sources the poll registered.
+func (k *pkb) documentSources() []string {
+	var ids []string
+	for id, p := range k.pages {
+		if p.fm["type"] == "Source" && p.fm["source_shape"] == "document" {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+func TestPollModelFailureIsRecordedRetriedSoonAndLeavesNoOrphanSource(t *testing.T) {
+	e := newPollEnv(t, Config{})
+	e.model.err = errors.New("model API 400: prompt is too long")
+	_, res, err := e.poll()
+	if err == nil || !strings.Contains(err.Error(), "prompt is too long") {
+		t.Fatalf("the runner no longer sees the error: %v", err)
+	}
+	fe, _ := e.feed()["feed_error"].(string)
+	if !strings.HasPrefix(fe, "model_failed: entry pg/a.md: model API 400: prompt is too long") || res.Summary == "" {
+		t.Fatalf("feed_error = %q", fe)
+	}
+	if e.feed()["feed_cursor"] != nil || len(e.k.units()) != 0 || len(e.model.reqs) != 1 {
+		t.Fatalf("cursor %v, units %v, model calls %d", e.feed()["feed_cursor"], e.k.units(), len(e.model.reqs))
+	}
+	if got := e.k.documentSources(); len(got) != 0 || e.k.calls["source_register"] != 0 {
+		t.Fatalf("a Source was registered before the model answered: %v", got)
+	}
+	if e.feed()["feed_checked_at"] != e.clock.Format(time.RFC3339) || e.feed()["feed_retry_after"] != e.clock.Add(pollRetryBackoff).Format(time.RFC3339) {
+		t.Fatalf("checked %v, retry %v", e.feed()["feed_checked_at"], e.feed()["feed_retry_after"])
+	}
+	// Not due before the back-off, due after it (not a full interval later).
+	e.clock = e.clock.Add(pollRetryBackoff - time.Minute)
+	if it, _ := e.in.Next(context.Background(), "kb-a", e.k); it != nil {
+		t.Fatal("the feed is due before its back-off")
+	}
+	e.clock = e.clock.Add(time.Minute)
+	e.model.err = nil
+	it, err := e.in.Next(context.Background(), "kb-a", e.k)
+	if err != nil || it == nil {
+		t.Fatalf("the feed is not due after its back-off: %v %v", it, err)
+	}
+	if _, err := e.in.Run(context.Background(), it, e.rt()); err != nil {
+		t.Fatal(err)
+	}
+	if len(e.k.units()) != 2 || len(e.k.documentSources()) != 2 || e.feed()["feed_error"] != nil || e.feed()["feed_retry_after"] != nil {
+		t.Fatalf("recovery: units %v, sources %v, feed %v", e.k.units(), e.k.documentSources(), e.feed())
+	}
+}
+
+func TestPollRepeatedModelFailureWritesNoSecondRetryAndWaitsTheInterval(t *testing.T) {
+	e := newPollEnv(t, Config{})
+	e.model.err = errors.New("model API 503")
+	_, _, _ = e.poll()
+	first := e.feed()["feed_retry_after"]
+	e.clock = e.clock.Add(pollRetryBackoff)
+	it, _ := e.in.Next(context.Background(), "kb-a", e.k)
+	if it == nil {
+		t.Fatal("no retry after the back-off")
+	}
+	patches := e.k.calls["concept_patch"]
+	if _, err := e.in.Run(context.Background(), it, e.rt()); err == nil {
+		t.Fatal("the failure was swallowed")
+	}
+	// The lease moved feed_checked_at past the retry, and the same error is not
+	// written again: no third commit, and the next try is a full interval away.
+	if e.k.calls["concept_patch"] != patches+1 || e.feed()["feed_retry_after"] != first {
+		t.Fatalf("patches %d -> %d, retry %v -> %v", patches, e.k.calls["concept_patch"], first, e.feed()["feed_retry_after"])
+	}
+	e.clock = e.clock.Add(time.Hour)
+	if it, _ := e.in.Next(context.Background(), "kb-a", e.k); it != nil {
+		t.Fatal("a feed that keeps failing is retried again before its interval")
+	}
+	e.clock = e.clock.Add(24 * time.Hour)
+	if it, _ := e.in.Next(context.Background(), "kb-a", e.k); it == nil {
+		t.Fatal("the feed is never retried")
+	}
+}
+
+func TestPollModelAuthFailureIsRecordedWithoutAnEarlyRetryAndStillReachesTheRunner(t *testing.T) {
+	e := newPollEnv(t, Config{})
+	e.model.err = fmt.Errorf("%w: 401 invalid x-api-key", ErrModelAuth)
+	_, _, err := e.poll()
+	if !errors.Is(err, ErrModelAuth) {
+		t.Fatalf("the profile would not be turned off: %v", err)
+	}
+	if fe, _ := e.feed()["feed_error"].(string); !strings.HasPrefix(fe, "model_failed: ") || e.feed()["feed_retry_after"] != nil {
+		t.Fatalf("feed = %v", e.feed())
+	}
+	// A 400 leaves the profile on: its error is not an ErrModelAuth.
+	e2 := newPollEnv(t, Config{})
+	e2.model.err = errors.New("model API 400")
+	if _, _, err := e2.poll(); errors.Is(err, ErrModelAuth) {
+		t.Fatalf("a 400 would turn the profile off: %v", err)
+	}
+}
+
+func TestPollCancelledModelCallWritesNoFeedError(t *testing.T) {
+	e := newPollEnv(t, Config{})
+	ctx, cancel := context.WithCancel(context.Background())
+	e.model.err = context.Canceled
+	e.clock = e.clock.Add(25 * time.Hour)
+	it, _ := e.in.Next(ctx, "kb-a", e.k)
+	cancel()
+	if _, err := e.in.Run(ctx, it, e.rt()); err == nil {
+		t.Fatal("a cancelled poll reported success")
+	}
+	if e.feed()["feed_error"] != nil {
+		t.Fatalf("a shutdown was recorded as a failure: %v", e.feed()["feed_error"])
+	}
+}
+
+func TestPollSourceOfAChangedDocumentIsFoundByLocatorBeforeTheModelAsks(t *testing.T) {
+	e := newPollEnv(t, Config{})
+	e.mustPoll()
+	e.repo.commit(map[string]string{"pg/a.md": "a changed"})
+	calls := len(e.model.reqs)
+	e.model.err = errors.New("model API 500")
+	e.poll()
+	// The previous unit is reused: no model call, no failure, no second Source.
+	if len(e.model.reqs) != calls || len(e.k.documentSources()) != 2 || e.feed()["feed_error"] != nil {
+		t.Fatalf("model calls %d -> %d, sources %v, feed %v", calls, len(e.model.reqs), e.k.documentSources(), e.feed())
 	}
 }
