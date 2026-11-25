@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
@@ -42,7 +43,19 @@ type dashboardEntry struct {
 type resolvedWidget struct {
 	kb.DashboardWidget
 	Entries []dashboardEntry `json:"entries,omitempty"`
+	// Groups holds the grouped shape: the columns of a kanban, the buckets of
+	// an agenda, the counts of a stat that shows groups. Entries is then empty.
+	Groups []dashboardGroup `json:"groups,omitempty"`
+	Total  int              `json:"total"`
+}
+
+// dashboardGroup is one group of a widget: its key (a value of the group-by
+// field, or "overdue" / a YYYY-MM-DD day for an agenda; "" collects the rows
+// without the key), the rows of the group and the entries shown of them.
+type dashboardGroup struct {
+	Key     string           `json:"key"`
 	Total   int              `json:"total"`
+	Entries []dashboardEntry `json:"entries,omitempty"`
 }
 
 type resolvedDashboard struct {
@@ -63,8 +76,14 @@ type dashRow struct {
 // resolveDashboard resolves every widget of d for ctx's caller. Each source
 // is read once and shared by the widgets that use it.
 func resolveDashboard(ctx requestContext, k *kb.KB, cc *conformanceCache, d kb.Dashboard) resolvedDashboard {
+	return resolveDashboardAt(ctx, k, cc, d, lint.Now().Local())
+}
+
+// resolveDashboardAt is resolveDashboard with the server clock given: an
+// agenda compares dates to now's day in now's own zone, never to the caller's.
+func resolveDashboardAt(ctx requestContext, k *kb.KB, cc *conformanceCache, d kb.Dashboard, now time.Time) resolvedDashboard {
 	res := resolvedDashboard{Title: d.Title, Description: d.Description, Widgets: make([]resolvedWidget, 0, len(d.Widgets))}
-	src := &dashSources{ctx: ctx, k: k, cc: cc, conceptKeys: conceptFieldKeys(d)}
+	src := &dashSources{ctx: ctx, k: k, cc: cc, conceptKeys: conceptFieldKeys(d), now: now}
 	for _, w := range d.Widgets {
 		res.Widgets = append(res.Widgets, resolveWidget(src, w))
 	}
@@ -77,6 +96,7 @@ type dashSources struct {
 	k           *kb.KB
 	cc          *conformanceCache
 	conceptKeys []string
+	now         time.Time
 
 	work, concepts         []dashRow
 	workErr, conceptErr    error
@@ -233,7 +253,6 @@ func resolveWidget(src *dashSources, w kb.DashboardWidget) resolvedWidget {
 		}
 	}
 	sortDashRows(picked, w.Sort)
-	out.Total = len(picked)
 	limit := w.Limit
 	if limit <= 0 {
 		limit = dashboardDefaultLimit
@@ -241,26 +260,166 @@ func resolveWidget(src *dashSources, w kb.DashboardWidget) resolvedWidget {
 	if limit > dashboardMaxLimit {
 		limit = dashboardMaxLimit
 	}
-	if len(picked) > limit {
-		picked = picked[:limit]
-	}
 	readKeys := append(widgetFieldKeys(w), "waiting_on", "review_after")
-	out.Entries = make([]dashboardEntry, 0, len(picked))
-	for _, r := range picked {
-		e := r.out
-		for _, key := range readKeys {
-			if v, ok := r.get(key); ok {
-				if s, ok := fieldText(v); ok {
-					if e.Fields == nil {
-						e.Fields = map[string]string{}
+	shape := func(rows []dashRow) []dashboardEntry {
+		if len(rows) > limit {
+			rows = rows[:limit]
+		}
+		entries := make([]dashboardEntry, 0, len(rows))
+		for _, r := range rows {
+			e := r.out
+			for _, key := range readKeys {
+				if v, ok := r.get(key); ok {
+					if s, ok := fieldText(v); ok {
+						if e.Fields == nil {
+							e.Fields = map[string]string{}
+						}
+						e.Fields[key] = s
 					}
-					e.Fields[key] = s
 				}
 			}
+			entries = append(entries, e)
 		}
-		out.Entries = append(out.Entries, e)
+		return entries
+	}
+	groupBy := w.GroupBy
+	if groupBy == "" && w.Type == "kanban" {
+		groupBy = "status" // a kanban is columns; by default the status ones
+	}
+	switch {
+	case w.Type == "agenda":
+		for _, g := range agendaGroups(picked, w, src.now) {
+			out.Total += len(g.rows)
+			out.Groups = append(out.Groups, dashboardGroup{Key: g.key, Total: len(g.rows), Entries: shape(g.rows)})
+		}
+	case groupBy != "" && (w.Type == "kanban" || w.Type == "list" || (w.Type == "stat" && w.Show == "groups")):
+		for _, g := range groupDashRows(picked, groupBy, w.Columns) {
+			out.Total += len(g.rows)
+			dg := dashboardGroup{Key: g.key, Total: len(g.rows)}
+			if w.Type != "stat" {
+				dg.Entries = shape(g.rows)
+			}
+			out.Groups = append(out.Groups, dg)
+		}
+	case w.Type == "stat" && w.Show == "groups":
+		return fail("show groups needs group_by")
+	default:
+		out.Total = len(picked)
+		if w.Type != "stat" {
+			out.Entries = shape(picked)
+		}
 	}
 	return out
+}
+
+type dashRowGroup struct {
+	key  string
+	rows []dashRow
+}
+
+// groupKey is the value of a row for a group_by spec ("" when it has none).
+func groupKey(r dashRow, spec string) string {
+	switch {
+	case spec == "status":
+		return r.out.Status
+	case spec == "map":
+		return r.out.Map
+	case spec == "type":
+		return r.out.Type
+	}
+	if key, ok := strings.CutPrefix(spec, "field:"); ok {
+		if v, ok := r.get(key); ok {
+			s, _ := fieldText(v)
+			return s
+		}
+	}
+	return ""
+}
+
+// groupDashRows groups rows by spec in order of first appearance, so the
+// widget's sort orders the groups. With columns, only those groups are kept,
+// in that order and all present even when empty: a row outside them is left
+// out of every count (the total of a kanban is what it shows).
+func groupDashRows(rows []dashRow, spec string, columns []string) []dashRowGroup {
+	var groups []dashRowGroup
+	idx := map[string]int{}
+	for _, c := range columns {
+		if _, dup := idx[c]; !dup {
+			idx[c] = len(groups)
+			groups = append(groups, dashRowGroup{key: c})
+		}
+	}
+	for _, r := range rows {
+		key := groupKey(r, spec)
+		i, ok := idx[key]
+		if !ok {
+			if len(columns) > 0 {
+				continue
+			}
+			i = len(groups)
+			idx[key] = i
+			groups = append(groups, dashRowGroup{key: key})
+		}
+		groups[i].rows = append(groups[i].rows, r)
+	}
+	return groups
+}
+
+const (
+	agendaDefaultHorizon = 14
+	agendaOverdue        = "overdue"
+)
+
+// agendaGroups buckets rows by the day of their date field: "overdue" first,
+// then each day up to the horizon, ascending. A row without a readable date,
+// or past the horizon, is left out. Days are calendar days of now's zone.
+func agendaGroups(rows []dashRow, w kb.DashboardWidget, now time.Time) []dashRowGroup {
+	field := w.DateField
+	if field == "" {
+		field = "review_after"
+	}
+	horizon := w.HorizonDays
+	if horizon <= 0 {
+		horizon = agendaDefaultHorizon
+	}
+	const layout = "2006-01-02"
+	today := now.Format(layout)
+	last := time.Date(now.Year(), now.Month(), now.Day()+horizon, 0, 0, 0, 0, time.UTC).Format(layout)
+	byDay := map[string][]dashRow{}
+	var days []string
+	var overdue []dashRow
+	for _, r := range rows {
+		v, ok := r.get(field)
+		if !ok {
+			continue
+		}
+		text, ok := fieldText(v)
+		if !ok || len(text) < len(layout) {
+			continue
+		}
+		day := text[:len(layout)]
+		if _, err := time.Parse(layout, day); err != nil {
+			continue
+		}
+		switch {
+		case day < today:
+			overdue = append(overdue, r)
+		case day <= last:
+			if _, seen := byDay[day]; !seen {
+				days = append(days, day)
+			}
+			byDay[day] = append(byDay[day], r)
+		}
+	}
+	sort.Strings(days)
+	var groups []dashRowGroup
+	if len(overdue) > 0 {
+		groups = append(groups, dashRowGroup{key: agendaOverdue, rows: overdue})
+	}
+	for _, d := range days {
+		groups = append(groups, dashRowGroup{key: d, rows: byDay[d]})
+	}
+	return groups
 }
 
 // fieldText renders a scalar or list frontmatter value as text; other shapes
