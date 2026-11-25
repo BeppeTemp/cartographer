@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import type { DashboardResolved, DashboardWidget } from "../api/types";
+import type { DashboardEntry, DashboardGroup, DashboardResolved, DashboardWidget } from "../api/types";
 import { accentColor, widgetIcon } from "../lib/dashboard";
 import { Icon } from "./Icon";
 import { Markdown } from "./Markdown";
@@ -11,8 +11,8 @@ import { Markdown } from "./Markdown";
  * so nothing here assumes a title, a source or a hash: a widget with no title
  * is named by its id.
  *
- * Drawn here: `stat`, `note` and the error tile of a widget that failed to
- * resolve. Any other type shows a neutral tile naming it.
+ * Drawn here: `stat`, `note`, `kanban`, `list` and the error tile of a widget
+ * that failed to resolve. Any other type (`agenda`) shows a neutral tile naming it.
  */
 export function DashboardView({
   data,
@@ -94,7 +94,110 @@ function WidgetBody({ widget, onOpen }: { widget: DashboardWidget; onOpen?(conce
           <Markdown onNavigate={onOpen}>{widget.text}</Markdown>
         </div>
       ) : null;
+    case "kanban":
+      return (
+        <div className="dashboard__columns">
+          {(widget.groups ?? []).map((g, i) => (
+            <section key={`${g.key}-${i}`} className="dashboard__column" aria-label={`${g.key || "(none)"}, ${g.total}`}>
+              <h3 className="dashboard__column-title">
+                {g.key || "(none)"} <span className="dashboard__count">{g.total}</span>
+              </h3>
+              <EntryList entries={g.entries ?? []} onOpen={onOpen} />
+            </section>
+          ))}
+        </div>
+      );
+    case "list":
+      return widget.groups && widget.groups.length > 0 ? (
+        <div>
+          {widget.groups.map((g: DashboardGroup, i) => (
+            <section key={`${g.key}-${i}`} aria-label={`${g.key || "(none)"}, ${g.total}`}>
+              <h3 className="dashboard__column-title">
+                {g.key || "(none)"} <span className="dashboard__count">{g.total}</span>
+              </h3>
+              <EntryList entries={g.entries ?? []} onOpen={onOpen} />
+            </section>
+          ))}
+        </div>
+      ) : (
+        <EntryList entries={widget.entries ?? []} onOpen={onOpen} />
+      );
     default:
       return <p className="page-note">A {widget.type ?? "unknown"} widget is not drawn yet.</p>;
   }
+}
+
+function EntryList({ entries, onOpen }: { entries: DashboardEntry[]; onOpen?(conceptId: string): void }) {
+  if (entries.length === 0) return <p className="page-note">Nothing here.</p>;
+  return (
+    <ul className="dashboard__entries">
+      {entries.map((e, i) => (
+        // An entry id can repeat across groups of one widget: the index keeps the key unique.
+        <li key={`${e.id}-${i}`}>
+          <EntryCard entry={e} onOpen={onOpen} />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** Today as YYYY-MM-DD in the browser's zone, the form a `review_after` takes. */
+function today(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/**
+ * A `review_after` is due the day after its date, as lint reads it: today is not due, a date
+ * strictly before today is. A value that is not a real calendar date is never due.
+ */
+export function isDue(reviewAfter: string | undefined, now: string = today()): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(reviewAfter ?? "");
+  if (!m) return false;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const t = new Date(Date.UTC(y, mo - 1, d));
+  if (t.getUTCFullYear() !== y || t.getUTCMonth() !== mo - 1 || t.getUTCDate() !== d) return false;
+  return m[0] < now;
+}
+
+/**
+ * One row of a kanban column or a list, in the look of the Work page's cards.
+ * Only the id is certain: the title, the type and the fields may be absent.
+ */
+function EntryCard({ entry, onOpen }: { entry: DashboardEntry; onOpen?(conceptId: string): void }) {
+  const waiting = entry.fields?.waiting_on;
+  const review = entry.fields?.review_after;
+  const due = isDue(review);
+  const body = (
+    <>
+      <span className="work__card-title">{entry.title || entry.id}</span>
+      <span className="work__card-meta">
+        {entry.type ? <span className="pill">{entry.type}</span> : null}
+        {entry.stale ? (
+          <span className="pill pill--warning">{entry.age_days !== undefined ? `stale \u00b7 ${entry.age_days}d` : "stale"}</span>
+        ) : entry.age_days !== undefined ? (
+          <span className="work__age">{entry.age_days}d</span>
+        ) : null}
+      </span>
+      {waiting ? <span className="work__card-note">Waiting on {waiting}</span> : null}
+      {review ? (
+        <span className={`work__card-note${due ? " dashboard__due" : ""}`}>
+          {due ? "Review due " : "Review after "}
+          {review}
+        </span>
+      ) : null}
+    </>
+  );
+  return (
+    <div className="work__card">
+      {onOpen ? (
+        <button type="button" className="work__card-main" onClick={() => onOpen(entry.id)}>
+          {body}
+        </button>
+      ) : (
+        <div className="work__card-main work__card-main--static">{body}</div>
+      )}
+    </div>
+  );
 }
