@@ -94,6 +94,7 @@ nav:
       - Concurrency and git: concurrency.md
       - Transport and auth: transport-auth.md
       - Operating loop: loop.md
+      - KB relations: kb-relations.md
       - Interoperability: interoperability.md
       - Cross-KB links: cross-kb-links.md
       - Harness ledger: harnesses.md

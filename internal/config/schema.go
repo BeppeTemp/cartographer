@@ -222,6 +222,9 @@ var KBKeys = []settingschema.Key{
 		Description: "Scope word every skill and agent of this KB must start with, followed by a hyphen: acme requires acme-review-mr. A skill or agent without it is an artifact_unprefixed finding, and a write that introduces one is refused. Empty or absent: nothing is checked."},
 	{Path: "branch", Scope: settingschema.ScopeKB, Type: "string", Default: `""`,
 		Description: "Branch Cartographer commits and pushes to, in place of the remote's default one; the first push creates it. Empty or absent: the remote's default branch. Only the settings.yaml committed on the remote's default branch counts: a change made on any other branch has no effect until it reaches the default one."},
+	{Path: "depends_on", Scope: settingschema.ScopeKB, Type: "list", Default: "[]",
+		Description: "The KBs this KB needs, bound together with it. Each item has the name the other KB is mounted under on the server and its git remote; the remote is the guard, so a KB mounted under that name with another origin is not taken for it. Only the settings.yaml committed on the remote's default branch counts. An item that is malformed is ignored and reported.",
+		Example:     "- name: core-kb\n  remote: git.example.com/org/core-kb"},
 }
 
 // kbKeyHome is the reason given for a KB-scope key met in kbs[] (D906).

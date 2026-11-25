@@ -202,3 +202,43 @@ func TestResolveKBSettingsArtifactPrefix(t *testing.T) {
 		t.Error("the settings file kb create writes does not list artifact_prefix")
 	}
 }
+
+// kb keeps its own copy of the mount-name rule (it cannot import config).
+func TestValidMountNameMatchesConfig(t *testing.T) {
+	for _, name := range []string{"core-kb", "kb_1", "KB", "", "a b", "a/b", "a.b", "..", "kb:1", "é"} {
+		if got, want := kb.ValidMountName(name), ValidateKBName(name) == nil; got != want {
+			t.Errorf("%q: kb.ValidMountName = %v, config.ValidateKBName ok = %v", name, got, want)
+		}
+	}
+}
+
+// AC-kbrel-5: depends_on is a KB key with a place in the generated file, and a
+// settings file that sets it survives the realignment untouched.
+func TestDependsOnRoundTripsThroughRealign(t *testing.T) {
+	out, err := KBSettingsSchema().Format(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), "# depends_on:") {
+		t.Errorf("an unset depends_on is not listed commented:\n%s", out)
+	}
+	set := "depends_on:\n  - name: core-kb\n    remote: git.example.com/org/core\n  - name: other-kb\n    remote: git.example.com/org/other\n"
+	st := parse(t, set)
+	if len(st.Malformed) != 0 || !st.Settings.Has("depends_on") {
+		t.Fatalf("not accepted: %+v", st)
+	}
+	re, _, err := KBSettingsSchema().Realign([]byte(set), kb.SettingsRetired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(re), set) {
+		t.Errorf("the list did not survive the realignment:\n%s", re)
+	}
+	if again, _, err := KBSettingsSchema().Realign(re, kb.SettingsRetired); err != nil || string(again) != string(re) {
+		t.Errorf("realignment is not stable: %v\n%s", err, again)
+	}
+	eff, info := ResolveKBSettings(KBSpec{Name: "kb-a"}, st)
+	if !info.FromKBHas("depends_on") || len(info.Findings) != 0 || eff.Name != "kb-a" {
+		t.Errorf("info = %+v", info)
+	}
+}

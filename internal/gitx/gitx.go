@@ -1139,6 +1139,26 @@ func (e *RemoteTimeoutError) Error() string {
 	return fmt.Sprintf("git remote %q did not answer within %s (unreachable or blocked)", e.Remote, e.After)
 }
 
+// RemoteHeadBranch is the remote's default branch as the clone recorded it in
+// refs/remotes/<remote>/HEAD (git clone and the ls-remote probe of a sync set
+// it), "" and false when it is not known. Unlike a sync's canonical branch it
+// is not moved by a configured working branch.
+func RemoteHeadBranch(dir, remote string) (string, bool) {
+	if remote == "" {
+		remote = "origin"
+	}
+	prefix := "refs/remotes/" + remote + "/"
+	out, err := runGit(dir, "symbolic-ref", "-q", prefix+"HEAD")
+	if err != nil {
+		return "", false
+	}
+	b := strings.TrimPrefix(strings.TrimSpace(out), prefix)
+	if b == "" || b == strings.TrimSpace(out) {
+		return "", false
+	}
+	return b, true
+}
+
 // RemoteBranchExists reports whether refs/remotes/<remote>/<branch> exists.
 // Call Fetch first when the answer must reflect the forge's current state.
 func RemoteBranchExists(dir, remote, branch string) bool {
@@ -2983,3 +3003,20 @@ func NewQuarantine(dir string) (*Quarantine, error) {
 
 // Close deletes everything written into the quarantine.
 func (q *Quarantine) Close() { _ = os.RemoveAll(q.dir) }
+
+// RemoteURLIfConfigured is the URL of the named remote, telling a remote that
+// is not configured (exists=false, nil error) from every other failure (a
+// damaged repository, a git that does not answer), which is returned: an error
+// must never be read as "no remote".
+func RemoteURLIfConfigured(dir, remote string) (url string, exists bool, err error) {
+	out, err := runGit(dir, "config", "--local", "--get", "remote."+remote+".url")
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && ee.ExitCode() == 1 && strings.TrimSpace(out) == "" {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("git config remote.%s.url: %w: %s", remote, err, strings.TrimSpace(out))
+	}
+	url = strings.TrimSpace(out)
+	return url, url != "", nil
+}

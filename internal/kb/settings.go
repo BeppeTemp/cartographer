@@ -31,6 +31,7 @@ const (
 	kindStaleDays settingKind = iota // integer >= 1; below MinUsageStaleDays it is raised at resolution
 	kindBranch                       // a git branch name
 	kindSlug                         // artifact_prefix: a lowercase slug, at most MaxArtifactPrefix characters
+	kindRelations                    // depends_on: a list of {name, remote}, checked item by item
 )
 
 // MaxArtifactPrefix is the longest artifact_prefix: a skill name is at most 64
@@ -58,6 +59,10 @@ var settingsKeys = map[string]settingSpec{
 	// artifact_prefix is a lint requirement (artifact_unprefixed); an absent or
 	// malformed value means no prefix.
 	"artifact_prefix": {kind: kindSlug},
+	// depends_on lists the KBs this KB needs. Like branch it is read from the
+	// remote's default branch only (KB.Relations); the working copy's value is
+	// parsed and shown. Each item is checked on its own (parseRelations).
+	relationsKey: {kind: kindRelations},
 }
 
 // settingsServerOnly are the kbs[] keys bound to one machine; a KB that names
@@ -193,8 +198,9 @@ func (m SettingsMalformed) String() string {
 // Settings is the accepted part of settings.yaml: only well-formed entries of
 // known kb-scope keys.
 type Settings struct {
-	keys    []string
-	mapping *yaml.Node
+	keys      []string
+	mapping   *yaml.Node
+	relations []Relation // the well-formed items of depends_on
 }
 
 // Has reports whether the KB file sets key.
@@ -279,6 +285,17 @@ func ParseSettings(data []byte) (Settings, []SettingsMalformed, error) {
 			continue
 		}
 		seen[key] = true
+		if spec.kind == kindRelations {
+			rels, itemBad, ok := parseRelations(v)
+			bad = append(bad, itemBad...)
+			if !ok {
+				continue
+			}
+			out.relations = rels
+			out.keys = append(out.keys, key)
+			out.mapping.Content = append(out.mapping.Content, k, v)
+			continue
+		}
 		if reason := checkSetting(spec, v); reason != "" {
 			bad = append(bad, SettingsMalformed{Key: key, Reason: reason})
 			continue

@@ -164,6 +164,9 @@ type KB struct {
 	settingsInfo   SettingsInfo
 	settingsStamp  string
 
+	// relMemo is the memory of Relations and NormalizedOrigin.
+	relMemo relationsMemo
+
 	// OnSyncIn, if set, runs after a successful SyncIn that changed HEAD.
 	// mcpserver uses it to reconcile derived indexes with pulled KB files.
 	OnSyncIn func()

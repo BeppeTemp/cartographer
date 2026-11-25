@@ -124,6 +124,11 @@ func setKBField(dst *KBSpec, part KBSpec, key string) bool {
 		dst.Branch = part.Branch
 	case "artifact_prefix":
 		dst.ArtifactPrefix = part.ArtifactPrefix
+	case "depends_on":
+		// Nothing to copy: KBSpec has no field for it. Its effective value is the
+		// one committed on the remote's default branch, read on demand by
+		// KB.Relations, like `branch` (D903): the working copy's value never
+		// becomes policy here.
 	default:
 		return false
 	}

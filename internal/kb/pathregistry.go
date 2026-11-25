@@ -12,7 +12,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/BeppeTemp/cartographer/internal/okf"
-	"github.com/BeppeTemp/cartographer/internal/repoindex"
 )
 
 // PathRegistryFile is the KB-root file in which a KB declares its path
@@ -228,17 +227,11 @@ func parsePathDecl(section, key string, entry *yaml.Node, fields map[string]bool
 		}
 	}
 	if seen["remote"] {
-		raw := d.Remote
-		// The canonical form the registry documents — host/owner/name — has
-		// neither a scheme nor the scp-like colon NormalizeRemote needs.
-		if !strings.Contains(raw, "://") && !strings.Contains(raw, ":") {
-			raw = "https://" + raw
+		norm, err := NormalizeDeclaredRemote(d.Remote)
+		if err != nil {
+			return PathDecl{}, err.Error()
 		}
-		norm, err := repoindex.NormalizeRemote(raw)
-		if err != nil || strings.Count(string(norm), "/") < 2 {
-			return PathDecl{}, fmt.Sprintf("remote %q is not a git remote (expected host/owner/name or a clone URL)", d.Remote)
-		}
-		d.Remote = string(norm)
+		d.Remote = norm
 	}
 	return d, ""
 }

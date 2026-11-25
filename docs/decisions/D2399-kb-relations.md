@@ -1,0 +1,18 @@
+---
+topic: data-plane
+---
+
+# D2399 — A KB declares the KBs it depends on in its settings.yaml, guarded by their remote
+
+**Decision.** A KB's `settings.yaml` carries `depends_on`, a list of `{name, remote}` items: `name` is the mount name of the KB it needs, `remote` that KB's git remote. The remote is the guard, because a mount name is not identity. It is normalized with `repoindex.NormalizeRemote` (the rule `paths.yaml` uses, now one helper, `kb.NormalizeDeclaredRemote`), so ssh and https forms of one repository are one key and owner/name case stays significant. The value is read only from the remote's default branch (`KB.Relations`; the clone's `refs/remotes/origin/HEAD`, which `branch` and `kbs[].branch` cannot move, and `HEAD` only for a KB with no remote), like `branch` (D903); a remote whose default branch is not known yet, or a git failure, is an error, never "no relations". The parser is tolerant per item: a malformed item is left out with a `depends_on[<i>]` finding and the others are kept.
+
+**Why.** A KB that always needs another one (a client KB and its core KB) should say so itself, so the fact travels with the KB through git instead of being bound by hand in every folder. A name alone could point at another KB after a rename or on another server, so the declaration carries what identifies the repository. Reading the default branch only keeps a working branch from widening what a KB binds. A list needs per-item tolerance, otherwise one typo drops every dependency, which the whole-key tolerance of the other settings would do.
+
+**Alternatives rejected.**
+
+- *A key in the server's `kbs[]`.* It would differ per server, against D906: a KB's behaviour lives in the KB.
+- *`name` only, no remote.* A rename or another server's mount could make it name a different KB, silently.
+- *Reading the working copy.* A working branch could change what a KB binds before the team reviewed it.
+- *A new normalization for `depends_on`.* Two rules for one repository would disagree on a case or a `.git` suffix; one helper serves both files.
+
+**Consequences.** The key only declares: no tool writes `settings.yaml`, and nothing here resolves a name against the mounted KBs. The kb package keeps its own copy of the mount-name rule (it cannot import config), pinned by a config test. `KB.Relations` and `KB.NormalizedOrigin` answer from memory for a few seconds (`relationsMaxAge`), so a change on the default branch is seen within that bound; a write through the server forgets the validation. `NormalizedOriginErr` is the origin read a decision uses: a git failure is an error and is not memoized. A server that predates the key reports it as an unknown setting.
