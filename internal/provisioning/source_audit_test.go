@@ -35,6 +35,7 @@ var sourceSites = map[string]struct {
 	"cmd/cartographer/workspace.go":                  {2, "workspace projections permit bundle and bound KBs; plugins join the global scope only (forProjection)"},
 	"internal/artifactsig/artifactsig.go":            {2, "identity requires kb:, so a plugin artifact can never be signed"},
 	"internal/clientconfig/clientconfig.go":          {1, "approval keys of KB sources"},
+	"internal/kb/dashboard.go":                       {1, "link scheme of a links widget id naming another KB (kb:<kb>/<id>), refused; not an artifact source"},
 	"internal/kb/graph.go":                           {1, "link scheme of a link to another KB (kb:<kb>/<id>), not an artifact source"},
 	"internal/kb/usage.go":                           {1, "server-side usage skips bundle and plugin sources"},
 	"internal/lint/values.go":                        {1, "token scope string, unrelated"},

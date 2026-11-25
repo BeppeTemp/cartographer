@@ -14,10 +14,10 @@ import (
 
 // dashboardWidgetDoc is the widget field list both read tools carry, so an
 // agent that has only seen one of them can still write a dashboard.
-const dashboardWidgetDoc = "Widget fields: id (slug), type (kanban|list|stat|agenda|note|table|timeline), title, icon, accent, width 1-4, " +
+const dashboardWidgetDoc = "Widget fields: id (slug), type (kanban|list|stat|agenda|note|table|timeline|links), title, icon, accent, width 1-4, " +
 	"source (work, default | concepts), filter {status, map, type, id_prefix, stale, has_items, fields {key: value}, text}, " +
 	"group_by (status|map|type|field:<key>), columns (kanban: values of group_by; table: field names), sort (age|title|status|field:<key>), limit, " +
-	"text (note), date_field (agenda, timeline) and horizon_days (agenda), show (stat: count|groups)."
+	"text (note), date_field (agenda, timeline) and horizon_days (agenda), show (stat: count|groups), ids (links: concept ids of this KB, no filter)."
 
 // dashboardListEntry is one dashboard of dashboard_list.
 type dashboardListEntry struct {
@@ -55,7 +55,18 @@ func narrowDashboard(d resolvedDashboard) resolvedDashboard {
 			out.Widgets = append(out.Widgets, n)
 			continue
 		}
-		n := resolvedWidget{Entries: w.Entries, Groups: w.Groups, Total: w.Total}
+		entries := w.Entries
+		if w.Type == "links" {
+			// The ids are author-typed: a missing entry keeps none, so a
+			// narrowed caller learns no id it could not read.
+			entries = append([]dashboardEntry(nil), entries...)
+			for j := range entries {
+				if entries[j].State == "missing" {
+					entries[j].ID = ""
+				}
+			}
+		}
+		n := resolvedWidget{Entries: entries, Groups: w.Groups, Total: w.Total}
 		n.ID, n.Type, n.Icon, n.Accent, n.Width = w.ID, w.Type, w.Icon, w.Accent, w.Width
 		n.Source, n.Limit, n.HorizonDays, n.Show = w.Source, w.Limit, w.HorizonDays, w.Show
 		out.Widgets = append(out.Widgets, n)
@@ -153,7 +164,7 @@ const dashboardOpsDoc = "ops is a JSON array applied in order, all or nothing: "
 
 // dashboardSecretFindings names every credential-shaped string in an author
 // string of the dashboard (title, description, widget titles, note text,
-// filter text and field values), by place and kind, never quoting the value.
+// link ids, filter text and field values), by place and kind, never quoting the value.
 func dashboardSecretFindings(d kb.Dashboard) []string {
 	var out []string
 	scan := func(place, text string) {
@@ -166,6 +177,9 @@ func dashboardSecretFindings(d kb.Dashboard) []string {
 	for _, w := range d.Widgets {
 		scan(fmt.Sprintf("widget %q title", w.ID), w.Title)
 		scan(fmt.Sprintf("widget %q text", w.ID), w.Text)
+		for i, id := range w.IDs {
+			scan(fmt.Sprintf("widget %q link id %d", w.ID, i+1), id)
+		}
 		if w.Filter != nil {
 			scan(fmt.Sprintf("widget %q filter text", w.ID), w.Filter.Text)
 			keys := make([]string, 0, len(w.Filter.Fields))

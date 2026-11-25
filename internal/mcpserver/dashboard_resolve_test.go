@@ -332,3 +332,40 @@ func TestResolveTableAndTimeline(t *testing.T) {
 		}
 	}
 }
+
+// AC-kbdash-24
+func TestResolveLinksHiddenEqualsMissing(t *testing.T) {
+	t.Parallel()
+	_, k := workServer(t)
+	writeKBFile(t, k, "visible/a.md", "---\ntype: Task\ntitle: Alpha\nstatus: open\n---\n# a\n")
+	writeKBFile(t, k, "hidden/hd.md", "---\ntype: Task\ntitle: Secret title\nstatus: open\n---\n# h\n")
+	mk := func(id string) kb.Dashboard {
+		return kb.Dashboard{Widgets: []kb.DashboardWidget{{ID: "l", Type: "links", IDs: []string{"visible/a", id}}}}
+	}
+	now := time.Date(2026, 11, 24, 10, 0, 0, 0, time.UTC)
+	ctx := restrictedContext(auth.Policy{Permissions: []auth.Permission{{KB: "docs", Maps: []string{"visible"}}}})
+	// The same id string in both runs: hidden for the restricted caller,
+	// absent for the whole-KB one is a different caller, so compare a hidden
+	// id with a nonexistent id of the same spelling length.
+	hid := resolveDashboardAt(ctx, k, &conformanceCache{}, mk("hidden/hd"), now)
+	non := resolveDashboardAt(ctx, k, &conformanceCache{}, mk("hidden/zz"), now)
+	a, b := hid.Widgets[0].Entries, non.Widgets[0].Entries
+	if len(a) != 2 || a[0].Title != "Alpha" || a[1].State != "missing" || a[1].Title != "" {
+		t.Fatalf("restricted: %+v", a)
+	}
+	if a[1].State != b[1].State || a[1].Title != b[1].Title || a[1].Type != b[1].Type || a[1].Fields != nil {
+		t.Fatalf("hidden differs from missing: %+v vs %+v", a[1], b[1])
+	}
+	if strings.Contains(fmt.Sprint(hid), "Secret") {
+		t.Fatalf("title leaks: %+v", hid)
+	}
+	// Narrowed output drops the id typed by the author for a missing entry.
+	nar := narrowDashboard(hid).Widgets[0]
+	if nar.Entries[1].ID != "" || nar.IDs != nil || nar.Entries[0].ID != "visible/a" {
+		t.Fatalf("narrowed: %+v", nar)
+	}
+	full := resolveDashboardAt(adminCtx, k, &conformanceCache{}, mk("hidden/hd"), now)
+	if full.Widgets[0].Entries[1].Title != "Secret title" {
+		t.Fatalf("whole-KB caller: %+v", full.Widgets[0].Entries)
+	}
+}
