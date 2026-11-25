@@ -8,7 +8,10 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"regexp"
 	"runtime"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -109,7 +112,7 @@ func cmdTray(args []string) int {
 	actions := tray.NewActions(m, logf)
 	deps := tray.NewDeps(statusFn, trayServerLogPath())
 	deps.Busy = actions.Busy
-	deps.Agents = trayAgents
+	deps.Agents = newAgentsReader(logf)
 	deps.Client = trayClientTarget
 	deps.ForceLocal = trayConfigPassed(fs) // a hand use: the local server, as before
 	deps.Logf = logf
@@ -204,7 +207,9 @@ func trayServerLogPath() string {
 // reports, read without the service part (the tray probes that itself). The
 // poll loop calls it at start, every tray.AgentsInterval, when the server comes
 // back and when the menu opens.
-func trayAgents() tray.Agents {
+func trayAgents() tray.Agents { return trayAgentsLogged(nil) }
+
+func trayAgentsLogged(onSnapshot func(statusSnapshot)) tray.Agents {
 	dir, err := clientconfig.TargetDir()
 	if err != nil {
 		return tray.Agents{}
@@ -213,7 +218,103 @@ func trayAgents() tray.Agents {
 	if err != nil || len(cfg.Agents) == 0 {
 		return tray.Agents{Known: err == nil}
 	}
-	return agentRows(snapshotForConfig(dir, cfg, false))
+	snap := snapshotForConfig(dir, cfg, false)
+	if onSnapshot != nil {
+		onSnapshot(snap)
+	}
+	return agentRows(snap)
+}
+
+// agentStateLog remembers each provider's last row state, so a change is logged
+// once (#2356): the Agents row can say "Out of sync" while `status` says in
+// sync, and the log is what tells the candidate causes apart afterwards.
+type agentStateLog struct {
+	mu   sync.Mutex
+	last map[string]string
+}
+
+// newAgentsReader is deps.Agents: trayAgents plus one log line per state change.
+func newAgentsReader(logf func(string, ...any)) func() tray.Agents {
+	l := &agentStateLog{last: map[string]string{}}
+	return func() tray.Agents {
+		return trayAgentsLogged(func(s statusSnapshot) { l.observe(logf, s) })
+	}
+}
+
+var queryRE = regexp.MustCompile(`\?[^\s,]*`)
+
+// observe logs `tray: agent <provider> <old> -> <new>: <first reason>` for each
+// connected provider whose state differs from the last read (the first read
+// counts, old "none"). The reason is the status snapshot's own text, with $HOME
+// shown as "~" and any URL query dropped; no token is ever in it.
+func (l *agentStateLog) observe(logf func(string, ...any), s statusSnapshot) {
+	if logf == nil {
+		return
+	}
+	home, _ := os.UserHomeDir()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	seen := map[string]bool{}
+	for _, p := range s.Providers {
+		if !p.Connected {
+			continue
+		}
+		seen[p.Name] = true
+		state := trayAgentState(p)
+		old, had := l.last[p.Name]
+		l.last[p.Name] = state
+		if had && old == state {
+			continue
+		}
+		if !had {
+			old = "none"
+		}
+		line := fmt.Sprintf("tray: agent %s %s -> %s", p.Name, old, state)
+		if r := firstDriftReason(p); r != "" {
+			if home != "" {
+				r = strings.ReplaceAll(r, home, "~")
+			}
+			line += ": " + queryRE.ReplaceAllString(r, "?")
+		}
+		logf("%s", line)
+	}
+	for name := range l.last {
+		if !seen[name] {
+			delete(l.last, name)
+		}
+	}
+}
+
+// trayAgentState is the row's state as a log word.
+func trayAgentState(p providerStatus) string {
+	switch trayAgentRow(p).Sync {
+	case tray.SyncOK:
+		return "in_sync"
+	case tray.SyncDrift:
+		return "drift"
+	case tray.SyncApproval:
+		return "approval_pending"
+	case tray.SyncNoAccess:
+		return "no_access"
+	}
+	return "unknown"
+}
+
+// firstDriftReason is the first thing that makes the provider drift: a reason
+// of the snapshot, else the first diverged entry's detail (the bridge command
+// case) or its kind and name.
+func firstDriftReason(p providerStatus) string {
+	if len(p.DriftReason) > 0 {
+		return p.DriftReason[0]
+	}
+	if len(p.Diverged) > 0 {
+		d := p.Diverged[0]
+		if d.Detail != "" {
+			return d.Detail
+		}
+		return d.Kind + " " + d.Name + " " + d.Trust
+	}
+	return ""
 }
 
 // agentRows is the one place a status snapshot becomes the menu's rows: the

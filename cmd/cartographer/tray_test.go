@@ -416,3 +416,41 @@ func TestSetupTrayOutcome(t *testing.T) {
 		t.Errorf("linux: %q", got)
 	}
 }
+
+func TestAgentStateLogOnTransitionOnly(t *testing.T) {
+	var lines []string
+	logf := func(f string, a ...any) { lines = append(lines, fmt.Sprintf(f, a...)) }
+	home, _ := os.UserHomeDir()
+	l := &agentStateLog{last: map[string]string{}}
+	snap := func(state, detail string) statusSnapshot {
+		p := providerStatus{Name: "claude", Connected: true, State: state}
+		if detail != "" {
+			p.Diverged = []statusArtifact{{Kind: "mcp", Name: "kb", Detail: detail}}
+		}
+		return statusSnapshot{Providers: []providerStatus{p}}
+	}
+	l.observe(logf, snap("in_sync", ""))
+	l.observe(logf, snap("in_sync", ""))
+	l.observe(logf, snap("in_sync", "")) // a repeated identical state: nothing
+	if len(lines) != 1 {
+		t.Fatalf("first read plus repeats logged %q, want one line", lines)
+	}
+	lines = nil
+	l.observe(logf, snap("drift", "the bridge command is "+home+"/bin/x?token=abc, sync would write /usr/bin/y"))
+	if len(lines) != 1 {
+		t.Fatalf("a transition logged %q, want one line", lines)
+	}
+	for _, want := range []string{"claude in_sync -> drift", "the bridge command is ~/bin/x?, sync would write /usr/bin/y"} {
+		if !strings.Contains(lines[0], want) {
+			t.Errorf("line %q lacks %q", lines[0], want)
+		}
+	}
+	if strings.Contains(lines[0], "token=abc") {
+		t.Errorf("line leaks a query: %q", lines[0])
+	}
+	lines = nil
+	l.observe(logf, snap("drift", "other detail")) // same state, other reason: nothing
+	if len(lines) != 0 {
+		t.Errorf("unchanged state logged %q", lines)
+	}
+}
