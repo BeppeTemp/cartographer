@@ -667,6 +667,21 @@ unchanged.
   the next `sync` only (it is outside `revision`), and approvals are untouched: a hook, an executable
   skill or an MCP descriptor of a lineage KB is `needs_approval` until `approve <kind> <name> --kb
   <lineage-kb>`.
+- **A lineage KB never edits a tracked instructions file.** The instructions block of a workspace
+  projection goes into a file git may track (`AGENTS.md`, `CLAUDE.md`), shared with everyone who clones
+  the repository, and only a KB the user bound by hand may add to it. When the destination is tracked
+  (the test `withholdLocalPaths` makes, #1897), the block is built as if the lineage KBs were not bound:
+  their instructions stay out and the environment lines of the block (subagents installed, skills and
+  agents with no file, hooks that never fire) name neither them nor their artifacts, while their skills,
+  agents, hooks and MCP descriptors arrive, expanded with their own path registries, and their pull issues
+  are still reported; `status` and `sync` judge the same set. An untracked destination
+  (`CLAUDE.local.md`, a file git does not list) carries them in full, and a derived binding writes no
+  instructions into a tracked file at all. `status` and `workspace bind` say `instructions of core-kb
+  (lineage) not written: <file> is tracked by git`. A name collision between a lineage KB and another KB
+  still refuses the projection (D171) and now ends with `core-kb comes by lineage from client-kb; opt out
+  with: <full cartographer command with --exclude core-kb>`. Before this rule a lineage KB's section could be written into
+  such a file, as a hand-bound KB's is: an existing install whose tracked block already holds a lineage
+  section loses it once, on the next `sync`.
 - **Derived state, not a preference.** The list is recomputed by every `sync` from the registries
   it pulls and stored apart from `.cartographer.yaml`, next to the repo index cache
   (`workspace-derived.json`). A repository that stops being declared, gets `bind: false` or

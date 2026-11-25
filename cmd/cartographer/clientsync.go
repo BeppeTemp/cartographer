@@ -626,7 +626,7 @@ func fetchMergedManifestFor(cfg *clientconfig.Config, kb string) (contract.Manif
 		judged++
 		if err := add(cs.forProjection(cfg, p)); err != nil {
 			if label := p.Label(); label != "" {
-				err = fmt.Errorf("%s: %w", label, err)
+				err = fmt.Errorf("%s: %w%s", label, err, lineageCollisionHint(p, err))
 			}
 			return contract.Manifest{}, err
 		}
@@ -1178,6 +1178,9 @@ func materializeForProviders(manifests map[string]contract.Manifest, projections
 			opts.HookSettingsRel = p.HookSettingsRel
 		}
 		opts.WithholdLocalPaths = withholdLocalPaths(p)
+		if lineageInstructionsWithheld(p) {
+			opts.WithholdKBs = p.lineageKBs()
+		}
 		// Apply only the artifacts the provider knows how to materialize in
 		// this scope: unsupported kinds are neither drift nor pending, they
 		// simply don't concern it.
