@@ -375,8 +375,8 @@ func (m *MultiKBServer) EnableWeb(static http.Handler) {
 // its own choosing, so the bind rule lives in one place. Call it before
 // serving; ui_url is reported only while the bundle is mounted, and only to a
 // local caller (atlasKBURL).
-func (m *MultiKBServer) SetAtlasAddr(addr string) bool {
-	m.atlasURL = webui.LoopbackURL(addr)
+func (m *MultiKBServer) SetAtlasAddr(addr string, tls bool) bool {
+	m.atlasURL = webui.LoopbackURL(addr, tls)
 	return m.atlasURL != ""
 }
 
@@ -485,14 +485,15 @@ const MaxBareToolNameLen = 20
 // no distinct issuer to plumb through config — the server names itself in
 // both fields. scheme is inferred from X-Forwarded-Proto (set by a
 // TLS-terminating reverse proxy) or, failing that, from whether the
-// connection itself is TLS; r.Host already carries the port, if any.
+// connection itself is TLS (which then wins over the header); r.Host already carries the port, if any.
 // X-Forwarded-Proto is client-controlled when no proxy overwrites it, so only
 // the two schemes this server can actually be reached on are honoured, and
 // only the first hop of a proxy chain ("https, http") is read.
 func resourceBaseURL(r *http.Request) string {
 	scheme := "http"
 	if r.TLS != nil {
-		scheme = "https"
+		// TRAP: this server terminates TLS, so no header may say otherwise.
+		return "https://" + r.Host
 	}
 	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
 		first := strings.TrimSpace(strings.Split(proto, ",")[0])

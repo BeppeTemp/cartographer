@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"errors"
 	"flag"
@@ -681,11 +682,21 @@ func serveStdio(k *kb.KB, artifactSigner ed25519.PrivateKey, sqlIdxs map[string]
 // synchronously, before boot is started: a second serve on a taken port returns
 // the error at once, without cloning, committing or indexing anything.
 func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg config.AuthConfig, reload *authReload, webEnabled bool, auditLog *audit.Log, latestVersion func() string, settingsCfg *config.Config, tlsCfg config.TLSConfig) error {
+	// The certificate is loaded before anything binds: a server asked for TLS
+	// whose pair is missing, unreadable or mismatched stops here, so no port
+	// ever opens in clear text (the error is returned, not logged and ignored).
+	var tlsRel *tlsReloader
 	if tlsCfg.Enabled {
-		// The settings land before the listener that honours them: a server
-		// asked for TLS never starts in clear, so until the TLS listener
-		// replaces this guard the start is refused.
-		return errors.New("tls.enabled: the TLS listener is not available in this build")
+		credDir := ""
+		if settingsCfg != nil {
+			credDir = settingsCfg.CredentialsPath()
+		}
+		r, err := newTLSReloader(credDir)
+		if err != nil {
+			return fmt.Errorf("tls.enabled: %w", err)
+		}
+		tlsRel = r
+		defer r.start(tlsCfg.ReloadInterval)()
 	}
 	if auditLog != nil {
 		log.Printf("audit log active")
@@ -734,6 +745,10 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 		}
 	}
 
+	scheme := "http"
+	if tlsCfg.Enabled {
+		scheme = "https"
+	}
 	gate := mcpserver.NewBootGate(version)
 	// The background repair (D323) of every mounted KB stops with the server:
 	// cancelled before the drain, so no run starts while it shuts down.
@@ -751,7 +766,7 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 	// A loopback listener with authentication off also requires a loopback Host
 	// on every route (hardening of the same-origin rule, D906): outermost, so
 	// the boot gate's own routes are covered too.
-	rootHandler := withLoopbackHostGuard(gate.Handler(), addr, authOn)
+	rootHandler := tlsHSTS(withLoopbackHostGuard(gate.Handler(), addr, authOn), tlsCfg)
 	httpSrv := &http.Server{
 		Addr:              addr,
 		Handler:           rootHandler,
@@ -780,8 +795,17 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 	}
 	eventCh := watchShutdownEvent()
 	serveErrCh := make(chan error, 1)
+	if tlsRel != nil {
+		// TLS-only public address: a plain request gets Go's own 400, nothing
+		// is sniffed, redirected or served in clear.
+		ln = tls.NewListener(ln, newServerTLSConfig(tlsRel))
+	}
 	go func() {
-		log.Printf("HTTP server listening on %s", ln.Addr())
+		if tlsRel != nil {
+			log.Printf("HTTPS server listening on %s (TLS 1.3)", ln.Addr())
+		} else {
+			log.Printf("HTTP server listening on %s", ln.Addr())
+		}
 		serveErrCh <- httpSrv.Serve(ln)
 	}()
 
@@ -917,11 +941,11 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 			} else {
 				multi.EnableWeb(static)
 				webMounted = true
-				log.Printf("Atlas UI on http://%s%s", displayAddr(addr), webui.MountPath)
+				log.Printf("Atlas UI on %s://%s%s", scheme, displayAddr(addr), webui.MountPath)
 				// kb_status reports the Atlas link only for a loopback or wildcard
 				// bind, and only to a local caller (#1945); the reason is said
 				// here, on the server host, never in an MCP answer.
-				if !multi.SetAtlasAddr(addr) {
+				if !multi.SetAtlasAddr(addr, tlsCfg.Enabled) {
 					log.Printf("kb_status omits ui_url: %s is not a loopback address, and reporting it would tell every caller where the server listens", addr)
 				}
 			}
@@ -934,7 +958,7 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 				MaxStreamsPerToken: settingsCfg.API.MaxStreamsPerToken,
 				MaxStreams:         settingsCfg.API.MaxStreams,
 			})
-			log.Printf("public API on http://%s%s", displayAddr(addr), mcpserver.APIPrefix)
+			log.Printf("public API on %s://%s%s", scheme, displayAddr(addr), mcpserver.APIPrefix)
 		}
 
 		// The origin check sits outside authentication (D128): a page that is not
@@ -1414,4 +1438,20 @@ func applyEnvFile(path string, keepExisting bool) {
 	for _, k := range ignored {
 		log.Printf("env file %s: ignored %s", path, k)
 	}
+}
+
+// tlsHSTS adds Strict-Transport-Security to every response of the public
+// handler when TLS is on and tls.hsts_max_age is positive: no includeSubDomains,
+// no preload. It is installed on the TLS public listener only, so a plain
+// response never carries it.
+func tlsHSTS(next http.Handler, tlsCfg config.TLSConfig) http.Handler {
+	secs := int64(tlsCfg.HSTSMaxAge / time.Second)
+	if !tlsCfg.Enabled || secs <= 0 {
+		return next
+	}
+	value := fmt.Sprintf("max-age=%d", secs)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Strict-Transport-Security", value)
+		next.ServeHTTP(w, r)
+	})
 }

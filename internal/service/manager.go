@@ -1554,7 +1554,7 @@ func (m *Manager) Status(configPath string) (Status, error) {
 			st.HealthSkipReason = HealthSkipDenied
 		}
 		if st.Installed && cfg.Web.Enabled {
-			st.UIURL = webui.URL(cfg.HTTP)
+			st.UIURL = webui.URL(cfg.HTTP, cfg.TLS.Enabled)
 		}
 	}
 
@@ -1587,7 +1587,7 @@ func (m *Manager) TrayView(explicitConfig string) (Status, error) {
 	}
 	st.HTTPAddr = cfg.HTTP
 	if st.Installed && cfg.Web.Enabled {
-		st.UIURL = webui.URL(cfg.HTTP)
+		st.UIURL = webui.URL(cfg.HTTP, cfg.TLS.Enabled)
 	}
 	return st, nil
 }

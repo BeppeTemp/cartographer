@@ -13,8 +13,9 @@ import (
 // a wildcard bind become 127.0.0.1: a server can listen on a wildcard, but a
 // browser cannot open one. "" when addr is empty or unparseable. Shared by
 // `cartographer service status` (the ui: line), the tray and kb_status, so
-// the three print the same address.
-func URL(addr string) string {
+// the three print the same address. tls is the scheme: https when the server
+// serves TLS itself, http otherwise.
+func URL(addr string, tls bool) string {
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
 		return ""
@@ -22,7 +23,11 @@ func URL(addr string) string {
 	if wildcardHost(host) {
 		host = "127.0.0.1"
 	}
-	return fmt.Sprintf("http://%s%s", net.JoinHostPort(host, port), MountPath)
+	scheme := "http"
+	if tls {
+		scheme = "https"
+	}
+	return fmt.Sprintf("%s://%s%s", scheme, net.JoinHostPort(host, port), MountPath)
 }
 
 // LoopbackURL is URL for the one address kb_status may report (#1945): a
@@ -30,7 +35,7 @@ func URL(addr string) string {
 // machine itself reaches as 127.0.0.1. A bind to a specific other address is
 // "": naming it would tell every authenticated caller where the server listens,
 // and the operator, not the server, knows the address users reach it by.
-func LoopbackURL(addr string) string {
+func LoopbackURL(addr string, tls bool) string {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		return ""
@@ -38,7 +43,7 @@ func LoopbackURL(addr string) string {
 	if !wildcardHost(host) && !client.IsLoopbackHost(host) {
 		return ""
 	}
-	return URL(addr)
+	return URL(addr, tls)
 }
 
 // wildcardHost reports a bind to every interface: no host, 0.0.0.0, ::.

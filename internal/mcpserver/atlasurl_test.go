@@ -26,7 +26,7 @@ func routedAtlasHandler(t *testing.T, web bool, addr string, names ...string) ht
 	if web {
 		multi.EnableWeb(http.NotFoundHandler())
 	}
-	multi.SetAtlasAddr(addr)
+	multi.SetAtlasAddr(addr, false)
 	return fromPeer(routedTokenStore(names...).Middleware(multi.Handler()), "127.0.0.1:50000")
 }
 
@@ -107,7 +107,7 @@ func TestKBStatus_UIURLOnlyForALocalCaller(t *testing.T) {
 		t.Fatalf("EnableRoutedMount: %v", err)
 	}
 	multi.EnableWeb(http.NotFoundHandler())
-	multi.SetAtlasAddr("0.0.0.0:39273")
+	multi.SetAtlasAddr("0.0.0.0:39273", false)
 	base := routedTokenStore("kb-a").Middleware(multi.Handler())
 	viaBase := routedTokenStore("kb-a").Middleware(markViaPrincipal(multi.Handler()))
 	// A proxy token that forwards anonymous traffic: no identity header, so
@@ -191,5 +191,23 @@ func TestEntryInstructions_NameTheAtlas(t *testing.T) {
 		if !strings.Contains(entryInstructions, want) {
 			t.Errorf("entryInstructions does not carry %q", want)
 		}
+	}
+}
+
+// AC-tls-native-19: with TLS on kb_status names an https Atlas link.
+func TestKBStatusUIURLHTTPSWithTLS(t *testing.T) {
+	t.Parallel()
+	multi := NewMultiKBServer("test")
+	k := setupNamedTestKB(t, "kb-a")
+	multi.MountKB("kb-a", func(s *Server) { RegisterKBTools(s, k, Deps{}) })
+	if err := multi.EnableRoutedMount("test", nil); err != nil {
+		t.Fatalf("EnableRoutedMount: %v", err)
+	}
+	multi.EnableWeb(http.NotFoundHandler())
+	multi.SetAtlasAddr("0.0.0.0:39273", true)
+	h := fromPeer(routedTokenStore("kb-a").Middleware(multi.Handler()), "127.0.0.1:50000")
+	obj, _ := routedKBStatusConnection(t, h, RoutedMountPath, "kb-a")
+	if want := "https://127.0.0.1:39273/ui/?kb=kb-a"; obj["ui_url"] != want {
+		t.Errorf("ui_url = %v, want %s", obj["ui_url"], want)
 	}
 }
