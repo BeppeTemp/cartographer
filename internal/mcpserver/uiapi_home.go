@@ -207,7 +207,41 @@ func uiRevision(w http.ResponseWriter, r *http.Request, k *kb.KB) {
 		writeUIInternal(w, "revision", err)
 		return
 	}
-	writeUIJSON(w, http.StatusOK, map[string]string{"revision": uiRevisionBoot + "-" + strconv.FormatUint(gen, 10)})
+	rev := uiRevisionBoot + "-" + strconv.FormatUint(gen, 10)
+	// A dashboard is a file outside the graph, so the generation does not see
+	// it. Its stamp is one ReadDir of dashboards/ and nothing else: never
+	// lintInputsStamp, which hashes the date and walks the whole KB root and
+	// must not run on a poll every open tab repeats every 10 s (D337).
+	if stamp := k.DashboardsStamp(); stamp != "" {
+		rev += "-" + stamp
+	}
+	writeUIJSON(w, http.StatusOK, map[string]string{"revision": rev})
+}
+
+// GET /kbs/{kb}/dashboards — the dashboard_list tool, relayed.
+func uiDashboards(w http.ResponseWriter, r *http.Request, srv *Server) {
+	tool, ok := uiTool(srv, "dashboard_list")
+	if !ok {
+		writeUINotFound(w)
+		return
+	}
+	res, err := tool.Handler(r.Context(), json.RawMessage(`{}`))
+	uiRelay(w, "dashboards", res, err)
+}
+
+// GET /kbs/{kb}/dashboards/{name} — the dashboard_get tool, relayed: the same
+// resolution and the same narrowing as the agent gets (a caller without
+// whole-KB read sees resolved data only).
+func uiDashboard(w http.ResponseWriter, r *http.Request, srv *Server) {
+	tool, ok := uiTool(srv, "dashboard_get")
+	if !ok {
+		writeUINotFound(w)
+		return
+	}
+	segs := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	args, _ := json.Marshal(map[string]string{"name": segs[len(segs)-1]})
+	res, err := tool.Handler(r.Context(), args)
+	uiRelay(w, "dashboard", res, err)
 }
 
 // birthsCache keeps, per KB root, the births computed at one HEAD. They change

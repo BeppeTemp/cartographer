@@ -34,6 +34,7 @@ groups=(
   "Describe the services and their secrets|services secrets"
   "Ship skills, an agent and a hook|skills agents hooks"
   "Log observing sessions|data/observations"
+  "Add the observing dashboard|dashboards"
 )
 # Each group is split into commits of at most this many files.
 chunk=4

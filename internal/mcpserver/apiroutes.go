@@ -42,8 +42,9 @@ type apiHandler func(m *MultiKBServer, w http.ResponseWriter, r *http.Request, k
 // apiRoute is one read route of the UI API: one definition, with its tier.
 // A new read route is added here, never by a `case` in the dispatcher.
 type apiRoute struct {
-	// Pattern is relative to the mount prefix; `{kb}` is the one variable and
-	// the second segment of a KB-scoped route.
+	// Pattern is relative to the mount prefix; `{kb}` is the second segment of
+	// a KB-scoped route. Any other `{x}` segment is a path variable that
+	// matches one non-empty segment; the handler reads it from the URL.
 	Pattern string
 	Tier    apiTier
 	Summary string
@@ -68,14 +69,29 @@ func (rt apiRoute) kbScoped() bool {
 	return len(rt.segments) >= 2 && rt.segments[1] == "{kb}"
 }
 
+func isPathVar(seg string) bool {
+	return len(seg) > 2 && seg[0] == '{' && seg[len(seg)-1] == '}'
+}
+
+// pathVars names the path variables of the route other than {kb}.
+func (rt apiRoute) pathVars() []string {
+	var out []string
+	for _, seg := range rt.segments {
+		if isPathVar(seg) && seg != "{kb}" {
+			out = append(out, seg[1:len(seg)-1])
+		}
+	}
+	return out
+}
+
 // match reports whether the path segments are the route's. Literal segments
-// are compared exactly; `{kb}` matches any non-empty segment.
+// are compared exactly; a `{x}` variable matches any non-empty segment.
 func (rt apiRoute) match(segments []string) bool {
 	if len(segments) != len(rt.segments) {
 		return false
 	}
 	for i, want := range rt.segments {
-		if want == "{kb}" {
+		if isPathVar(want) {
 			if segments[i] == "" {
 				return false
 			}
@@ -206,6 +222,10 @@ var apiRoutes = buildAPIRoutes([]apiRoute{
 		Handler: kbRoute(uiStatus)},
 	{Pattern: "/kbs/{kb}/revision", Tier: tierPreview, Summary: "The KB revision, for change polling",
 		Handler: kbRoute(func(w http.ResponseWriter, r *http.Request, srv *Server) { uiRevision(w, r, srv.kbRef) })},
+	{Pattern: "/kbs/{kb}/dashboards", Tier: tierPreview, Summary: "The KB's dashboards",
+		Handler: kbRoute(uiDashboards)},
+	{Pattern: "/kbs/{kb}/dashboards/{name}", Tier: tierPreview, Summary: "One dashboard, resolved for the caller", Errors: errsBadRequest,
+		Handler: kbRoute(uiDashboard)},
 	{Pattern: "/kbs/{kb}/maintenance/review", Tier: tierPreview, Summary: "The doctor's review agenda",
 		Handler: func(m *MultiKBServer, w http.ResponseWriter, r *http.Request, name string, srv *Server) {
 			uiMaintenance(w, r, srv, "review", func() repairInfo { return m.repairInfoOf(name, srv) })

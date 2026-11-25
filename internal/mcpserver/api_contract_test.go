@@ -33,7 +33,9 @@ func docPaths(doc jsonObj) jsonObj { p, _ := doc["paths"].(jsonObj); return p }
 
 func routePath(rt apiRoute) string { return APIPrefix + rt.Pattern }
 
-func liveURL(path string) string { return strings.ReplaceAll(path, "{kb}", "docs") }
+func liveURL(path string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(path, "{kb}", "docs"), "{name}", "week")
+}
 
 // The committed copy is the reviewable diff of a shape change.
 func TestOpenAPI_CommittedCopyIsCurrent(t *testing.T) {
@@ -95,6 +97,9 @@ func TestAPIContract_RoutesAndDocumentAgree(t *testing.T) {
 		var wantParams []string
 		if rt.kbScoped() {
 			wantParams = append(wantParams, "path:kb")
+		}
+		for _, v := range rt.pathVars() {
+			wantParams = append(wantParams, "path:"+v)
 		}
 		for _, q := range rt.Query {
 			wantParams = append(wantParams, "query:"+q.Name)

@@ -506,6 +506,38 @@ func (kb *KB) ListDashboards() ([]string, error) {
 	return names, nil
 }
 
+// DashboardsStamp is a short token that moves when a dashboard file is added,
+// removed or rewritten: name, size and mtime of each file of dashboards/, from
+// one ReadDir. It is cheap on purpose, for the revision poll (D337); it never
+// reads a file and never fails: an absent, symlinked or unreadable folder is "".
+func (kb *KB) DashboardsStamp() string {
+	dir, exists, err := kb.dashboardsDir()
+	if err != nil || !exists {
+		return ""
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	h := sha256.New()
+	n := 0
+	for _, e := range entries { // ReadDir sorts by name
+		if !strings.HasSuffix(e.Name(), ".yaml") || !e.Type().IsRegular() {
+			continue
+		}
+		fi, ierr := e.Info()
+		if ierr != nil {
+			continue
+		}
+		n++
+		fmt.Fprintf(h, "%s\x00%d\x00%d\n", e.Name(), fi.Size(), fi.ModTime().UnixNano())
+	}
+	if n == 0 {
+		return ""
+	}
+	return hex.EncodeToString(h.Sum(nil))[:12]
+}
+
 // dashboardTarget resolves dashboards/<name>.yaml for a write or a removal and
 // refuses a symlinked folder, a symlinked file and a non-regular file.
 func (kb *KB) dashboardTarget(name string) (dir, path string, err error) {
