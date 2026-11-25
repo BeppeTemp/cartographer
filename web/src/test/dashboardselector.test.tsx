@@ -37,7 +37,7 @@ describe("the dashboard selector of the Work page", () => {
     expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual(["Work board", "This week", "blocked"]);
     await user.selectOptions(select, "week");
     await waitFor(() => expect(window.location.search).toContain("dashboard=week"));
-    expect(await screen.findByText(/drawn in a later release/)).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 2, name: "w1" })).toBeInTheDocument();
     await user.selectOptions(select, "");
     expect(window.location.search).not.toContain("dashboard=");
   });

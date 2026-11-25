@@ -20,6 +20,7 @@ import type {
 } from "../api/types";
 import { reviewInfo } from "../lib/review";
 import { collectionVar } from "../lib/palette";
+import { DashboardView } from "./DashboardView";
 import { ErrorState } from "./States";
 import { ReportCandidatesBadge } from "./Candidates";
 import type { ComponentRow } from "../api/types";
@@ -263,7 +264,7 @@ export function Work({
       />
 
       {dashboard ? (
-        <DashboardPane key={`${kb}/${dashboard}`} kb={kb} name={dashboard} live={live} />
+        <DashboardPane key={`${kb}/${dashboard}`} kb={kb} name={dashboard} live={live} onOpen={onOpen} />
       ) : (
         <>
           <ReportCandidatesBadge kb={kb} live={live ?? 0} />
@@ -405,12 +406,11 @@ function DashboardSelect({
 }
 
 /**
- * One dashboard, read for the caller. The grid is a later change: this draws a
- * neutral tile while it loads and the empty state for a dashboard with no
- * widget. A caller without whole-KB read gets resolved data and structural
+ * One dashboard, read for the caller: a neutral tile while it loads, the empty
+ * state for a dashboard with no widget, the grid otherwise. A caller without whole-KB read gets resolved data and structural
  * keys only, so nothing here needs the title, the hash or the source.
  */
-function DashboardPane({ kb, name, live }: { kb: string; name: string; live: number }) {
+function DashboardPane({ kb, name, live, onOpen }: { kb: string; name: string; live: number; onOpen(conceptId: string): void }) {
   const [data, setData] = useState<DashboardResolved | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [attempt, setAttempt] = useState(0);
@@ -437,7 +437,7 @@ function DashboardPane({ kb, name, live }: { kb: string; name: string; live: num
         This dashboard has no widget yet. Ask an agent to build it: it writes the widgets with dashboard_patch.
       </Quiet>
     );
-  return <LoadingTile label="Dashboard widgets are drawn in a later release" busy={false} />;
+  return <DashboardView data={data} onOpen={onOpen} />;
 }
 
 function LoadingTile({ label, busy = true }: { label: string; busy?: boolean }) {

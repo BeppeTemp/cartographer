@@ -1049,7 +1049,7 @@ button.row {
   color: var(--text-secondary);
 }
 
-/* The Work page's dashboard selector and its neutral tile (the grid comes later). */
+/* The Work page's dashboard selector and its neutral tile. */
 .work__dashboard-select {
   display: inline-flex;
   align-items: center;
@@ -1063,6 +1063,109 @@ button.row {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md, 8px);
   padding: var(--space-4);
+}
+
+/* The dashboard grid: four columns, one under 900 px. */
+.dashboard__grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+@media (max-width: 899px) {
+  .dashboard__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.dashboard__card {
+  position: relative;
+  grid-column: span var(--dashboard-span, 1);
+  border: 1px solid var(--border-subtle);
+  border-top: 3px solid var(--dashboard-accent, var(--text-muted));
+  border-radius: var(--radius-card);
+  padding: var(--space-3) var(--space-4);
+  overflow: hidden;
+}
+@media (max-width: 899px) {
+  .dashboard__card {
+    grid-column: auto;
+  }
+}
+.dashboard__card--error {
+  border-color: var(--sev-error);
+}
+.dashboard__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.dashboard__icon {
+  display: inline-flex;
+  color: var(--dashboard-accent, var(--text-muted));
+}
+.dashboard__title {
+  flex: 1;
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+.dashboard__total {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+.dashboard__stat {
+  margin: var(--space-2) 0 0;
+  font-size: 2rem;
+  line-height: 1.1;
+  color: var(--dashboard-accent, var(--text-primary));
+  font-variant-numeric: tabular-nums;
+}
+.dashboard__groups {
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-sm);
+}
+.dashboard__groups li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 2px 0;
+}
+.dashboard__count {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+}
+.dashboard__note {
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+}
+.dashboard__error {
+  margin: var(--space-2) 0 0;
+  color: var(--sev-error);
+  font-size: var(--text-sm);
+}
+.dashboard__flash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: var(--dashboard-accent, var(--primary));
+  opacity: 0;
+  animation: dashboard-flash var(--motion-slow) var(--ease-out) 1;
+}
+@keyframes dashboard-flash {
+  from {
+    opacity: 0.18;
+  }
+  to {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dashboard__flash {
+    animation: none;
+  }
 }
 
 /* One track that cannot grow past the column: an unbreakable concept id in a
