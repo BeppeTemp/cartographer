@@ -30,6 +30,7 @@ import (
 // the test; stop ends it with the signal the real server handles.
 type tlsServer struct {
 	addr   string
+	health string // the health listener's address, "" when none
 	client *http.Client
 	stop   func()
 }
@@ -51,6 +52,15 @@ func startTLSServer(t *testing.T, authCfg config.AuthConfig, tlsCfg config.TLSCo
 	}
 	addr := ln.Addr().String()
 	ln.Close()
+	if tlsCfg.HealthAddr == "" {
+		// A free port of its own: the default (public port + 1) may be taken.
+		hl, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		tlsCfg.HealthAddr = hl.Addr().String()
+		hl.Close()
+	}
 
 	boot := func(phase func(string)) kbBootstrap {
 		if !withKB {
@@ -69,7 +79,7 @@ func startTLSServer(t *testing.T, authCfg config.AuthConfig, tlsCfg config.TLSCo
 		defer close(done)
 		_ = serveHTTP(addr, boot, authCfg, nil, false, nil, nil, cfg, tlsCfg)
 	}()
-	s := &tlsServer{addr: addr, client: &http.Client{
+	s := &tlsServer{addr: addr, health: config.TLSHealthAddr(addr, tlsCfg), client: &http.Client{
 		Timeout:   gitxtest.Deadline(5 * time.Second),
 		Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, ServerName: "localhost"}},
 	}}

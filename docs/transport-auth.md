@@ -54,6 +54,13 @@ listener is TLS 1.3 only and answers a plain request with `400`, every response 
 `Strict-Transport-Security` (unless `tls.hsts_max_age` is `0`), and the metadata base is `https://` whatever
 `X-Forwarded-Proto` says. Behind a TLS-terminating proxy (no TLS on the connection) the header decides, as before.
 
+With TLS on, the probes that must stay in clear read a second listener, bound to loopback only
+(`tls.health_addr`, default `127.0.0.1` on the public port plus one, `off` runs none). It answers `GET` and
+`HEAD` of exactly `/health` and `/ready`, through the same handler and token rules as the public address, and a
+`404` to every other method or path: no `/mcp`, UI, API or metadata, and no HSTS. It binds before the KBs
+bootstrap, after the certificate is loaded; a port already in use stops the start and leaves no listener bound;
+shutdown closes it before the public one, with its own 3-second budget so the public drain keeps its whole timeout; its Host must name loopback whatever the public address is.
+
 `/api/ui/v1` is the read-only JSON surface the web UI consumes
 (→ [`control-plane.md`](control-plane.md) §Read-only UI API). It is **not** a
 public path: it passes through the same origin check and token middleware as

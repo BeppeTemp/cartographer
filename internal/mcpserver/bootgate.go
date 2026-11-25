@@ -52,7 +52,7 @@ func (g *BootGate) Handler() http.Handler {
 		}
 		switch r.URL.Path {
 		case "/health", "/ready":
-			if r.Method != http.MethodGet {
+			if r.Method != http.MethodGet && r.Method != http.MethodHead {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 				return
 			}

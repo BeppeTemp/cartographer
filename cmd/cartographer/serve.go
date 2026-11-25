@@ -766,7 +766,8 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 	// A loopback listener with authentication off also requires a loopback Host
 	// on every route (hardening of the same-origin rule, D906): outermost, so
 	// the boot gate's own routes are covered too.
-	rootHandler := tlsHSTS(withLoopbackHostGuard(gate.Handler(), addr, authOn), tlsCfg)
+	innerHandler := withLoopbackHostGuard(gate.Handler(), addr, authOn)
+	rootHandler := tlsHSTS(innerHandler, tlsCfg)
 	httpSrv := &http.Server{
 		Addr:              addr,
 		Handler:           rootHandler,
@@ -792,6 +793,26 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 	if err != nil {
 		signal.Stop(sigCh)
 		return listenError(addr, err)
+	}
+	// The loopback health listener of a TLS server (the probes that stay in
+	// clear). A failed bind releases the public port: nothing is left bound.
+	var healthSrv *http.Server
+	if tlsCfg.Enabled {
+		healthLn, herr := listenHealth(config.TLSHealthAddr(addr, tlsCfg))
+		if herr != nil {
+			ln.Close()
+			signal.Stop(sigCh)
+			return herr
+		}
+		if healthLn != nil {
+			healthSrv = newHealthServer(healthLn.Addr().String(), innerHandler)
+			logHealthListener(healthLn)
+			go func() {
+				if err := healthSrv.Serve(healthLn); err != nil && err != http.ErrServerClosed {
+					log.Printf("health listener: %v", err)
+				}
+			}()
+		}
 	}
 	eventCh := watchShutdownEvent()
 	serveErrCh := make(chan error, 1)
@@ -999,6 +1020,15 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), shutdownHTTPTimeout)
 		defer cancel()
+		if healthSrv != nil {
+			// Its own short budget: a lingering probe connection must not eat
+			// the public listener's drain time.
+			hctx, hcancel := context.WithTimeout(context.Background(), healthShutdownTimeout)
+			if err := healthSrv.Shutdown(hctx); err != nil {
+				log.Printf("health listener shutdown: %v", err)
+			}
+			hcancel()
+		}
 		if err := httpSrv.Shutdown(ctx); err != nil {
 			log.Printf("HTTP server shutdown: %v", err)
 		}
