@@ -83,7 +83,7 @@ func TestBuildersAlwaysCarryIfMatch(t *testing.T) {
 	if _, ok := lease["frontmatter"].(map[string]any)[KeyCursor]; ok {
 		t.Error("the lease moved the cursor")
 	}
-	if u, _ := adv["unset"].([]string); len(u) != 1 || u[0] != KeyError {
+	if u, _ := adv["unset"].([]string); len(u) != 2 || u[0] != KeyError || u[1] != KeyRetryAfter {
 		t.Errorf("advance unset = %v", adv["unset"])
 	}
 	if _, ok := fail["frontmatter"].(map[string]any)[KeyCursor]; ok {
@@ -173,5 +173,58 @@ func TestWriteHashReadsTheFirstObjectAndRefusesAnEmptyHash(t *testing.T) {
 		if h, err := WriteHash(bad); err == nil {
 			t.Errorf("%q: hash %q, no error", bad, h)
 		}
+	}
+}
+
+func TestDueHonoursARetryOnlyWhileItIsLaterThanTheLastCheck(t *testing.T) {
+	f := Feed{ID: "x", Interval: 24 * time.Hour, CheckedAt: t0, RetryAfter: t0.Add(15 * time.Minute)}
+	for name, tc := range map[string]struct {
+		at  time.Time
+		due bool
+	}{
+		"before the retry":    {t0.Add(14 * time.Minute), false},
+		"at the retry":        {t0.Add(15 * time.Minute), true},
+		"before the interval": {t0.Add(23 * time.Hour), true},
+	} {
+		if got := f.Due(tc.at); got != tc.due {
+			t.Errorf("%s: Due = %v", name, got)
+		}
+	}
+	// A lease or a later failure moves feed_checked_at past the retry: spent.
+	f.CheckedAt = t0.Add(20 * time.Minute)
+	if f.Due(t0.Add(time.Hour)) {
+		t.Error("a spent retry made the feed due again")
+	}
+	if !f.Due(f.CheckedAt.Add(24 * time.Hour)) {
+		t.Error("the interval no longer applies")
+	}
+}
+
+func TestFailRetrySetsOrClearsTheRetryAndParseReadsItLeniently(t *testing.T) {
+	f := Feed{ID: "x"}
+	a, err := f.FailRetry("h", "model_failed", "boom", t0, t0.Add(15*time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fm := a["frontmatter"].(map[string]any)
+	if fm[KeyRetryAfter] != "2026-10-30T12:15:00Z" || a["unset"] != nil {
+		t.Fatalf("retry = %v, unset %v", fm[KeyRetryAfter], a["unset"])
+	}
+	b, _ := f.FailRetry("h", "model_failed", "boom", t0, time.Time{})
+	if _, set := b["frontmatter"].(map[string]any)[KeyRetryAfter]; set {
+		t.Error("a failure with no retry wrote one")
+	}
+	if u, _ := b["unset"].([]string); len(u) != 1 || u[0] != KeyRetryAfter {
+		t.Errorf("unset = %v", b["unset"])
+	}
+	if _, err := f.FailRetry("", "model_failed", "x", t0, t0.Add(time.Minute)); err == nil {
+		t.Error("FailRetry without if_match")
+	}
+	p, err := Parse(entry(map[string]any{KeyRetryAfter: "2026-10-30T12:15:00Z"}), 24*time.Hour, time.Hour)
+	if err != nil || !p.RetryAfter.Equal(t0.Add(15*time.Minute)) {
+		t.Fatalf("parsed %v, %v", p.RetryAfter, err)
+	}
+	if p, err = Parse(entry(map[string]any{KeyRetryAfter: "soon"}), 24*time.Hour, time.Hour); err != nil || !p.RetryAfter.IsZero() {
+		t.Fatalf("an unreadable retry must be ignored, not bad_field: %v %v", p.RetryAfter, err)
 	}
 }

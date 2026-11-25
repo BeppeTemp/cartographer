@@ -28,6 +28,12 @@ const (
 	KeyInterval  = "feed_interval"
 	KeyInclude   = "feed_include"
 	KeyError     = "feed_error"
+	// KeyRetryAfter is when a feed whose poll failed for a reason that may pass
+	// is polled again, ahead of its interval. It counts only while it is later
+	// than feed_checked_at: a lease or a later failure moves feed_checked_at past
+	// it. QueryFields is full (the 8-key cap of concept_list), so the poll reads
+	// it with a second list.
+	KeyRetryAfter = "feed_retry_after"
 )
 
 // QueryFields are the frontmatter keys the poll asks concept_list for: exactly
@@ -81,6 +87,7 @@ type Feed struct {
 	Include     []string
 	Interval    time.Duration // the Source's own, or the default
 	CheckedAt   time.Time     // zero: never checked
+	RetryAfter  time.Time     // zero: none; counts only while later than CheckedAt
 	ContentHash string        // if_match of the next write
 }
 
@@ -119,6 +126,13 @@ func Parse(e Entry, defaultInterval, minInterval time.Duration) (Feed, error) {
 		}
 		f.CheckedAt = t
 	}
+	// Not a bad_field when unreadable: it only shortens a wait, so a hand edit of
+	// it must not stall the feed behind an error.
+	if s, ok := e.Fields[KeyRetryAfter].(string); ok {
+		if t, err := time.Parse(time.RFC3339, strings.TrimSpace(s)); err == nil {
+			f.RetryAfter = t
+		}
+	}
 	if v, ok := e.Fields[KeyInclude]; ok {
 		switch l := v.(type) {
 		case []string:
@@ -148,9 +162,13 @@ func Parse(e Entry, defaultInterval, minInterval time.Duration) (Feed, error) {
 }
 
 // Due reports whether the feed is to be polled at now: never checked, or
-// CheckedAt plus Interval has passed.
+// CheckedAt plus Interval has passed, or a retry the last failure asked for
+// (RetryAfter, later than CheckedAt) has come.
 func (f Feed) Due(now time.Time) bool {
-	return f.CheckedAt.IsZero() || !now.Before(f.CheckedAt.Add(f.Interval))
+	if f.CheckedAt.IsZero() || !now.Before(f.CheckedAt.Add(f.Interval)) {
+		return true
+	}
+	return f.RetryAfter.After(f.CheckedAt) && !now.Before(f.RetryAfter)
 }
 
 // The three builders return the arguments of a concept_patch. The cursor and the
@@ -168,7 +186,8 @@ func (f Feed) Lease(now time.Time) (map[string]any, error) {
 }
 
 // Advance records that every entry up to cursor is handled: it sets feed_cursor
-// and feed_checked_at and removes feed_error. ifMatch is the hash Lease returned.
+// and feed_checked_at and removes feed_error and feed_retry_after. ifMatch is the
+// hash Lease returned.
 func (f Feed) Advance(ifMatch, cursor string, now time.Time) (map[string]any, error) {
 	if ifMatch == "" {
 		return nil, errNoIfMatch
@@ -177,7 +196,7 @@ func (f Feed) Advance(ifMatch, cursor string, now time.Time) (map[string]any, er
 		return nil, fmt.Errorf("feed: cursor is %d bytes, over the %d the Source holds", len(cursor), MaxCursorBytes)
 	}
 	a := patch(f.ID, ifMatch, now, map[string]any{KeyCursor: cursor})
-	a["unset"] = []string{KeyError}
+	a["unset"] = []string{KeyError, KeyRetryAfter}
 	return a, nil
 }
 
@@ -217,10 +236,25 @@ var errNoIfMatch = errors.New("feed: a write of the cursor or its bookkeeping ne
 // failing feed is retried at its interval and never in a tight loop. The cursor
 // is left alone. The detail is cut to one line of MaxErrorBytes.
 func (f Feed) Fail(ifMatch, code, detail string, now time.Time) (map[string]any, error) {
+	return f.FailRetry(ifMatch, code, detail, now, time.Time{})
+}
+
+// FailRetry is Fail for a failure that may pass by itself: the feed is polled
+// again at retryAfter (feed_retry_after), which must be later than now, instead
+// of at the end of its interval. A zero retryAfter is Fail: it also removes a
+// feed_retry_after an earlier failure left.
+func (f Feed) FailRetry(ifMatch, code, detail string, now, retryAfter time.Time) (map[string]any, error) {
 	if ifMatch == "" {
 		return nil, errNoIfMatch
 	}
-	return patch(f.ID, ifMatch, now, map[string]any{KeyError: errorLine(code, detail)}), nil
+	set := map[string]any{KeyError: errorLine(code, detail)}
+	if !retryAfter.After(now) {
+		a := patch(f.ID, ifMatch, now, set)
+		a["unset"] = []string{KeyRetryAfter}
+		return a, nil
+	}
+	set[KeyRetryAfter] = retryAfter.UTC().Format(time.RFC3339)
+	return patch(f.ID, ifMatch, now, set), nil
 }
 
 func patch(id, ifMatch string, now time.Time, set map[string]any) map[string]any {
