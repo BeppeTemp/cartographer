@@ -3,6 +3,7 @@ package repoindex
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -589,4 +590,74 @@ func TestResolveReplacedCloneIsNotServed(t *testing.T) {
 	if _, _, err := lookupIndex(idx, "myrepo"); err == nil {
 		t.Fatal("lookupIndex served a path whose origin changed")
 	}
+}
+
+// repos.json is generated state below the user config directory: nothing
+// below it is followed (#2365), a symlinked ~/.config is.
+func TestSaveCacheRefusesSymlinks(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on Windows")
+	}
+	setHome := func(t *testing.T) string {
+		home := t.TempDir()
+		userHomeDir = func() (string, error) { return home, nil }
+		t.Cleanup(func() { userHomeDir = os.UserHomeDir })
+		return home
+	}
+	idx := &Index{Repos: map[RemoteKey][]string{"github.com/o/n": {"/p"}}}
+	t.Run("directory", func(t *testing.T) {
+		home, victim := setHome(t), t.TempDir()
+		if err := os.MkdirAll(filepath.Join(home, ".config"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		link := filepath.Join(home, ".config", "cartographer")
+		if err := os.Symlink(victim, link); err != nil {
+			t.Fatal(err)
+		}
+		err := SaveCache(idx)
+		if err == nil || !strings.Contains(err.Error(), "symlink") {
+			t.Fatalf("err = %v, want a symlink refusal", err)
+		}
+		if es, _ := os.ReadDir(victim); len(es) != 0 {
+			t.Errorf("victim written to: %v", es)
+		}
+		if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("the link was replaced (err %v)", err)
+		}
+	})
+	t.Run("leaf", func(t *testing.T) {
+		home, victim := setHome(t), t.TempDir()
+		cart := filepath.Join(home, ".config", "cartographer")
+		if err := os.MkdirAll(cart, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		target := filepath.Join(victim, "t.json")
+		if err := os.WriteFile(target, []byte("keep"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, filepath.Join(cart, "repos.json")); err != nil {
+			t.Fatal(err)
+		}
+		if err := SaveCache(idx); err == nil {
+			t.Fatal("a symlinked leaf was written")
+		}
+		if got, _ := os.ReadFile(target); string(got) != "keep" {
+			t.Errorf("target changed: %q", got)
+		}
+		if es, _ := os.ReadDir(cart); len(es) != 1 {
+			t.Errorf("temp file left behind: %v", es)
+		}
+	})
+	t.Run("config root link", func(t *testing.T) {
+		home, real := setHome(t), t.TempDir()
+		if err := os.Symlink(real, filepath.Join(home, ".config")); err != nil {
+			t.Fatal(err)
+		}
+		if err := SaveCache(idx); err != nil {
+			t.Fatalf("a symlinked ~/.config must keep working: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(real, "cartographer", "repos.json")); err != nil {
+			t.Fatal(err)
+		}
+	})
 }

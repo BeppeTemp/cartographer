@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 // TokenFileName is the private copy of the bearer token (D699), next to
@@ -29,10 +31,14 @@ func WriteToken(dir, tok string) error {
 	if strings.TrimSpace(tok) == "" {
 		return errors.New("clientconfig: empty token")
 	}
+	// dir is the root: it is the home or a directory the caller chose, and a
+	// link there (a dotfile manager's) is the user's. The file is written
+	// through safewrite, which refuses a link at the leaf and creates the
+	// temp file exclusively (#2365).
+	path := TokenPath(dir)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("clientconfig: mkdir %s: %w", dir, err)
 	}
-	path := TokenPath(dir)
 	if fi, err := os.Lstat(path); err == nil {
 		if !fi.Mode().IsRegular() {
 			return fmt.Errorf("clientconfig: %s is not a regular file (symlink?): refusing to write the token through it", path)
@@ -40,25 +46,8 @@ func WriteToken(dir, tok string) error {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("clientconfig: stat %s: %w", path, err)
 	}
-	tmp, err := os.CreateTemp(dir, TokenFileName+".tmp-*")
-	if err != nil {
-		return fmt.Errorf("clientconfig: create temp: %w", err)
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-	if err := tmp.Chmod(0o600); err != nil && runtime.GOOS != "windows" {
-		tmp.Close()
-		return fmt.Errorf("clientconfig: chmod temp: %w", err)
-	}
-	if _, err := tmp.WriteString(tok + "\n"); err != nil {
-		tmp.Close()
-		return fmt.Errorf("clientconfig: write temp: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("clientconfig: close temp: %w", err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		return fmt.Errorf("clientconfig: replace %s: %w", path, err)
+	if err := safewrite.WriteFileAtomicNoFollow(dir, path, []byte(tok+"\n"), 0o600); err != nil {
+		return fmt.Errorf("clientconfig: write %s: %w", path, err)
 	}
 	return nil
 }

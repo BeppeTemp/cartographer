@@ -176,3 +176,112 @@ func TestAssignedDefaultsArePersisted(t *testing.T) {
 		t.Errorf("change and change-back not persisted:\n%s", got)
 	}
 }
+
+// The generated client state below the user config directory is never written
+// through a link (#2365): a symlinked cartographer directory or leaf is
+// refused and the victim stays untouched; a symlinked ~/.config keeps working.
+func TestSaveDerivedRefusesSymlinks(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on Windows")
+	}
+	state := DerivedState{Bindings: map[string][]DerivedBinding{"claude": {{Path: "/x"}}}}
+	empty := func(t *testing.T, dir string) {
+		t.Helper()
+		if es, _ := os.ReadDir(dir); len(es) != 0 {
+			t.Errorf("%s was written to: %v", dir, es)
+		}
+	}
+	t.Run("directory", func(t *testing.T) {
+		home, victim := t.TempDir(), t.TempDir()
+		t.Setenv("HOME", home)
+		if err := os.MkdirAll(filepath.Join(home, ".config"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		link := filepath.Join(home, ".config", "cartographer")
+		if err := os.Symlink(victim, link); err != nil {
+			t.Fatal(err)
+		}
+		err := SaveDerived("/cfg", state)
+		if err == nil || !strings.Contains(err.Error(), "symlink") {
+			t.Fatalf("err = %v, want a symlink refusal", err)
+		}
+		empty(t, victim)
+		if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("the link was replaced (err %v)", err)
+		}
+	})
+	t.Run("leaf", func(t *testing.T) {
+		home, victim := t.TempDir(), t.TempDir()
+		t.Setenv("HOME", home)
+		cart := filepath.Join(home, ".config", "cartographer")
+		if err := os.MkdirAll(cart, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		target := filepath.Join(victim, "t.json")
+		writeFile(t, target, "keep", 0o644)
+		if err := os.Symlink(target, filepath.Join(cart, DerivedFileName)); err != nil {
+			t.Fatal(err)
+		}
+		if err := SaveDerived("/cfg", state); err == nil {
+			t.Fatal("a symlinked leaf was written")
+		}
+		if got, _ := os.ReadFile(target); string(got) != "keep" {
+			t.Errorf("target changed: %q", got)
+		}
+		if es, _ := os.ReadDir(cart); len(es) != 1 {
+			t.Errorf("temp file left behind: %v", es)
+		}
+	})
+	t.Run("config root link", func(t *testing.T) {
+		home, real := t.TempDir(), t.TempDir()
+		t.Setenv("HOME", home)
+		if err := os.Symlink(real, filepath.Join(home, ".config")); err != nil {
+			t.Fatal(err)
+		}
+		if err := SaveDerived("/cfg", state); err != nil {
+			t.Fatalf("a symlinked ~/.config must keep working: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(real, "cartographer", DerivedFileName)); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func TestWriteTokenRefusesASymlinkedLeaf(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on Windows")
+	}
+	dir, victim := t.TempDir(), t.TempDir()
+	target := filepath.Join(victim, "t")
+	writeFile(t, target, "keep", 0o600)
+	if err := os.Symlink(target, TokenPath(dir)); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteToken(dir, "tok"); err == nil {
+		t.Fatal("a symlinked token file was written")
+	}
+	if got, _ := os.ReadFile(target); string(got) != "keep" {
+		t.Errorf("target changed: %q", got)
+	}
+	if es, _ := os.ReadDir(dir); len(es) != 1 {
+		t.Errorf("temp file left behind: %v", es)
+	}
+}
+
+// A symlinked config directory (a dotfile manager's) still takes the token.
+func TestWriteTokenThroughASymlinkedConfigDir(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlinks need privileges on Windows")
+	}
+	real := t.TempDir()
+	dir := filepath.Join(t.TempDir(), "cfg")
+	if err := os.Symlink(real, dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteToken(dir, "tok"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := ReadToken(dir); got != "tok" {
+		t.Errorf("token = %q", got)
+	}
+}
