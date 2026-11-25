@@ -53,8 +53,9 @@ var Retired = settingschema.Registry{Removed: []settingschema.Removed{
 	movedTo("paths", "placeholders.paths"),
 	movedTo("ignored_paths", "placeholders.ignored"),
 	{From: "clients", To: "providers",
-		Description: "Which KBs each connected provider receives, as <provider>: {kbs: [...]}. A provider with no entry, or an entry without kbs, receives every known KB. clients.<provider>.access: read-min connects the provider read-only with the minimal tool list (written by `connect --access read-min`; remove the key to clear it). clients.claude.config_dirs lists extra Claude Code config directories (CLAUDE_CONFIG_DIR) whose .claude.json also receives the MCP entry. Edit it with `cartographer client`.",
+		Description: "Which KBs each connected provider receives, as <provider>: {kbs: [...]}. A provider with no entry, or an entry without kbs, receives every known KB. clients.<provider>.access: read-min connects the provider read-only with the minimal tool list (written by `connect --access read-min`; remove the key to clear it). clients.claude.config_dirs lists extra Claude Code config directories (CLAUDE_CONFIG_DIR) whose .claude.json also receives the MCP entry. With an explicit kbs list a provider also receives the KBs those KBs depend on, as the server last reported them to sync (their lineage): no_lineage: true follows none and exclude: [<kb>] never brings the named ones; the default and an entry without kbs get no lineage. Edit it with `cartographer client`.",
 		Previous: []string{
+			"Which KBs each connected provider receives, as <provider>: {kbs: [...]}. A provider with no entry, or an entry without kbs, receives every known KB. clients.<provider>.access: read-min connects the provider read-only with the minimal tool list (written by `connect --access read-min`; remove the key to clear it). clients.claude.config_dirs lists extra Claude Code config directories (CLAUDE_CONFIG_DIR) whose .claude.json also receives the MCP entry. Edit it with `cartographer client`.",
 			"Which KBs each connected provider receives, as <provider>: {kbs: [...]}. A provider with no entry receives every known KB. Edit it with `cartographer client`.",
 			"Which KBs each connected provider receives, as <provider>: {kbs: [...]}. A provider with no entry, or an entry without kbs, receives every known KB. clients.claude.config_dirs lists extra Claude Code config directories (CLAUDE_CONFIG_DIR) whose .claude.json also receives the MCP entry. Edit it with `cartographer client`.",
 		}},
@@ -91,7 +92,7 @@ var Retired = settingschema.Registry{Removed: []settingschema.Removed{
 // entry, which the table leaves to the file (the root and the groups follow the
 // table): `Schema.Reorder` and `client realign --reorder` write it.
 var layoutOrder = map[string][]string{
-	"providers":       {"kbs", "scope", "unbound_access", "config_dirs", "access", "tools", "allow_symlinks", "workspaces"},
+	"providers":       {"kbs", "scope", "unbound_access", "config_dirs", "access", "tools", "allow_symlinks", "no_lineage", "exclude", "workspaces"},
 	"knowledge_bases": {"access", "artifacts", "identity", "signing_keys"},
 }
 

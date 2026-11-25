@@ -426,3 +426,43 @@ func TestDerivedProjection_AntigravityLocalRulesFallback(t *testing.T) {
 		t.Errorf(".agents/rules/cartographer.md should be removed on prune, err=%v", err)
 	}
 }
+
+// AC-lineage-9: a lineage KB is never a seed of derivation: its paths.yaml
+// derives no binding, though the provider's BoundKBs includes it.
+func TestDerivationSeedsAreOwnKBs(t *testing.T) {
+	repo := cloneOf(t, "example.com/owner/core-tools")
+	cfg := workspaceScoped("claude", "kb-a", "core-kb")
+	cfg.Paths = map[string]string{"core-tools": repo}
+	if err := cfg.Bind("claude", "kb-a"); err != nil {
+		t.Fatal(err)
+	}
+	cfg.SetDerived(clientconfig.DerivedState{Lineage: map[string]clientconfig.DerivedLineage{"kb-a": {Closure: []string{"core-kb"}}}})
+	if bound, _ := cfg.BoundKBs("claude"); !containsString(bound, "core-kb") {
+		t.Fatalf("BoundKBs = %v, want the lineage KB", bound)
+	}
+	if _, cands := derivationScope(cfg, []string{"claude"}); containsString(cands, "core-kb") {
+		t.Errorf("a lineage KB is a derivation candidate: %v", cands)
+	}
+	decl := contract.PathRegistry{Repos: map[string]contract.PathDecl{"core-tools": {Description: "d", Remote: "example.com/owner/core-tools"}}}
+	st := derive(cfg, prefetchOf(map[string]contract.PathRegistry{"core-kb": decl}))
+	if len(st.Bindings["claude"]) != 0 {
+		t.Errorf("a lineage KB derived a binding: %+v", st.Bindings)
+	}
+}
+
+// A hand-edited exclude that names a KB the same binding binds is a doctor
+// warning, and the KB stays bound.
+func TestCheckLineageExclude(t *testing.T) {
+	cfg := clientconfig.Default()
+	cfg.Clients = map[string]clientconfig.ClientBinding{
+		"claude": {KBs: []string{"kb-a"}, KBsSet: true, Exclude: []string{"kb-a", "kb-c"}},
+		"codex":  {KBs: []string{"kb-a"}, KBsSet: true, Exclude: []string{"kb-c"}},
+	}
+	got := checkLineageExclude(t.TempDir(), cfg)
+	if len(got) != 1 || got[0].Check != "lineage-exclude" || !strings.Contains(got[0].Message, "providers.claude") || !strings.Contains(got[0].Message, "kb-a") {
+		t.Errorf("findings = %+v", got)
+	}
+	if kbs, _ := cfg.BoundKBs("claude"); len(kbs) != 1 || kbs[0] != "kb-a" {
+		t.Errorf("the KB must stay bound: %v", kbs)
+	}
+}

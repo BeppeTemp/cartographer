@@ -356,7 +356,8 @@ func clientRefs(old string) []string {
 }
 
 // bindingRefs lists this machine's client bindings that name the old KB, as
-// "providers.<p>" and "providers.<p>.workspaces <path>". None when the client points at a
+// "providers.<p>" and "providers.<p>.workspaces <path>" (a KB named only in an
+// exclude list counts: rewriteBindings and removeBindings handle it). None when the client points at a
 // non-loopback server: its bindings name that server's KBs, not the local one
 // being renamed (--local / --data on such a machine).
 func bindingRefs(old string) []string {
@@ -370,13 +371,13 @@ func bindingRefs(old string) []string {
 	}
 	var refs []string
 	for _, p := range slices.Sorted(maps.Keys(cfg.Clients)) {
-		if containsString(cfg.Clients[p].KBs, old) {
+		if b := cfg.Clients[p]; containsString(b.KBs, old) || containsString(b.Exclude, old) {
 			refs = append(refs, "providers."+p)
 		}
 	}
 	for _, p := range slices.Sorted(maps.Keys(cfg.Workspaces)) {
 		for _, w := range cfg.Workspaces[p] {
-			if containsString(w.KBs, old) {
+			if containsString(w.KBs, old) || containsString(w.Exclude, old) {
 				refs = append(refs, "providers."+p+".workspaces "+w.Path)
 			}
 		}
@@ -395,6 +396,7 @@ func rewriteBindings(old, newName string) error {
 	return withClientConfig(dir, func(cfg *clientconfig.Config) error {
 		for p, b := range cfg.Clients {
 			b.KBs = renameInList(b.KBs, old, newName)
+			b.Exclude = renameInList(b.Exclude, old, newName)
 			cfg.Clients[p] = b
 		}
 		for p, ws := range cfg.Workspaces {

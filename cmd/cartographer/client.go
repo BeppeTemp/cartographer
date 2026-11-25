@@ -254,10 +254,20 @@ func clientList(cfg *clientconfig.Config, args []string) int {
 	}
 	fmt.Printf("%-12s %-22s %s\n", "PROVIDER", "ORIGIN", "KBS")
 	for _, p := range cfg.Agents {
-		kbs, explicit := cfg.BoundKBs(p)
-		fmt.Printf("%-12s %-22s %s\n", p, bindingOrigin(explicit), formatKBList(kbs))
+		kbs, explicit := cfg.BoundOwnKBs(p)
+		fmt.Printf("%-12s %-22s %s%s\n", p, bindingOrigin(explicit), formatKBList(kbs), lineageNote(cfg, p))
 	}
 	return 0
+}
+
+// lineageNote is the suffix naming the KBs a provider receives by lineage
+// beside the written list ("" when it receives none).
+func lineageNote(cfg *clientconfig.Config, provider string) string {
+	l := cfg.ProviderLineage(provider)
+	if len(l) == 0 {
+		return ""
+	}
+	return " (+ by lineage: " + formatKBList(l) + ")"
 }
 
 func clientShow(cfg *clientconfig.Config, args []string) int {
@@ -271,9 +281,13 @@ func clientShow(cfg *clientconfig.Config, args []string) int {
 	}
 
 	kbs, explicit := cfg.BoundKBs(provider)
+	own, _ := cfg.BoundOwnKBs(provider)
 	fmt.Printf("provider   %s\n", provider)
 	fmt.Printf("origin     %s\n", bindingOrigin(explicit))
-	fmt.Printf("bound      %s\n", formatKBList(kbs))
+	fmt.Printf("bound      %s\n", formatKBList(own))
+	if l := cfg.ProviderLineage(provider); len(l) > 0 {
+		fmt.Printf("lineage    %s\n", formatKBList(l))
+	}
 
 	// What a provider does NOT receive is the half a binding is declared for,
 	// and it cannot be derived from the line above without the known set.
@@ -325,7 +339,7 @@ func clientBind(dir string, cfg *clientconfig.Config, args []string) int {
 		return 2
 	}
 
-	before, wasExplicit := cfg.BoundKBs(provider)
+	before, wasExplicit := cfg.BoundOwnKBs(provider)
 	var added []string
 	for _, kb := range kbs {
 		if (wasExplicit && slices.Contains(before, kb)) || slices.Contains(added, kb) {
@@ -368,8 +382,9 @@ func clientBind(dir string, cfg *clientconfig.Config, args []string) int {
 		}
 	}
 
+	own, _ := cfg.BoundOwnKBs(provider)
 	bound, _ := cfg.BoundKBs(provider)
-	fmt.Printf("%s bound to %s (added: %s)\n", provider, formatKBList(bound), addedList(added))
+	fmt.Printf("%s bound to %s%s (added: %s)\n", provider, formatKBList(own), lineageNote(cfg, provider), addedList(added))
 	warnProviderCollisions(cfg, provider, bound)
 	fmt.Println("run `cartographer sync` to apply")
 	return 0
@@ -405,7 +420,7 @@ func clientUnbind(dir string, cfg *clientconfig.Config, args []string) int {
 
 	// Unbinding what is not bound changes nothing: say so rather than answer as
 	// if it had worked.
-	before, explicit := cfg.BoundKBs(provider)
+	before, explicit := cfg.BoundOwnKBs(provider)
 	for _, kb := range kbs {
 		switch {
 		case !explicit:
@@ -424,8 +439,8 @@ func clientUnbind(dir string, cfg *clientconfig.Config, args []string) int {
 		return code
 	}
 
-	bound, explicit := cfg.BoundKBs(provider)
-	fmt.Printf("%s bound to %s\n", provider, formatKBList(bound))
+	bound, explicit := cfg.BoundOwnKBs(provider)
+	fmt.Printf("%s bound to %s%s\n", provider, formatKBList(bound), lineageNote(cfg, provider))
 	if explicit && len(bound) == 0 {
 		// Deleting the entry here would silently restore "every known KB",
 		// which is the opposite of what removing the last KB asks for.

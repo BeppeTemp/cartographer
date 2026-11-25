@@ -850,6 +850,7 @@ The checks:
 | `update_available` | a newer release is in the update cache (D254). Info severity; the fix is the channel's upgrade command. Cache only, so doctor stays offline |
 | `workspace` | each workspace binding of a provider in workspace scope: the directory is there and readable, its remote is the one bound, Codex trusts it; and, in a git repository, the untracked files under the provider's directories (hook companions such as `.codex/hooks.json` and the OpenCode plugins included) that neither the `info/exclude` block nor an ignore file covers (#1199); for a derived Claude Code binding, a tracked `.claude/settings.json` holding Cartographer hook entries, which a derived binding registers in `.claude/settings.local.json` (D1198). Warning severity; `sync` rewrites the block, and a file of the user's is committed or ignored |
 | `unbound-residue` | no managed file comes from a KB no longer bound to the provider holding it (D170) — a projection predating an unbind, or a hand-edited lockfile. Only for providers with an explicit binding; a file with no recorded source (a lockfile written before D170) is unknown, not wrong, and never reported. A file that comes from `plugin:<name>` is reported for every provider, explicit binding or not, when `<name>` is no longer in the config's `plugins` ("comes from plugin x, which is no longer installed"); a configured plugin never is |
+| `lineage-exclude` | a binding (provider or workspace) lists in `exclude` a KB it also binds in `kbs`: only a hand edit writes it, and the KB stays bound (`exclude` removes only KBs that came by lineage); warning |
 
 **Severities.** `error` — something is broken now (a managed file missing, a hook firing twice);
 `warning` — something is stale or suboptimal (v1 lockfile, a lockfile entry whose path leaves the Compass directory and is ignored on read, no trigger for a hook-less provider, a
@@ -1713,6 +1714,8 @@ providers:                      # one entry per provider (D1731); a provider wit
     config_dirs: [~/.claude/accounts/b]   # extra Claude Code config dirs (CLAUDE_CONFIG_DIR) whose .claude.json also gets the MCP entry (D755); claude only; does not make the binding explicit
     access: read                # with tools: minimal, the read-min profile of `connect --access read-min` (D1184)
     tools: minimal
+    no_lineage: false           # with kbs: true follows none of the KBs the bound KBs depend on; absent = they are followed (their stored closure, set by `sync`)
+    exclude: [core-kb]          # with kbs: KBs never brought by lineage; one that is also in kbs is a mistake (own KBs stay bound)
     workspaces:                 # explicit workspace bindings, [{path, kbs, worktrees}] (D193); set by `cartographer workspace bind`
       - path: ~/projects/work
         kbs: [homelab]

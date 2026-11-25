@@ -110,7 +110,8 @@ func derivationScope(cfg *clientconfig.Config, targets []string) (providers, can
 			continue
 		}
 		providers = append(providers, p)
-		bound, _ := cfg.BoundKBs(p)
+		// The own list: a lineage KB is never a seed of derivation.
+		bound, _ := cfg.BoundOwnKBs(p)
 		for _, kb := range bound {
 			if !seen[kb] {
 				seen[kb] = true
@@ -147,7 +148,7 @@ func computeDerived(cfg *clientconfig.Config, targets, providers []string, pre *
 	}
 
 	for _, p := range providers {
-		bound, _ := cfg.BoundKBs(p)
+		bound, _ := cfg.BoundOwnKBs(p)
 		if pre == nil || pre.cs.HasBare {
 			// No KB to read a declaration from, or no KB names to bind to:
 			// nothing derives (fail closed).

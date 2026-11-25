@@ -29,6 +29,8 @@ type providerEntry struct {
 	Access        string             `yaml:"access,omitempty"`
 	Tools         string             `yaml:"tools,omitempty"`
 	AllowSymlinks []string           `yaml:"allow_symlinks,omitempty"`
+	NoLineage     bool               `yaml:"no_lineage,omitempty"`
+	Exclude       []string           `yaml:"exclude,omitempty"`
 	Workspaces    []WorkspaceBinding `yaml:"workspaces,omitempty"`
 }
 
@@ -68,6 +70,7 @@ func (c *Config) groups() (defaultsGroup, map[string]providerEntry, map[string]k
 				kbs = []string{}
 			}
 			e.KBs = &kbs
+			e.NoLineage, e.Exclude = b.NoLineage, b.Exclude
 		}
 		if b.Access == AccessReadMin {
 			e.Access, e.Tools = accessRead, toolsMinimal
@@ -148,6 +151,9 @@ func (c *Config) applyGroups(y *yamlConfig, path string) error {
 		}
 		if len(e.AllowSymlinks) > 0 {
 			b.AllowSymlinks = e.AllowSymlinks
+		}
+		if e.KBs != nil {
+			b.NoLineage, b.Exclude = e.NoLineage, e.Exclude
 		}
 		// An entry that sets nothing at all is an empty binding, as clients: {p: {}} was.
 		if set || had || (e.Scope == "" && e.UnboundAccess == "" && len(e.Workspaces) == 0) {

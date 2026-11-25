@@ -163,3 +163,28 @@ func TestCmdKBUnmount_Refusals(t *testing.T) {
 		}
 	})
 }
+
+// A KB named only in an exclude list leaves it on unmount: a name that no
+// longer exists must not stay in the person's file.
+func TestCmdKBUnmount_DropsAnExcludeOnlyReference(t *testing.T) {
+	if !hasGitBinary() {
+		t.Skip("git not available")
+	}
+	home := writeExcludeOnlyBindings(t)
+	dataDir, _ := seedPushedKB(t, "wiki")
+	cfgPath := writeServerConfig(t, "data: "+dataDir+"\nkbs:\n  - remote: https://git.example.com/user/wiki.git\n    name: wiki\n")
+	code, out := runUnmount(t, "wiki", "--data", dataDir, "--config", cfgPath)
+	if code != 0 {
+		t.Fatalf("exit = %d:\n%s", code, out)
+	}
+	c, err := clientconfig.Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := c.Clients["claude"].Exclude; len(got) != 0 {
+		t.Errorf("clients.claude.exclude = %v, want empty", got)
+	}
+	if got := c.Workspaces["kiro"][0].Exclude; len(got) != 0 {
+		t.Errorf("workspaces.kiro[0].exclude = %v, want empty", got)
+	}
+}

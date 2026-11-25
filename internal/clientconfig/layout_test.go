@@ -219,6 +219,43 @@ server:
   url: https://cartographer.example.com/mcp
 `
 
+// AC-lineage-8: no_lineage and exclude round-trip in the flat and the grouped
+// layout, and leave with the binding on a reset.
+func TestLineageKeysRoundTrip(t *testing.T) {
+	for name, file := range map[string]string{
+		"flat":    "clients:\n  claude:\n    kbs: [client-kb]\n    no_lineage: true\n    exclude: [core-kb]\n",
+		"grouped": "providers:\n  claude:\n    kbs: [client-kb]\n    no_lineage: true\n    exclude: [core-kb]\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(clientconfig.Path(dir), []byte(file), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := clientconfig.Load(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if b := cfg.Clients["claude"]; !b.NoLineage || strings.Join(b.Exclude, ",") != "core-kb" {
+				t.Fatalf("loaded %+v", b)
+			}
+			if err := clientconfig.Save(dir, cfg); err != nil {
+				t.Fatal(err)
+			}
+			back, err := clientconfig.Load(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if b := back.Clients["claude"]; !b.NoLineage || strings.Join(b.Exclude, ",") != "core-kb" || strings.Join(b.KBs, ",") != "client-kb" {
+				t.Errorf("round trip %+v", b)
+			}
+			back.ResetBinding("claude")
+			if b, ok := back.Clients["claude"]; ok && (b.NoLineage || len(b.Exclude) > 0) {
+				t.Errorf("reset kept %+v", b)
+			}
+		})
+	}
+}
+
 // The migration writes the schema order, comments and unknown keys kept; a file
 // that needs no migration keeps its order until `client realign --reorder`.
 func TestMigrationWritesSchemaOrderAndReorderFileRewritesAnExistingFile(t *testing.T) {

@@ -25,6 +25,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"maps"
 	"net"
 	"os"
 	"path/filepath"
@@ -239,6 +240,7 @@ func runDoctor(dir, only string) doctorReport {
 			findings = append(findings, checkHookRegistrations(dir, providers, lockFile)...)
 			findings = append(findings, checkOpenCodePluginShape(dir, providers, lockFile)...)
 		}
+		findings = append(findings, checkLineageExclude(dir, cfg)...)
 		findings = append(findings, checkMCPEntries(dir, cfg, providers)...)
 		findings = append(findings, checkServerCAExpiry(cfg, time.Now())...)
 		// One probe for the whole run (an unreachable server costs one
@@ -1180,6 +1182,37 @@ func checkCapabilities(dir string, cfg *clientconfig.Config, facts serverFacts, 
 					Fix:     "add a kbs[] entry only to set its remote, name or branch for this server",
 				})
 			}
+		}
+	}
+	return out
+}
+
+// checkLineageExclude: an exclude list that names a KB the same binding binds is
+// a contradiction. The KB stays bound (exclude removes only KBs that came by
+// lineage); the entry is the mistake, and `workspace bind` and the provider
+// setter refuse to write it, so only a hand edit gets here.
+func checkLineageExclude(dir string, cfg *clientconfig.Config) []doctorFinding {
+	var out []doctorFinding
+	report := func(where string, kbs, exclude []string) {
+		for _, kb := range exclude {
+			if containsString(kbs, kb) {
+				out = append(out, doctorFinding{
+					Check: "lineage-exclude", Severity: doctorWarning, Path: filepath.Join(dir, clientconfig.FileName),
+					Message: fmt.Sprintf("%s binds KB %q and also lists it in exclude: the KB stays bound", escapeControl(where), escapeControl(kb)),
+					Fix:     fmt.Sprintf("remove %q from kbs or from exclude of %s", escapeControl(kb), escapeControl(where)),
+				})
+			}
+		}
+	}
+	for _, p := range slices.Sorted(maps.Keys(cfg.Clients)) {
+		b := cfg.Clients[p]
+		if b.Explicit() {
+			report("providers."+p, b.KBs, b.Exclude)
+		}
+	}
+	for _, p := range slices.Sorted(maps.Keys(cfg.Workspaces)) {
+		for _, w := range cfg.Workspaces[p] {
+			report("providers."+p+".workspaces "+w.Path, w.KBs, w.Exclude)
 		}
 	}
 	return out
