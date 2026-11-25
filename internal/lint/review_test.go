@@ -316,7 +316,7 @@ func TestReviewDuplicateCandidate_ResourceNeedsSimilarTitle(t *testing.T) {
 
 func TestReviewDuplicateActionSatellite(t *testing.T) {
 	t.Parallel()
-	if got := duplicateAction(idsOf("m/x", "m/x/y"), false); !strings.Contains(got, "concept_merge m/x/y into its parent m/x") || !strings.Contains(got, "link each") || !strings.Contains(got, "only when the KB's maintainers choose it") || !strings.Contains(got, "delete the child") {
+	if got := duplicateAction(idsOf("m/x", "m/x/y"), false); !strings.Contains(got, "concept_merge m/x/y into its parent m/x") || strings.Contains(got, "link each") || !strings.Contains(got, "concept_move") || !strings.Contains(got, "only when the KB's maintainers choose it") || !strings.Contains(got, "delete the child") {
 		t.Fatalf("satellite pair: %q", got)
 	}
 	if got := duplicateAction(idsOf("m/x", "m/z"), false); strings.Contains(got, "concept_merge") {
@@ -1518,5 +1518,52 @@ func TestRepeatedFact_JournalPagesDoNotCount(t *testing.T) {
 	got := itemsOf(review(t, k), ReviewRepeatedFact)
 	if len(got) != 1 || got[0].Weight != 3 || strings.Contains(strings.Join(got[0].Concepts, ","), "j/") {
 		t.Fatalf("want three non-journal owners only: %+v", got)
+	}
+}
+
+func TestQualifiedSatellite(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		a, b okf.ConceptID
+		ta   string
+		tb   string
+		want bool
+	}{
+		{"variant", "m/vuln-1", "m/vuln-1/lang-a-vuln-1", "Vulnerability 1", "Lang-A Vulnerability 1", true},
+		{"variant segment carries word", "m/vuln-1", "m/vuln-1/lang-vulnerability-1", "Vulnerability 1", "Lang Vulnerability 1", true},
+		{"multi-word addition", "m/vuln-1", "m/vuln-1/lang-a-vulnerability-1", "Vulnerability 1", "Lang A Vulnerability 1", true},
+		{"one word outside", "m/vuln-1", "m/vuln-1/lang-vulnerability-1", "Vulnerability 1", "Lang Extra Vulnerability 1", false},
+		{"same words", "m/vuln-1", "m/vuln-1/vulnerability-1", "Vulnerability 1", "Vulnerability 1", false},
+		{"parent tokens not contained", "m/vuln-1", "m/vuln-1/lang-other", "Vulnerability 1", "Lang Other", false},
+		{"siblings", "m/a", "m/b", "Vulnerability 1", "Lang Vulnerability 1", false},
+		{"three-level child", "m/vuln-1", "m/vuln-1/x/lang-vulnerability-1", "Vulnerability 1", "Lang Vulnerability 1", false},
+	}
+	for _, c := range cases {
+		titles := map[okf.ConceptID]string{c.a: c.ta, c.b: c.tb}
+		if got := qualifiedSatellite(c.a, c.b, titles); got != c.want {
+			t.Errorf("%s: qualifiedSatellite = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestReviewDuplicateSkipsQualifiedSatellite(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "m/_map.md", "---\ntype: Map\ntitle: M\n---\n")
+	for id, title := range map[string]string{
+		"vuln-1":                        "Vulnerability 1",
+		"vuln-1/lang-a-vulnerability-1": "Lang-A Vulnerability 1",
+		"secrets":                       "Secrets and Credential Management",
+		"secrets/management":            "Secrets Management",
+	} {
+		writeFile(t, k.DataRoot(), "m/"+id+".md", "---\ntype: Task\ntitle: "+title+"\n---\n")
+	}
+	var got []string
+	for _, it := range itemsOf(review(t, k), ReviewDuplicate) {
+		got = append(got, strings.Join(it.Concepts, "|"))
+	}
+	if want := []string{"m/secrets|m/secrets/management"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("duplicate items = %v, want %v", got, want)
 	}
 }
