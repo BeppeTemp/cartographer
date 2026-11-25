@@ -250,3 +250,159 @@ func TestFetchMergedManifestForRefusesArtifactWithoutSourceLabel(t *testing.T) {
 		}
 	}
 }
+
+// A KB neither bound nor in known_kbs: --kb says to bind it or run sync,
+// before any request (#2347). A known KB that ships no such name keeps its
+// message; a per-KB endpoint and a bare server skip the guard.
+func TestFetchMergedManifestForUnknownKBSaysToSync(t *testing.T) {
+	hits := 0
+	srv := prefixAwareMCPServer(t, map[string]string{"kb-a": "", "kb-b": ""}, "sync_pull", func(kb string) string {
+		hits++
+		return syncPullPayload(t, kb, "skill-"+kb)
+	})
+	defer srv.Close()
+	cfg := &clientconfig.Config{ServerURL: srv.URL + "/mcp", KnownKBs: []string{"kb-a"}, Agents: []string{"claude"}}
+
+	_, err := fetchMergedManifestFor(cfg, "kb-new")
+	if err == nil || !strings.Contains(err.Error(), "run cartographer sync") || !strings.Contains(err.Error(), "kb-new") {
+		t.Fatalf("unknown KB: error = %v, want the run-sync hint", err)
+	}
+	if hits != 0 {
+		t.Errorf("%d pulls before the guard, want none", hits)
+	}
+
+	m, err := fetchMergedManifestFor(cfg, "kb-a")
+	if err != nil || len(m.Artifacts) != 1 || m.Artifacts[0].Source != "kb:kb-a" {
+		t.Fatalf("known KB: %+v, %v", m.Artifacts, err)
+	}
+
+	perKB := &clientconfig.Config{ServerURL: srv.URL + "/mcp/kb-b", KnownKBs: []string{"kb-a"}, Agents: []string{"claude"}}
+	if _, err := fetchMergedManifestFor(perKB, "kb-b"); err != nil && strings.Contains(err.Error(), "run cartographer sync") {
+		t.Errorf("per-KB endpoint guarded: %v", err)
+	}
+
+	bare := prefixAwareMCPServer(t, map[string]string{}, "sync_pull", func(string) string { return syncPullPayload(t, "", "bare-skill") })
+	defer bare.Close()
+	bcfg := &clientconfig.Config{ServerURL: bare.URL + "/mcp", Agents: []string{"claude"}}
+	if _, err := fetchMergedManifestFor(bcfg, "kb-new"); err != nil {
+		t.Errorf("bare server guarded: %v", err)
+	}
+}
+
+// Command level: approve --kb on an unsynced KB exits 2 with the hint.
+func TestApproveKBNotSyncedExitsWithSyncHint(t *testing.T) {
+	home := t.TempDir()
+	setHome(t, home)
+	if err := clientconfig.Save(home, &clientconfig.Config{ServerURL: "https://cartographer.example/mcp", KnownKBs: []string{"kb-a"}, Agents: []string{"claude"}}); err != nil {
+		t.Fatal(err)
+	}
+	oldM := approveManifest
+	approveManifest = fetchMergedManifestFor
+	t.Cleanup(func() { approveManifest = oldM })
+	var code int
+	stderr := withStderr(t, func() { code = cmdApprove([]string{"mcp", "x", "--kb", "kb-new", "--yes"}) })
+	if code != 2 || !strings.Contains(stderr, "run cartographer sync") {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+}
+
+// boundNotSyncedConfig: kb-a is known, kb-new is bound with it to one
+// workspace but not in known_kbs yet (#2349).
+func boundNotSyncedConfig(t *testing.T, srvURL string) *clientconfig.Config {
+	t.Helper()
+	cfg := &clientconfig.Config{ServerURL: srvURL + "/mcp", KnownKBs: []string{"kb-a"}, Agents: []string{"claude"}}
+	if err := cfg.SetWorkspaceScope("claude", clientconfig.ScopeWorkspace); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.BindWorkspace("claude", t.TempDir(), []string{"kb-a", "kb-new"}); err != nil {
+		t.Fatal(err)
+	}
+	return cfg
+}
+
+// A bound KB not yet synced is pulled: its name collision with a known KB of
+// the projection is seen before the first sync, and --kb on it works.
+func TestFetchMergedManifestForPullsBoundNotSyncedKB(t *testing.T) {
+	srv := prefixAwareMCPServer(t, map[string]string{"kb-a": "", "kb-new": ""}, "sync_pull", func(kb string) string {
+		return syncPullPayload(t, kb, "shared")
+	})
+	defer srv.Close()
+	cfg := boundNotSyncedConfig(t, srv.URL)
+	for _, kb := range []string{"kb-a", "kb-new", ""} {
+		_, err := fetchMergedManifestFor(cfg, kb)
+		var ce *provisioning.CollisionError
+		if !errors.As(err, &ce) || !strings.Contains(err.Error(), "kb:kb-new") {
+			t.Errorf("kb %q: error = %v, want the collision with kb-new", kb, err)
+		}
+	}
+
+	ok := prefixAwareMCPServer(t, map[string]string{"kb-a": "", "kb-new": ""}, "sync_pull", func(kb string) string {
+		return syncPullPayload(t, kb, "skill-"+kb)
+	})
+	defer ok.Close()
+	m, err := fetchMergedManifestFor(boundNotSyncedConfig(t, ok.URL), "kb-new")
+	if err != nil || len(m.Artifacts) != 2 {
+		t.Fatalf("approve --kb kb-new: %+v, %v", m.Artifacts, err)
+	}
+}
+
+// A bound-only KB the server does not mount leaves out its projections with a
+// warning; the others are still judged.
+func TestFetchMergedManifestForBoundKBNotMountedIsSkippedWithWarning(t *testing.T) {
+	srv := prefixAwareMCPServer(t, map[string]string{"kb-a": "", "kb-b": ""}, "sync_pull", func(kb string) string {
+		return syncPullPayload(t, kb, "skill-"+kb)
+	})
+	defer srv.Close()
+	cfg := boundNotSyncedConfig(t, srv.URL)
+	cfg.KnownKBs = []string{"kb-a", "kb-b"}
+	if err := cfg.BindWorkspace("claude", t.TempDir(), []string{"kb-b"}); err != nil {
+		t.Fatal(err)
+	}
+	var m contract.Manifest
+	var err error
+	stderr := withStderr(t, func() { m, err = fetchMergedManifestFor(cfg, "") })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr, "warning: kb-new is bound but could not be pulled; collisions with it were not checked") {
+		t.Errorf("stderr = %q, want the warning", stderr)
+	}
+	got := map[string]bool{}
+	for _, a := range m.Artifacts {
+		got[a.Source] = true
+	}
+	if !got["kb:kb-b"] {
+		t.Errorf("sources = %v, want kb-b judged despite the missing kb-new", got)
+	}
+}
+
+// A known KB the server does not mount stays fatal, bound or not.
+func TestFetchMergedManifestForKnownKBFailureStaysFatal(t *testing.T) {
+	srv := prefixAwareMCPServer(t, map[string]string{"kb-new": ""}, "sync_pull", func(kb string) string {
+		return syncPullPayload(t, kb, "skill-"+kb)
+	})
+	defer srv.Close()
+	_, err := fetchMergedManifestFor(boundNotSyncedConfig(t, srv.URL), "")
+	if err == nil || !strings.Contains(err.Error(), "kb-a") {
+		t.Fatalf("error = %v, want the failure of known kb-a", err)
+	}
+}
+
+// A per-KB endpoint pulls its own KB only, as before.
+func TestFetchMergedManifestForPerKBEndpointIgnoresBound(t *testing.T) {
+	srv := prefixAwareMCPServer(t, map[string]string{"kb-a": "", "kb-new": ""}, "sync_pull", func(string) string {
+		return syncPullPayload(t, "kb-a", "skill-a")
+	})
+	defer srv.Close()
+	cfg := boundNotSyncedConfig(t, srv.URL)
+	cfg.ServerURL = srv.URL + "/mcp/kb-a"
+	m, err := fetchMergedManifestFor(cfg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range m.Artifacts {
+		if a.Source != "kb:kb-a" {
+			t.Errorf("artifact %s from %s, want kb-a only", a.Name, a.Source)
+		}
+	}
+}

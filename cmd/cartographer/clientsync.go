@@ -512,15 +512,50 @@ func fetchMergedManifest(cfg *clientconfig.Config) (contract.Manifest, error) {
 // A KB no projection receives is merged alone: approve and mcp probe still see
 // what it advertises.
 func fetchMergedManifestFor(cfg *clientconfig.Config, kb string) (contract.Manifest, error) {
-	kbs := cfg.KnownKBs
-	if name := client.PerKBName(cfg.ServerURL); name != "" {
+	kbs := slices.Clone(cfg.KnownKBs)
+	perKB := client.PerKBName(cfg.ServerURL)
+	projections := approveProjections(cfg)
+	if perKB != "" {
 		// A per-KB endpoint serves its own KB only: the other KBs of the
 		// server are not this client's (#2172).
-		kbs = []string{name}
+		kbs = []string{perKB}
+	} else {
+		// approve judges what sync will pull: the known KBs and the ones the
+		// projections are bound to, not yet synced (#2349). With kb set, only
+		// the KBs of the projections that receive it.
+		bound := false
+		for _, p := range projections {
+			if kb != "" && !slices.Contains(p.KBs, kb) {
+				continue
+			}
+			for _, k := range p.KBs {
+				if k == kb {
+					bound = true
+				}
+				if !slices.Contains(kbs, k) {
+					kbs = append(kbs, k)
+				}
+			}
+		}
+		if kb != "" && len(kbs) > 0 && !slices.Contains(cfg.KnownKBs, kb) && !bound {
+			// Neither synced nor bound: nothing here can see it (#2347). Say
+			// so before any network call.
+			return contract.Manifest{}, fmt.Errorf("KB %s is not bound to any folder and not synced yet (not in known_kbs); bind it with cartographer workspace bind or run cartographer sync first, then retry", escapeControl(kb))
+		}
 	}
-	cs, err := fetchCandidates(cfg, kbs)
+	cs, failed, err := fetchCandidatesPartial(cfg, kbs)
 	if err != nil {
 		return contract.Manifest{}, err
+	}
+	// A failure of a known KB stays fatal; a bound-only KB (not mounted,
+	// unreadable) leaves out the projections that need it, as sync does.
+	unavailable := map[string]bool{}
+	for _, f := range failed {
+		if perKB != "" || slices.Contains(cfg.KnownKBs, f.KB) {
+			return contract.Manifest{}, f.Err
+		}
+		unavailable[f.KB] = true
+		fmt.Fprintf(os.Stderr, "warning: %s is bound but could not be pulled; collisions with it were not checked: %v\n", escapeControl(f.KB), f.Err)
 	}
 	pins, err := pinnedPublicKeys(cfg)
 	if err != nil {
@@ -561,8 +596,11 @@ func fetchMergedManifestFor(cfg *clientconfig.Config, kb string) (contract.Manif
 	}
 	reached := map[string]bool{}
 	judged := 0
-	for _, p := range approveProjections(cfg) {
+	for _, p := range projections {
 		if kb != "" && !slices.Contains(p.KBs, kb) {
+			continue
+		}
+		if needsAny(p.KBs, unavailable) {
 			continue
 		}
 		for _, k := range p.KBs {
@@ -577,7 +615,7 @@ func fetchMergedManifestFor(cfg *clientconfig.Config, kb string) (contract.Manif
 		}
 	}
 	for _, k := range kbs {
-		if reached[k] || (kb != "" && k != kb) {
+		if reached[k] || unavailable[k] || (kb != "" && k != kb) {
 			continue
 		}
 		// A provider that failed to resolve its projections (allProjectionsPartial)
