@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
@@ -25,12 +27,19 @@ type lineageServer struct {
 	skipped   []string
 	relations map[string]*contract.Relations // nil value: the field is absent (an older server)
 	errKB     map[string]bool
-	noRead    map[string]bool // relations_unavailable: the server could not read them
+	noRead    map[string]bool           // relations_unavailable: the server could not read them
+	registry  map[string]map[string]any // KB -> path_registry
+	pulls     map[string]int            // sync_pull calls per KB
+	routed    string                    // routed endpoint path in /health, "" for none
+	// instructions: every KB's pull also carries an instructions artifact.
+	instructions bool
+	// hookKB: the KB whose pull also carries a hook.
+	hookKB string
 }
 
 func newLineageServer(t *testing.T, mounted ...string) *lineageServer {
 	t.Helper()
-	s := &lineageServer{mounted: mounted, relations: map[string]*contract.Relations{}, errKB: map[string]bool{}, noRead: map[string]bool{}}
+	s := &lineageServer{mounted: mounted, relations: map[string]*contract.Relations{}, errKB: map[string]bool{}, noRead: map[string]bool{}, registry: map[string]map[string]any{}, pulls: map[string]int{}}
 	s.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		defer s.mu.Unlock()
@@ -43,7 +52,11 @@ func newLineageServer(t *testing.T, mounted ...string) *lineageServer {
 			for _, n := range s.skipped {
 				skipped = append(skipped, map[string]any{"name": n, "reason": "clone failed"})
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"status": "ok", "kbs": kbs, "skipped_kbs": skipped})
+			h := map[string]any{"status": "ok", "kbs": kbs, "skipped_kbs": skipped}
+			if s.routed != "" {
+				h["routed_path"], h["mount_mode"] = s.routed, "routed"
+			}
+			_ = json.NewEncoder(w).Encode(h)
 			return
 		}
 		var req struct {
@@ -52,11 +65,36 @@ func newLineageServer(t *testing.T, mounted ...string) *lineageServer {
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		kb := r.URL.Query().Get("kb")
 		text, isErr := "", false
+		s.pulls[kb]++
 		if s.errKB[kb] {
 			text, isErr = "relations unavailable", true
 		} else {
 			var m map[string]any
 			_ = json.Unmarshal([]byte(syncPullPayload(t, kb, "skill-"+kb)), &m)
+			if s.instructions {
+				body := []byte("# section of " + kb + "\n")
+				files := []contract.ArtifactFile{{Path: "instructions.md", Content: body}}
+				arts, _ := m["artifacts"].([]any)
+				m["artifacts"] = append(arts, map[string]any{"kind": "instructions", "name": kb, "source": "kb:" + kb,
+					"content_hash": provisioning.ContentHashFiles(files),
+					"files":        []map[string]any{{"path": "instructions.md", "content_b64": base64.StdEncoding.EncodeToString(body)}}})
+			}
+			if kb != "" && kb == s.hookKB {
+				files := []contract.ArtifactFile{
+					{Path: "hook.json", Content: []byte(`{"event":"SessionStart","command":"./run.sh"}`)},
+					{Path: "run.sh", Content: []byte("#!/bin/sh\n"), Executable: true},
+				}
+				var fs []map[string]any
+				for _, f := range files {
+					fs = append(fs, map[string]any{"path": f.Path, "content_b64": base64.StdEncoding.EncodeToString(f.Content), "executable": f.Executable})
+				}
+				arts, _ := m["artifacts"].([]any)
+				m["artifacts"] = append(arts, map[string]any{"kind": "hook", "name": "guard", "source": "kb:" + kb,
+					"content_hash": provisioning.ContentHashFiles(files), "files": fs})
+			}
+			if reg := s.registry[kb]; reg != nil {
+				m["path_registry"] = reg
+			}
 			if s.noRead[kb] {
 				m["relations_unavailable"] = true
 			} else if rel := s.relations[kb]; rel != nil {
@@ -421,5 +459,279 @@ func TestLineageKeptWhenKBListUnknown(t *testing.T) {
 	}
 	if !reflect.DeepEqual(notes.Unlisted, []string{"kb-a"}) {
 		t.Errorf("notes = %+v", notes)
+	}
+}
+
+// registryOf is a path_registry that declares one repository.
+func registryOf(key, remote string) map[string]any {
+	return map[string]any{"repos": map[string]any{key: map[string]any{"description": "d", "remote": remote}}}
+}
+
+// workspaceLineageEnv is a workspace-scoped claude whose KB client-kb declares
+// a repository on this machine and depends on core-kb.
+func workspaceLineageEnv(t *testing.T) (*lineageEnv, string) {
+	t.Helper()
+	repo := cloneOf(t, "example.com/owner/worked-on")
+	srv := newLineageServer(t, "client-kb", "core-kb")
+	srv.registry["client-kb"] = registryOf("worked-on", "example.com/owner/worked-on")
+	srv.relations["client-kb"] = closureOf("core-kb")
+	srv.relations["core-kb"] = closureOf()
+	e := newLineageEnv(t, srv, claudeBound("client-kb"))
+	e.cfg.Paths = map[string]string{"worked-on": repo}
+	if err := e.cfg.SetWorkspaceScope("claude", clientconfig.ScopeWorkspace); err != nil {
+		t.Fatal(err)
+	}
+	if err := clientconfig.Save(e.dir, e.cfg); err != nil {
+		t.Fatal(err)
+	}
+	return e, repo
+}
+
+func (e *lineageEnv) syncOut(t *testing.T, opts syncOptions) (stdout, stderr string, err error) {
+	t.Helper()
+	cfg, err := clientconfig.Load(e.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errw bytes.Buffer
+	opts.Streams = syncStreams{Out: &out, Err: &errw}
+	_, err = runSync(e.dir, cfg, opts)
+	return out.String(), errw.String(), err
+}
+
+func repoSkill(repo, kb string) bool {
+	_, err := os.Stat(filepath.Join(repo, ".claude", "skills", "skill-"+kb, "SKILL.md"))
+	return err == nil
+}
+
+// AC-lineage-14: one sync binds a derived repository to its KB and to the
+// KB's closure, and the lineage KB's skills are projected into it.
+func TestSyncBindsLineageInOneRun(t *testing.T) {
+	e, repo := workspaceLineageEnv(t)
+	out, _, err := e.syncOut(t, syncOptions{})
+	if err != nil {
+		t.Fatalf("sync: %v", err)
+	}
+	if !repoSkill(repo, "client-kb") || !repoSkill(repo, "core-kb") {
+		t.Errorf("the repository did not receive both KBs (client-kb %v, core-kb %v)", repoSkill(repo, "client-kb"), repoSkill(repo, "core-kb"))
+	}
+	if !strings.Contains(out, "bound by lineage: core-kb (from client-kb) in "+repo) {
+		t.Errorf("no lineage line:\n%s", out)
+	}
+}
+
+// AC-lineage-15: the relation going is applied by the next sync, which prunes
+// the lineage KB's artifacts and says so.
+func TestSyncUnbindsLineageWhenRelationGoes(t *testing.T) {
+	e, repo := workspaceLineageEnv(t)
+	if _, _, err := e.syncOut(t, syncOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	e.srv.set(func(s *lineageServer) { s.relations["client-kb"] = closureOf() })
+	out, _, err := e.syncOut(t, syncOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repoSkill(repo, "core-kb") || !repoSkill(repo, "client-kb") {
+		t.Errorf("after the relation went: core-kb %v, client-kb %v", repoSkill(repo, "core-kb"), repoSkill(repo, "client-kb"))
+	}
+	if !strings.Contains(out, "no longer bound by lineage: core-kb in "+repo) {
+		t.Errorf("no removal line:\n%s", out)
+	}
+}
+
+// AC-lineage-16: a lineage KB whose pull fails skips the projections that hold
+// it, and the seed's previous lineage entry is kept.
+func TestSyncLineagePullFailureSkipsHolders(t *testing.T) {
+	e, repo := workspaceLineageEnv(t)
+	e.srv.set(func(s *lineageServer) { s.errKB["core-kb"] = true })
+	_, stderr, err := e.syncOut(t, syncOptions{})
+	if err == nil || !strings.Contains(err.Error()+stderr, "core-kb") {
+		t.Fatalf("err = %v, stderr = %s: want the failed KB reported", err, stderr)
+	}
+	if repoSkill(repo, "client-kb") || repoSkill(repo, "core-kb") {
+		t.Error("the projection holding the failed KB was applied")
+	}
+	if got := e.lineage()["client-kb"].Closure; len(got) != 0 {
+		t.Errorf("stored closure = %v, want the previous (none)", got)
+	}
+}
+
+// A lineage KB another provider already pulls as its own seed is covered by
+// the candidates, not by the lineage pull: its failure still puts the stored
+// entry of the seed naming it back.
+func TestSyncLineagePullFailureOfSeedElsewhereKeepsStoredEntry(t *testing.T) {
+	// opencode holds only plain-kb, so the run survives the failed pull and
+	// reaches the commit of the derived state.
+	e, _ := workspaceLineageEnv(t)
+	e.srv.mounted = append(e.srv.mounted, "plain-kb")
+	e.srv.set(func(s *lineageServer) { s.relations["client-kb"] = closureOf(); s.relations["plain-kb"] = closureOf() })
+	e.cfg.KnownKBs = e.srv.mounted
+	e.cfg.Clients["codex"] = clientconfig.ClientBinding{KBs: []string{"core-kb"}, KBsSet: true}
+	e.cfg.Clients["opencode"] = clientconfig.ClientBinding{KBs: []string{"plain-kb"}, KBsSet: true}
+	e.cfg.Agents = append(e.cfg.Agents, "codex", "opencode")
+	if err := clientconfig.Save(e.dir, e.cfg); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := e.syncOut(t, syncOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.srv.set(func(s *lineageServer) {
+		s.relations["client-kb"] = closureOf("core-kb")
+		s.errKB["core-kb"] = true
+	})
+	_, _, err = e.syncOut(t, syncOptions{})
+	if err == nil {
+		t.Fatal("want the failed pull reported")
+	}
+	if got := e.lineage()["client-kb"].Closure; len(got) != 0 {
+		t.Errorf("stored closure = %v, want the previous (none)", got)
+	}
+}
+
+// AC-lineage-17: each KB is pulled once per sync.
+func TestSyncPullsEachKBOnce(t *testing.T) {
+	e, _ := workspaceLineageEnv(t)
+	for i := 0; i < 2; i++ {
+		e.srv.set(func(s *lineageServer) { s.pulls = map[string]int{} })
+		if _, _, err := e.syncOut(t, syncOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		e.srv.set(func(s *lineageServer) {
+			for _, kb := range []string{"client-kb", "core-kb"} {
+				if s.pulls[kb] != 1 {
+					t.Errorf("sync %d pulled %s %d times, want once", i+1, kb, s.pulls[kb])
+				}
+			}
+		})
+	}
+}
+
+// AC-lineage-18, and the carry-over of the usage test: a provider-scope
+// provider bound to client-kb gets core-kb in the entry and in the provisioned
+// content (artifacts, instructions, revision) of the sync that learns it.
+func TestSyncProviderScopeEntryCarriesLineage(t *testing.T) {
+	for _, routed := range []string{"/mcp/kb", ""} {
+		srv := newLineageServer(t, "client-kb", "core-kb")
+		srv.routed, srv.instructions = routed, true
+		srv.relations["client-kb"] = closureOf("core-kb")
+		srv.relations["core-kb"] = closureOf()
+		e := newLineageEnv(t, srv, claudeBound("client-kb"))
+		out, _, err := e.syncOut(t, syncOptions{})
+		if err != nil {
+			t.Fatalf("routed=%q: %v", routed, err)
+		}
+		if !e.skill("client-kb") || !e.skill("core-kb") {
+			t.Errorf("routed=%q: artifacts client-kb %v, core-kb %v", routed, e.skill("client-kb"), e.skill("core-kb"))
+		}
+		lock, err := os.ReadFile(lockFilePath(e.dir))
+		if err != nil || !strings.Contains(string(lock), "core-kb") {
+			t.Errorf("routed=%q: the lock does not name core-kb (%v)", routed, err)
+		}
+		if !strings.Contains(out, "claude: core-kb bound by lineage (from client-kb)") {
+			t.Errorf("routed=%q: no provider line:\n%s", routed, out)
+		}
+		mcp := e.mcpConfig(t)
+		if routed != "" && !strings.Contains(mcp, "kbs=client-kb%2Ccore-kb") && !strings.Contains(mcp, "kbs=client-kb,core-kb") {
+			t.Errorf("routed entry does not carry core-kb:\n%s", mcp)
+		}
+		if routed == "" && !strings.Contains(mcp, "cartographer-core-kb") {
+			t.Errorf("no per-KB entry for core-kb:\n%s", mcp)
+		}
+		if !strings.Contains(e.instructions(t), "core-kb") {
+			t.Errorf("routed=%q: the instructions block does not name core-kb", routed)
+		}
+	}
+}
+
+// mcpConfig is every JSON file under the config dir and HOME that holds an MCP
+// entry, concatenated.
+func (e *lineageEnv) mcpConfig(t *testing.T) string {
+	t.Helper()
+	var sb strings.Builder
+	for _, root := range []string{e.dir, os.Getenv("HOME")} {
+		_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+			if err == nil && !d.IsDir() && strings.HasSuffix(p, ".json") && !strings.Contains(p, "workspace-derived") {
+				b, _ := os.ReadFile(p)
+				sb.Write(b)
+			}
+			return nil
+		})
+	}
+	return sb.String()
+}
+
+// instructions is the managed instructions files under the config dir.
+func (e *lineageEnv) instructions(t *testing.T) string {
+	t.Helper()
+	var sb strings.Builder
+	_ = filepath.WalkDir(e.dir, func(p string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && strings.HasSuffix(p, ".md") && !strings.Contains(p, "/skills/") {
+			b, _ := os.ReadFile(p)
+			sb.Write(b)
+		}
+		return nil
+	})
+	return sb.String()
+}
+
+// AC-lineage-19: a KB that appears with a paths.yaml and a depends_on yields
+// the derived-binding line, the lineage line and the sum in one run; a second
+// identical sync prints none; --dry-run prints them with `would` and writes
+// nothing.
+func TestSyncCombinedEffectOneRun(t *testing.T) {
+	e, repo := workspaceLineageEnv(t)
+	before := e.state(t)
+	out, _, err := e.syncOut(t, syncOptions{DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"[dry-run] bound by paths.yaml: client-kb in " + repo, "[dry-run] bound by lineage: core-kb (from client-kb) in " + repo, "[dry-run] this sync would widen what is bound: 1 repository(ies) bound by paths.yaml, 2 KB(s) brought by lineage"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("dry run misses %q:\n%s", want, out)
+		}
+	}
+	if !reflect.DeepEqual(before, e.state(t)) || repoSkill(repo, "client-kb") {
+		t.Error("the dry run wrote something")
+	}
+	out, _, err = e.syncOut(t, syncOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"bound by paths.yaml: client-kb in " + repo, "bound by lineage: core-kb (from client-kb) in " + repo, "this sync widened what is bound: 1 repository(ies) bound by paths.yaml, 2 KB(s) brought by lineage; review with cartographer status"} {
+		if strings.Count(out, want) != 1 {
+			t.Errorf("sync misses %q once:\n%s", want, out)
+		}
+	}
+	if lc := clientconfig.LoadDerived(e.dir).LastChange; lc == nil || len(lc.Added) != 3 {
+		t.Errorf("last_change = %+v, want the three additions", lc)
+	}
+	out, _, err = e.syncOut(t, syncOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "bound by") || strings.Contains(out, "widened") {
+		t.Errorf("an unchanged sync announced something:\n%s", out)
+	}
+}
+
+// AC-lineage-20: a hook of a lineage KB is not installed by the relation
+// appearing: it waits for `approve --kb <lineage-kb>`, like a hand-bound KB's.
+func TestSyncLineageApprovals(t *testing.T) {
+	e, repo := workspaceLineageEnv(t)
+	e.srv.set(func(s *lineageServer) { s.hookKB = "core-kb" })
+	out, _, err := e.syncOut(t, syncOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "needs_approval: hook/guard [kb:core-kb]") {
+		t.Errorf("the lineage KB's hook is not waiting for approval:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".claude", "hooks", "guard", "run.sh")); err == nil {
+		t.Error("the lineage KB's hook was installed with no approval")
+	}
+	if !repoSkill(repo, "core-kb") {
+		t.Error("the lineage KB's skill was not applied")
 	}
 }

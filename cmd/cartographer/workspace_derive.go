@@ -5,6 +5,7 @@ import (
 	"io"
 	"slices"
 	"sort"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
@@ -44,6 +45,9 @@ func (p *prefetched) covers(kbs []string) bool {
 
 // failedFor returns the prefetch's failures restricted to kbs.
 func (p *prefetched) failedFor(kbs []string) []kbPullFailure {
+	if p == nil {
+		return nil
+	}
 	want := make(map[string]bool, len(kbs))
 	for _, kb := range kbs {
 		want[kb] = true
@@ -71,13 +75,14 @@ func (p *prefetched) failedFor(kbs []string) []kbPullFailure {
 // It also stores the lineage of every seed KB (computeLineage). skipped names
 // the KBs the server was told to serve and could not mount (nil when /health
 // was not read): a lineage KB in it is held, not unbound.
-func deriveWorkspaceBindings(cfg *clientconfig.Config, targets []string, dir string, dryRun bool, skipped []string, errw io.Writer) (*prefetched, func() error, error) {
+func deriveWorkspaceBindings(cfg *clientconfig.Config, targets []string, dir string, dryRun bool, skipped []string, errw io.Writer) (*prefetched, widening, func() error, error) {
+	before := bindingSnapshot(cfg, targets)
 	providers, candidates := derivationScope(cfg, targets)
 	var pre *prefetched
 	if len(candidates) > 0 {
 		cs, failed, err := fetchCandidatesPartial(cfg, candidates)
 		if err != nil {
-			return nil, nil, err
+			return nil, widening{}, nil, err
 		}
 		kbs := make(map[string]bool, len(candidates))
 		for _, kb := range candidates {
@@ -100,7 +105,32 @@ func deriveWorkspaceBindings(cfg *clientconfig.Config, targets []string, dir str
 	if notes.Predates {
 		fmt.Fprintln(errw, "server predates KB relations: lineage left as it was")
 	}
+	// The stored state before this run: what a failed pull puts back, read
+	// before SetDerived replaces it.
+	stored := cfg.Derived()
 	cfg.SetDerived(next)
+
+	// Lineage KBs are pulled once, here, for the manifest build to reuse. A
+	// failed one skips its holders (its failure is in pre) while the stored
+	// entry of its seeds is put back: stored state never names a KB nothing
+	// could apply, whether the failed pull was this one or a candidate's.
+	if extra := lineageKBsToPull(cfg, targets, pre); len(extra) > 0 {
+		cs, failed, err := fetchCandidatesPartial(cfg, extra)
+		if err != nil {
+			return nil, widening{}, nil, err
+		}
+		pre = pre.merge(&prefetched{cs: cs, failed: failed, kbs: map[string]bool{}})
+		for _, kb := range extra {
+			pre.kbs[kb] = true
+		}
+	}
+	if pre != nil {
+		next.Lineage = restoredLineage(stored, next.Lineage, pre.failed, errw)
+	}
+	widened := diffSnapshots(before, bindingSnapshot(cfg, targets), pre)
+	if len(widened.Added)+len(widened.Removed) > 0 {
+		next.LastChange = widened.record(time.Now())
+	}
 
 	commit := func() error {
 		if dryRun {
@@ -112,7 +142,7 @@ func deriveWorkspaceBindings(cfg *clientconfig.Config, targets []string, dir str
 		}
 		return clientconfig.SaveDerived(dir, next)
 	}
-	return pre, commit, nil
+	return pre, widened, commit, nil
 }
 
 // derivationScope returns the targeted providers that derive bindings (in

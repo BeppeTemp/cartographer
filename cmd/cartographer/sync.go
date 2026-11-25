@@ -410,6 +410,8 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	facts, healthErr := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.Token, cfg.InsecureHTTPAllowed())
 	kbs := facts.Names
 	var entriesByProvider map[string][]mcpEntry
+	var entryKBs []string
+	var routedPath string
 	if healthErr != nil {
 		fmt.Fprintf(errw, "Warning: MCP entry reconciliation skipped, server unreachable: %v\n", healthErr)
 	} else {
@@ -420,22 +422,17 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		if notice := syncServerChangeNotice(dir, targets, facts.Version); notice != "" {
 			fmt.Fprintln(out, notice)
 		}
-		entryKBs := kbs
+		entryKBs = kbs
 		if !facts.Listed {
 			entryKBs = nil
 		}
 		// D187: the live topology wins over the persisted one, and is persisted
 		// with the rest of the server-owned cache below.
-		routedPath := facts.RoutedPath
+		routedPath = facts.RoutedPath
 		cfg.ServerRoutedPath = routedPath
 		cfg.ServerMountMode = ""
 		if routedPath != "" {
 			cfg.ServerMountMode = "routed"
-		}
-		var err error
-		entriesByProvider, err = entriesByProviderForKBs(cfg, targets, cfg.ServerName, cfg.ServerURL, entryKBs, routedPath)
-		if err != nil {
-			return syncResult{}, err
 		}
 		// Refresh the in-memory cache so the manifest pull below resolves
 		// default bindings against what the server mounts now. Persisting it
@@ -457,9 +454,16 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 			skippedKBNames = append(skippedKBNames, k.Name)
 		}
 	}
-	pre, commitDerived, err := deriveWorkspaceBindings(cfg, targets, dir, opts.DryRun, skippedKBNames, errw)
+	pre, widened, commitDerived, err := deriveWorkspaceBindings(cfg, targets, dir, opts.DryRun, skippedKBNames, errw)
 	if err != nil {
 		return syncResult{}, fmt.Errorf("%w (no configuration was modified)", err)
+	}
+	// After the derivation: the routed `?kbs=` and the per-KB entries carry the
+	// lineage KBs of the sync that learned them.
+	if healthErr == nil {
+		if entriesByProvider, err = entriesByProviderForKBs(cfg, targets, cfg.ServerName, cfg.ServerURL, entryKBs, routedPath); err != nil {
+			return syncResult{}, err
+		}
 	}
 	// A provider whose projections cannot be resolved (an explicit workspace that
 	// is gone) is left as it is and reported at the end, like one bound to a KB
@@ -563,6 +567,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		fmt.Fprintf(errw, "warning: %s\n", escapeControl(w))
 	}
 
+	printWidenedBindings(out, widened, opts.DryRun)
 	if err := commitDerived(); err != nil {
 		return syncResult{}, err
 	}
@@ -612,6 +617,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		return syncResult{}, err
 	}
 	printApplySummary(out, dir, results, opts.DryRun, mcpNotReceivedReasons(projections, manifests, approvals, dir))
+	printSyncWidening(out, syncWidening{Derived: widened.countPaths(clientconfig.LastChangeViaPaths), Lineage: widened.count(clientconfig.LastChangeViaLineage)}, opts.DryRun)
 	// What the server left out of its catalogue (#1775): once per run, not once
 	// per provider.
 	for _, is := range manifestIssues(manifests) {

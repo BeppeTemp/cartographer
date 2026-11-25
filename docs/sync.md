@@ -649,6 +649,22 @@ unchanged.
   entry stays as it was, `sync` prints `held <kb>: the server could not mount it`, and the projections
   that keep it are skipped like any failed pull, so nothing is pruned for a mount failure; the next
   sync that finds it neither in the closure nor in `skipped_kbs` unbinds it.
+- **`sync` applies the lineage in the same run and says what it widened.** The KBs the effective
+  bindings and provider sets hold by lineage and no pull covered are pulled once, right after the
+  lineage is stored, and merged into the pulls the manifest build reuses (a KB is pulled once per run,
+  and the lineage KBs' own `relations` are not read). Their artifacts, instructions and MCP scope reach
+  the repository or the provider in that run: the routed `?kbs=` and the per-KB entries are built after
+  the derivation, so they carry them too. A lineage KB whose pull fails skips every projection that holds
+  it, like a hand-bound KB (#350), and the stored entry of each seed that names it is put back as it was.
+  Before the apply, `sync` prints `bound by paths.yaml: <kb> in <path>`, `bound by lineage: <kb> (from
+  <seed>) in <path>` and `<provider>: <kb> bound by lineage (from <seed>)` (and the `no longer bound
+  by ...` forms) for what changed against the previous derived file, under the `[dry-run]` prefix in a
+  dry run; after the apply summary, one `this sync widened what is bound: ...` line (its `<n> repository(ies) bound by paths.yaml` counts distinct repositories, not (KB, path) pairs) (`would widen` in a
+  dry run) when a count is non-zero. The change is recorded in `last_change` of the derived file; a run
+  that changes nothing prints and writes nothing. A relation that changes on the server is applied by
+  the next `sync` only (it is outside `revision`), and approvals are untouched: a hook, an executable
+  skill or an MCP descriptor of a lineage KB is `needs_approval` until `approve <kind> <name> --kb
+  <lineage-kb>`.
 - **Derived state, not a preference.** The list is recomputed by every `sync` from the registries
   it pulls and stored apart from `.cartographer.yaml`, next to the repo index cache
   (`workspace-derived.json`). A repository that stops being declared, gets `bind: false` or
@@ -1049,8 +1065,7 @@ A KB declares the KBs it depends on in `depends_on` of its `settings.yaml`
 (`docs/kb-relations.md`). `sync_pull` serves, per KB, the resolved view as
 `relations` (`declared`, `resolved`, `closure`, `unresolved`; see
 `docs/control-plane.md`): always present, with empty arrays when the KB declares none, so an
-absent field means a server that predates it, unless `relations_unavailable: true` is there: the relations could not be read (the artifacts are delivered all the same, and `issues` says so), which a client must not read as "no dependencies". It is outside `revision` and every signature. `sync` reads it to store the
-lineage (§Workspace scope).
+absent field means a server that predates it, unless `relations_unavailable: true` is there: the relations could not be read (the artifacts are delivered all the same, and `issues` says so), which a client must not read as "no dependencies". It is outside `revision` and every signature. `sync` binds the closure (§Workspace scope).
 
 ## MCP servers (D69, D116)
 
