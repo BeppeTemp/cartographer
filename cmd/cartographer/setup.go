@@ -495,7 +495,12 @@ var (
 	// setupMountedKBs lists the KBs the answering server mounts; listed is false
 	// when /health does not say (routing off, or it does not answer).
 	setupMountedKBs = func() (names []string, listed bool) {
-		h, err := fetchHealth(serverBaseURL(""))
+		// /health: the health listener when TLS is on (config.TLSHealthAddr).
+		base := serverHealthBaseURL("")
+		if base == "" {
+			return nil, false
+		}
+		h, err := fetchHealth(base)
 		if err != nil || h.KBs == nil {
 			return nil, false
 		}
@@ -517,7 +522,9 @@ var (
 	// not "the KBs are there", and connect run against a bootstrapping server
 	// writes the bare entry and defers the sync.
 	setupWaitBootstrapped = func() bool {
-		return waitHealthyFor(serverBaseURL(""), "", setupReadyTimeout)
+		// /health: the health listener when TLS is on (config.TLSHealthAddr).
+		base := serverHealthBaseURL("")
+		return base != "" && waitHealthyFor(base, "", setupReadyTimeout)
 	}
 	setupProbeAuth = func(addr string) (bool, error) { return service.ProbeAuthRequired(addr, 5*time.Second) }
 )
@@ -528,6 +535,9 @@ const setupProbeTimeout = 30 * time.Second
 // first clone of a large repository takes minutes, not the ten seconds of a
 // restart.
 const setupReadyTimeout = 5 * time.Minute
+
+// errSetupTLS stops setup before any probe when the configured server serves TLS.
+var errSetupTLS = errors.New("the local server has tls.enabled set: setup provisions the cleartext loopback service and cannot probe or connect a TLS server; use `cartographer connect --server-url https://...` instead")
 
 func gatherSetupFacts(o setupOptions) (setupFacts, error) {
 	f := setupFacts{GitFound: setupLookGit()}
@@ -560,6 +570,11 @@ func gatherSetupFacts(o setupOptions) (setupFacts, error) {
 	}
 	if st, err := setupServiceStatus(); err == nil {
 		f.Service = st
+		// setup provisions the cleartext loopback service: our TLS server
+		// answers a clear probe with 400, which would classify as foreign.
+		if st.TLS {
+			return f, errSetupTLS
+		}
 	}
 	f.Backend = setupBackend()
 	// A bootstrapping server answers too; a listener that does not answer like
@@ -1108,7 +1123,9 @@ func setupAuthMismatch() string {
 		}
 	}
 	st, err := setupServiceStatus()
-	if err != nil || st.HTTPAddr == "" {
+	// A TLS server answers /mcp in clear with 400: the check says nothing
+	// (the health listener, config.TLSHealthAddr, never serves /mcp).
+	if err != nil || st.HTTPAddr == "" || st.TLS {
 		return ""
 	}
 	required, err := setupProbeAuth(st.HTTPAddr)
@@ -1143,7 +1160,9 @@ func authMismatchMessage(addr, configPath string, inShell bool, authEnv string) 
 func waitSetupReady() (service.Status, bool) {
 	// The same condition as before the agents step: answering AND done loading
 	// its KBs (waitHealthyFor), then the status for the Atlas URL.
-	ready := waitHealthyFor(serverBaseURL(""), "", restartWaitTimeout)
+	// /health: the health listener when TLS is on (config.TLSHealthAddr).
+	base := serverHealthBaseURL("")
+	ready := base != "" && waitHealthyFor(base, "", restartWaitTimeout)
 	st, _ := setupServiceStatus()
 	return st, ready
 }

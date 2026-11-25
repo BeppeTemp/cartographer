@@ -419,6 +419,7 @@ func (m *Manager) cronBin() (string, error) {
 
 // cronRunning is Status.Running for the cron backend: registered and not
 // stopped on purpose, with a live process of ours or a /health answer.
+// The /health read goes to config.TLSHealthAddr when TLS is on (configProbeAddr).
 func (m *Manager) cronRunning(configPath string) bool {
 	if p, err := statePath("server.stopped"); err == nil && fileExists(p) {
 		return false
@@ -426,7 +427,8 @@ func (m *Manager) cronRunning(configPath string) bool {
 	if m.ownPID(configPath) != 0 {
 		return true
 	}
-	addr := configHTTPAddr(configPath)
+	// A /health read: the health listener when TLS is on (config.TLSHealthAddr).
+	addr := configProbeAddr(configPath)
 	return addr != "" && listenerAt(addr) == ListenerCartographer
 }
 

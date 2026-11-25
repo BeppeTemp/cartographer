@@ -458,3 +458,18 @@ func TestClientModeTokenRejected(t *testing.T) {
 		t.Errorf("header = %+v", h)
 	}
 }
+
+// AC-tls-native-17: with TLS on the local probe reads the health listener, not
+// the public address; with the health listener off nothing is probed.
+func TestProbeReadsTheHealthListenerWithTLS(t *testing.T) {
+	f := &clientEnv{status: service.Status{Installed: true, HTTPAddr: "127.0.0.1:1", TLS: true, ProbeAddr: "127.0.0.1:2"}}
+	snap(f.deps())
+	if !reflect.DeepEqual(f.localProbed, []string{"127.0.0.1:2"}) {
+		t.Errorf("local probes %v, want the health listener only", f.localProbed)
+	}
+	f = &clientEnv{status: service.Status{Installed: true, HTTPAddr: "127.0.0.1:1", TLS: true}}
+	snap(f.deps())
+	if len(f.localProbed) != 0 {
+		t.Errorf("health_addr off: probed %v", f.localProbed)
+	}
+}

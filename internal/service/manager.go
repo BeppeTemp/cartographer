@@ -1167,6 +1167,7 @@ type ReplaceOptions struct {
 // failures, non-200 responses, and an old version are retried; a malformed
 // /health response fails immediately. Zero mounted KBs do not affect this —
 // /health stays 200 regardless of readiness (D84).
+// The /health probes below go to config.TLSHealthAddr when TLS is on (cfg.LocalProbeAddr).
 func (m *Manager) Replace(opts ReplaceOptions) error {
 	configPath, err := m.EffectiveConfigPath(opts.ConfigPath)
 	if err != nil {
@@ -1183,18 +1184,26 @@ func (m *Manager) Replace(opts ReplaceOptions) error {
 	// Best-effort: what answers before the signal is the process that must not
 	// count as the replacement (D266). Without it an empty or "dev" expected
 	// version accepted the old process still draining.
-	before, beforeErr := ProbeHealth(cfg.HTTP, healthTimeout)
+	//
+	// The probes read /health on cfg.LocalProbeAddr(), the loopback health
+	// listener when TLS is on (config.TLSHealthAddr): the public port would
+	// answer a clear request with 400.
+	probeAddr := cfg.LocalProbeAddr()
+	if probeAddr == "" {
+		return fmt.Errorf("service: nothing was restarted: %s", errNoHealthListener)
+	}
+	before, beforeErr := ProbeHealth(probeAddr, healthTimeout)
 	// A denied probe cannot prove the replacement either: restarting a server
 	// that cannot be told from outside would leave it unverified (#2165).
 	if ProbeDenied(beforeErr) {
-		return fmt.Errorf("service: nothing was restarted: %s", DeniedMessage(cfg.HTTP))
+		return fmt.Errorf("service: nothing was restarted: %s", DeniedMessage(probeAddr))
 	}
 
 	if err := m.signalGraceful(); err != nil {
 		return fmt.Errorf("service: graceful restart: %w", err)
 	}
 
-	err = m.waitServing(cfg.HTTP, configPath, opts, before)
+	err = m.waitServing(probeAddr, configPath, opts, before)
 	if err == nil || goos != "darwin" {
 		return err
 	}
@@ -1207,11 +1216,11 @@ func (m *Manager) Replace(opts ReplaceOptions) error {
 	// launch constraint recorded for the binary the job was registered with, so
 	// a replaced binary can fail to spawn (EX_CONFIG) however often the job is
 	// restarted: only a bootout + bootstrap refreshes it (#2177).
-	noticef("note: the in-place restart did not bring %s up on the expected build; re-registering the launchd job (bootout + bootstrap)", healthURL(cfg.HTTP))
+	noticef("note: the in-place restart did not bring %s up on the expected build; re-registering the launchd job (bootout + bootstrap)", healthURL(probeAddr))
 	if rerr := m.reregisterLaunchd(); rerr != nil {
 		return fmt.Errorf("%w; re-registering the launchd job failed: %v%s", err, rerr, m.launchdStateSuffix())
 	}
-	if err2 := m.waitServing(cfg.HTTP, configPath, opts, before); err2 != nil {
+	if err2 := m.waitServing(probeAddr, configPath, opts, before); err2 != nil {
 		return fmt.Errorf("%w (after re-registering the launchd job)%s", err2, m.launchdStateSuffix())
 	}
 	noticef("note: the service came up after re-registering the launchd job")
@@ -1222,6 +1231,7 @@ func (m *Manager) Replace(opts ReplaceOptions) error {
 // build), after a restart the caller already made: it signals nothing. A
 // service configured without an HTTP address has nothing to verify. On darwin
 // the error carries the job's launchctl state (#2177).
+// The /health read goes to config.TLSHealthAddr when TLS is on (cfg.LocalProbeAddr).
 func (m *Manager) VerifyServing(opts ReplaceOptions) error {
 	configPath, err := m.EffectiveConfigPath(opts.ConfigPath)
 	if err != nil {
@@ -1231,10 +1241,13 @@ func (m *Manager) VerifyServing(opts ReplaceOptions) error {
 	if err != nil {
 		return fmt.Errorf("service: load config %s: %w", configPath, err)
 	}
-	if cfg.HTTP == "" {
+	// /health is read on the loopback health listener when TLS is on
+	// (config.TLSHealthAddr); with tls.health_addr off there is nothing to read.
+	probeAddr := cfg.LocalProbeAddr()
+	if cfg.HTTP == "" || probeAddr == "" {
 		return nil
 	}
-	if err := m.waitServing(cfg.HTTP, configPath, opts, HealthStatus{}); err != nil {
+	if err := m.waitServing(probeAddr, configPath, opts, HealthStatus{}); err != nil {
 		return fmt.Errorf("%w%s", err, m.launchdStateSuffix())
 	}
 	return nil
@@ -1356,6 +1369,20 @@ const (
 	LifecycleLoaded Lifecycle = "loaded"
 )
 
+// errNoHealthListener is why a TLS server cannot be probed: tls.health_addr is
+// off, so nothing answers /health in clear.
+const errNoHealthListener = "tls.enabled is set and tls.health_addr is off: the server cannot be probed from here"
+
+// ProbeTarget is the address a /health read of the status targets
+// (config.TLSHealthAddr when TLS is on): ProbeAddr, or HTTPAddr for a Status
+// that carries no ProbeAddr and no TLS. "" when TLS is on without a health listener.
+func (s Status) ProbeTarget() string {
+	if s.ProbeAddr == "" && !s.TLS {
+		return s.HTTPAddr
+	}
+	return s.ProbeAddr
+}
+
 // HealthSkip* are the reasons Status did not perform the /health probe. When
 // one is set, Healthy is not a verdict: nothing was measured.
 const (
@@ -1370,6 +1397,9 @@ const (
 	// HealthSkipDenied: the OS refused the connection to the address (a sandbox
 	// without network access): the server was not measured, #2165.
 	HealthSkipDenied = "connection_denied"
+	// HealthSkipNoHealthListener: TLS is on and tls.health_addr is off, so no
+	// clear loopback address answers /health: the server is not probeable.
+	HealthSkipNoHealthListener = "no_health_listener"
 )
 
 // Status reports the current state of the service.
@@ -1408,9 +1438,15 @@ type Status struct {
 	ServiceArgsStale bool
 	ConfigPath       string
 	HTTPAddr         string
-	Installed        bool
-	Running          bool
-	Healthy          bool
+	// ProbeAddr is where /health and /ready are read (cfg.LocalProbeAddr(),
+	// config.TLSHealthAddr): HTTPAddr, or the loopback health listener when TLS
+	// is on, "" when TLS is on and tls.health_addr is off. Never call /mcp on it.
+	ProbeAddr string
+	// TLS: the server serves TLS on HTTPAddr.
+	TLS       bool
+	Installed bool
+	Running   bool
+	Healthy   bool
 	// ForeignListener: the probe ran and a program that is not a Cartographer
 	// server answers on HTTPAddr (a 200 without a Cartographer /health body, or
 	// another status). Healthy is false then, and the port is not free (#1998).
@@ -1540,11 +1576,18 @@ func (m *Manager) Status(configPath string) (Status, error) {
 		st.HealthSkipReason = HealthSkipStdio
 	default:
 		st.HTTPAddr = cfg.HTTP
+		st.ProbeAddr, st.TLS = cfg.LocalProbeAddr(), cfg.TLS.Enabled
 		st.HealthChecked = true
 		// Healthy needs a Cartographer answer: another program on the port
 		// is not a healthy service (#1998). A denied connect measured nothing:
 		// the check is skipped with its reason, never reported unhealthy (D174).
-		switch ProbeListener(cfg.HTTP, healthTimeout) {
+		probe := ProbeListener(st.ProbeAddr, healthTimeout)
+		if st.ProbeAddr == "" {
+			probe = ListenerNone
+			st.HealthChecked = false
+			st.HealthSkipReason = HealthSkipNoHealthListener
+		}
+		switch probe {
 		case ListenerCartographer:
 			st.Healthy = true
 		case ListenerForeign:
@@ -1586,6 +1629,7 @@ func (m *Manager) TrayView(explicitConfig string) (Status, error) {
 		return st, nil // nothing to probe, as in Status
 	}
 	st.HTTPAddr = cfg.HTTP
+	st.ProbeAddr, st.TLS = cfg.LocalProbeAddr(), cfg.TLS.Enabled
 	if st.Installed && cfg.Web.Enabled {
 		st.UIURL = webui.URL(cfg.HTTP, cfg.TLS.Enabled)
 	}
@@ -1640,5 +1684,9 @@ func ProbeAuthRequired(addr string, timeout time.Duration) (bool, error) {
 		return false, err
 	}
 	resp.Body.Close()
+	// A TLS server read in clear answers 400: that is not "no token required".
+	if resp.StatusCode == http.StatusBadRequest {
+		return false, errors.New("service: the server answered 400 to a clear request: tls.enabled is set, so this check cannot read it")
+	}
 	return resp.StatusCode == http.StatusUnauthorized, nil
 }

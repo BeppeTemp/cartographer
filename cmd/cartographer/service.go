@@ -454,7 +454,8 @@ func serviceBuildSkew(st service.Status) (bool, string) {
 	if !st.Installed || !st.HealthChecked || !st.Healthy || version == "" || version == "dev" {
 		return false, ""
 	}
-	hs, err := repairProbeHealthFn(st.HTTPAddr, repairHealthProbeTimeout)
+	// A /health read: st.ProbeTarget() is the health listener when TLS is on (config.TLSHealthAddr).
+	hs, err := repairProbeHealthFn(st.ProbeTarget(), repairHealthProbeTimeout)
 	if err != nil || hs.Status != "ok" || hs.Version != version || buildid.Same(hs.Build, buildid.Self()) {
 		return false, ""
 	}
@@ -487,7 +488,7 @@ func printServiceStatus(w io.Writer, st service.Status, serverURL string) {
 			// A measured fact, not a verdict (D174): the exit code stays 4.
 			fmt.Fprintf(w, "  a server answers on %s but no service is installed (started by hand?)\n", st.HTTPAddr)
 		} else if st.ForeignListener {
-			fmt.Fprintf(w, "  %s\n", foreignListenerLine(st.HTTPAddr))
+			fmt.Fprintf(w, "  %s\n", foreignListenerLine(st.ProbeTarget()))
 		}
 		fmt.Fprintf(w, "  install one with: cartographer service install --data %s\n", defaultDataDir())
 	}
@@ -507,7 +508,7 @@ func foreignListenerLine(addr string) string {
 // rendered as `healthy: false`: nothing was measured.
 func serviceHealthLine(st service.Status) string {
 	if st.HealthChecked && st.ForeignListener {
-		return fmt.Sprintf("healthy:   false (%s)", foreignListenerLine(st.HTTPAddr))
+		return fmt.Sprintf("healthy:   false (%s)", foreignListenerLine(st.ProbeTarget()))
 	}
 	if st.HealthChecked {
 		return fmt.Sprintf("healthy:   %v (http %s)", st.Healthy, st.HTTPAddr)
@@ -531,6 +532,8 @@ func healthSkipExplanation(reason string) string {
 		return "server config could not be read"
 	case service.HealthSkipDenied:
 		return service.DeniedMessage("")
+	case service.HealthSkipNoHealthListener:
+		return "TLS is on and tls.health_addr is off: the server is not probeable locally; set tls.health_addr, or probe https://... by hand"
 	default:
 		return reason
 	}

@@ -993,7 +993,13 @@ func cmdKBList(args []string) int {
 		return 1
 	}
 
-	mounted, mountErr := mountedKBNames(serverBaseURL(*configFlag))
+	var mounted map[string]bool
+	var mountErr error
+	if base := serverHealthBaseURL(*configFlag); base == "" {
+		mountErr = errNoHealthListenerKB
+	} else {
+		mounted, mountErr = mountedKBNames(base)
+	}
 	if mountErr == nil {
 		for i := range rows {
 			m := mounted[rows[i].Name]
@@ -1320,6 +1326,42 @@ func serverBaseURL(configPath string) string {
 	return httpAddrToBaseURL(defaults.DefaultListenAddress)
 }
 
+// serverHealthBaseURL is serverBaseURL for the readers of /health: the base of
+// cfg.LocalProbeAddr(), the loopback health listener when TLS is on
+// (config.TLSHealthAddr), which answers /health and /ready only: never call
+// /mcp on it. "" when TLS is on and tls.health_addr is off (nothing to read).
+func serverHealthBaseURL(configPath string) string {
+	if configPath == "" {
+		if p, err := service.ConfigPath(); err == nil {
+			configPath = p
+		}
+	}
+	if configPath != "" {
+		if cfg, err := config.Load(configPath); err == nil && cfg.TLS.Enabled && cfg.HTTP != "" {
+			return httpAddrToBaseURL(cfg.LocalProbeAddr())
+		}
+	}
+	return serverBaseURL(configPath)
+}
+
+// localTLS reports that the local server's config turns TLS on: a /mcp caller
+// built on serverBaseURL talks in clear to it and would read a 400.
+func localTLS(configPath string) bool {
+	if configPath == "" {
+		if p, err := service.ConfigPath(); err == nil {
+			configPath = p
+		}
+	}
+	cfg, err := config.Load(configPath)
+	return err == nil && cfg.TLS.Enabled
+}
+
+// noHealthListenerHint is what a /health reader prints when TLS is on and
+// tls.health_addr is off: it does not wait, it cannot read the server.
+const noHealthListenerHint = "The server serves TLS and tls.health_addr is off: this command cannot read its /health. Set tls.health_addr to a loopback address to enable the local checks."
+
+var errNoHealthListenerKB = errors.New("tls.enabled is set and tls.health_addr is off: no health listener to ask")
+
 // httpAddrToBaseURL turns a server http listen address (e.g. ":39273" or
 // "127.0.0.1:39273") into a base URL ("http://127.0.0.1:39273"), normalizing a
 // bare port to loopback the same way internal/service's healthURL does.
@@ -1389,7 +1431,11 @@ func restartLocalService(base, configPath string) (ok, failed bool) {
 // It returns the exit code the command ends with: restartFailedExit when
 // --restart was asked and the restart failed, else 0.
 func printPostCreateGuidance(configPath string, restart bool) int {
-	base := serverBaseURL(configPath)
+	base := serverHealthBaseURL(configPath)
+	if base == "" {
+		fmt.Println(noHealthListenerHint)
+		return 0
+	}
 	if restart {
 		ok, failed := restartLocalService(base, configPath)
 		if failed {
@@ -1452,7 +1498,11 @@ func waitHealthyFor(baseURL, oldStartedAt string, timeout time.Duration) bool {
 // the kbs field itself is absent. Best-effort throughout: never returns an
 // error, never affects service install's own exit code.
 func printNoKBHintIfEmpty(configPath, dataDir string) {
-	base := serverBaseURL(configPath)
+	base := serverHealthBaseURL(configPath)
+	if base == "" {
+		fmt.Println(noHealthListenerHint)
+		return
+	}
 	deadline := time.Now().Add(noKBHintWaitTimeout)
 	var h *healthInfo
 	var err error
