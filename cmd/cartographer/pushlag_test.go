@@ -46,8 +46,8 @@ func TestStatusAndDoctor_ReportPushLag(t *testing.T) {
 	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) {
 		return &client.Health{Version: "v1.0.0", KBs: &kbs}, nil
 	}
-	statusManifestsFn = func(*clientconfig.Config, []syncProjection) (map[string]contract.Manifest, error) {
-		return nil, errors.New("not needed")
+	statusManifestsFn = func(*clientconfig.Config, []syncProjection) (map[string]contract.Manifest, map[string]contract.Relations, error) {
+		return nil, nil, errors.New("not needed")
 	}
 	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
 	t.Cleanup(func() {

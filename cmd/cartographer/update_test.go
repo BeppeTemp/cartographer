@@ -378,8 +378,8 @@ func TestStatusSnapshotCarriesUpdateOnlyWhenAvailable(t *testing.T) {
 	statusHealthFn = func(*clientconfig.Config) (*client.Health, error) {
 		return &client.Health{Version: "v0.16.1", LatestVersion: "v0.17.0"}, nil
 	}
-	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, error) {
-		return uniformManifests(contract.Manifest{Revision: "r1"}, projectionProviders(ps)), nil
+	statusManifestsFn = func(_ *clientconfig.Config, ps []syncProjection) (map[string]contract.Manifest, map[string]contract.Relations, error) {
+		return uniformManifests(contract.Manifest{Revision: "r1"}, projectionProviders(ps)), nil, nil
 	}
 	statusServiceFn = func() (service.Status, error) { return service.Status{}, nil }
 	t.Cleanup(func() {

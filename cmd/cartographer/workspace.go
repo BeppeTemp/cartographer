@@ -1074,8 +1074,15 @@ func allProjectionsPartial(cfg *clientconfig.Config, providers []string, clientB
 // workspaces is legal and must stay legal, while the same two bound to one
 // workspace is still refused.
 func manifestsForProjections(cfg *clientconfig.Config, projections []syncProjection) (map[string]contract.Manifest, error) {
-	out, _, err := buildProjectionManifests(syncStreams{}, cfg, projections, false, nil)
+	out, _, err := manifestsWithRelations(cfg, projections)
 	return out, err
+}
+
+// manifestsWithRelations is manifestsForProjections that also returns the
+// `relations` of the pulls it made, for `status` to compare without pulling again.
+func manifestsWithRelations(cfg *clientconfig.Config, projections []syncProjection) (map[string]contract.Manifest, map[string]contract.Relations, error) {
+	out, _, rels, err := buildProjectionManifests(syncStreams{}, cfg, projections, false, nil)
+	return out, rels, err
 }
 
 // manifestsForProjectionsPartial is manifestsForProjections for sync (#350):
@@ -1085,13 +1092,14 @@ func manifestsForProjections(cfg *clientconfig.Config, projections []syncProject
 // caller to report. A projection that needs no failed KB is built exactly as
 // manifestsForProjections builds it.
 func manifestsForProjectionsPartial(st syncStreams, cfg *clientconfig.Config, projections []syncProjection, pre *prefetched) (map[string]contract.Manifest, []kbPullFailure, error) {
-	return buildProjectionManifests(st, cfg, projections, true, pre)
+	out, failed, _, err := buildProjectionManifests(st, cfg, projections, true, pre)
+	return out, failed, err
 }
 
 // buildProjectionManifests builds one manifest per projection. pre, when it
 // covers every KB the projections ask for, replaces the pulls (D1019: the
 // derivation already made them); nil pulls here.
-func buildProjectionManifests(st syncStreams, cfg *clientconfig.Config, projections []syncProjection, partial bool, pre *prefetched) (map[string]contract.Manifest, []kbPullFailure, error) {
+func buildProjectionManifests(st syncStreams, cfg *clientconfig.Config, projections []syncProjection, partial bool, pre *prefetched) (map[string]contract.Manifest, []kbPullFailure, map[string]contract.Relations, error) {
 	out := make(map[string]contract.Manifest, len(projections))
 
 	// Every KB any projection asks for, pulled once.
@@ -1135,18 +1143,18 @@ func buildProjectionManifests(st syncStreams, cfg *clientconfig.Config, projecti
 			}
 			merged, err := mergeAcrossPlugins(plugins, report)
 			if err != nil {
-				return nil, nil, fmt.Errorf("%s: %w", p.Label(), err)
+				return nil, nil, nil, fmt.Errorf("%s: %w", p.Label(), err)
 			}
 			verified, err := provisioning.VerifiedManifest(merged, nil)
 			if err != nil {
-				return nil, nil, fmt.Errorf("%s: %w", p.Label(), err)
+				return nil, nil, nil, fmt.Errorf("%s: %w", p.Label(), err)
 			}
 			out[projectionKey(p)] = verified
 		}
 		// A bundle-only projection still needs the bundle, which lives on the
 		// server side of a sync_pull: with no KB to pull it from there is
 		// nothing to fetch, and an empty manifest is the honest answer.
-		return out, nil, nil
+		return out, nil, nil, nil
 	}
 
 	var cs candidateSet
@@ -1169,7 +1177,7 @@ func buildProjectionManifests(st syncStreams, cfg *clientconfig.Config, projecti
 		cs, err = fetchCandidates(cfg, union)
 	}
 	if err != nil {
-		return nil, nil, annotateStaleBinding(err, requiredBy)
+		return nil, nil, nil, annotateStaleBinding(err, requiredBy)
 	}
 	unavailable := make(map[string]bool, len(failed))
 	for _, f := range failed {
@@ -1180,7 +1188,7 @@ func buildProjectionManifests(st syncStreams, cfg *clientconfig.Config, projecti
 	}
 	pins, err := pinnedPublicKeys(cfg)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	for _, p := range projections {
 		if needsAny(p.KBs, unavailable) {
@@ -1188,11 +1196,11 @@ func buildProjectionManifests(st syncStreams, cfg *clientconfig.Config, projecti
 		}
 		merged, err := mergeAcrossPlugins(cs.forProjection(cfg, p), report)
 		if err != nil {
-			return nil, nil, fmt.Errorf("%s: %w", p.Label(), err)
+			return nil, nil, nil, fmt.Errorf("%s: %w", p.Label(), err)
 		}
 		verified, err := provisioning.VerifiedManifest(merged, pins)
 		if err != nil {
-			return nil, nil, fmt.Errorf("%s: %w", p.Label(), err)
+			return nil, nil, nil, fmt.Errorf("%s: %w", p.Label(), err)
 		}
 		verified = withoutCLISkill(p.Provider, withoutOptedOutSkillsLines(cfg, verified))
 		// Set after verification, which copies only the signed catalogue.
@@ -1202,7 +1210,7 @@ func buildProjectionManifests(st syncStreams, cfg *clientconfig.Config, projecti
 		verified.KBIssues, verified.ReadKBs = cs.issuesForProjection(cfg, p)
 		out[projectionKey(p)] = verified
 	}
-	return out, failed, nil
+	return out, failed, cs.Relations, nil
 }
 
 // needsAny reports whether a projection bound to kbs would receive any KB in
@@ -1420,7 +1428,10 @@ func workspaceStatuses(cfg *clientconfig.Config, provider, clientBaseDir string)
 
 	out := make([]workspaceStatus, 0, len(bindings))
 	for _, w := range bindings {
-		st := workspaceStatus{Path: w.Path, KBs: w.KBs, State: "ok", Derived: w.Derived, Source: sourcesLabel(w), Bind: bindCommand(provider, w.Path, w)}
+		st := workspaceStatus{Path: w.Path, KBs: w.KBs, State: "ok", Derived: w.Derived, Source: sourcesLabel(w), Bind: bindCommand(provider, w.Path, w), Lineage: w.Lineage}
+		if !w.NoLineage {
+			st.LineageUnresolved = storedUnresolved(cfg, w.OwnKBs())
+		}
 		if info, err := os.Stat(w.Path); err != nil || !info.IsDir() {
 			st.State, st.Detail = "gone", "the bound directory is not there any more"
 			if w.Derived {
@@ -1518,6 +1529,7 @@ func printWorkspaceLines(ws []workspaceStatus) {
 		if w.Detail != "" {
 			fmt.Printf("    %s\n", w.Detail)
 		}
+		printLineageLines(w.Lineage, w.LineageUnresolved)
 	}
 }
 
