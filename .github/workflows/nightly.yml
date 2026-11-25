@@ -108,6 +108,7 @@ jobs:
           [ "$GITHUB_REF" = refs/heads/main ] || { echo "::error::the nightly runs on main only, not on $GITHUB_REF"; exit 1; }
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          fetch-depth: 0 # the tags: goreleaser stamps the version from `git describe`
           persist-credentials: false
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
@@ -122,6 +123,12 @@ jobs:
       # unpublished.
       - name: GoReleaser snapshot build of the Linux binary
         run: goreleaser build --snapshot --clean --single-target --output dist/cartographer
+      # A shallow clone has no tag and stamps 0.0.0-SNAPSHOT, which the plugin requirement refuses.
+      - name: The binary carries a real version
+        run: |
+          v=$(dist/cartographer --version)
+          echo "$v"
+          case "$v" in v0.0.0|v0.0.0-*|0.0.0|0.0.0-*) echo "::error::the binary is stamped $v: the checkout has no tags"; exit 1;; esac
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: cartographer-linux
@@ -154,8 +161,8 @@ jobs:
       # the sha256 of the file, as syft in release.yml (D1020); a bump is a reviewed edit of both.
       - name: Install sops and age
         env:
-          SOPS_VERSION: v3.9.4
-          SOPS_SHA256: 5488e32bc471de7982ad895dd054bbab3ab91c417a118426134551e9626e4e85
+          SOPS_VERSION: v3.13.3
+          SOPS_SHA256: e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b
         run: |
           set -euo pipefail
           sudo apt-get update

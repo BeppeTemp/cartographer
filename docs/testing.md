@@ -265,7 +265,7 @@ test of the repository, or `tester` for what only an agent can judge. The rows n
 are the scenarios of `test/e2e/optional/` (`31_adversarial_protocol`, `32_secrets_lifecycle`,
 `33_update_check_candidates`, `34_server_down_exit_codes`, and the upgrade of the section below).
 `make e2e-nightly` (`./test/e2e/run.sh --optional`, run every night by `nightly.yml` on a release-shaped binary, `E2E_PREBUILT=1`) runs `scenarios/` and then `optional/` without
-`26_upgrade_from_previous`; `make e2e` and the train gate are unchanged. `32` needs `sops` and `age-keygen`
+`26_upgrade_from_previous`; `make e2e` and the train gate are unchanged. The nightly builds from a full clone (the version is stamped from the tags, and a binary stamped `0.0.0` fails the build job) and pins `sops` at the version the product targets. `32` needs `sops` and `age-keygen`
 on `PATH`, `33` needs `python3` and Go, and `33` builds a binary with a release version because a `dev`
 build never checks for updates. `TestAcceptanceBattery` (`internal/repodocs`) fails when a row names a path
 that does not exist, when a file of `test/e2e/optional/` is named by no row, or when the base table lacks the
