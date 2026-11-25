@@ -45,3 +45,11 @@ listener must never grow a route. mTLS fits later without moving a key
 `webui.LoopbackURL` with the TLS flag. A non-atomic replace of `tls.crt` and
 `tls.key` may log one transient refused line, fixed at the next poll. Amends no
 earlier decision.
+
+**Client CA file.** A client reaches such a server with a private CA through
+`server.ca_file` (`connect --ca-file`, `CARTOGRAPHER_CA_FILE` for one run): the file
+is added to the system roots for the server's host:port only, the registry is kept
+per host so loading another config never clears it, and it fails closed: a file that
+cannot be read or holds no certificate stops the command with an error naming the
+file and its source, never read as a missing config (which would let a later
+connect overwrite the settings) and never a silent fallback to the system roots.

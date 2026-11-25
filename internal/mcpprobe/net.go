@@ -12,6 +12,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/BeppeTemp/cartographer/internal/client"
 )
 
 // Kind classifies a network error. The empty Kind means no error.
@@ -115,7 +117,7 @@ func Dial(ctx context.Context, rawURL string, timeout time.Duration) error {
 	if u.Scheme != "https" {
 		return nil
 	}
-	tc := tls.Client(conn, &tls.Config{ServerName: u.Hostname(), MinVersion: tls.VersionTLS12})
+	tc := tls.Client(conn, &tls.Config{ServerName: u.Hostname(), MinVersion: tls.VersionTLS12, RootCAs: client.ServerRoots(u.Host)})
 	return tc.HandshakeContext(ctx)
 }
 

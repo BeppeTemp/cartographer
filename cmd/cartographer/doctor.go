@@ -19,7 +19,9 @@ package main
 // from a temporary repository, so the KB's clone is left as it was.
 
 import (
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"flag"
 	"fmt"
@@ -31,6 +33,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/agents"
 	"github.com/BeppeTemp/cartographer/internal/client"
@@ -237,6 +240,7 @@ func runDoctor(dir, only string) doctorReport {
 			findings = append(findings, checkOpenCodePluginShape(dir, providers, lockFile)...)
 		}
 		findings = append(findings, checkMCPEntries(dir, cfg, providers)...)
+		findings = append(findings, checkServerCAExpiry(cfg, time.Now())...)
 		// One probe for the whole run (an unreachable server costs one
 		// probeTimeout, not three); the facts and the error go down.
 		facts, healthErr := enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.Token, cfg.InsecureHTTPAllowed())
@@ -1437,4 +1441,31 @@ func checkPushLag(dir string, facts serverFacts, err error) []doctorFinding {
 		})
 	}
 	return out
+}
+
+// checkServerCAExpiry reports a server.ca_file whose certificates have expired:
+// the key and the file are named, since an expired root fails every https:// request.
+func checkServerCAExpiry(cfg *clientconfig.Config, now time.Time) []doctorFinding {
+	path, err := cfg.CAFile()
+	if err != nil || path == "" {
+		return nil
+	}
+	pemData, err := os.ReadFile(path)
+	if err != nil {
+		return nil // Load already refused an unreadable file, naming the key
+	}
+	var latest time.Time
+	for block, rest := pem.Decode(pemData); block != nil; block, rest = pem.Decode(rest) {
+		if c, perr := x509.ParseCertificate(block.Bytes); perr == nil && c.NotAfter.After(latest) {
+			latest = c.NotAfter
+		}
+	}
+	if latest.IsZero() || latest.After(now) {
+		return nil
+	}
+	return []doctorFinding{{
+		Check: "server", Severity: doctorWarning, Path: path,
+		Message: fmt.Sprintf("server.ca_file %s: every certificate expired on %s", path, latest.Format("2006-01-02")),
+		Fix:     "replace the file with the current CA certificate, or remove server.ca_file",
+	}}
 }

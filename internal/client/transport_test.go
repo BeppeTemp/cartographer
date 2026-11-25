@@ -1,8 +1,13 @@
 package client
 
 import (
+	"encoding/pem"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -139,5 +144,137 @@ func TestWithHTTPTimeoutCopiesTheClient(t *testing.T) {
 	}
 	if short.Token != "tok" || short.ServerURL != c.ServerURL {
 		t.Error("the copy lost the client's settings")
+	}
+}
+
+// writeServerCA writes the certificate of a test TLS server as a PEM file.
+func writeServerCA(t *testing.T, srv *httptest.Server) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "ca.pem")
+	data := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw})
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// AC-tls-native-14: the CA file is trusted for the server host only.
+func TestServerCAScopedToTheServerHost(t *testing.T) {
+	ok := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }
+	srv := httptest.NewTLSServer(http.HandlerFunc(ok))
+	defer srv.Close()
+	other := httptest.NewTLSServer(http.HandlerFunc(ok))
+	defer other.Close()
+	t.Cleanup(func() { _ = SetServerCA("", "") })
+	hc := HTTPClient(&http.Client{}, false)
+
+	if _, err := hc.Get(srv.URL); err == nil || !strings.Contains(err.Error(), "x509") {
+		t.Fatalf("without the file the request must fail verification, got %v", err)
+	}
+	if err := SetServerCA(writeServerCA(t, srv), srv.URL+"/mcp"); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := hc.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("with the file the request must succeed: %v", err)
+	}
+	resp.Body.Close()
+	if _, err := hc.Get(other.URL); err == nil || !strings.Contains(err.Error(), "x509") {
+		t.Fatalf("another host must not trust the file, got %v", err)
+	}
+	if err := SetServerCA(filepath.Join(t.TempDir(), "missing.pem"), srv.URL); err == nil || !strings.Contains(err.Error(), "ca_file") {
+		t.Fatalf("an unreadable file must be an error naming the key, got %v", err)
+	}
+	bad := filepath.Join(t.TempDir(), "bad.pem")
+	if err := os.WriteFile(bad, []byte("not a certificate"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetServerCA(bad, srv.URL); err == nil || !strings.Contains(err.Error(), "ca_file") {
+		t.Fatalf("a file with no certificate must be an error naming the key, got %v", err)
+	}
+}
+
+// A CA file error never satisfies errors.Is(os.ErrNotExist): callers read that
+// as "no .cartographer.yaml" and would write defaults over the user's config.
+func TestSetServerCAMissingFileIsNotErrNotExist(t *testing.T) {
+	t.Cleanup(func() { _ = SetServerCA("", "") })
+	missing := filepath.Join(t.TempDir(), "missing.pem")
+	err := SetServerCA(missing, "https://example.com/mcp")
+	var cae *CAFileError
+	if !errors.As(err, &cae) {
+		t.Fatalf("want a *CAFileError, got %v", err)
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a missing CA file must not read as a missing config: %v", err)
+	}
+	if !strings.Contains(err.Error(), missing) || !strings.Contains(err.Error(), "server.ca_file") {
+		t.Errorf("the error must name the path and the key: %v", err)
+	}
+}
+
+// A second config (a workspace's) without ca_file, or for another server, must
+// not clear or override the main server's CA.
+func TestServerCASurvivesAnotherRegistration(t *testing.T) {
+	ok := func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }
+	srv := httptest.NewTLSServer(http.HandlerFunc(ok))
+	defer srv.Close()
+	other := httptest.NewTLSServer(http.HandlerFunc(ok))
+	defer other.Close()
+	t.Cleanup(func() { _ = SetServerCA("", "") })
+	hc := HTTPClient(&http.Client{}, false)
+
+	if err := SetServerCA(writeServerCA(t, srv), srv.URL+"/mcp"); err != nil {
+		t.Fatal(err)
+	}
+	// Another server registers its own CA: both hosts verify.
+	if err := SetServerCA(writeServerCA(t, other), other.URL+"/mcp"); err != nil {
+		t.Fatal(err)
+	}
+	// A config without ca_file for the other server removes only that entry.
+	if err := SetServerCA("", other.URL+"/mcp"); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := hc.Get(srv.URL)
+	if err != nil {
+		t.Fatalf("the main server must still verify: %v", err)
+	}
+	resp.Body.Close()
+	if _, err := hc.Get(other.URL); err == nil {
+		t.Error("the removed entry must not trust its host any more")
+	}
+}
+
+// https://example.com and example.com:443 are the same endpoint.
+func TestCanonicalHostDefaultsThePort(t *testing.T) {
+	for raw, want := range map[string]string{
+		"https://Example.com/mcp":     "example.com:443",
+		"https://example.com:443/mcp": "example.com:443",
+		"http://example.com/mcp":      "example.com:80",
+		"https://example.com:8443/x":  "example.com:8443",
+		"https://[::1]/mcp":           "[::1]:443",
+	} {
+		u, err := url.Parse(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := canonicalHost(u); got != want {
+			t.Errorf("canonicalHost(%q) = %q, want %q", raw, got, want)
+		}
+	}
+	t.Cleanup(func() { _ = SetServerCA("", "") })
+	pemPath := filepath.Join(t.TempDir(), "ca.pem")
+	srv := httptest.NewTLSServer(http.NotFoundHandler())
+	defer srv.Close()
+	if err := os.WriteFile(pemPath, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw}), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetServerCA(pemPath, "https://example.com/mcp"); err != nil {
+		t.Fatal(err)
+	}
+	if ServerRoots("example.com:443") == nil || ServerRoots("EXAMPLE.com") == nil {
+		t.Error("a URL without a port and a request to :443 must share the scope")
+	}
+	if ServerRoots("example.com:8443") != nil {
+		t.Error("another port is another endpoint")
 	}
 }

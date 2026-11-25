@@ -1,11 +1,14 @@
 package clientconfig_test
 
 import (
+	"errors"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 )
 
@@ -279,5 +282,64 @@ func TestMigrationWritesSchemaOrderAndReorderFileRewritesAnExistingFile(t *testi
 	}
 	if _, err := clientconfig.Load(other); err != nil {
 		t.Errorf("the reordered file does not load: %v", err)
+	}
+}
+
+// AC-tls-native-15: server.ca_file round-trips through Save and Load, and the
+// environment wins over it for one run.
+func TestCAFileRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	want := filepath.Join(dir, "ca.pem")
+	cfg := clientconfig.Default()
+	cfg.CAFilePath = want
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	got, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p, err := got.CAFile(); err != nil || p != want {
+		t.Fatalf("CAFile() = %q, %v; want %q", p, err, want)
+	}
+	t.Setenv(clientconfig.CAFileEnv, filepath.Join(dir, "env.pem"))
+	if p, _ := got.CAFile(); p != filepath.Join(dir, "env.pem") {
+		t.Errorf("the environment must win, got %q", p)
+	}
+	t.Setenv(clientconfig.CAFileEnv, "")
+	got.CAFilePath = "relative/ca.pem"
+	if _, err := got.CAFile(); err == nil || !strings.Contains(err.Error(), "server.ca_file") {
+		t.Errorf("a relative path must be an error naming the key, got %v", err)
+	}
+}
+
+// A missing CA file is an error naming the key and the path, and never reads as
+// "no config file" (LoadOrDefault would hand back defaults for it).
+func TestMissingCAFileIsNotAMissingConfig(t *testing.T) {
+	dir := t.TempDir()
+	cfg := clientconfig.Default()
+	cfg.ServerURL = "https://example.com/mcp"
+	cfg.CAFilePath = filepath.Join(dir, "gone.pem")
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	old := clientconfig.OnLoad
+	t.Cleanup(func() { clientconfig.OnLoad = old })
+	clientconfig.OnLoad = func(c *clientconfig.Config) error {
+		p, err := c.CAFile()
+		if err != nil {
+			return err
+		}
+		return client.SetServerCA(p, c.ServerURL)
+	}
+	_, err := clientconfig.Load(dir)
+	if err == nil || errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Load must fail without matching ErrNotExist, got %v", err)
+	}
+	if got, err := clientconfig.LoadOrDefault(dir); err == nil || got != nil {
+		t.Fatalf("LoadOrDefault must fail, got %v, %v", got, err)
+	}
+	if !strings.Contains(err.Error(), "gone.pem") {
+		t.Errorf("the error must name the path: %v", err)
 	}
 }
