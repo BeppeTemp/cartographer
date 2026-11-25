@@ -247,6 +247,9 @@ type graphEntry struct {
 	probes map[string]bool
 	hash   string
 	facets ConceptFacets
+	// cross is ExtractCrossLinks' result: kept beside links, never in the
+	// in-KB adjacency (a cross edge must not reach PageRank or graph_context).
+	cross []CrossLink
 }
 
 // trusted reports whether e may be reused for a file now signed sig.
@@ -271,6 +274,9 @@ type graphView struct {
 	bytes map[okf.ConceptID]int64
 	// linkLines merges every entry's linkLines per id, as adj merges links.
 	linkLines map[okf.ConceptID]map[okf.ConceptID][]string
+	// cross is each id's cross-KB links; when two files emit one id the later
+	// in walk order wins, as facets does.
+	cross map[okf.ConceptID][]CrossLink
 }
 
 type graphCache struct {
@@ -543,6 +549,7 @@ func parseGraphEntry(kb *KB, f conceptFile, content, hash string) *graphEntry {
 		probes:    probes,
 		hash:      hash,
 		facets:    facetsOf(content),
+		cross:     ExtractCrossLinks(body),
 	}
 }
 
@@ -582,6 +589,7 @@ func buildGraphView(entries []*graphEntry, generation uint64) *graphView {
 		bytes:  make(map[okf.ConceptID]int64, len(entries)),
 
 		linkLines: make(map[okf.ConceptID]map[okf.ConceptID][]string, len(entries)),
+		cross:     make(map[okf.ConceptID][]CrossLink),
 	}
 	for _, e := range entries {
 		v.exists[e.id] = struct{}{}
@@ -615,6 +623,11 @@ func buildGraphView(entries []*graphEntry, generation uint64) *graphView {
 			}
 		}
 		v.facets[e.id] = e.facets
+		if len(e.cross) > 0 {
+			v.cross[e.id] = e.cross
+		} else {
+			delete(v.cross, e.id)
+		}
 		v.bytes[e.id] = e.sig.size
 		if v.adj.out[e.id] == nil {
 			v.adj.out[e.id] = make(map[okf.ConceptID]struct{})
