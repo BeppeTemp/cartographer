@@ -213,6 +213,10 @@ export function stubApi(overrides: Record<string, () => Response> = {}) {
     if (url.includes("/kbs/") && url.includes("/components")) {
       return json({ protocol: 1, min_protocol: 1, server: { version: "test", started_at: "2026-01-01T00:00:00Z" }, components: [] });
     }
+    // Surveyor run counters: absent unless stubbed, the way an older server (or a narrowed principal) answers (404).
+    if (url.includes("/kbs/") && url.includes("/surveyor-history")) {
+      return json({ error: { code: "not_found", message: "not found" } }, 404);
+    }
     if (url.includes("/kbs/") && url.includes("/feeds")) return json({ feeds: [], total: 0 });
     // Admin-only audit log and the caller's identity: absent unless stubbed (404).
     if (url.includes("/audit") || url.endsWith("/whoami")) {

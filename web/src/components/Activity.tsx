@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { fetchAudit, fetchChanges, fetchJournal, fetchRetired, optional } from "../api/client";
+import { fetchAudit, fetchChanges, fetchJournal, fetchRetired, fetchSurveyorHistory, optional } from "../api/client";
 import type {
   AuditLog,
   ChangesResponse,
@@ -8,6 +8,7 @@ import type {
   ConceptChange,
   GraphSnapshot,
   RetiredConcept,
+  SurveyorHistoryResponse,
 } from "../api/types";
 import {
   changedAt,
@@ -248,10 +249,32 @@ export function Activity({
   const surveyorChanges = useMemo(() => all.filter((c) => bySurveyor(c) && changeKind(c) !== "maintenance"), [all]);
   const keptRuns = useMemo(() => surveyorRuns(kb, components), [kb, components]);
   const hasSurveyor = keptRuns.length > 0 || surveyorChanges.length > 0;
+  // The persisted daily counters (surveyor-history): optional, a 404 (an older
+  // server, a caller that does not see the KB whole) leaves the figures of the
+  // kept runs. The "all" window asks for the longest history the server keeps.
+  // It is kept with the days it was asked for: the window on screen (`shown`)
+  // lags the selector until the changes arrive, so an answer for a shorter
+  // window than the one shown must not stand in for it.
+  const [asked, setAsked] = useState<{ days: number; data: SurveyorHistoryResponse } | null>(null);
+  useEffect(() => {
+    setAsked(null);
+  }, [kb]);
+  const historyDays = Math.min(DAYS[since] ?? HISTORY_MAX_DAYS, HISTORY_MAX_DAYS);
+  useEffect(() => {
+    if (!hasSurveyor) return;
+    const controller = new AbortController();
+    optional(fetchSurveyorHistory(kb, historyDays, controller.signal))
+      .then((res) => {
+        if (!controller.signal.aborted) setAsked(res && Array.isArray(res.days) ? { days: historyDays, data: res } : null);
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [kb, hasSurveyor, historyDays, live, attempt]);
   const view = hasSurveyor ? tab : "changes";
+  const history = asked && asked.days >= Math.min(DAYS[shown] ?? HISTORY_MAX_DAYS, HISTORY_MAX_DAYS) ? asked.data : null;
   const surveyorSummary = useMemo(
-    () => summarizeSurveyor(keptRuns, surveyorChanges, DAYS[shown]),
-    [keptRuns, surveyorChanges, shown],
+    () => summarizeSurveyor(keptRuns, surveyorChanges, DAYS[shown], history),
+    [keptRuns, surveyorChanges, shown, history],
   );
   const runNote = surveyorSummary.sinceDate ? `since ${surveyorSummary.sinceDate}` : null;
   const surveyorDays = useMemo(() => groupByDay(surveyorChanges), [surveyorChanges]);
@@ -329,6 +352,7 @@ export function Activity({
               <SurveyorTile n={surveyorSummary.changed} label="pages changed" />
               <SurveyorTile n={surveyorSummary.tokens} label="tokens spent" note={runNote} tokens />
             </ul>
+            {history && <RunTrend history={history} days={DAYS[shown]} />}
             <PageSection title="Runs" id="activity-surveyor-runs" count={surveyorSummary.runs}>
               <p className="page-note">Pages are matched to runs by author and time; overlapping runs may share them.</p>
               <SurveyorRunsList
@@ -855,8 +879,35 @@ function retiredReasons(r: RetiredConcept): string[] {
  * commits created or changed. Always an object: with nothing to say, all zeros.
  * `kept` is `surveyorRuns(kb, components)`, computed once by the caller.
  */
-function summarizeSurveyor(kept: ReturnType<typeof surveyorRuns>, changes: ConceptChange[], days: number | null) {
+function summarizeSurveyor(
+  kept: ReturnType<typeof surveyorRuns>,
+  changes: ConceptChange[],
+  days: number | null,
+  history: SurveyorHistoryResponse | null = null,
+) {
   const from = days === null ? 0 : Date.now() - days * DAY_MS;
+  const pages = {
+    created: changes.filter((c) => changeKind(c) === "new").length,
+    changed: changes.filter((c) => changeKind(c) !== "new").length,
+  };
+  const start = historyStart(history, days);
+  if (history && start !== null && history.first_day !== null && history.first_day <= start) {
+    // The counters reach back to the window's start: they are exact, and no
+    // "since" is needed. Failed and budget-exhausted runs are both failures.
+    const rows = history.days.filter((r) => r.day >= start);
+    const sum = (f: (r: SurveyorHistoryResponse["days"][number]) => boolean, key: "runs" | "tokens" = "runs") =>
+      rows.filter(f).reduce((n, r) => n + r[key], 0);
+    return {
+      sinceDate: null,
+      runs: sum(() => true),
+      names: [...new Set(rows.map((r) => r.perimeter))],
+      ok: sum((r) => r.outcome === "ok"),
+      failed: sum(isFailed),
+      ingested: sum((r) => r.outcome === "ok" && r.task === "ingest"),
+      tokens: sum(() => true, "tokens"),
+      ...pages,
+    };
+  }
   const runs = kept.filter((r) => !(Date.parse(r.started_at) < from));
   const ok = runs.filter((r) => r.outcome === "ok");
   // The server keeps the last runs only (a cap per perimeter, in memory): the
@@ -869,16 +920,36 @@ function summarizeSurveyor(kept: ReturnType<typeof surveyorRuns>, changes: Conce
   const atCap = [...perPerimeter.values()].some((n) => n >= RUNS_KEPT_CAP);
   const partial = kept.length > 0 && Number.isFinite(oldest) && (from < oldest || atCap);
   return {
-    sinceDate: partial ? runDate(new Date(oldest)) : null,
+    // With counters that do not reach the window's start, the note says since
+    // when the server has counted, not since the oldest run it still keeps.
+    sinceDate: partial ? (history?.first_day ? runDate(dayDate(history.first_day)) : runDate(new Date(oldest))) : null,
     runs: runs.length,
     names: [...new Set(runs.map((r) => r.perimeter))],
     ok: ok.length,
     failed: runs.filter((r) => r.outcome === "failed" || r.outcome === "budget_exhausted").length,
     ingested: ok.filter((r) => r.task === "ingest").length,
     tokens: runs.reduce((n, r) => n + (r.tokens_spent ?? 0), 0),
-    created: changes.filter((c) => changeKind(c) === "new").length,
-    changed: changes.filter((c) => changeKind(c) !== "new").length,
+    ...pages,
   };
+}
+
+/** The most days the history route serves (its retention). */
+const HISTORY_MAX_DAYS = 90;
+
+const isFailed = (r: { outcome: string }) => r.outcome === "failed" || r.outcome === "budget_exhausted";
+
+/** A UTC day "YYYY-MM-DD" as a local date at noon, so its label never slips a day. */
+function dayDate(day: string): Date {
+  const [y, m, d] = day.split("-").map(Number);
+  return new Date(y!, (m ?? 1) - 1, d ?? 1, 12);
+}
+
+/** The UTC day a window of `days` days starts on (today is day one), by the server's clock; null for "all". */
+function historyStart(history: SurveyorHistoryResponse | null, days: number | null): string | null {
+  if (!history || days === null) return null;
+  const now = Date.parse(history.now);
+  const base = Number.isNaN(now) ? Date.now() : now;
+  return new Date(base - (days - 1) * DAY_MS).toISOString().slice(0, 10);
 }
 
 /** The server's cap of kept runs per perimeter (`maxRunsKept`). */
@@ -907,6 +978,82 @@ function SurveyorTile({
       </span>
       {note && <span className="source-tile__note page-note">{note}</span>}
     </li>
+  );
+}
+
+/**
+ * The runs of the window day by day, stacked ok / failed / skipped, from the
+ * server's persisted counters; the same numbers sit in a table under a
+ * `<details>` for a reader who does not see the bars.
+ */
+function RunTrend({ history, days }: { history: SurveyorHistoryResponse; days: number | null }) {
+  const now = Date.parse(history.now);
+  const base = Number.isNaN(now) ? Date.now() : now;
+  const today = new Date(base).toISOString().slice(0, 10);
+  const span = Math.min(days ?? HISTORY_MAX_DAYS, HISTORY_MAX_DAYS);
+  let first = new Date(base - (span - 1) * DAY_MS).toISOString().slice(0, 10);
+  // "All" starts where the server's counting does.
+  if (days === null && history.first_day && history.first_day > first) first = history.first_day;
+  const columns = new Map<string, { ok: number; failed: number; skipped: number }>();
+  for (let t = Date.parse(first); t <= Date.parse(today); t += DAY_MS) {
+    columns.set(new Date(t).toISOString().slice(0, 10), { ok: 0, failed: 0, skipped: 0 });
+  }
+  for (const r of history.days) {
+    const c = columns.get(r.day);
+    if (!c) continue;
+    if (r.outcome === "ok") c.ok += r.runs;
+    else if (isFailed(r)) c.failed += r.runs;
+    else c.skipped += r.runs;
+  }
+  const list = [...columns.entries()];
+  const peak = Math.max(1, ...list.map(([, c]) => c.ok + c.failed + c.skipped));
+  const total = list.reduce((n, [, c]) => n + c.ok + c.failed + c.skipped, 0);
+  return (
+    <section className="run-trend" aria-label="Runs per day">
+      {total > 0 && (
+        <>
+          <ul className="run-trend__bars" aria-hidden="true">
+            {list.map(([day, c]) => (
+              <li
+                key={day}
+                className="run-trend__day"
+                title={`${runDate(dayDate(day))}: ${c.ok} ok, ${c.failed} failed, ${c.skipped} skipped`}
+              >
+                <span className="run-trend__seg" data-kind="failed" style={{ height: `${(c.failed / peak) * 100}%` }} />
+                <span className="run-trend__seg" data-kind="skipped" style={{ height: `${(c.skipped / peak) * 100}%` }} />
+                <span className="run-trend__seg" data-kind="ok" style={{ height: `${(c.ok / peak) * 100}%` }} />
+              </li>
+            ))}
+          </ul>
+          <details className="run-trend__table">
+            <summary>Runs per day as a table</summary>
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Day</th>
+                  <th scope="col">ok</th>
+                  <th scope="col">failed</th>
+                  <th scope="col">skipped</th>
+                </tr>
+              </thead>
+              <tbody>
+                {list
+                  .filter(([, c]) => c.ok + c.failed + c.skipped > 0)
+                  .map(([day, c]) => (
+                    <tr key={day}>
+                      <th scope="row">{runDate(dayDate(day))}</th>
+                      <td>{c.ok}</td>
+                      <td>{c.failed}</td>
+                      <td>{c.skipped}</td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </details>
+        </>
+      )}
+      {!history.persisted && <p className="page-note">Kept in memory only: a restart forgets it.</p>}
+    </section>
   );
 }
 

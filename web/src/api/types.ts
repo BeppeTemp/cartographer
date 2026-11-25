@@ -513,6 +513,25 @@ export interface ComponentsResponse {
   components: ComponentRow[];
 }
 
+/** One daily counter of GET /kbs/{kb}/surveyor-history: runs of one task and outcome on one UTC day. */
+export interface SurveyorHistoryRow {
+  day: string;
+  perimeter: string;
+  task: string;
+  outcome: string;
+  runs: number;
+  tokens: number;
+  duration_ms: number;
+}
+/** The server's persisted daily Surveyor counters for one KB; `first_day` is the oldest day it holds for this KB. */
+export interface SurveyorHistoryResponse {
+  retention_days: number;
+  persisted: boolean;
+  first_day: string | null;
+  now: string;
+  days: SurveyorHistoryRow[];
+}
+
 /**
  * GET /feedback/candidates (D1925): what a Surveyor noticed that a person would
  * report. A closed vocabulary (a kind, a tool name, a short code, counts), never

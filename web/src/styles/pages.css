@@ -2905,3 +2905,56 @@ button.row {
     transition: none;
   }
 }
+
+/* The Surveyor tab's runs per day: stacked bars on a baseline, ok at the
+   bottom; the same numbers are in the table under the details. */
+.run-trend {
+  margin-block: var(--space-4);
+}
+.run-trend__bars {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  height: 48px;
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  list-style: none;
+  border-block-end: 1px solid var(--border-subtle);
+}
+.run-trend__day {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-width: 2px;
+}
+.run-trend__seg {
+  display: block;
+  width: 100%;
+}
+.run-trend__seg[data-kind="ok"] {
+  background: var(--graph-signal);
+}
+.run-trend__seg[data-kind="failed"] {
+  background: var(--sev-error);
+}
+.run-trend__seg[data-kind="skipped"] {
+  background: var(--text-muted);
+  opacity: 0.5;
+}
+.run-trend__table summary {
+  cursor: pointer;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.run-trend__table table {
+  margin-block-start: var(--space-2);
+  font-size: var(--text-xs);
+  border-collapse: collapse;
+}
+.run-trend__table th,
+.run-trend__table td {
+  padding: 2px var(--space-3);
+  text-align: start;
+  font-weight: normal;
+}
