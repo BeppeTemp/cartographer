@@ -1,6 +1,23 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { fetchMaintenanceReview, fetchPendingSources, fetchStatus, fetchWork, optional } from "../api/client";
-import type { CollectionSummary, KBStatus, ReviewItem, SourceEntry, WorkEntry, WorkResponse } from "../api/types";
+import {
+  fetchDashboard,
+  fetchDashboards,
+  fetchMaintenanceReview,
+  fetchPendingSources,
+  fetchStatus,
+  fetchWork,
+  optional,
+} from "../api/client";
+import type {
+  CollectionSummary,
+  DashboardListEntry,
+  DashboardResolved,
+  KBStatus,
+  ReviewItem,
+  SourceEntry,
+  WorkEntry,
+  WorkResponse,
+} from "../api/types";
 import { reviewInfo } from "../lib/review";
 import { collectionVar } from "../lib/palette";
 import { ErrorState } from "./States";
@@ -36,6 +53,7 @@ interface Extra {
   found: string[];
 }
 const NO_EXTRA: Extra = { entries: [], found: [] };
+const NO_DASHBOARDS: DashboardListEntry[] = [];
 
 /**
  * A concept listed only for its unchecked items is grouped apart: its own
@@ -95,9 +113,14 @@ export function Work({
   kb,
   collections = [],
   live = 0,
+  dashboard = null,
+  onDashboard,
   onOpen,
 }: {
   kb: string;
+  /** The dashboard chosen from the selector (`?dashboard=`); null is the Work board. */
+  dashboard?: string | null;
+  onDashboard?(name: string | null): void;
   collections?: CollectionSummary[];
   live?: number;
   /** The components that concern the KB (D1901), read once by the App. */
@@ -111,6 +134,22 @@ export function Work({
   const [map, setMap] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [staleOnly, setStaleOnly] = useState(false);
+  // Held with the KB they were read for: under another KB the list is empty
+  // on the very first render, never the previous KB's names.
+  const [dashList, setDashList] = useState<{ kb: string; list: DashboardListEntry[] }>({ kb, list: [] });
+  const dashboards = dashList.kb === kb ? dashList.list : NO_DASHBOARDS;
+
+  // The KB's dashboards fill the selector. Optional: an older server or a
+  // caller the route refuses has the Work board alone.
+  useEffect(() => {
+    const controller = new AbortController();
+    optional(fetchDashboards(kb, controller.signal))
+      .then((res) => {
+        if (!controller.signal.aborted) setDashList({ kb, list: res?.dashboards ?? [] });
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [kb, live]);
 
   // A new KB starts blank; a live refetch (D337) keeps what is on screen
   // until the fresh answer replaces it.
@@ -121,6 +160,8 @@ export function Work({
   }, [kb]);
 
   useEffect(() => {
+    // A dashboard chosen: the Work board's reads wait for the way back to it.
+    if (dashboard) return;
     const controller = new AbortController();
     // The pending sources join the open work: ingesting them is work like
     // any other. So do the searches nothing answered and the doctor's
@@ -144,7 +185,7 @@ export function Work({
         setError(err);
       });
     return () => controller.abort();
-  }, [kb, live, attempt]);
+  }, [kb, live, attempt, dashboard]);
 
   const mapTitles = useMemo(() => new Map(collections.map((c) => [c.name, c.title || c.name])), [collections]);
   const titleOfMap = (m: string) => (m ? (mapTitles.get(m) ?? m) : "(root)");
@@ -193,7 +234,18 @@ export function Work({
     <Page label="Open work" className="work">
       <PageHeader
         eyebrow="Work"
-        title={<Headline data={data} misses={misses} decisions={decisions} failed={error !== null} />}
+        title={
+          dashboard ? (
+            <>{dashboards.find((d) => d.name === dashboard)?.title || dashboard}</>
+          ) : (
+            <Headline data={data} misses={misses} decisions={decisions} failed={error !== null} />
+          )
+        }
+        actions={
+          (dashboards.length > 0 || dashboard) && onDashboard ? (
+            <DashboardSelect dashboards={dashboards} value={dashboard} onChange={onDashboard} />
+          ) : undefined
+        }
         help={
           <>
             <p>
@@ -210,105 +262,189 @@ export function Work({
         }
       />
 
-      <ReportCandidatesBadge kb={kb} live={live ?? 0} />
-
-      {data && !empty && (
-        <Hero label="Summary and filters">
-          <HeroRow label="Where">
-            <MapBar maps={maps} active={map} />
-            <FilterChips label="Filter by Map">
-              {maps.map(([name, n]) => (
-                <FilterChip
-                  key={name || "(root)"}
-                  label={titleOfMap(name)}
-                  count={n}
-                  pressed={map === name}
-                  hue={collectionVar(name || "(root)")}
-                  mark={<MapDot map={name} />}
-                  onToggle={() => setMap(map === name ? null : name)}
-                />
-              ))}
-            </FilterChips>
-          </HeroRow>
-          <HeroRow label="Status">
-            <FilterChips label="Filter by status">
-              {statuses.map(([name, n]) => (
-                <FilterChip
-                  key={name}
-                  label={name}
-                  count={n}
-                  pressed={status === name}
-                  mark={<StatusDot status={name} />}
-                  onToggle={() => setStatus(status === name ? null : name)}
-                />
-              ))}
-              <li>
-                <label className="filter-chip filter-chip--check" data-checked={staleOnly}>
-                  <input type="checkbox" checked={staleOnly} onChange={(e) => setStaleOnly(e.target.checked)} />
-                  <span className="filter-chip__name">Stale only</span>
-                  <span className="filter-chip__count">{stale}</span>
-                </label>
-              </li>
-            </FilterChips>
-          </HeroRow>
-        </Hero>
-      )}
-
-      {error ? (
-        <ErrorState error={error} onRetry={() => setAttempt((n) => n + 1)} />
-      ) : !data ? (
-        <WorkSkeleton label="Reading the work list" />
-      ) : empty ? (
-        <Quiet>No open work: no concept in an open status and no unchecked item.</Quiet>
-      ) : entries.length === 0 ? (
-        <Quiet tone="neutral">Nothing matches these filters.</Quiet>
+      {dashboard ? (
+        <DashboardPane key={`${kb}/${dashboard}`} kb={kb} name={dashboard} live={live} />
       ) : (
-        <div className="work__board" role="region" aria-label="Work by status">
-          {groups.map(([key, list]) => (
-            <section
-              key={key || "(root)"}
-              className="work__column"
-              data-status={statusTone(key)}
-              aria-label={`${key}, ${list.length}`}
-            >
-              <h2 className="work__column-title">
-                <StatusDot status={key} />
-                {key} <span className="page-section__count">{list.length}</span>
-              </h2>
-              <ColumnCards
-                list={list}
-                render={(e) => (
-                  <WorkCard entry={e} mapTitle={titleOfMap(e.map ?? "")} showMap showStatus={false} onOpen={onOpen} />
-                )}
-              />
+        <>
+          <ReportCandidatesBadge kb={kb} live={live ?? 0} />
+
+          {data && !empty && (
+            <Hero label="Summary and filters">
+              <HeroRow label="Where">
+                <MapBar maps={maps} active={map} />
+                <FilterChips label="Filter by Map">
+                  {maps.map(([name, n]) => (
+                    <FilterChip
+                      key={name || "(root)"}
+                      label={titleOfMap(name)}
+                      count={n}
+                      pressed={map === name}
+                      hue={collectionVar(name || "(root)")}
+                      mark={<MapDot map={name} />}
+                      onToggle={() => setMap(map === name ? null : name)}
+                    />
+                  ))}
+                </FilterChips>
+              </HeroRow>
+              <HeroRow label="Status">
+                <FilterChips label="Filter by status">
+                  {statuses.map(([name, n]) => (
+                    <FilterChip
+                      key={name}
+                      label={name}
+                      count={n}
+                      pressed={status === name}
+                      mark={<StatusDot status={name} />}
+                      onToggle={() => setStatus(status === name ? null : name)}
+                    />
+                  ))}
+                  <li>
+                    <label className="filter-chip filter-chip--check" data-checked={staleOnly}>
+                      <input type="checkbox" checked={staleOnly} onChange={(e) => setStaleOnly(e.target.checked)} />
+                      <span className="filter-chip__name">Stale only</span>
+                      <span className="filter-chip__count">{stale}</span>
+                    </label>
+                  </li>
+                </FilterChips>
+              </HeroRow>
+            </Hero>
+          )}
+
+          {error ? (
+            <ErrorState error={error} onRetry={() => setAttempt((n) => n + 1)} />
+          ) : !data ? (
+            <WorkSkeleton label="Reading the work list" />
+          ) : empty ? (
+            <Quiet>No open work: no concept in an open status and no unchecked item.</Quiet>
+          ) : entries.length === 0 ? (
+            <Quiet tone="neutral">Nothing matches these filters.</Quiet>
+          ) : (
+            <div className="work__board" role="region" aria-label="Work by status">
+              {groups.map(([key, list]) => (
+                <section
+                  key={key || "(root)"}
+                  className="work__column"
+                  data-status={statusTone(key)}
+                  aria-label={`${key}, ${list.length}`}
+                >
+                  <h2 className="work__column-title">
+                    <StatusDot status={key} />
+                    {key} <span className="page-section__count">{list.length}</span>
+                  </h2>
+                  <ColumnCards
+                    list={list}
+                    render={(e) => (
+                      <WorkCard
+                        entry={e}
+                        mapTitle={titleOfMap(e.map ?? "")}
+                        showMap
+                        showStatus={false}
+                        onOpen={onOpen}
+                      />
+                    )}
+                  />
+                </section>
+              ))}
+            </div>
+          )}
+          {data && extra.found.length > 0 && (
+            // A search that found nothing and now finds a page closed by itself
+            // (D319): no longer work, named so the reader sees the gap was filled.
+            <section className="work__answered" aria-label="Searches answered since">
+              <p className="page-note">
+                <Icon name="check" size={14} /> Answered since: {extra.found.length}{" "}
+                {extra.found.length === 1 ? "search" : "searches"} that found nothing before now{" "}
+                {extra.found.length === 1 ? "finds" : "find"} a page.
+              </p>
+              <ul className="work__answered-list">
+                {extra.found.map((q) => (
+                  <li key={q} className="chip work__answered-chip">
+                    &ldquo;{q}&rdquo;
+                  </li>
+                ))}
+              </ul>
             </section>
-          ))}
-        </div>
-      )}
-      {data && extra.found.length > 0 && (
-        // A search that found nothing and now finds a page closed by itself
-        // (D319): no longer work, named so the reader sees the gap was filled.
-        <section className="work__answered" aria-label="Searches answered since">
-          <p className="page-note">
-            <Icon name="check" size={14} /> Answered since: {extra.found.length}{" "}
-            {extra.found.length === 1 ? "search" : "searches"} that found nothing before now{" "}
-            {extra.found.length === 1 ? "finds" : "find"} a page.
-          </p>
-          <ul className="work__answered-list">
-            {extra.found.map((q) => (
-              <li key={q} className="chip work__answered-chip">
-                &ldquo;{q}&rdquo;
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-      {data && data.next_offset !== undefined && (
-        <p className="page-note">
-          Showing the first {data.entries.length} of {data.total}.
-        </p>
+          )}
+          {data && data.next_offset !== undefined && (
+            <p className="page-note">
+              Showing the first {data.entries.length} of {data.total}.
+            </p>
+          )}
+        </>
       )}
     </Page>
+  );
+}
+
+/** The Work page's selector: the default board, then the KB's dashboards. */
+function DashboardSelect({
+  dashboards,
+  value,
+  onChange,
+}: {
+  dashboards: DashboardListEntry[];
+  value: string | null;
+  onChange(name: string | null): void;
+}) {
+  // A name from a link that the list does not hold (yet) is still offered, so
+  // the control never shows a board other than the one on screen.
+  const names = value && !dashboards.some((d) => d.name === value) ? [...dashboards, { name: value }] : dashboards;
+  return (
+    <label className="work__dashboard-select">
+      <span className="work__dashboard-label">Dashboard</span>
+      <select value={value ?? ""} onChange={(e) => onChange(e.target.value || null)}>
+        <option value="">Work board</option>
+        {names.map((d) => (
+          <option key={d.name} value={d.name}>
+            {d.title || d.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+/**
+ * One dashboard, read for the caller. The grid is a later change: this draws a
+ * neutral tile while it loads and the empty state for a dashboard with no
+ * widget. A caller without whole-KB read gets resolved data and structural
+ * keys only, so nothing here needs the title, the hash or the source.
+ */
+function DashboardPane({ kb, name, live }: { kb: string; name: string; live: number }) {
+  const [data, setData] = useState<DashboardResolved | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchDashboard(kb, name, controller.signal)
+      .then((res) => {
+        if (controller.signal.aborted) return;
+        setData(res);
+        setError(null);
+      })
+      .catch((err: unknown) => {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        setError(err);
+      });
+    return () => controller.abort();
+  }, [kb, name, live, attempt]);
+
+  if (error) return <ErrorState error={error} onRetry={() => setAttempt((n) => n + 1)} />;
+  if (!data) return <LoadingTile label="Reading the dashboard" />;
+  if (data.widgets.length === 0)
+    return (
+      <Quiet tone="neutral">
+        This dashboard has no widget yet. Ask an agent to build it: it writes the widgets with dashboard_patch.
+      </Quiet>
+    );
+  return <LoadingTile label="Dashboard widgets are drawn in a later release" busy={false} />;
+}
+
+function LoadingTile({ label, busy = true }: { label: string; busy?: boolean }) {
+  return (
+    <section className="work__dashboard-tile" role="status" aria-busy={busy} aria-label={label}>
+      <p className="page-note">{label}</p>
+    </section>
   );
 }
 

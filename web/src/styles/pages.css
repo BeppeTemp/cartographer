@@ -1049,6 +1049,22 @@ button.row {
   color: var(--text-secondary);
 }
 
+/* The Work page's dashboard selector and its neutral tile (the grid comes later). */
+.work__dashboard-select {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 0.875rem;
+}
+.work__dashboard-label {
+  color: var(--text-muted);
+}
+.work__dashboard-tile {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md, 8px);
+  padding: var(--space-4);
+}
+
 /* One track that cannot grow past the column: an unbreakable concept id in a
    card would otherwise widen the track and slide the card under the next column. */
 .work__cards {

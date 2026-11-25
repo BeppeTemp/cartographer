@@ -325,7 +325,7 @@ export function App() {
   useEffect(() => {
     if (kbs.length === 0) return;
     if (view.kb && kbs.some((kb) => kb.name === view.kb)) return;
-    const next = { ...view, kb: kbs[0]!.name, scope: null, concept: null, hmap: null, unfold: [] };
+    const next = { ...view, kb: kbs[0]!.name, scope: null, concept: null, hmap: null, dashboard: null, unfold: [] };
     setView(next);
     replaceView(next);
   }, [kbs, view]);
@@ -342,6 +342,8 @@ export function App() {
       const merged = { ...current, ...next };
       // Cluster ids name one KB's communities: another KB starts folded.
       if (merged.kb !== current.kb) merged.unfold = [];
+      // A dashboard name belongs to one KB, and to the Work page.
+      if (merged.kb !== current.kb || merged.panel !== "work") merged.dashboard = null;
       pushView(merged);
       return merged;
     });
@@ -1069,6 +1071,8 @@ export function App() {
               live={live}
               components={components}
               collections={overview?.collections}
+              dashboard={view.dashboard}
+              onDashboard={(dashboard) => navigate({ dashboard })}
               onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId })}
             />
           ) : view.panel === "health" ? (

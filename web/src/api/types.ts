@@ -400,6 +400,77 @@ export interface WorkResponse {
   next_offset?: number;
 }
 
+/**
+ * GET /kbs/{kb}/dashboards: the KB's dashboards (D2380). A caller
+ * that cannot read the whole KB gets names only: every other field is optional.
+ */
+export interface DashboardListEntry {
+  name: string;
+  title?: string;
+  widgets?: number;
+  hash?: string;
+  error?: string;
+}
+export interface DashboardList {
+  dashboards: DashboardListEntry[];
+}
+
+/** One row of a resolved widget: the work entry shape, trimmed. */
+export interface DashboardEntry {
+  id: string;
+  title?: string;
+  type?: string;
+  map?: string;
+  status?: string;
+  state?: string;
+  reason?: string;
+  age_days?: number;
+  stale?: boolean;
+  items?: WorkItem[];
+  item_count?: number;
+  fields?: Record<string, string>;
+}
+export interface DashboardGroup {
+  key: string;
+  total: number;
+  entries?: DashboardEntry[];
+}
+/**
+ * A widget with what it resolved to. A caller without whole-KB read gets the
+ * structural keys and the resolved data only: the author strings (title,
+ * text, filter, group_by...) are absent, so nothing but id and type is certain.
+ */
+export interface DashboardWidget {
+  id: string;
+  type?: string;
+  title?: string;
+  icon?: string;
+  accent?: string;
+  width?: number;
+  source?: string;
+  group_by?: string;
+  columns?: string[];
+  sort?: string;
+  limit?: number;
+  text?: string;
+  date_field?: string;
+  horizon_days?: number;
+  show?: string;
+  /** Why this widget cannot draw; its neighbours still do. */
+  error?: string;
+  entries?: DashboardEntry[];
+  groups?: DashboardGroup[];
+  total: number;
+}
+/** GET /kbs/{kb}/dashboards/{name}; a name with no file is empty, hash "". */
+export interface DashboardResolved {
+  name: string;
+  hash?: string;
+  title?: string;
+  description?: string;
+  widgets: DashboardWidget[];
+}
+
 /** GET /kbs/{kb}/status: the parts of kb_status the Atlas reads. The home reads
  *  open_gaps, search_misses and stale_count (omitted by the server when empty);
  *  the top bar's sync indicator reads the replication facts. */
