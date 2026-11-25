@@ -41,8 +41,8 @@ describe("DashboardView", () => {
   });
 
   it("names a type it does not draw yet and works with structural keys only", () => {
-    render(<DashboardView data={base([{ id: "k", type: "agenda", total: 2 }, { id: "s", type: "stat", total: 1, groups: [{ key: "open", total: 1 }] }])} />);
-    expect(screen.getByText(/agenda widget is not drawn yet/)).toBeInTheDocument();
+    render(<DashboardView data={base([{ id: "k", type: "table", total: 2 }, { id: "s", type: "stat", total: 1, groups: [{ key: "open", total: 1 }] }])} />);
+    expect(screen.getByText(/table widget is not drawn yet/)).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2, name: "k" })).toBeInTheDocument();
     expect(screen.getByText("open")).toBeInTheDocument();
   });
@@ -92,5 +92,32 @@ describe("DashboardView", () => {
     expect(isDue("2026-11-24", "2026-11-25")).toBe(true);
     expect(isDue("2026-13-45", "2026-11-25")).toBe(false);
     expect(isDue("2026-02-30", "2026-11-25")).toBe(false);
+  });
+
+  // AC-kbdash-21: agenda draws the overdue bucket first and a due review_after carries the due style.
+  it("draws an agenda with the overdue day first and marks a due review_after", () => {
+    const { container } = render(
+      <DashboardView
+        data={base([
+          {
+            id: "week",
+            type: "agenda",
+            title: "Week",
+            total: 2,
+            groups: [
+              { key: "overdue", total: 1, entries: [{ id: "a", title: "Late", fields: { review_after: "2000-01-01" } }] },
+              { key: "2999-01-01", total: 1, entries: [{ id: "b", title: "Later", fields: { review_after: "2999-01-01" } }] },
+            ],
+          },
+        ])}
+      />,
+    );
+    const days = container.querySelectorAll(".dashboard__day");
+    expect(days).toHaveLength(2);
+    expect(days[0]).toHaveTextContent("Overdue");
+    expect(days[1]).toHaveTextContent("2999-01-01");
+    expect(days[0]!.querySelector(".dashboard__due")).not.toBeNull();
+    expect(days[1]!.querySelector(".work__card-note.dashboard__due")).toBeNull();
+    expect(screen.getByText(/Review due 2000-01-01/)).toHaveClass("dashboard__due");
   });
 });

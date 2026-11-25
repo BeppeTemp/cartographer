@@ -11,8 +11,8 @@ import { Markdown } from "./Markdown";
  * so nothing here assumes a title, a source or a hash: a widget with no title
  * is named by its id.
  *
- * Drawn here: `stat`, `note`, `kanban`, `list` and the error tile of a widget
- * that failed to resolve. Any other type (`agenda`) shows a neutral tile naming it.
+ * Drawn here: `stat`, `note`, `kanban`, `list`, `agenda` and the error tile of a widget
+ * that failed to resolve. Any other type shows a neutral tile naming it.
  */
 export function DashboardView({
   data,
@@ -121,6 +121,22 @@ function WidgetBody({ widget, onOpen }: { widget: DashboardWidget; onOpen?(conce
         </div>
       ) : (
         <EntryList entries={widget.entries ?? []} onOpen={onOpen} />
+      );
+    case "agenda":
+      // The resolver sends `overdue` first, then one group per day in order; a day is a row.
+      return widget.groups && widget.groups.length > 0 ? (
+        <ol className="dashboard__agenda">
+          {widget.groups.map((g: DashboardGroup, i) => (
+            <li key={`${g.key}-${i}`} className="dashboard__day" aria-label={`${g.key || "(none)"}, ${g.total}`}>
+              <h3 className={`dashboard__column-title${g.key === "overdue" ? " dashboard__due" : ""}`}>
+                {g.key === "overdue" ? "Overdue" : g.key || "(none)"} <span className="dashboard__count">{g.total}</span>
+              </h3>
+              <EntryList entries={g.entries ?? []} onOpen={onOpen} />
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className="page-note">Nothing here.</p>
       );
     default:
       return <p className="page-note">A {widget.type ?? "unknown"} widget is not drawn yet.</p>;

@@ -1170,6 +1170,16 @@ button.row {
   padding: 0;
   list-style: none;
 }
+.dashboard__agenda {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.dashboard__day {
+  min-width: 0;
+}
 .dashboard__due {
   color: var(--sev-error);
   font-weight: 600;
