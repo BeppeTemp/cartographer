@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"regexp"
 	"sort"
 	"time"
 
@@ -30,8 +29,6 @@ const (
 	maxRunStartedAhead  = 24 * time.Hour
 	maxRunStartedBehind = 30 * 24 * time.Hour
 )
-
-var runIDRe = regexp.MustCompile(`^[A-Za-z0-9._:/-]{1,96}$`)
 
 // surveyorRun is one finished task as the server holds it.
 type surveyorRun struct {
@@ -304,7 +301,7 @@ func (m *MultiKBServer) handleSurveyorRuns(w http.ResponseWriter, r *http.Reques
 	}
 	for _, x := range body.Runs {
 		switch {
-		case !runIDRe.MatchString(x.RunID):
+		case !componentproto.ValidRunID(x.RunID):
 			bad("a run needs a run_id of 1-96 characters of [A-Za-z0-9._:/-]", "runs")
 			return
 		case !taskKindRe.MatchString(x.Task):

@@ -573,6 +573,13 @@ abandoned on shutdown, and a model-less task that did nothing, are not reported;
 Meridian, a refused protocol, a declaration Meridian does not hold) pauses the posts for ten beats, logged once
 per status until a post succeeds.
 
+A run's `run_id` (`<replica>-<unix>-<seq>`, 1-96 characters of `[A-Za-z0-9._:/-]`, `componentproto.RunIDPattern`)
+is allocated before the task starts, and every tool call of the task carries it in the request header
+`Cartographer-Surveyor-Run` (`client.SurveyorRunHeader`, `tools/call` only, sent only when valid): the id on the wire is
+the one reported. It is an attribution hint, never authorization. Calls made outside a run (the unit listing, the
+closing entries) carry none. An additive field: `Protocol` stays 1, and a server that does not read the header
+simply ignores it.
+
 Body (32 KiB cap): `protocol`, `id` (the replica, as in the heartbeat's `surveyor`), `perimeter`, `runs`
 (at most 20 `{run_id, task, kb, started_at, duration_ms, outcome, error?, tokens_spent}`: `outcome` one of
 `ok`, `failed`, `skipped`, `budget_exhausted`, `error` 200 characters, `tokens_spent` the tokens the task

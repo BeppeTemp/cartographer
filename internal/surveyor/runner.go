@@ -98,10 +98,14 @@ type RunnerOptions struct {
 	// closing entries: client calls take no context, so shutdown must not wait
 	// the 30 s of a normal client.
 	CloseCallers KBCaller
-	Models       map[string]Model // by profile name
-	Idle         IdleSource       // NoIdle when nil
-	Heartbeat    Heartbeat        // NoHeartbeat when nil
-	Now          func() time.Time // time.Now when nil
+	// RunCallers returns the caller scoped to a KB for the writes of one run,
+	// whose id exists before the run starts and is the one reported. When nil,
+	// Callers serves the run.
+	RunCallers func(kb, runID string) ToolCaller
+	Models     map[string]Model // by profile name
+	Idle       IdleSource       // NoIdle when nil
+	Heartbeat  Heartbeat        // NoHeartbeat when nil
+	Now        func() time.Time // time.Now when nil
 	// Sleep waits d or until ctx ends (false). A timer when nil.
 	Sleep func(ctx context.Context, d time.Duration) bool
 	Logf  func(format string, args ...any)
@@ -375,13 +379,23 @@ kbs:
 			}
 			prof, _ := r.cfg.Profile(t.Profile)
 			started := r.opt.Now()
+			// The id is allocated before the run: the run's writes carry it and
+			// the heartbeat reports the same string. The sequence advances even
+			// for a task that reports nothing, so an id is never reused.
+			runID := r.newRunID(started)
+			var tools ToolCaller
+			if r.opt.RunCallers != nil {
+				tools = r.opt.RunCallers(kb, runID)
+			} else {
+				tools = r.opt.Callers(kb)
+			}
 			res, err := r.instances[idx].Run(ctx, item, Runtime{
 				KB: kb, Perimeter: r.cfg.Name, Replica: r.replica, Profile: prof,
-				Model: r.opt.Models[t.Profile], Grant: r.budget.Grant(t.Profile), DailyLeft: r.budget.DailyLeft(t.Profile), Tools: r.opt.Callers(kb),
+				Model: r.opt.Models[t.Profile], Grant: r.budget.Grant(t.Profile), DailyLeft: r.budget.DailyLeft(t.Profile), Tools: tools,
 			})
-			r.opt.Logf("%s", taskMetric(r.cfg.Name, r.replica, kb, t, prof.Model, item.Key, r.opt.Now().Sub(started), res, err))
+			r.opt.Logf("%s", taskMetric(r.cfg.Name, r.replica, kb, t, prof.Model, item.Key, runID, r.opt.Now().Sub(started), res, err))
 			r.budget.Charge(kb, t.Profile, res.Tokens)
-			r.finished(ctx, t, kb, started, res, err, r.noModel[idx])
+			r.finished(ctx, t, kb, runID, started, res, err, r.noModel[idx])
 			// A NoModel task that did nothing (a repair with nothing to fix) leaves no
 			// closing entry: it would be a commit in a KB nothing else changed, every
 			// interval. Note touches the KB, so it is skipped too.
@@ -461,18 +475,23 @@ func fatalErr(err error) bool {
 	return errors.As(err, &re) && (re.Code == client.CodeUnauthorized || re.HTTPStatus == 403)
 }
 
-// finished hands one finished task to the heartbeat when it reports runs. The
-// id is unique across restarts of the process (replica, start time, sequence).
-func (r *Runner) finished(ctx context.Context, t TaskSpec, kb string, started time.Time, res Result, err error, noModel bool) {
+// newRunID allocates the id of a run: unique across restarts of the process
+// (replica, start time, sequence).
+func (r *Runner) newRunID(started time.Time) string {
+	r.runSeq++
+	return fmt.Sprintf("%s-%d-%d", r.replica, started.Unix(), r.runSeq)
+}
+
+// finished hands one finished task to the heartbeat when it reports runs.
+func (r *Runner) finished(ctx context.Context, t TaskSpec, kb, runID string, started time.Time, res Result, err error, noModel bool) {
 	rep, ok := r.opt.Heartbeat.(RunReporter)
 	// A task abandoned on shutdown is not a failure, and a NoModel task that
 	// did nothing is not a run (the same filter as the closing entry's Note).
 	if !ok || ctx.Err() != nil || (noModel && err == nil && res.Units == 0 && res.Commits == 0) {
 		return
 	}
-	r.runSeq++
 	run := Run{
-		ID:   fmt.Sprintf("%s-%d-%d", r.replica, started.Unix(), r.runSeq),
+		ID:   runID,
 		Task: t.Kind, KB: kb, Started: started, Duration: r.opt.Now().Sub(started),
 		Outcome: componentproto.OutcomeOK, Tokens: res.Tokens,
 	}

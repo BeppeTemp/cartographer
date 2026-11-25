@@ -9,6 +9,8 @@
 // never bump it, removing or re-typing a field or changing its meaning does.
 package componentproto
 
+import "regexp"
+
 // Protocol is the component protocol this build speaks (N). MinProtocol is the
 // oldest it still serves (N-1, but never below 1: 0 means "not negotiated" and
 // belongs to the legacy aliases).
@@ -16,6 +18,16 @@ const (
 	Protocol    = 1
 	MinProtocol = 1
 )
+
+// RunIDPattern is the shape of a Surveyor run id: 1-96 characters of
+// [A-Za-z0-9._:/-], so it holds no whitespace or newline. The runs route and
+// the client header of a run's writes share it.
+const RunIDPattern = `^[A-Za-z0-9._:/-]{1,96}$`
+
+var runIDRe = regexp.MustCompile(RunIDPattern)
+
+// ValidRunID reports whether s is a well-formed run id.
+func ValidRunID(s string) bool { return runIDRe.MatchString(s) }
 
 // The routes of the family, relative to the origin.
 const (

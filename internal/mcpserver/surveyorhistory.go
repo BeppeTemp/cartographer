@@ -201,12 +201,12 @@ func (h *runHistory) load(path string, now time.Time) {
 			continue
 		}
 		per, rep, ok := strings.Cut(rest, "/")
-		if !ok || !perimeterRe.MatchString(per) || !runIDRe.MatchString(rep) || e.At.Before(now.AddDate(0, 0, -runHistoryDays)) {
+		if !ok || !perimeterRe.MatchString(per) || !componentproto.ValidRunID(rep) || e.At.Before(now.AddDate(0, 0, -runHistoryDays)) {
 			continue
 		}
 		var ids []string
 		for _, id := range e.IDs {
-			if _, rid, ok := strings.Cut(id, seenSep); ok && runIDRe.MatchString(rid) {
+			if _, rid, ok := strings.Cut(id, seenSep); ok && componentproto.ValidRunID(rid) {
 				ids = append(ids, id)
 			}
 		}

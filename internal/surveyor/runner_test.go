@@ -605,17 +605,54 @@ func TestRunnerDoesNotReportAbandonedOrIdleNoModelTasks(t *testing.T) {
 		t.Fatalf("abandoned task reported: %+v", rb.runs)
 	}
 	// A context error never raises model_unreachable.
-	f.r.finished(context.Background(), TaskSpec{Kind: "x"}, "kb-a", time.Now(), Result{}, fmt.Errorf("post: %w", context.DeadlineExceeded), false)
+	f.r.finished(context.Background(), TaskSpec{Kind: "x"}, "kb-a", "run-x", time.Now(), Result{}, fmt.Errorf("post: %w", context.DeadlineExceeded), false)
 	if len(rb.runs) != 1 || rb.runs[0].Alarm != "" {
 		t.Fatalf("runs = %+v", rb.runs)
 	}
 	// A NoModel task that did nothing is no run; one that did something is.
-	f.r.finished(context.Background(), TaskSpec{Kind: "repair"}, "kb-a", time.Now(), Result{}, nil, true)
+	f.r.finished(context.Background(), TaskSpec{Kind: "repair"}, "kb-a", "run-x", time.Now(), Result{}, nil, true)
 	if len(rb.runs) != 1 {
 		t.Fatalf("idle NoModel task reported: %+v", rb.runs)
 	}
-	f.r.finished(context.Background(), TaskSpec{Kind: "repair"}, "kb-a", time.Now(), Result{Units: 1}, nil, true)
+	f.r.finished(context.Background(), TaskSpec{Kind: "repair"}, "kb-a", "run-x", time.Now(), Result{Units: 1}, nil, true)
 	if len(rb.runs) != 2 {
 		t.Fatalf("useful NoModel task not reported: %+v", rb.runs)
+	}
+}
+
+// AC-surveyor-run-commit-1 (half): the id a run's writes are scoped with is the
+// id the heartbeat receives, and ids are never reused, even after a task that
+// reports nothing.
+func TestRunnerRunCallersGetTheReportedRunID(t *testing.T) {
+	k := &noopKind{items: []string{"a", "b"}, cost: 5}
+	rb := &reporterBeat{beatFunc: func(State) {}}
+	var given []string
+	f := newFixture(t, []string{"local"}, []*noopKind{k}, func(_ *Config, o *RunnerOptions) {
+		o.Heartbeat = rb
+		base := o.Callers
+		o.RunCallers = func(kb, id string) ToolCaller { given = append(given, id); return base(kb) }
+	})
+	f.r.Run(context.Background(), true)
+	if len(rb.runs) != 2 || len(given) != 2 {
+		t.Fatalf("runs=%d given=%v", len(rb.runs), given)
+	}
+	for i, r := range rb.runs {
+		if r.ID != given[i] {
+			t.Errorf("run %d reported %q but wrote as %q", i, r.ID, given[i])
+		}
+	}
+	if given[0] == given[1] {
+		t.Errorf("run id reused: %v", given)
+	}
+}
+
+// AC-surveyor-run-commit-3: a runner with only Callers runs as before.
+func TestRunnerWithoutRunCallersRunsAsBefore(t *testing.T) {
+	k := &noopKind{items: []string{"a"}, cost: 5}
+	rb := &reporterBeat{beatFunc: func(State) {}}
+	f := newFixture(t, []string{"local"}, []*noopKind{k}, func(_ *Config, o *RunnerOptions) { o.Heartbeat = rb })
+	f.r.Run(context.Background(), true)
+	if len(rb.runs) != 1 || rb.runs[0].ID == "" || rb.runs[0].Outcome != "ok" {
+		t.Fatalf("runs = %+v", rb.runs)
 	}
 }
