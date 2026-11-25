@@ -154,7 +154,10 @@ type file struct {
 
 type commit struct {
 	subject, reason, agent, author string
-	at                             time.Time
+	// runID is the Surveyor-Run: trailer, set only on the Surveyor's commits that
+	// belong to a demo run (markSurveyorCommits).
+	runID string
+	at    time.Time
 	// frac orders the commits of a profiled KB in time (0 oldest, 1 newest); the
 	// times themselves are dealt out afterwards from the profile's span.
 	frac float64
@@ -967,9 +970,10 @@ func (g *kbgen) markSurveyorCommits() {
 		return
 	}
 	n := len(g.commits)
-	for _, back := range surveyorCommitOffsets {
+	for k, back := range surveyorCommitOffsets {
 		if i := n - back; i >= 0 {
 			g.commits[i].author = SurveyorAuthor
+			g.commits[i].runID = surveyorCommitRun(g.spec.Name, len(surveyorCommitOffsets)-1-k)
 		}
 	}
 }
@@ -1079,13 +1083,16 @@ func (g *kbgen) writeStream(w *bufio.Writer) error {
 			}
 		}
 		msg := c.subject
-		if c.reason != "" || c.agent != "" {
+		if c.reason != "" || c.agent != "" || c.runID != "" {
 			msg += "\n"
 			if c.reason != "" {
 				msg += "\nReason: " + c.reason
 			}
 			if c.agent != "" {
 				msg += "\nAgent: " + c.agent
+			}
+			if c.runID != "" {
+				msg += "\nSurveyor-Run: " + c.runID
 			}
 		}
 		mark++

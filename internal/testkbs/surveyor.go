@@ -40,6 +40,23 @@ const SurveyorAuthor = "surveyor/" + SurveyorPerimeter + "/" + SurveyorID
 
 var surveyorCommitOffsets = []int{1, 2, 4, 5}
 
+// surveyorRunID is the id of demo run i, as the runs route reports it.
+func surveyorRunID(i int) string { return fmt.Sprintf("dev-run-%03d", i) }
+
+// surveyorCommitRun is the run whose Surveyor-Run: trailer the pos-th Surveyor
+// commit (0 oldest) of a KB carries: the runs surveyorWith anchors on the same
+// commits, so the Atlas links them by id. Two commits carry none, to show the
+// author-and-time fallback beside the exact link: the oldest of
+// mountain-rescue, and every one of test-30 (no run covers them).
+func surveyorCommitRun(kb string, pos int) string {
+	runs := map[string][2]int{"observatory": {2, 1}, "mountain-rescue": {9, 8}}
+	r, ok := runs[kb]
+	if !ok || (kb == "mountain-rescue" && pos == 0) {
+		return ""
+	}
+	return surveyorRunID(r[pos/2])
+}
+
 // SurveyorKBs are the KBs of its perimeter: two shaped KBs of the fleet and the
 // bare one, so the perimeter does not depend on what a developer mounts beside
 // the fleet.
@@ -188,7 +205,7 @@ func surveyorWith(now time.Time, commits map[string][]time.Time) (*SurveyorPaylo
 	settings := settingsBody{Component: componentproto.KindSurveyor, Protocol: componentproto.Protocol, Report: rep}
 
 	run := func(i int, task, kb, outcome, errText string, tokens int, age time.Duration) runsRun {
-		return runsRun{RunID: fmt.Sprintf("dev-run-%03d", i), Task: task, KB: kb, StartedAt: ago(age),
+		return runsRun{RunID: surveyorRunID(i), Task: task, KB: kb, StartedAt: ago(age),
 			DurationMS: int64(4000 + 900*i), Outcome: outcome, Error: errText, TokensSpent: tokens}
 	}
 	// anchored rewrites the start and duration of run i to cover commits

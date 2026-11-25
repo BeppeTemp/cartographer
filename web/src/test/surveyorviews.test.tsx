@@ -2,6 +2,8 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
+import type { ConceptChange } from "../api/types";
+import { touchedByRun } from "../lib/activity";
 import { componentRow, componentsAnswer, json, stubApi } from "./fixtures";
 
 const SETTINGS = {
@@ -185,7 +187,7 @@ describe("Activity: the Surveyor's runs, honestly", () => {
     const tiles = screen.getByRole("list", { name: "The Surveyor in the window" });
     expect(within(tiles).getByText("runs ok").closest("li")).toHaveTextContent(`since ${since}`);
     expect(within(tiles).getByText("pages created").closest("li")).not.toHaveTextContent("since");
-    expect(screen.getByText(/Pages are matched to runs by author and time/)).toBeInTheDocument();
+    expect(screen.getByText(/Pages are matched to runs by run id when the commit carries one, else by author and time/)).toBeInTheDocument();
   });
 
   it("keeps the plain wording within the kept range", async () => {
@@ -323,5 +325,42 @@ describe("Settings: Sources", () => {
     await user.click(within(tabs).getByRole("tab", { name: /^Surveyor\b/ }));
     await waitFor(() => expect(screen.getByText(/No Surveyor has reported/)).toBeInTheDocument());
     expect(screen.queryByRole("list", { name: "Sources by status" })).not.toBeInTheDocument();
+  });
+});
+
+describe("touchedByRun: the run id", () => {
+  const R = { run_id: "w-1-1700000000-3", replica: "w-1", started_at: "2026-01-01T10:00:00Z", duration_ms: 60_000 };
+  const change = (id: string, extra: Partial<ConceptChange> = {}): ConceptChange => ({
+    id,
+    change: "modified",
+    last_at: "2026-01-01T10:00:30Z",
+    authors: ["surveyor/team-a/w-1"],
+    ...extra,
+  });
+  const ids = (cs: ConceptChange[]) => touchedByRun(R, cs).map((c) => c.id);
+
+  // AC-surveyor-run-commit-8
+  it("touchedByRun lists a change that carries the run id whatever its time", () => {
+    const far = change("a/far", { last_at: "2026-03-05T00:00:00Z", surveyor_runs: [R.run_id, "w-1-1-1"] });
+    expect(ids([far])).toEqual(["a/far"]);
+  });
+
+  // AC-surveyor-run-commit-9
+  it("touchedByRun ignores a change with other run ids and falls back for a change with none", () => {
+    const other = change("a/other", { surveyor_runs: ["w-1-1700000999-4"] });
+    const none = change("a/none");
+    const late = change("a/late", { last_at: "2026-01-02T00:00:00Z" });
+    expect(ids([other, none, late])).toEqual(["a/none"]);
+  });
+
+  it("does not match a forged id on a change no Surveyor of the replica wrote", () => {
+    const person = change("a/person", { authors: ["curator"], surveyor_runs: [R.run_id] });
+    const otherReplica = change("a/w10", { authors: ["surveyor/team-a/w-10"], surveyor_runs: [R.run_id] });
+    expect(ids([person, otherReplica])).toEqual([]);
+  });
+
+  it("lists a change a person edited afterwards when a Surveyor of the replica is among its authors", () => {
+    const edited = change("a/edited", { authors: ["curator", "surveyor/team-a/w-1"], last_at: "2026-02-01T00:00:00Z", surveyor_runs: [R.run_id] });
+    expect(ids([edited])).toEqual(["a/edited"]);
   });
 });

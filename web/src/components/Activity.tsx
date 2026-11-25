@@ -354,7 +354,7 @@ export function Activity({
             </ul>
             {history && <RunTrend history={history} days={DAYS[shown]} />}
             <PageSection title="Runs" id="activity-surveyor-runs" count={surveyorSummary.runs}>
-              <p className="page-note">Pages are matched to runs by author and time; overlapping runs may share them.</p>
+              <p className="page-note">Pages are matched to runs by run id when the commit carries one, else by author and time.</p>
               <SurveyorRunsList
                 kb={kb}
                 components={components}

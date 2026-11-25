@@ -135,27 +135,36 @@ export function bySurveyor(c: Pick<ConceptChange, "authors">): boolean {
 /** Slack around a run's own clock: the Surveyor's and the server's stamps are two clocks. */
 const RUN_SLACK_MS = 5000;
 
+/** The change's author is a Surveyor author naming the run's replica (the exact path segment, w-1 is not w-10). */
+function bySurveyorReplica(c: Pick<ConceptChange, "authors">, replica: string): boolean {
+  return (c.authors ?? []).some((a) => isSurveyorAuthor(a) && a.split("/").slice(1).includes(replica));
+}
+
 /**
- * The concepts a Surveyor run changed: the changes of a Surveyor author named by
- * the run's replica (the exact path segment, w-1 is not w-10) whose time falls
- * inside the run (start to start + duration). A run never overlaps another of
- * its own replica, so the window is exact for what the timeline still shows as
- * the Surveyor's: a concept someone changed after the run is listed under that
- * author, not here (the changes route keeps each concept's newest change only).
+ * The concepts a Surveyor run changed. A change that carries run ids
+ * (`surveyor_runs`, from the `Surveyor-Run` trailer of the commits that wrote
+ * it) is the run's when the run's id is among them and a Surveyor author of
+ * the run's replica wrote it: the id is a self-declared hint, so the author
+ * must agree before the link is shown. A change that carries ids not naming
+ * the run is never matched by time. A change with no ids (an older commit or
+ * Surveyor, a write made outside a run) falls back to the author-and-time rule:
+ * a Surveyor author of the run's replica and a time inside the run (start to
+ * start + duration, with slack for two clocks). The fallback is exact only for
+ * what the timeline still shows as the Surveyor's (the changes route keeps each
+ * concept's newest change only).
  */
 export function touchedByRun(
-  run: { replica: string; started_at: string; duration_ms: number },
+  run: { run_id?: string; replica: string; started_at: string; duration_ms: number },
   changes: ConceptChange[],
 ): ConceptChange[] {
   const from = Date.parse(run.started_at) - RUN_SLACK_MS;
   const to = Date.parse(run.started_at) + run.duration_ms + RUN_SLACK_MS;
-  if (Number.isNaN(from)) return [];
   return changes.filter((c) => {
+    if (!bySurveyorReplica(c, run.replica)) return false;
+    const ids = c.surveyor_runs ?? [];
+    if (ids.length > 0) return run.run_id !== undefined && ids.includes(run.run_id);
+    if (Number.isNaN(from)) return false;
     const at = Date.parse(changedAt(c));
-    return (
-      at >= from &&
-      at <= to &&
-      (c.authors ?? []).some((a) => isSurveyorAuthor(a) && a.split("/").slice(1).includes(run.replica))
-    );
+    return at >= from && at <= to;
   });
 }
