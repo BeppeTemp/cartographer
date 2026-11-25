@@ -76,3 +76,5 @@
 {"q": "why do paths in a KB use placeholders instead of absolute paths?", "want": ["decisions/d75-path-portability-across-machines-placeholders-auto", "decisions/d263-a-kb-declares-its-path-placeholder-registry"]}
 {"q": "how does a KB find the sibling KBs mounted on the same server?", "want": ["internals-contributing/cross-kb-links"]}
 {"q": "does a mounted name beat a kb_aliases alias when a KB looks up a sibling?", "want": ["internals-contributing/cross-kb-links"]}
+{"q": "which branch is the depends_on of a KB read from?", "want": ["internals-contributing/kb-relations"]}
+{"q": "how does a KB declare the other KBs it depends on, and what is the remote guard?", "want": ["internals-contributing/kb-relations"]}

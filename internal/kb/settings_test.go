@@ -271,3 +271,83 @@ func TestParseSettingsArtifactPrefix(t *testing.T) {
 		}
 	}
 }
+
+// AC-kbrel-1
+func TestDependsOnNormalizesRemotes(t *testing.T) {
+	t.Parallel()
+	s, bad := keysOf(t, `
+depends_on:
+  - {name: kb-a, remote: "git@git.example.com:org/core.git"}
+  - {name: kb-b, remote: "https://user:secret@git.example.com/org/core.git"}
+  - {name: kb-c, remote: "ssh://git@Git.Example.com/org/core"}
+  - {name: kb-d, remote: git.example.com/org/core}
+`)
+	if len(bad) != 0 {
+		t.Fatalf("malformed = %v", bad)
+	}
+	rels := s.Relations()
+	if len(rels) != 4 {
+		t.Fatalf("relations = %v", rels)
+	}
+	for _, r := range rels {
+		if r.Remote != "git.example.com/org/core" {
+			t.Errorf("%s: remote %q", r.Name, r.Remote)
+		}
+	}
+}
+
+// AC-kbrel-2
+func TestDependsOnPerItemTolerance(t *testing.T) {
+	t.Parallel()
+	s, bad := keysOf(t, `
+depends_on:
+  - {name: kb-a, remote: git.example.com/org/a}
+  - not-a-mapping
+  - {name: kb-b}
+  - {name: "bad name", remote: git.example.com/org/b}
+  - {name: kb-c, remote: nonsense}
+  - {name: kb-d, remote: git.example.com/org/d, extra: 1}
+  - {name: kb-a, remote: git.example.com/org/a2}
+  - {name: kb-e, remote: git.example.com/org/e}
+`)
+	if !s.Has("depends_on") {
+		t.Fatal("the key was dropped with its bad items")
+	}
+	rels := s.Relations()
+	if len(rels) != 2 || rels[0].Name != "kb-a" || rels[1].Name != "kb-e" {
+		t.Fatalf("relations = %v", rels)
+	}
+	var keys []string
+	for _, m := range bad {
+		keys = append(keys, m.Key)
+	}
+	want := []string{"depends_on[1]", "depends_on[2]", "depends_on[3]", "depends_on[4]", "depends_on[5]", "depends_on[6]"}
+	if strings.Join(keys, ",") != strings.Join(want, ",") {
+		t.Errorf("findings = %v, want %v", keys, want)
+	}
+}
+
+func TestDependsOnNotAListIsLeftOut(t *testing.T) {
+	t.Parallel()
+	for _, yml := range []string{"depends_on: core-kb\n", "depends_on: {name: kb-a}\n"} {
+		s, bad := keysOf(t, yml)
+		if s.Has("depends_on") || len(s.Relations()) != 0 || len(bad) != 1 || bad[0].Key != "depends_on" {
+			t.Errorf("%q: has=%v bad=%v", yml, s.Has("depends_on"), bad)
+		}
+	}
+	if s, bad := keysOf(t, "depends_on: []\n"); !s.Has("depends_on") || len(bad) != 0 {
+		t.Errorf("empty list: has=%v bad=%v", s.Has("depends_on"), bad)
+	}
+}
+
+// The declared remote can carry credentials: the finding never echoes them.
+func TestDependsOnMalformedRemoteIsRedacted(t *testing.T) {
+	t.Parallel()
+	_, bad := keysOf(t, "depends_on:\n  - {name: kb-a, remote: \"https://user:s3cret-token@git.example.com/onlyone\"}\n")
+	if len(bad) != 1 || bad[0].Key != "depends_on[0]" {
+		t.Fatalf("findings = %v", bad)
+	}
+	if strings.Contains(bad[0].String(), "s3cret-token") {
+		t.Errorf("the finding echoes the credential: %s", bad[0])
+	}
+}
