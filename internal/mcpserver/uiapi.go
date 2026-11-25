@@ -141,6 +141,14 @@ type uiKBRow struct {
 	// KB could not be read.
 	ConceptsTotal    *int `json:"concepts_total,omitempty"`
 	ClusterThreshold int  `json:"cluster_threshold,omitempty"`
+	// Relations is the view of the KBs this KB depends on, from the same
+	// function and predicate as sync_pull's. It is present only for a caller
+	// who reads the KB whole (settings.yaml is a whole-KB file) and only when
+	// the KB declares any.
+	Relations *kb.RelationView `json:"relations,omitempty"`
+	// RelationsUnavailable replaces Relations when reading them failed: the
+	// list still loads, it is a display.
+	RelationsUnavailable bool `json:"relations_unavailable,omitempty"`
 }
 
 type uiKBList struct {
@@ -165,6 +173,15 @@ func (m *MultiKBServer) uiListKBs(w http.ResponseWriter, r *http.Request) {
 			Secrets:      uiSecretsVisible(ctx, srv.kbRef),
 		}
 		if row.Ready {
+			// Only a ready KB: an error is not memoized, so a KB that cannot
+			// read its relations would repeat its git calls on every poll.
+			if WholeVisible(ctx, srv.kbRef, false) {
+				if v, err := relationViewFor(ctx, srv.kbRef); err != nil {
+					row.RelationsUnavailable = true
+				} else if len(v.Declared) > 0 {
+					row.Relations = &v
+				}
+			}
 			if n, ok := uiVisibleTotal(ctx, srv.kbRef); ok {
 				row.ConceptsTotal, row.ClusterThreshold = &n, kb.ClusterThreshold
 			}

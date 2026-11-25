@@ -457,6 +457,12 @@
           "ready": {
             "type": "boolean"
           },
+          "relations": {
+            "$ref": "#/components/schemas/RelationView"
+          },
+          "relations_unavailable": {
+            "type": "boolean"
+          },
           "secrets": {
             "type": "boolean"
           },
@@ -554,6 +560,78 @@
         "required": [
           "bytes",
           "id"
+        ],
+        "type": "object"
+      },
+      "Relation": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "remote": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "remote"
+        ],
+        "type": "object"
+      },
+      "RelationUnresolved": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "remote": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "reason",
+          "remote"
+        ],
+        "type": "object"
+      },
+      "RelationView": {
+        "additionalProperties": false,
+        "properties": {
+          "closure": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "declared": {
+            "items": {
+              "$ref": "#/components/schemas/Relation"
+            },
+            "type": "array"
+          },
+          "resolved": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "unresolved": {
+            "items": {
+              "$ref": "#/components/schemas/RelationUnresolved"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "closure",
+          "declared",
+          "resolved",
+          "unresolved"
         ],
         "type": "object"
       },
