@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/testtree"
@@ -154,5 +155,34 @@ func TestConnectForm_TokenEnvIsTrimmedOnce(t *testing.T) {
 	m.tokenEnv.SetValue("  FOO ")
 	if got := m.Values().Token; got != "${FOO}" {
 		t.Errorf("Token = %q, want ${FOO}", got)
+	}
+}
+
+// A machine file with no .cartographer.yaml (the YAML deleted, or never written
+// on a machine that had only run opt-out commands) survives a connect: its
+// approvals, marker and opt-outs are neither replaced by defaults nor re-armed.
+func TestDoConnect_KeepsAMachineFileWithoutYAML(t *testing.T) {
+	setHome(t, t.TempDir())
+	dir := t.TempDir()
+	seed := clientconfig.Default()
+	if err := seed.ApproveMCP("kb-a", "hook/guard", "h1", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	seed.ApprovalsMigrated, seed.SyncTimerOptOut, seed.TrayOptOut = true, true, true
+	if err := clientconfig.Save(dir, seed); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(clientconfig.Path(dir)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: "http://127.0.0.1:1/mcp", Name: "cartographer"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.SyncTimerOptOut || !cfg.TrayOptOut || !cfg.ApprovalsMigrated || cfg.MCPApprovals["kb-a"]["hook/guard"].ContentHash != "h1" {
+		t.Errorf("machine file replaced by defaults: %+v", cfg)
 	}
 }

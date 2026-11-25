@@ -1053,7 +1053,10 @@ func seedSetupServerURL(url string) error {
 	if _, err := clientconfig.Load(dir); !errors.Is(err, os.ErrNotExist) {
 		return nil // a file exists (or cannot be read: the plugins step says so)
 	}
-	cfg := clientconfig.Default()
+	cfg, err := clientconfig.LoadOrDefault(dir)
+	if err != nil {
+		return err
+	}
 	cfg.ServerURL = url
 	return clientconfig.Save(dir, cfg)
 }

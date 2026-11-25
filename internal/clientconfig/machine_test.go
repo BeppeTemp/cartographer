@@ -273,3 +273,96 @@ func TestUnreadableMachineFileUsesTheStateOptOuts(t *testing.T) {
 		t.Error("a changed opt-out must be refused while the file is unreadable")
 	}
 }
+
+// LoadOrDefault carries the machine file when no .cartographer.yaml exists
+// (D1728 amended): saving the result must not replace it with defaults.
+func TestLoadOrDefaultReadsAMachineFileWithoutYAML(t *testing.T) {
+	dir := t.TempDir()
+	seed := clientconfig.Default()
+	if err := seed.ApproveMCP("kb-a", "hook/guard", "h1", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	seed.ApprovalsMigrated, seed.SyncTimerOptOut, seed.TrayOptOut = true, true, true
+	if err := clientconfig.Save(dir, seed); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(clientconfig.Path(dir)); err != nil {
+		t.Fatal(err)
+	}
+	before := readFile(t, clientconfig.MachinePath(dir))
+
+	cfg, err := clientconfig.LoadOrDefault(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.SyncTimerOptOut || !cfg.TrayOptOut || !cfg.ApprovalsMigrated || cfg.MCPApprovals["kb-a"]["hook/guard"].ContentHash != "h1" {
+		t.Fatalf("machine file not read: %+v", cfg)
+	}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if after := readFile(t, clientconfig.MachinePath(dir)); after != before {
+		t.Errorf("machine file changed:\n%s\n--\n%s", before, after)
+	}
+}
+
+func TestLoadOrDefaultWithNothingIsDefault(t *testing.T) {
+	cfg, err := clientconfig.LoadOrDefault(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	def := clientconfig.Default()
+	if cfg.ServerURL != def.ServerURL || cfg.SyncTimerOptOut || cfg.TrayOptOut || cfg.ApprovalsMigrated || len(cfg.MCPApprovals) != 0 {
+		t.Errorf("not the defaults: %+v", cfg)
+	}
+}
+
+func TestLoadOrDefaultKeepsAnUnreadableMachineFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(clientconfig.MachinePath(dir), []byte("{broken"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := clientconfig.LoadOrDefault(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.ApprovalsMigrated || len(cfg.MCPApprovals) != 0 || len(cfg.Warnings) == 0 {
+		t.Fatalf("not failing closed: %+v", cfg)
+	}
+	cfg.TrayOptOut = true
+	if err := clientconfig.Save(dir, cfg); err == nil || !strings.Contains(err.Error(), "unreadable") {
+		t.Errorf("Save err = %v, want the unreadable-file refusal", err)
+	}
+	if got := readFile(t, clientconfig.MachinePath(dir)); got != "{broken" {
+		t.Errorf("the unreadable file was replaced: %q", got)
+	}
+}
+
+// A state file without a YAML is read too: agents and opt-outs survive.
+func TestLoadOrDefaultReadsTheStateFileWithoutYAML(t *testing.T) {
+	dir := t.TempDir()
+	seed := clientconfig.Default()
+	seed.Agents = []string{"claude"}
+	seed.TrayOptOut = true
+	if err := clientconfig.Save(dir, seed); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(clientconfig.Path(dir)); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := clientconfig.LoadOrDefault(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Agents) != 1 || cfg.Agents[0] != "claude" || !cfg.TrayOptOut {
+		t.Errorf("state not read: %+v", cfg)
+	}
+}
+
+func TestLoadOrDefaultReturnsARealError(t *testing.T) {
+	dir := t.TempDir()
+	writeConfigFile(t, dir, "agents: [unclosed")
+	if _, err := clientconfig.LoadOrDefault(dir); err == nil {
+		t.Error("a malformed YAML must not fall back to the defaults")
+	}
+}

@@ -560,11 +560,8 @@ func loadClientConfigOrDefault() (*clientconfig.Config, error) {
 	if err != nil {
 		return clientconfig.Default(), nil
 	}
-	cfg, err := clientconfig.Load(dir)
+	cfg, err := clientconfig.LoadOrDefault(dir)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return clientconfig.Default(), nil
-		}
 		return nil, fmt.Errorf("%s", describeClientConfigError(dir, err))
 	}
 	return cfg, nil
