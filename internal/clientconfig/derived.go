@@ -60,8 +60,8 @@ type DerivedUnresolved struct {
 const (
 	MaxLineageClosure    = 64
 	MaxLastChangeItems   = 100
-	lastChangeViaPaths   = "paths.yaml"
-	lastChangeViaLineage = "lineage"
+	LastChangeViaPaths   = "paths.yaml"
+	LastChangeViaLineage = "lineage"
 )
 
 // lineageReasons is the closed set of reasons the server gives for a relation
@@ -90,13 +90,14 @@ type DerivedLineage struct {
 }
 
 // DerivedChangeItem is one KB added to or removed from a path (Via
-// "paths.yaml") or a provider (Via "lineage"); From is the seed KB of a
-// lineage change.
+// "paths.yaml" or "lineage") or, with Provider set, from a provider's own set
+// (Via "lineage"); From is the seed KB of a lineage change.
 type DerivedChangeItem struct {
-	KB   string `json:"kb"`
-	Path string `json:"path,omitempty"`
-	Via  string `json:"via"`
-	From string `json:"from,omitempty"`
+	KB       string `json:"kb"`
+	Path     string `json:"path,omitempty"`
+	Via      string `json:"via"`
+	From     string `json:"from,omitempty"`
+	Provider string `json:"provider,omitempty"`
 }
 
 // DerivedChange is what the last sync that changed derived state added and
@@ -214,7 +215,7 @@ func cleanLastChange(c *DerivedChange) *DerivedChange {
 		return nil
 	}
 	for _, it := range append(append([]DerivedChangeItem(nil), c.Added...), c.Removed...) {
-		if !validKBName(it.KB) || (it.Via != lastChangeViaPaths && it.Via != lastChangeViaLineage) {
+		if !validKBName(it.KB) || (it.Via != LastChangeViaPaths && it.Via != LastChangeViaLineage) {
 			return nil
 		}
 	}
