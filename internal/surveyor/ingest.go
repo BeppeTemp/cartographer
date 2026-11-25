@@ -355,7 +355,7 @@ func (in *ingestInstance) Run(ctx context.Context, item *WorkItem, rt Runtime) (
 
 func (in *ingestInstance) run(ctx context.Context, c ingestCand, rt Runtime) (Result, error) {
 	if rt.Grant < in.floor() {
-		return Result{Summary: "no unit claimed: the remaining budget is below the floor"}, nil
+		return Result{Summary: "no unit claimed: the remaining budget is below the floor", Budget: true}, nil
 	}
 	unit, err := readConcept(rt.Tools, c.unit)
 	if err != nil {

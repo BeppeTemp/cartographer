@@ -243,6 +243,10 @@ type Result struct {
 	Units   int
 	Commits int
 	Summary string // one line
+	// Budget: the task refused to start for want of budget (a positive grant
+	// below its floor), so nothing it could take is left to this run: the run
+	// ends stopped=budget, not done (D2389).
+	Budget bool
 
 	CacheReadTokens int // the part of Tokens read from the provider's cache
 	Steps           int

@@ -303,7 +303,7 @@ func oneLine(s string) string {
 
 // Close writes one closing entry per touched KB; summary, if any, is added to
 // every KB's own summaries (a line that names no KB's content). A KB whose run
-// was quiet (stopped=done, no tokens, no units, no commits) gets no entry: it
+// was quiet (stopped=done or stopped=budget, with no tokens, no units, no commits) gets no entry: it
 // spent nothing the ledger must count and a log commit per interval would be
 // noise (D2281). A failed log_append is retried once and then logged: it never
 // fails the run (its spending is then lost, like a crash's). It returns the KBs
@@ -313,7 +313,7 @@ func (b *Budget) Close(stopped, summary string) (failed []string) {
 	kbs := make([]string, 0, len(b.order))
 	entries := make(map[string]string, len(b.order))
 	for _, kb := range b.order {
-		if stopped == StoppedDone && summary == "" && b.quietLocked(kb) {
+		if (stopped == StoppedDone || stopped == StoppedBudget) && summary == "" && b.quietLocked(kb) {
 			continue
 		}
 		kbs = append(kbs, kb)

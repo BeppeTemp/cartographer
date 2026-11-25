@@ -308,7 +308,8 @@ func (r *Runner) work(ctx context.Context, due []string) int {
 	var (
 		stopped  = StoppedDone
 		cutBy    string // window or idle ended on some KB
-		budget   bool   // a task was skipped for want of grant
+		budget   bool   // a task was skipped or refused for want of grant
+		tasks    int    // tasks run
 		errored  bool
 		fatal    error
 		disabled = map[string]bool{}                         // profiles whose credential the model API refused
@@ -393,6 +394,10 @@ kbs:
 				KB: kb, Perimeter: r.cfg.Name, Replica: r.replica, Profile: prof,
 				Model: r.opt.Models[t.Profile], Grant: r.budget.Grant(t.Profile), DailyLeft: r.budget.DailyLeft(t.Profile), Tools: tools,
 			})
+			tasks++
+			if res.Budget {
+				budget = true
+			}
 			r.opt.Logf("%s", taskMetric(r.cfg.Name, r.replica, kb, t, prof.Model, item.Key, runID, r.opt.Now().Sub(started), res, err))
 			r.budget.Charge(kb, t.Profile, res.Tokens)
 			r.finished(ctx, t, kb, runID, started, res, err, r.noModel[idx])
@@ -440,6 +445,7 @@ kbs:
 		tail = "stopped: " + oneLine(fatal.Error())
 	}
 	r.budget.Close(stopped, tail)
+	r.opt.Logf("surveyor: run ended stopped=%s tasks=%d", stopped, tasks)
 	r.last = LastRun{At: r.opt.Now(), Units: r.budget.totalUnits(), Commits: r.budget.totalCommits(), Tokens: r.budget.totalTokens()}
 	if fatal != nil {
 		r.opt.Logf("surveyor: ending the run: %v", fatal)

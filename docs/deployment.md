@@ -729,7 +729,7 @@ the same config.
 | Flag | Meaning |
 |---|---|
 | `--config <file>` | The Surveyor YAML (required; there is no environment alias). Without it the command prints usage and exits 2 |
-| `--once` | Evaluate the triggers once, run if due, exit 0 (for an external scheduler) |
+| `--once` | Evaluate the triggers once, run until no task has work, the window closes or the budget is spent, exit 0 (for an external scheduler); the last log line names the stop reason and the task count |
 | `--log-file <file>` | Append the log to a file instead of stderr, as `serve` does |
 
 `ca_file` (absolute path of a PEM file) lets a server with a certificate from a private CA be reached over `https://`: the file is added to the system roots for the `server_url` host and port only, so the model endpoints, the connectors and `fetch` keep the system roots. A file that is unreadable or holds no certificate stops the start (exit 2), naming `ca_file`. `source-test` reads it too.
@@ -1050,7 +1050,8 @@ restarts from the first entry. A failing task is not retried in the same run; re
 skip it until the next poll (this is also how a token with read but no write grant shows up). A revoked token
 (401) or a refused host (403) ends the process with exit 1. A profile whose model API rejects the credential
 is off for the rest of the run and tried again at the next one. A run closes with one `log_append` per KB it
-touched, ending `stopped=done|window|budget|idle|shutdown|error`; a KB the run left quiet (`stopped=done`, no tokens, no unit, no commit) gets no entry, so a poll that found nothing writes nothing to the KB's log.
+touched, ending `stopped=done|window|budget|idle|shutdown|error`; a KB the run left quiet (`stopped=done` or `stopped=budget`, no tokens, no unit, no commit) gets no entry, so a poll that found nothing writes nothing to the KB's log.
+A run takes tasks until none has work left, the window closes or the grant is spent, and logs `surveyor: run ended stopped=<reason> tasks=<n>` on exit; with `--once` that line is the whole answer to "did it drain". A grant above zero but below the ingest floor (the dearest unit completed so far, at least 20 000 tokens) leaves the claimable units unclaimed, so the run ends `stopped=budget`, never `done`: raise `run_tokens`, or run again once the day's budget allows.
 
 **Shutdown.** SIGINT/SIGTERM cancel the in-flight model call, abandon the task in progress (its claim lapses by
 lease; what was committed stays), write the closing entries in parallel with a 5 s HTTP timeout and exit 0. A
