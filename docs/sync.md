@@ -775,7 +775,7 @@ A projection writes into a directory the user version-controls, so two rules hol
 - A workspace projection's lines in `sync` and `sync --dry-run` are labelled `[<provider> <workspace>]`,
   with the home directory shown as `$HOME`: a printable label that `grep` reads as text (#1200).
 - Cartographer excludes **only its own untracked paths**, and only in the repository's `info/exclude`
-  (`.git/info/exclude`), inside a marker-delimited block. It **never** edits `.gitignore`: that file
+  (`.git/info/exclude`), inside a marker-delimited block, written before Apply (so the directories are excluded before anything lands) and once more after the apply loop from the new lock, so a pruned artifact leaves the block in the same sync and a fresh binding's block is the same after the first sync as after the second (#2372). It **never** edits `.gitignore`: that file
   is the repository's, shared with everyone who clones it. A shared file the repository already
   tracks — a `CLAUDE.md` the team wrote — is the user's: Cartographer writes its block inside it
   and does not exclude it. Such a block carries the placeholder paragraph but none of this machine's

@@ -1105,6 +1105,24 @@ func prepareWorkspace(st syncStreams, p syncProjection, providers []string, dryR
 	return nil
 }
 
+// refreshWorkspaceExclusions rewrites, after Apply, the exclude block of every
+// workspace a projection of this run was applied in, with the ownership the new
+// lock and the manifests give (#2372). A failure is a warning like the one
+// before Apply: the block is a convenience, not what the sync is for.
+func refreshWorkspaceExclusions(st syncStreams, projections []syncProjection, skipped map[string]bool, lockFile *provisioning.LockFile, manifests map[string]contract.Manifest) {
+	done := map[string]bool{}
+	for _, p := range projections {
+		if p.Scope != contract.ScopeProject || skipped[projectionKey(p)] || done[p.Workspace] {
+			continue
+		}
+		done[p.Workspace] = true
+		err := writeWorkspaceExclusions(p.Workspace, workspaceProviders(*lockFile, projections, p.Workspace), workspaceOwnership(lockFile, projections, manifests, p.Workspace), derivedLocalFiles(projections, p.Workspace)...)
+		if err != nil {
+			fmt.Fprintf(st.err(), "warning: workspace %s: git exclude left unchanged: %v\n", p.Workspace, err)
+		}
+	}
+}
+
 // derivedLocalFiles are the untracked files the derived projections of
 // workspace write this run (their instructions block, D1019, and Claude Code
 // hook registrations, D1198). The exclude block is rewritten whole by each

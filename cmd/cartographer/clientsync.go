@@ -1229,6 +1229,13 @@ func materializeForProviders(manifests map[string]contract.Manifest, projections
 			appliedSoFar = append(appliedSoFar, p.Label())
 		}
 	}
+	// The block written before Apply came from the previous lock; rewrite it
+	// once per workspace from the new one, so a pruned artifact leaves it and a
+	// fresh binding's file-level lines are there after the first sync (#2372).
+	// Identical output is not written again.
+	if !dryRun {
+		refreshWorkspaceExclusions(portability.Streams, projections, skippedProjections, &lockFile, manifests)
+	}
 	return results, nil
 }
 
