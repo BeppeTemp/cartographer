@@ -98,7 +98,7 @@ func builtinFamilies() []Family {
 	l = addFamily(l, Family{Side: SideClient, Name: "artifacts", Level: 1, Dirs: []string{"skills", "agents", "hooks"}})
 	l = addFamily(l, Family{Side: SideClient, Name: "providers", Level: 1, Dirs: []string{"providers"}})
 	l = addFamily(l, Family{Side: SideClient, Name: "scripts", Level: 1, Dirs: []string{LibDir}, Files: []string{ScriptEntry}})
-	l = addFamily(l, Family{Side: SideServer, Name: "presets", Level: 1, Dirs: []string{"presets"}})
+	l = addFamily(l, Family{Side: SideServer, Name: "presets", Level: 2, Dirs: []string{"presets"}})
 	l = addFamily(l, Family{Side: SideServer, Name: "roles", Level: 1, Dirs: []string{"roles"}})
 	l = addFamily(l, Family{Side: SideSurveyor, Name: "recipes", Level: 1, Dirs: []string{"recipes"}, Files: []string{SurveyorScript}})
 	l = addFamily(l, Family{Side: SideSurveyor, Name: "connectors", Level: 1, Dirs: []string{"connectors"}})
