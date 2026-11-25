@@ -102,6 +102,7 @@ type TaskSpec struct {
 type Config struct {
 	Name              string
 	ServerURL         string
+	CAFile            string // ca_file: PEM of the private CA of server_url, for that host only
 	AllowInsecureHTTP bool
 	TokenEnv          string
 	KBs               []string
@@ -191,6 +192,7 @@ var clockRE = regexp.MustCompile(`^([01][0-9]|2[0-3]):[0-5][0-9]$`)
 type rawConfig struct {
 	Name              string      `yaml:"name"`
 	ServerURL         string      `yaml:"server_url"`
+	CAFile            string      `yaml:"ca_file"`
 	AllowInsecureHTTP bool        `yaml:"allow_insecure_http"`
 	TokenEnv          string      `yaml:"token_env"`
 	KBs               []string    `yaml:"kbs"`
@@ -502,6 +504,12 @@ func (v *validator) run() error {
 	}
 	if err := checkURL(r.ServerURL, r.AllowInsecureHTTP); err != nil {
 		return v.errf("server_url", v.line("server_url"), "%v", err)
+	}
+	if r.CAFile != "" {
+		if !filepath.IsAbs(r.CAFile) {
+			return v.errf("ca_file", v.line("ca_file"), "must be an absolute path")
+		}
+		c.CAFile = r.CAFile
 	}
 	if r.TokenEnv == "" {
 		return v.errf("token_env", 0, "required: the name of the environment variable holding the bearer token")

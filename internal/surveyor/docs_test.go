@@ -3,9 +3,13 @@ package surveyor
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
+
+// caFileLine matches the top-level ca_file key of a documented example, up to its value.
+var caFileLine = regexp.MustCompile(`(?m)^(ca_file:\s*)\S+`)
 
 // The surveyor YAML in docs/deployment.md is loaded the way TestShippedAuthExamplesLoad
 // loads the auth examples, so the documented config cannot rot. Production
@@ -38,6 +42,11 @@ func TestDocumentedSurveyorConfigLoads(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(dir, "prompts", "weekly-digest.md"), fixture, 0o600); err != nil {
 			t.Fatal(err)
 		}
+		// The documented ca_file is a POSIX path (/etc/...), which is not absolute on
+		// Windows, where the validator rightly refuses it. The example is loaded with the
+		// value replaced by an OS-absolute path in the temp dir; single quotes keep the
+		// backslashes of a Windows path literal in YAML.
+		body = caFileLine.ReplaceAllString(body, "${1}'"+filepath.Join(dir, "ca.pem")+"'")
 		path := filepath.Join(dir, "surveyor.yaml")
 		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 			t.Fatal(err)

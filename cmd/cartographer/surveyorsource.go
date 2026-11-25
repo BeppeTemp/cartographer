@@ -120,6 +120,9 @@ func cmdSurveyorSourceTest(args []string) int {
 		case !slices.Contains(cfg.KBs, kb):
 			return usage("KB %q is not in the config's kbs (%s)", kb, strings.Join(cfg.KBs, ", "))
 		}
+		if err := applySurveyorCA(cfg); err != nil {
+			return usage("surveyor config %s: %v", *configF, err)
+		}
 		c := surveyorKBClient(client.New(cfg.ServerURL, cfg.Token()).WithInsecureHTTP(cfg.AllowInsecureHTTP).WithTokenEnv(cfg.TokenEnv).WithAuthor(surveyorAuthor(cfg.Name, "source-test")), cfg, kb)
 		if err := c.Ping(startupCallTimeout); err != nil {
 			return usage("the server at %s did not answer or refused the token: %v", cfg.ServerURL, err)

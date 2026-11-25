@@ -21,6 +21,8 @@ var Schema = settingschema.Schema{Keys: []settingschema.Key{
 		Description: "Name of the perimeter, the identity of the Surveyor in log entries; the replicas of one perimeter share it."},
 	{Path: "server_url", Scope: settingschema.ScopeSurveyor, Type: "url", Default: `""`, Example: "https://wiki.example.com/mcp",
 		Description: "MCP endpoint of the server the Surveyor talks to."},
+	{Path: "ca_file", Scope: settingschema.ScopeSurveyor, Type: "string", Values: "absolute path", Default: `""`, Example: "/etc/surveyor/ca.pem",
+		Description: "Absolute path of the PEM file of the private CA that signed the https:// server_url certificate; added to the system roots for the server host only, never for models, connectors or fetch."},
 	{Path: "allow_insecure_http", Scope: settingschema.ScopeSurveyor, Type: "bool", Default: "false",
 		Description: "Accept a plain http:// server_url to a non-loopback host, which sends the token in clear."},
 	{Path: "token_env", Scope: settingschema.ScopeSurveyor, Type: "env", Default: `""`, Example: "SURVEYOR_TOKEN",
