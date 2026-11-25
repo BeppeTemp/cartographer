@@ -116,3 +116,23 @@ func TestReportsFallBackToThe028Routes(t *testing.T) {
 		t.Fatal("a 404 on both routes must still be an error")
 	}
 }
+
+// A refused component post hands the caller the server's `error.message`, so the
+// log can say why (#2382).
+func TestComponentRefusalCarriesTheServerMessage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			_, _ = w.Write([]byte(`{"status":"ok","version":"test"}`))
+			return
+		}
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"code":"invalid_request","message":"kbs must\u001b[31m list\n1-32 names\u0007","field":"kbs"}}`))
+	}))
+	defer srv.Close()
+	c := New(srv.URL+"/mcp", "tok").WithInsecureHTTP(true)
+	err := c.ReportSurveyorSettings(map[string]any{"perimeter": "p"}, time.Second)
+	var re *RemoteError
+	if !errors.As(err, &re) || re.HTTPStatus != http.StatusBadRequest || re.ServerMessage != "kbs must[31m list 1-32 names" {
+		t.Fatalf("err = %#v", err)
+	}
+}

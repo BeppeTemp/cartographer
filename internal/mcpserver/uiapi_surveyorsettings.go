@@ -20,6 +20,8 @@ const (
 	maxSurveyorSettingsBody         = 128 << 10
 	maxSurveyorSettingsPerPrincipal = 16
 	maxSurveyorSettingsTotal        = 64
+	// minLeakCheckToken is the shortest bearer token the report is searched for.
+	minLeakCheckToken = 8
 )
 
 // surveyorSettings is one perimeter's report as stored, already scrubbed.
@@ -225,7 +227,9 @@ func (m *MultiKBServer) handleSurveyorSettings(w http.ResponseWriter, r *http.Re
 		decoded, _ := json.Marshal(rep.Entries)
 		more, _ := json.Marshal(srcs)
 		decoded = append(decoded, more...)
-		if tok != "" && (bytes.Contains(data, []byte(tok)) || strings.Contains(rep.Version, tok) || bytes.Contains(decoded, []byte(tok))) {
+		// A token shorter than minLeakCheckToken (a dummy such as "local") would match
+		// ordinary report text, so it is not looked for (#2382).
+		if len(tok) >= minLeakCheckToken && (bytes.Contains(data, []byte(tok)) || strings.Contains(rep.Version, tok) || bytes.Contains(decoded, []byte(tok))) {
 			bad("the report contains the bearer token of the request", "")
 			return
 		}

@@ -685,7 +685,7 @@ the key's type (`bool`; `int`, whole and at most 2^40; `env`, a variable name op
 `url` with userinfo, a query, a fragment or that does not parse, and a `string` the table does not vouch for (an
 enum outside its values, a name or clock that does not match its shape, any key with no shape), is shown as
 `<redacted>`; a list, a map, a wrong type, an unknown key or a repeated key drops the entry. A body containing the
-request's own bearer token (raw, or in the decoded `version`, entries or sources) is refused whole (`400`). Only the KBs the
+request's own bearer token (raw, or in the decoded `version`, entries or sources) is refused whole (`400`, the message names the token), when the token is at least 8 characters: a shorter one would match ordinary report text and is not looked for. The Surveyor's log line for a refused report carries the server's `error.message`. Only the KBs the
 caller may write are kept; none left answers the `404` of an unknown KB. `perimeter` is an identifier (`[a-z0-9-]`, at most 40) and `version` must match `[0-9A-Za-z._+-]{1,32}` or is
 dropped. Residual risks, accepted: a credential embedded in a URL path, an `*_env` value that is a well-formed
 name (a pasted `ghp_…` token is one) and a `models[].model` that looks like a key cannot be told from a legitimate

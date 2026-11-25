@@ -24,6 +24,7 @@ func newAtlasSurveyorFixture(t *testing.T) *surveyorFixture {
 	ts := auth.NewScopedTokenStore([]auth.ScopedToken{
 		{Token: "surveyor-a", Principal: "surveyor-a", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "kb-a", Write: true}}}},
 		{Token: "surveyor-ab", Principal: "surveyor-ab", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "kb-a", Write: true}, {KB: "kb-b", Write: true}}}},
+		{Token: "local", Principal: "local", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "kb-a", Write: true}}}},
 		{Token: "reader", Principal: "reader", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "kb-a"}}}},
 		{Token: "narrow", Principal: "narrow", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "kb-a", Maps: []string{"visible"}}}}},
 		{Token: "other", Principal: "other", Policy: auth.Policy{Permissions: []auth.Permission{{KB: "kb-b"}}}},

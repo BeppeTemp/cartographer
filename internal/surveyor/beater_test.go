@@ -511,3 +511,20 @@ func TestBeaterPostsAgainWhenAChecksGenerationChanges(t *testing.T) {
 		t.Error("the beater wrote into the caller's report instead of a copy")
 	}
 }
+
+// The refusal log names the server's reason next to the status (#2382).
+func TestBeaterRefusedSettingsLogNamesTheServerMessage(t *testing.T) {
+	now := time.Now()
+	api := &stubAPI{answer: &client.HeartbeatAnswer{SettingsWanted: true},
+		postErr: &client.RemoteError{HTTPStatus: 400, Code: client.CodeHTTPFailed, Message: "http://example.com returned HTTP 400", ServerMessage: "the report contains the bearer token of the request"}}
+	var logs []string
+	b := newBeater(api, &now)
+	b.Logf = func(f string, a ...any) { logs = append(logs, fmt.Sprintf(f, a...)) }
+	b.Beat(context.Background(), State{Run: StateIdle})
+	for _, l := range logs {
+		if strings.Contains(l, "settings report refused") && strings.Contains(l, "the report contains the bearer token of the request") {
+			return
+		}
+	}
+	t.Fatalf("no refusal line with the server message: %v", logs)
+}
