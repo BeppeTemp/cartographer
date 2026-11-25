@@ -88,6 +88,10 @@ func cmdKBSecretsInit(args []string) int {
 	// Like every kb command it talks to the local service its config describes
 	// (the config's http:, else the default address), never to the client's
 	// server_url (docs/deployment.md).
+	if localTLS(*configFlag) {
+		fmt.Fprintln(os.Stderr, "kb secrets init: talks to the local server in clear and tls.enabled is set; run it where the server answers over a client connection with a certificate it trusts, or `connect` and use the tool (the health listener serves /health and /ready only)")
+		return 1
+	}
 	localCfg := *cfg
 	localCfg.ServerURL = serverBaseURL(*configFlag) + "/mcp"
 	cfg = &localCfg

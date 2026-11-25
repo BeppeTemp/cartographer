@@ -425,7 +425,11 @@ var printPostUnmountGuidanceFn = printPostUnmountGuidance
 // printPostUnmountGuidance is printPostCreateGuidance worded for an unmount:
 // the running server still serves the KB until it restarts.
 func printPostUnmountGuidance(configPath string, restart bool) int {
-	base := serverBaseURL(configPath)
+	base := serverHealthBaseURL(configPath)
+	if base == "" {
+		fmt.Println(noHealthListenerHint)
+		return 0
+	}
 	if restart {
 		ok, failed := restartLocalService(base, configPath)
 		if failed {

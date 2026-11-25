@@ -424,3 +424,29 @@ func TestServiceBuildSkew(t *testing.T) {
 		})
 	}
 }
+
+// With TLS on the probe reads the health listener: the messages name it, not
+// the public port, and a TLS server without a health listener is explained.
+func TestPrintServiceStatus_TLSProbeTarget(t *testing.T) {
+	st := service.Status{Installed: true, HealthChecked: true, ForeignListener: true, TLS: true, HTTPAddr: "0.0.0.0:443", ProbeAddr: "127.0.0.1:8081"}
+	var sb strings.Builder
+	printServiceStatus(&sb, st, "")
+	if out := sb.String(); !strings.Contains(out, "answers on 127.0.0.1:8081") || strings.Contains(out, "answers on 0.0.0.0:443") {
+		t.Errorf("installed:\n%s", out)
+	}
+	sb.Reset()
+	st.Installed = false
+	printServiceStatus(&sb, st, "")
+	if out := sb.String(); !strings.Contains(out, "answers on 127.0.0.1:8081") || strings.Contains(out, "answers on 0.0.0.0:443") {
+		t.Errorf("not installed:\n%s", out)
+	}
+	if err := installedForeignListenerError(st); !strings.Contains(err.Error(), "127.0.0.1:8081") || strings.Contains(err.Error(), "0.0.0.0:443") {
+		t.Errorf("connect error = %v", err)
+	}
+
+	sb.Reset()
+	printServiceStatus(&sb, service.Status{Installed: true, TLS: true, HTTPAddr: "0.0.0.0:443", HealthSkipReason: service.HealthSkipNoHealthListener}, "")
+	if out := sb.String(); strings.Contains(out, "no_health_listener") || !strings.Contains(out, "set tls.health_addr") {
+		t.Errorf("skip reason not explained:\n%s", out)
+	}
+}

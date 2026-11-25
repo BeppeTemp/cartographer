@@ -346,8 +346,11 @@ func (d Deps) snapshot(good **service.Status, lastErr *string, cm *clientMemo) S
 	} else if st.HTTPAddr == "" {
 		// Stdio transport or no readable config: there is nothing to probe.
 		err = errors.New("no http address")
+	} else if st.ProbeTarget() == "" {
+		err = errors.New("tls.health_addr is off: no health listener to probe")
 	} else {
-		health, err = d.Probe(st.HTTPAddr)
+		// /health on the health listener when TLS is on (config.TLSHealthAddr).
+		health, err = d.Probe(st.ProbeTarget())
 	}
 	if err == nil && health == nil {
 		err = errors.New("empty health response")

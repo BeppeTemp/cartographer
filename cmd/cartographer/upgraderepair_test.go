@@ -1272,3 +1272,26 @@ func TestUpgradeRepair_ClientOnlyTrayFailureIsAWarning(t *testing.T) {
 		t.Errorf("exit = %d, installs = %d", code, *calls)
 	}
 }
+
+// TLS on with tls.health_addr off: the probe target is empty, so the switch
+// wait does not spin for the whole repairSwitchWait.
+func TestWaitAfterSwitch_NoHealthListenerSkipsWait(t *testing.T) {
+	saveRepairFns(t)
+	repairSwitchWait, repairSwitchPoll = 10*time.Second, 10*time.Millisecond
+	repairEffectiveConfigFn = func(string) (string, error) { return "/cfg.yaml", nil }
+	repairServiceStatusFn = func(string) (service.Status, error) {
+		return service.Status{Installed: true, Running: true, TLS: true, HTTPAddr: "0.0.0.0:443", BinPath: "/new/cartographer", ServiceBinPath: "/old/cartographer"}, nil
+	}
+	repairSameBinaryFn = func(string) bool { return false }
+	repairSwitchBinaryFn = func(string) error { return nil }
+	repairReplaceFn = func(service.ReplaceOptions) error { return nil }
+	repairTargetDirFn = func() (string, error) { return t.TempDir(), nil }
+	repairProbeHealthFn = func(string, time.Duration) (service.HealthStatus, error) {
+		return service.HealthStatus{}, errors.New("connection refused")
+	}
+	start := time.Now()
+	withExitCode(t, func() int { return cmdUpgradeRepair(nil) })
+	if d := time.Since(start); d > 5*time.Second {
+		t.Errorf("waited %s with no health listener", d)
+	}
+}

@@ -761,6 +761,16 @@ func configHTTPAddr(configPath string) string {
 	return cfg.HTTP
 }
 
+// configProbeAddr is the address the /health reads of a config file target
+// (config.TLSHealthAddr when TLS is on), "" when it cannot be read or has none.
+func configProbeAddr(configPath string) string {
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		return ""
+	}
+	return cfg.LocalProbeAddr()
+}
+
 // serveExited reports that the old server is gone: the task is no longer
 // Running **and** nothing answers on its port. The task state alone is not
 // proof — Stop-ScheduledTask returns, and the state can leave Running, while

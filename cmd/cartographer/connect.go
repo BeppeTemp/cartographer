@@ -215,6 +215,12 @@ var installService = func(mgr *service.Manager, opts service.InstallOptions) err
 	return err
 }
 
+// installedForeignListenerError names the probed address (the health listener
+// when TLS is on), not the public one.
+func installedForeignListenerError(st service.Status) error {
+	return fmt.Errorf("service installed but %s", foreignListenerLine(st.ProbeTarget()))
+}
+
 // installServiceAndWaitHealthy installs+starts the local cartographer
 // service with default options (mirroring `cartographer service install`
 // with no flags) and polls its /health endpoint until it responds or
@@ -237,7 +243,7 @@ func installServiceAndWaitHealthy(mgr *service.Manager, timeout time.Duration) e
 		}
 		if time.Now().After(deadline) {
 			if err == nil && st.ForeignListener {
-				return fmt.Errorf("service installed but %s", foreignListenerLine(st.HTTPAddr))
+				return installedForeignListenerError(st)
 			}
 			return fmt.Errorf("service installed but not healthy after %s", timeout)
 		}
