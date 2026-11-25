@@ -68,10 +68,12 @@ var auditResourceFields = map[string][]string{
 	// tools_artifact.go: "required": ["path", ...]); "kind"/"name" were never
 	// arguments of theirs, so those entries recorded nothing. artifact_list
 	// takes no arguments at all, so it has no entry (silence is safe here).
-	"artifact_read":   {"path"},
-	"artifact_write":  {"path"},
-	"artifact_delete": {"path"},
-	"artifact_move":   {"target_kb", "paths"},
+	"artifact_read":    {"path"},
+	"artifact_write":   {"path"},
+	"artifact_delete":  {"path"},
+	"artifact_move":    {"target_kb", "paths"},
+	"dashboard_patch":  {"name"},
+	"dashboard_delete": {"name"},
 	// service_get's "resolve_secrets" and "reveal" are recorded for the same
 	// reason as secret_resolve's "reveal": decrypting, and then printing, a
 	// credential is the event the trail exists for (D261).

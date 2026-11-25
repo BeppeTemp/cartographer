@@ -161,6 +161,9 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	register(toolWorkList(k, cc))
 	register(toolDashboardList(k))
 	register(toolDashboardGet(k, cc))
+	// Not in gatedTool: a dashboard is no concept, so it cannot add a finding the write gate judges.
+	register(gitWrap(k, toolDashboardPatch(k, cc)))
+	register(gitWrap(k, toolDashboardDelete(k)))
 	// Core on every connection (D1100): a host that gives the model only tools
 	// reaches the guide and the procedures here, bundle or not.
 	register(toolKBGuide(k, deps, s.feedbackDestination))
