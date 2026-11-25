@@ -2,7 +2,6 @@ package clientconfig
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/repoindex"
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 // derived.go (D1019) — the workspace bindings a KB implies.
@@ -253,21 +253,15 @@ func SaveDerived(dir string, s DerivedState) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("clientconfig: mkdir %s: %w", filepath.Dir(path), err)
+	// The root is the user config directory (the parent of the cartographer
+	// directory): a symlinked ~/.config keeps working, nothing below it is
+	// followed (#2365).
+	cartDir := filepath.Dir(path)
+	root := filepath.Dir(cartDir)
+	if err := safewrite.MkdirAllNoFollow(root, cartDir, 0o755); err != nil {
+		return fmt.Errorf("clientconfig: mkdir %s: %w", cartDir, err)
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), DerivedFileName+".tmp*")
-	if err != nil {
-		return fmt.Errorf("clientconfig: write %s: %w", path, err)
-	}
-	_, werr := tmp.Write(data)
-	cerr := tmp.Close()
-	if err := errors.Join(werr, cerr); err != nil {
-		os.Remove(tmp.Name())
-		return fmt.Errorf("clientconfig: write %s: %w", path, err)
-	}
-	if err := os.Rename(tmp.Name(), path); err != nil {
-		os.Remove(tmp.Name())
+	if err := safewrite.WriteFileAtomicNoFollow(root, path, data, 0o644); err != nil {
 		return fmt.Errorf("clientconfig: write %s: %w", path, err)
 	}
 	return nil

@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 // userHomeDir is indirected so tests can stub it out, mirroring
@@ -108,14 +109,19 @@ func SaveCache(idx *Index) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return fmt.Errorf("repoindex: mkdir %s: %w", filepath.Dir(path), err)
+	// The root is the user config directory: a symlinked ~/.config keeps
+	// working, a symlinked cartographer directory or repos.json is refused
+	// (#2365).
+	cartDir := filepath.Dir(path)
+	root := filepath.Dir(cartDir)
+	if err := safewrite.MkdirAllNoFollow(root, cartDir, 0o755); err != nil {
+		return fmt.Errorf("repoindex: mkdir %s: %w", cartDir, err)
 	}
 	data, err := json.MarshalIndent(idx, "", "  ")
 	if err != nil {
 		return fmt.Errorf("repoindex: marshal cache: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	if err := safewrite.WriteFileAtomicNoFollow(root, path, data, 0o644); err != nil {
 		return fmt.Errorf("repoindex: write %s: %w", path, err)
 	}
 	return nil
