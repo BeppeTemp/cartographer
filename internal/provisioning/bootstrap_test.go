@@ -547,6 +547,12 @@ func TestBootstrapScriptIsRunnableOnThisPlatform(t *testing.T) {
 		if strings.Contains(script, "#!/bin/sh") {
 			t.Error("the POSIX script leaked onto Windows: it is not executable there in any sense")
 		}
+		// #2343: a cartographer.cmd shim on PATH takes control for good unless called.
+		for _, inv := range []string{"cartographer sync", "cartographer update notice"} {
+			if strings.Count(script, inv) != strings.Count(script, "call "+inv) || !strings.Contains(script, "call "+inv) {
+				t.Errorf("every %q must be preceded by `call ` in:\n%s", inv, script)
+			}
+		}
 	} else {
 		if !strings.HasPrefix(script, "#!/bin/sh") {
 			t.Errorf("script %q does not start with a shebang", script)
@@ -700,6 +706,46 @@ func TestEnsureBootstrapHook_KeepsItsPlaceInTheLock(t *testing.T) {
 	}
 	if !reflect.DeepEqual(again.Managed, before) {
 		t.Errorf("managed entries reordered by a second run:\n got %+v\nwant %+v", again.Managed, before)
+	}
+}
+
+// The Windows twin of the test below: a cartographer.cmd shim on PATH (a batch
+// file, not an .exe) must not swallow the rest of the script (#2343).
+func TestBootstrapScriptRunsPastABatchShimOnWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("the batch script runs on Windows only")
+	}
+	run := func(t *testing.T, fake string) []string {
+		t.Helper()
+		dir := t.TempDir()
+		log := filepath.Join(dir, "calls.txt")
+		shim := "@echo off\r\necho %* >> \"" + log + "\"\r\n" + fake + "exit /b 0\r\n"
+		if err := os.WriteFile(filepath.Join(dir, "cartographer.cmd"), []byte(shim), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		script := filepath.Join(dir, "bootstrap.cmd")
+		if err := os.WriteFile(script, []byte(provisioning.BootstrapScriptContentForProvider(configurator.ProviderClaudeCode)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		sysRoot := os.Getenv("SystemRoot")
+		cmd := exec.Command(filepath.Join(sysRoot, "System32", "cmd.exe"), "/c", script)
+		cmd.Env = []string{"SystemRoot=" + sysRoot, "PATH=" + dir + ";" + filepath.Join(sysRoot, "System32")}
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("script failed: %v\n%s", err, out)
+		}
+		data, _ := os.ReadFile(log)
+		var lines []string
+		for _, l := range strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
+			if l = strings.TrimSpace(l); l != "" {
+				lines = append(lines, l)
+			}
+		}
+		return lines
+	}
+	old := run(t, "echo %* | findstr /C:\"if-older-than\" >nul && (echo flag provided but not defined: -if-older-than 1>&2 & exit /b 2)\r\n")
+	want := []string{"sync --client claude --if-older-than 10m", "sync --client claude", "update notice"}
+	if !reflect.DeepEqual(old, want) {
+		t.Errorf("older binary behind a .cmd shim: calls = %q, want %q", old, want)
 	}
 }
 
