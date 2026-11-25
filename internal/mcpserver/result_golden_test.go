@@ -106,6 +106,8 @@ func goldenCases() []goldenCase {
 		{"concept_archive", "concept_archive", `{"id":"ops/delta","if_match":"{{hash:ops/delta}}"}`},
 		{"search-archived-fallback", "search", `{"query":"patched","limit":20,"related":5}`},
 		{"artifact_read", "artifact_read", `{"path":"skills/demo/SKILL.md"}`},
+		{"dashboard_patch", "dashboard_patch", `{"name":"scratch","if_match":"","ops":[{"op":"set_title","title":"Scratch"},{"op":"add","widget":{"id":"memo","type":"note","text":"Hello."}}]}`},
+		{"dashboard_delete", "dashboard_delete", `{"name":"scratch","if_match":"{{dashboard:scratch}}"}`},
 	}
 }
 
@@ -141,6 +143,15 @@ func TestToolResultGolden(t *testing.T) {
 				t.Fatal(err)
 			}
 			args = strings.Replace(args, "{{hash:"+id+"}}", rd.Hash, 1)
+		}
+		if strings.Contains(args, "{{dashboard:scratch}}") {
+			var gd struct {
+				Hash string `json:"hash"`
+			}
+			if err := json.Unmarshal([]byte(mustText(t, s, "dashboard_get", `{"name":"scratch"}`)), &gd); err != nil {
+				t.Fatal(err)
+			}
+			args = strings.Replace(args, "{{dashboard:scratch}}", gd.Hash, 1)
 		}
 		res := callTool(t, s, c.tool, args)
 		checkGolden(t, dir, c.name, res, root)

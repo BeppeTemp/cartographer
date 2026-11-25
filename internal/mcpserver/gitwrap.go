@@ -733,10 +733,12 @@ func byteBudget(n int) string {
 // leakage allow-list answering "which arguments may be recorded at all", and
 // its artifact entries name fields those tools do not accept.
 var commitSubjectFields = map[string][]string{
-	"artifact_write":  {"path"},
-	"artifact_delete": {"path"},
-	"asset_write":     {"concept_id", "path"},
-	"asset_delete":    {"concept_id", "path"},
+	"artifact_write":   {"path"},
+	"artifact_delete":  {"path"},
+	"dashboard_patch":  {"name"},
+	"dashboard_delete": {"name"},
+	"asset_write":      {"concept_id", "path"},
+	"asset_delete":     {"concept_id", "path"},
 }
 
 // commitSubjectFallback is the priority order used for any tool with no

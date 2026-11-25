@@ -22,6 +22,9 @@ import (
 // outside the concepts: no OKF frontmatter, not walked as a Map, not indexed.
 const DashboardsDir = "dashboards"
 
+// DashboardPath is the KB-relative path of the dashboard called name.
+func DashboardPath(name string) string { return DashboardsDir + "/" + name + ".yaml" }
+
 const (
 	// MaxDashboards is the number of dashboards a KB may hold.
 	MaxDashboards = 32
@@ -462,7 +465,7 @@ func (kb *KB) ReadDashboard(name string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	rel := DashboardsDir + "/" + name + ".yaml"
+	rel := DashboardPath(name)
 	path := filepath.Join(dir, name+".yaml")
 	fi, lerr := os.Lstat(path)
 	if !exists || errors.Is(lerr, os.ErrNotExist) {
@@ -501,4 +504,80 @@ func (kb *KB) ListDashboards() ([]string, error) {
 	}
 	sort.Strings(names)
 	return names, nil
+}
+
+// dashboardTarget resolves dashboards/<name>.yaml for a write or a removal and
+// refuses a symlinked folder, a symlinked file and a non-regular file.
+func (kb *KB) dashboardTarget(name string) (dir, path string, err error) {
+	if !ValidDashboardName(name) {
+		return "", "", fmt.Errorf("dashboard name %q: want a lowercase slug of at most 48 characters", name)
+	}
+	dir, _, err = kb.dashboardsDir()
+	if err != nil {
+		return "", "", err
+	}
+	path = filepath.Join(dir, name+".yaml")
+	if fi, lerr := os.Lstat(path); lerr == nil {
+		switch {
+		case fi.Mode()&os.ModeSymlink != 0:
+			return "", "", fmt.Errorf("%s: symlink not allowed", DashboardPath(name))
+		case !fi.Mode().IsRegular():
+			return "", "", fmt.Errorf("%s: not a regular file", DashboardPath(name))
+		}
+	} else if !errors.Is(lerr, os.ErrNotExist) {
+		return "", "", lerr
+	}
+	return dir, path, nil
+}
+
+// WriteDashboard stores data as dashboards/<name>.yaml, creating the folder.
+// The bytes are not judged here: the caller validated them. The caller holds
+// the KB's git lock and commits.
+func (kb *KB) WriteDashboard(name string, data []byte) error {
+	if len(data) > MaxDashboardBytes {
+		return fmt.Errorf("%s: %d bytes, the cap is %d", DashboardPath(name), len(data), MaxDashboardBytes)
+	}
+	dir, path, err := kb.dashboardTarget(name)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	return writeFileAtomic(path, data)
+}
+
+// RemoveDashboard deletes dashboards/<name>.yaml and the folder when it is
+// left empty. A missing file is an error wrapping os.ErrNotExist.
+func (kb *KB) RemoveDashboard(name string) error {
+	dir, path, err := kb.dashboardTarget(name)
+	if err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil {
+		return err
+	}
+	_ = os.Remove(dir) // fails while other dashboards remain: that is the point
+	return nil
+}
+
+// CountDashboardFiles counts every regular *.yaml of dashboards/, whatever its
+// name or content: the number the per-KB cap is judged on, so a file that
+// ListDashboards does not name (an invalid name, an unparsable body) still counts.
+func (kb *KB) CountDashboardFiles() (int, error) {
+	dir, exists, err := kb.dashboardsDir()
+	if err != nil || !exists {
+		return 0, err
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".yaml") && e.Type().IsRegular() {
+			n++
+		}
+	}
+	return n, nil
 }

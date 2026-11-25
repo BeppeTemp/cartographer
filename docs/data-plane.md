@@ -54,7 +54,7 @@ kb-<domain>/                          # git repo = OKF bundle (content directori
 │
 ├── mcp/                               # MCP DESCRIPTORS (provisioning kind: mcp)
 │   └── <name>.json                    # one server descriptor, approved by each client before install
-│
+├── dashboards/<name>.yaml             # DASHBOARD (not a concept; control-plane.md dashboard_get row)
 ├── secrets/                           # SOPS-ENCRYPTED SECRETS (KB-only, never materialized on a client)
 │   └── <name>.sops.yaml
 │

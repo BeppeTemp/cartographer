@@ -1923,8 +1923,8 @@ the environment at startup; an unset or empty variable refuses startup, naming
 the field (#680). Any other value is taken literally.
 
 `artifacts: r` (#1405) is a narrower allow, not a deny: the rule grants what its `access` grants except
-`artifact_write`, `artifact_delete`, `artifact_move`, `skill_install` and the `/api/usage` report, which change what
-every client of the KB syncs and executes. `log_append`, `source_register`, `concept_*` and the reads stay allowed.
+`artifact_write`, `artifact_delete`, `artifact_move`, `skill_install`, `dashboard_patch`, `dashboard_delete` and the
+`/api/usage` report, which change what every client of the KB syncs and executes, or the dashboards every reader sees. `log_append`, `source_register`, `concept_*` and the reads stay allowed.
 A second rule of the same token without the key restores the write (rules are unioned); `artifacts: rw` with
 `access: r` is refused at startup. The Surveyor token recipe is a role like `automation-a` above: one role per
 perimeter, `rw` on the perimeter's KBs, `artifacts: r`, no other KB. Declare the token itself `kind: surveyor` with an `expires_at` (`transport-auth.md` §Token kinds and expiry): a role alone leaves it a `human` token, which keeps `secret_set` and `secret_resolve`, while the kind forces `artifacts: r` and `secrets: none` whatever the rules say.

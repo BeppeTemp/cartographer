@@ -1,0 +1,13 @@
+{
+  "name": "scratch",
+  "hash": "69d2d52ec69fa58305e1cceeffdfb6b8bbc5df805e0ed406171e382a1002c69c",
+  "title": "Scratch",
+  "widgets": [
+    {
+      "id": "memo",
+      "type": "note",
+      "text": "Hello.",
+      "total": 0
+    }
+  ]
+}
