@@ -37,6 +37,9 @@
 #   HOSTED_CHECK_TIMEOUT=3600     seconds of waiting for the run, then cancel and exit 1
 #   HOSTED_CHECK_RATE_FLOOR=0     a failed poll with this many core calls left or fewer waits for
 #                                 the quota reset (capped at the timeout) instead of counting as lost
+#   HOSTED_CHECK_GH_TRIES=4       tries of each read-only gh call (list, poll, jobs) before it counts as
+#                                 failed; the dispatch is never retried (a second run would duplicate it)
+#   HOSTED_CHECK_GH_WAIT=15       seconds between those tries
 #   HOSTED_CHECK_TAIL=150         lines of the failed log printed
 set -euo pipefail
 
@@ -167,10 +170,26 @@ if ! out=$(git push -q --force "$remote" "$sha:refs/heads/$branch" 2>&1); then
   unavailable "the push of $branch failed (write access needed): $out"
 fi
 
+# gh_ro <gh args>: a read-only gh call retried HOSTED_CHECK_GH_TRIES times, HOSTED_CHECK_GH_WAIT
+# seconds apart, so a flaky network does not end the check. Exhausted core quota is not retried
+# (the poll waits for the reset itself). Prints the output of the first success.
+gh_ro() {
+  local tries=${HOSTED_CHECK_GH_TRIES:-4} i=1 out rl rem
+  while :; do
+    if out=$(gh "$@" 2>/dev/null); then printf '%s\n' "$out"; return 0; fi
+    [ "$i" -lt "$tries" ] || return 1
+    rl=$(gh api rate_limit --jq '.resources.core.remaining' 2>/dev/null) || rl=
+    read -r rem <<<"$rl"
+    if [[ "$rem" =~ ^[0-9]+$ ]] && [ "$rem" -le "${HOSTED_CHECK_RATE_FLOOR:-0}" ]; then return 1; fi
+    sleep "${HOSTED_CHECK_GH_WAIT:-15}"
+    i=$((i + 1))
+  done
+}
+
 # 6. Dispatch. Run ids only grow: the run to follow is the first one newer than the newest
 # that already exists on this branch (an earlier check of the same state left a finished run).
 list_runs() {
-  gh run list -R "$repo" --workflow hosted-check.yml --branch "$branch" --event workflow_dispatch --commit "$sha" \
+  gh_ro run list -R "$repo" --workflow hosted-check.yml --branch "$branch" --event workflow_dispatch --commit "$sha" \
     --json databaseId --jq '.[].databaseId'
 }
 # Capture first: a failed list must be 75, not "no run yet" (which would reopen the stale-run case).
@@ -182,7 +201,8 @@ gh workflow run hosted-check.yml -R "$repo" --ref "$branch" -f pkgs="$pkgs" -f w
 
 # 7. Find the run.
 for _ in $(seq 1 "${HOSTED_CHECK_DISPATCH_TRIES:-30}"); do
-  id=$(list_runs 2>/dev/null | sort -n | awk -v b="$before" '$1 > b { print; exit }' || true)
+  # single try: this loop is its own retry (HOSTED_CHECK_DISPATCH_TRIES)
+  id=$(HOSTED_CHECK_GH_TRIES=1 list_runs 2>/dev/null | sort -n | awk -v b="$before" '$1 > b { print; exit }' || true)
   [ -z "$id" ] || break
   sleep "${HOSTED_CHECK_DISPATCH_POLL:-5}"
 done
@@ -209,8 +229,8 @@ quota_wait() {
   echo "$w"
 }
 while [ "$(elapsed)" -lt "$timeout" ]; do
-  if v=$(gh run view "$id" -R "$repo" --json status,conclusion,jobs \
-    --jq '.status + " " + .conclusion + " " + ([.jobs[]? | .name + "=" + .conclusion] | join(","))' 2>/dev/null); then
+  if v=$(gh_ro run view "$id" -R "$repo" --json status,conclusion,jobs \
+    --jq '.status + " " + .conclusion + " " + ([.jobs[]? | .name + "=" + .conclusion] | join(","))'); then
     fails=0
     status=${v%% *}
     if [ "$status" != "$last" ]; then
@@ -246,7 +266,7 @@ case "$concl" in
   cancelled) note "run $id was cancelled (a newer check of the same branch supersedes it, or it was cancelled by hand)"; exit 1 ;;
   *)
     tail_n=${HOSTED_CHECK_TAIL:-150}
-    log=$(gh run view "$id" -R "$repo" --log-failed 2>&1) || true
+    log=$(gh_ro run view "$id" -R "$repo" --log-failed) || note "the failed log of run $id could not be read (gh run view --log-failed failed)"
     red='' shown=0
     # A failed log line is "<job>\t<step>\t<text>": each red leg gets its own excerpt.
     IFS=, read -r -a legs <<<"$jobs"
