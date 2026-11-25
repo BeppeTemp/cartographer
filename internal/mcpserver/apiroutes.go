@@ -186,6 +186,9 @@ var apiRoutes = buildAPIRoutes([]apiRoute{
 
 	{Pattern: "/kbs/{kb}/graph", Tier: tierPreview, Summary: "The link graph",
 		Handler: kbRoute(func(w http.ResponseWriter, r *http.Request, srv *Server) { uiGraphCached(w, r, srv.kbRef) })},
+	{Pattern: "/kbs/{kb}/graph/external", Tier: tierPreview, Summary: "The cross-KB edges of the pages the caller sees", Response: uiGraphExternalBody{}, Errors: errsBadRequest,
+		Query:   []apiParam{{Name: "scope", Description: "One top-level collection"}, limitParam},
+		Handler: kbRoute(func(w http.ResponseWriter, r *http.Request, srv *Server) { uiGraphExternal(w, r, srv.kbRef) })},
 	{Pattern: "/kbs/{kb}/graph/clusters", Tier: tierPreview, Summary: "The link graph as clusters", Errors: errsBadRequest,
 		Query: []apiParam{{Name: "scope", Description: "One top-level collection"},
 			{Name: "unfold", Description: "Comma-separated cluster ids to unfold, at most 50"},

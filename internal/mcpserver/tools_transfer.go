@@ -880,8 +880,9 @@ type transferSourceOut struct {
 }
 
 // applyTransferSource removes the moved concepts from src and turns every link
-// that pointed at them into plain text: there is no cross-KB link syntax, so
-// the label survives and the hyperlink does not.
+// that pointed at them into plain text, so the label survives and the
+// hyperlink does not. A cross-KB link [[kb:<name>/<id>]] is not an internal
+// link and is left as written.
 func applyTransferSource(src *kb.KB, pl *transferPlan) (transferSourceOut, error) {
 	var out transferSourceOut
 	// Links from pages that stay to a moved asset cannot become plain text

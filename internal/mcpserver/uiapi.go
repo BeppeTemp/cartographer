@@ -460,6 +460,7 @@ func uiConcept(w http.ResponseWriter, r *http.Request, k *kb.KB, srv *Server) {
 		Body: data.Body, BodyBytes: len(data.Body), Outline: outline, ContentHash: data.ContentHash,
 		Outbound: outbound, Inbound: inbound, Broken: brokenOutbound, UsedBy: artifactsReading(ctx, srv, id),
 		Supersedes: supersedes, SupersededBy: supersededBy,
+		Cross: append([]crossEdge{}, crossEdgesOf(ctx, k, okf.ConceptID(id), true, true)...),
 	})
 }
 
@@ -467,11 +468,15 @@ func uiConcept(w http.ResponseWriter, r *http.Request, k *kb.KB, srv *Server) {
 // alphabetical order of their JSON keys: the body used to be a map, which
 // marshals sorted, and the wire bytes must not change.
 type uiConceptBody struct {
-	Body         string                 `json:"body"`
-	BodyBytes    int                    `json:"body_bytes"`
-	Broken       []string               `json:"broken"`
-	Collection   string                 `json:"collection"`
-	ContentHash  string                 `json:"content_hash"`
+	Body        string   `json:"body"`
+	BodyBytes   int      `json:"body_bytes"`
+	Broken      []string `json:"broken"`
+	Collection  string   `json:"collection"`
+	ContentHash string   `json:"content_hash"`
+	// Cross lists the page's links to and from other KBs per caller, never
+	// null. The route is not cached: the answer depends on the caller's
+	// rights on those KBs and on their pages, not on this KB's generation.
+	Cross        []crossEdge            `json:"cross"`
 	Frontmatter  map[string]interface{} `json:"frontmatter"`
 	ID           string                 `json:"id"`
 	Inbound      []string               `json:"inbound"`
