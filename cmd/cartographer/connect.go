@@ -400,6 +400,9 @@ func cmdConnect(args []string) int {
 	agentsCSV := fs.String("agents", "", "Comma-separated agent subset: claude,codex")
 	var kbSel repeatedString
 	fs.Var(&kbSel, "kb", "KB this client may receive (repeatable, or comma-separated; 'all' for every mounted KB)")
+	noLineage := fs.Bool("no-lineage", false, "With --kb: follow no lineage relation (the KBs the named ones depend on)")
+	var excludeKBs repeatedString
+	fs.Var(&excludeKBs, "exclude", "With --kb: KBs lineage must not bring (repeatable, or comma-separated)")
 	allowInsecure := fs.Bool("allow-insecure-http", false, "Accept a plain http:// server URL that is not loopback (the bearer token then travels in clear)")
 	caFile := fs.String("ca-file", "", "PEM file of the private CA that signed the https:// server certificate (persisted as server.ca_file; trusted for the server host only)")
 	accessFlag := fs.String("access", "", "Connection profile: read-min (read-only, minimal tool list; routed server only). Empty keeps the persisted value; clear it by removing providers.<provider>.access and providers.<provider>.tools")
@@ -415,6 +418,18 @@ func cmdConnect(args []string) int {
 	if err := validateTokenEnvName(*tokenEnv); err != nil {
 		fmt.Fprintln(os.Stderr, "Error: --token-env:", err)
 		return 2
+	}
+
+	exclude := dedupe(nonEmpty(splitCommaList(excludeKBs)))
+	if *noLineage || len(exclude) > 0 {
+		sel := splitCommaList(kbSel)
+		if len(sel) == 0 || slices.Contains(sel, kbSelectionAll) {
+			fmt.Fprintln(os.Stderr, "Error: --no-lineage and --exclude need --kb with KB names (not --kb all): there is nothing to follow without them")
+			return 2
+		}
+		if code := checkLineageFlags(sel, exclude, false, *noLineage); code != 0 {
+			return code
+		}
 	}
 
 	interactive := wantsConnectForm(fs, *noInput)
@@ -470,6 +485,8 @@ func cmdConnect(args []string) int {
 		PinKeys:           pinKeys,
 		UnpinKeys:         unpinKeys,
 		KBs:               splitCommaList(kbSel),
+		NoLineage:         *noLineage,
+		Exclude:           exclude,
 		Workspace:         *workspaceFlag,
 		Access:            *accessFlag,
 		NoTray:            *noTray,
@@ -1011,6 +1028,10 @@ type connectOptions struct {
 	// mounted KB and is recorded as an explicit binding to their names, which
 	// is what stops a KB mounted later from widening this client.
 	KBs []string
+	// NoLineage and Exclude are the lineage opt-outs recorded with KBs; the
+	// binding is replaced whole, so a connect without them turns them off.
+	NoLineage bool
+	Exclude   []string
 	// Workspace, when set, makes this connect a WORKSPACE binding rather than
 	// a provider-global one (D193): the selected KBs are projected into that
 	// repository's own project-local directories and nothing KB-sourced is
@@ -1240,6 +1261,12 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 					return connectResult{}, err
 				}
 			}
+			// With --workspace the options belong to the workspace binding below.
+			if opts.Workspace == "" && (opts.NoLineage || len(opts.Exclude) > 0) {
+				if err := existing.SetProviderLineage(provider, opts.NoLineage, opts.Exclude); err != nil {
+					return connectResult{}, err
+				}
+			}
 		}
 	}
 	// D193: --workspace turns the selection into a workspace binding instead of
@@ -1253,7 +1280,7 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 				return connectResult{}, fmt.Errorf("%s cannot be scoped to a workspace: %s; drop %s from --agents to connect the others to the workspace, and connect %s on its own without --workspace",
 					provider, provisioning.ProjectScopeUnsupportedReason(p), provider, provider)
 			}
-			if err := existing.BindWorkspace(provider, opts.Workspace, selected); err != nil {
+			if err := existing.BindWorkspaceWith(provider, opts.Workspace, selected, clientconfig.BindOptions{NoLineage: opts.NoLineage, Exclude: opts.Exclude}); err != nil {
 				return connectResult{}, err
 			}
 			switched := existing.WorkspaceScope(provider) != clientconfig.ScopeWorkspace
