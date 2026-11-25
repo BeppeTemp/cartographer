@@ -222,9 +222,10 @@ jobs:
           retry="Run \`release-train\` by hand with \`action: rc\`, try the new candidate, then remove and add \`rc-ok\` again."
           head_sha=$(gh api "repos/$GH_REPO/commits/main" --jq .sha)
           # Only a release candidate counts, not any preview of main: run-name carries the tag.
-          read -r rc_sha rc_at < <(gh run list --workflow preview.yml --branch main --status success --limit 20 \
-            --json headSha,updatedAt,displayTitle \
-            --jq '[.[] | select(.displayTitle | test("-rc\\.[0-9]{8}(\\.[0-9]+)?$"))][0] | "\(.headSha) \(.updatedAt)"') || true
+          # No --status: it filters on a run's first attempt, so a candidate that succeeded on a re-run is missing (#2355).
+          read -r rc_sha rc_at < <(gh run list --workflow preview.yml --branch main --limit 20 \
+            --json conclusion,headSha,updatedAt,displayTitle \
+            --jq '[.[] | select(.conclusion == "success" and (.displayTitle | test("-rc\\.[0-9]{8}(\\.[0-9]+)?$")))][0] | "\(.headSha) \(.updatedAt)"') || true
           if [ -z "${rc_sha:-}" ] || [ "$rc_sha" != "$head_sha" ]; then
             # Name the cause: a candidate whose build or smoke failed (D995) also
             # leaves no successful run, and "not the head of main" hid it.

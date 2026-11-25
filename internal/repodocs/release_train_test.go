@@ -802,3 +802,40 @@ func TestChartJobsPublishTheStampedChart(t *testing.T) {
 		}
 	}
 }
+
+// The gate step lists the candidate builds without `--status success`: that filter
+// looks at a run's first attempt, so a candidate that succeeded on a re-run of its
+// failed jobs was missing and the gate took the previous one as the newest (#2355).
+// The success is read from the run's conclusion, and a same-day `.N` tag counts.
+func TestReleaseGateReadsTheConclusionOfTheLatestAttempt(t *testing.T) {
+	var wf struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				ID  string `yaml:"id"`
+				Run string `yaml:"run"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(readFile(t, repoRoot(t), ".github/workflows/release-train.yml")), &wf); err != nil {
+		t.Fatal(err)
+	}
+	var run string
+	for _, job := range wf.Jobs {
+		for _, st := range job.Steps {
+			if st.ID == "gate" {
+				run = st.Run
+			}
+		}
+	}
+	if run == "" {
+		t.Fatal("release-train.yml: no step with id gate")
+	}
+	if strings.Contains(run, "--status success") {
+		t.Error("release-train.yml gate: `gh run list --status success` misses a candidate that succeeded on a re-run; select .conclusion in jq")
+	}
+	for _, want := range []string{`.conclusion == "success"`, `(\\.[0-9]+)?$`, "conclusion,headSha,updatedAt,displayTitle"} {
+		if !strings.Contains(run, want) {
+			t.Errorf("release-train.yml gate lacks %q", want)
+		}
+	}
+}
