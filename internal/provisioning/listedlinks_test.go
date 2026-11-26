@@ -60,7 +60,7 @@ func TestRemoveAntigravityHook_RewritesAListedHooksLinkThroughIt(t *testing.T) {
 	}
 	listLinks(t, link)
 
-	if err := removeAntigravityHook(base, "h", hookRel); err != nil {
+	if err := removeAntigravityHook(base, "h", hookRel, nil); err != nil {
 		t.Fatal(err)
 	}
 	if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {

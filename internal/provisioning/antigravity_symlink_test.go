@@ -21,7 +21,7 @@ func TestRemoveAntigravityHook_KeepsASymlinkedHooksFile(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(base, ".gemini")); err != nil {
 		t.Skipf("symlink: %v", err)
 	}
-	_ = removeAntigravityHook(base, "h", "")
+	_ = removeAntigravityHook(base, "h", "", nil)
 	if _, err := os.Stat(hooks); err != nil {
 		t.Fatalf("the symlinked hooks.json was deleted: %v", err)
 	}

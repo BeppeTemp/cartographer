@@ -107,16 +107,35 @@ func TestApplyAndPrune_CopilotProjectScope(t *testing.T) {
 }
 
 // .github is the repository's directory: emptying what Cartographer put there
-// never removes it.
+// never removes one that existed before the sync, and removes one the sync made.
 func TestPruneManaged_CopilotProjectKeepsAnEmptiedGithubDir(t *testing.T) {
 	kbRoot, m := writeCopilotProjectKB(t, "PreToolUse", "")
 	baseDir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(baseDir, ".github"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	res := applyCopilotProject(t, kbRoot, m, baseDir, provisioning.Lock{})
 	if _, err := provisioning.PruneManaged(res.NewLock.Managed, baseDir, false); err != nil {
 		t.Fatal(err)
 	}
 	if fi, err := os.Stat(filepath.Join(baseDir, ".github")); err != nil || !fi.IsDir() {
 		t.Errorf(".github was pruned: %v", err)
+	}
+}
+
+func TestPruneManaged_CopilotProjectRemovesAGithubDirItCreated(t *testing.T) {
+	kbRoot, m := writeCopilotProjectKB(t, "PreToolUse", "")
+	baseDir := t.TempDir()
+	res := applyCopilotProject(t, kbRoot, m, baseDir, provisioning.Lock{})
+	rep, err := provisioning.PruneManagedReport(res.NewLock.Managed, baseDir, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(baseDir, ".github")); !os.IsNotExist(err) {
+		t.Errorf(".github created by the sync survived: %v", err)
+	}
+	if len(rep.RemovedRoots) != 1 || rep.RemovedRoots[0] != ".github" {
+		t.Errorf("RemovedRoots = %v, want [.github]", rep.RemovedRoots)
 	}
 }
 

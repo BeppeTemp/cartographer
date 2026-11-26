@@ -218,20 +218,9 @@ func TestRoundTrip_ConnectDisconnect_NessunResiduo(t *testing.T) {
 	finalSnapshot := walkAll(t, targetDir)
 
 	allowedExtra := map[string]bool{
-		// Roots freshly created by this run (kiro/opencode/antigravity didn't exist
-		// before): pruneEmptyDirs boundaries, never removed even if they end up
-		// empty — see configurator.RootDirs.
-		".kiro":            true,
-		".opencode":        true,
-		".config":          true,
-		".config/opencode": true,
-		".gemini":          true,
 		// .claude.json: never deleted by construction (absolute rule), even
 		// if reduced to "{}" once just the cartographer entry is removed.
 		".claude.json": true,
-		// The roots above are recorded in the ledger as created by this run; the
-		// prune does not remove them yet, so their entries keep the ledger.
-		configurator.CreatedLedgerName: true,
 	}
 
 	initialSet := make(map[string]bool, len(initialSnapshot))
@@ -324,4 +313,96 @@ func jsonEqual(a, b any) bool {
 		return false
 	}
 	return string(ja) == string(jb)
+}
+
+// roundTripOn connects the providers into base (MCP config, bootstrap hook, one
+// skill) and disconnects them again, the way doConnect and doDisconnect do.
+func roundTripOn(t *testing.T, base string, providers []configurator.Provider) {
+	t.Helper()
+	kbRoot := t.TempDir()
+	skillDir := filepath.Join(kbRoot, "skills", "rt-skill")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: rt-skill\ndescription: d\n---\nBody.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := contract.BuildManifest(nil, map[string]string{"kb": kbRoot}, contract.BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	scfg := &configurator.ServerConfig{Name: "cartographer", URL: "https://mcp.example.test/mcp"}
+	lf := provisioning.LockFile{Providers: map[string]provisioning.Lock{}}
+	for _, p := range providers {
+		r, err := configurator.Emit(scfg, p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := configurator.Apply([]*configurator.EmitResult{r}, base, false); err != nil {
+			t.Fatal(err)
+		}
+		lock, err := provisioning.EnsureBootstrapHook(base, p, lf.ForProvider(string(p)), false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lf.SetProvider(string(p), lock)
+		res, err := provisioning.Apply(m, provisioning.ApplyOptions{KBRoots: map[string]string{"kb": kbRoot}, Provider: p, BaseDir: base, Lock: lf.ForProvider(string(p)), SkipLockWrite: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		lf.SetProvider(string(p), res.NewLock)
+	}
+	for _, p := range providers {
+		if _, err := configurator.Remove(scfg, p, base, false); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := provisioning.PruneManaged(lf.Providers[string(p)].Managed, base, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+var roundTripProviders = []configurator.Provider{
+	configurator.ProviderClaudeCode, configurator.ProviderKiro, configurator.ProviderOpenCode, configurator.ProviderAntigravity,
+}
+
+// AC-sdc-9: on an empty home, connect then disconnect leaves no provider root
+// Cartographer made and no ledger.
+func TestRoundTrip_ConnectDisconnect_NoRootLeft(t *testing.T) {
+	base := t.TempDir()
+	roundTripOn(t, base, roundTripProviders)
+	left := walkAll(t, base)
+	for _, p := range left {
+		if p != ".claude.json" {
+			t.Errorf("residue after disconnect: %s (all: %v)", p, left)
+		}
+	}
+}
+
+// AC-sdc-10: a root that existed before the connect is still there after the
+// disconnect, and the ledger holds no entry for it.
+func TestRoundTrip_PreExistingRootKept(t *testing.T) {
+	base := t.TempDir()
+	for _, d := range []string{".claude", ".kiro"} {
+		if err := os.Mkdir(filepath.Join(base, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	roundTripOn(t, base, roundTripProviders)
+	for _, d := range []string{".claude", ".kiro"} {
+		if fi, err := os.Stat(filepath.Join(base, d)); err != nil || !fi.IsDir() {
+			t.Errorf("pre-existing %s was removed: %v", d, err)
+		}
+		if configurator.WasDirCreated(base, d) {
+			t.Errorf("the ledger holds an entry for the pre-existing %s", d)
+		}
+	}
+	for _, d := range []string{".opencode", ".config", ".gemini"} {
+		if _, err := os.Stat(filepath.Join(base, d)); err == nil {
+			t.Errorf("%s created by the connect survived", d)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(base, configurator.CreatedLedgerName)); err == nil {
+		t.Error("the ledger survived with its last entry gone")
+	}
 }

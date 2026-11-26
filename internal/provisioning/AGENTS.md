@@ -52,7 +52,7 @@ modifies files a user did not ask about.
 - **A path read from a KB is joined to a workspace only through `resolvePromptFile`** (`promptfile.go`). A `providers.<client>.prompt_file` is checked lexically in `contract` and by links here (a link out of the workspace holds the agent; `Lstat`/`EvalSymlinks`, read-only); never `filepath.Join(BaseDir, fromKB)` elsewhere.
 - **Prune is as dangerous as write.** It removes what the lockfile says we own;
   anything outside it is someone else's. Deleting an empty directory has
-  boundaries for the same reason (D63).
+  boundaries for the same reason (D63). A provisioning root goes only when the created-files ledger lists it, it is a real directory and empty (`pruneEmptyDirs`); the ledger is untrusted input, a directory it does not list is never removed, and the `Lstat` after `RemoveEmptyDir` is what proves a root is gone.
   The lockfile is read as untrusted: paths are checked in `ReadLockFile` (an empty,
   absolute or non-local `managed[].path` is dropped and reported in `LockFile.Dropped`,
   #1824), so a new reader of managed paths gets the entries from it, never from raw JSON.

@@ -95,11 +95,11 @@ func TestMCPRegisterAndRemove_RefuseALinkedDirectoryAndNoOpIsNotARefusal(t *test
 			if _, _, err := registerMCPServer(base, "other", spec, provider, contract.ScopeGlobal, 0); !errors.Is(err, ErrSymlinkDestination) {
 				t.Errorf("registerMCPServer = %v, want ErrSymlinkDestination", err)
 			}
-			if err := removeMCPServer(base, "wiki", provider, filepath.ToSlash(rel)); !errors.Is(err, ErrSymlinkDestination) {
+			if err := removeMCPServer(base, "wiki", provider, filepath.ToSlash(rel), nil); !errors.Is(err, ErrSymlinkDestination) {
 				t.Errorf("removeMCPServer of a present entry = %v, want ErrSymlinkDestination", err)
 			}
 			// Nothing of ours in it: a no-op, whatever the directory is.
-			if err := removeMCPServer(base, "absent", provider, filepath.ToSlash(rel)); err != nil {
+			if err := removeMCPServer(base, "absent", provider, filepath.ToSlash(rel), nil); err != nil {
 				t.Errorf("removeMCPServer of an absent entry = %v, want nil", err)
 			}
 			sameTree(t, "mcp config", before, treeOf(t, elsewhere))
@@ -175,7 +175,7 @@ func TestHookRegistrationFiles_RefuseALinkedDirectory(t *testing.T) {
 	if err := removeOpenCodePlugin(base, "h", []ManagedFile{{Kind: "hook", Name: "h", Path: ".config/opencode/plugins/cartographer-h.js"}}); !errors.Is(err, ErrSymlinkDestination) {
 		t.Errorf("removeOpenCodePlugin = %v, want ErrSymlinkDestination", err)
 	}
-	if err := removeKiroHook(base, "h"); !errors.Is(err, ErrSymlinkDestination) {
+	if err := removeKiroHook(base, "h", nil); !errors.Is(err, ErrSymlinkDestination) {
 		t.Errorf("removeKiroHook = %v, want ErrSymlinkDestination", err)
 	}
 	if err := saveJSONObject(base, filepath.Join(base, ".codex", "hooks.json"), map[string]interface{}{"a": 1}); !errors.Is(err, ErrSymlinkDestination) {
@@ -195,7 +195,7 @@ func TestHookRegistrationFiles_RefuseALinkedDirectory(t *testing.T) {
 	if err := removeOpenCodePlugin(base, "h", nil); err != nil {
 		t.Errorf("removeOpenCodePlugin with no recorded plugin = %v, want nil", err)
 	}
-	if err := removeKiroHook(base, "absent"); err != nil {
+	if err := removeKiroHook(base, "absent", nil); err != nil {
 		t.Errorf("removeKiroHook of an absent hook = %v, want nil", err)
 	}
 	if err := removeCodexHook(base, "absent"); err != nil {

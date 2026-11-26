@@ -113,13 +113,13 @@ func TestRemovers_LeaveAFileThatDoesNotNameTheirHookAlone(t *testing.T) {
 	if err := removeCodexHook(base, "h"); err != nil {
 		t.Errorf("codex: %v", err)
 	}
-	if err := removeKiroHook(base, "h"); err != nil {
+	if err := removeKiroHook(base, "h", nil); err != nil {
 		t.Errorf("kiro: %v", err)
 	}
 	if err := removeCrushHook(base, "h", ".config/crush/hooks/h/hook.json"); err != nil {
 		t.Errorf("crush: %v", err)
 	}
-	if err := removeAntigravityHook(base, "h", hookRel); err != nil {
+	if err := removeAntigravityHook(base, "h", hookRel, nil); err != nil {
 		t.Errorf("antigravity: %v", err)
 	}
 
@@ -129,9 +129,9 @@ func TestRemovers_LeaveAFileThatDoesNotNameTheirHookAlone(t *testing.T) {
 	write(t, kiroHooksPath(base), bad2)
 	write(t, crushSettingsPath(base, ".config/crush/hooks/h/hook.json"), bad2)
 	write(t, antigravityHooksPath(base, hookRel), bad2)
-	if removeCodexHook(base, "h") == nil || removeKiroHook(base, "h") == nil ||
+	if removeCodexHook(base, "h") == nil || removeKiroHook(base, "h", nil) == nil ||
 		removeCrushHook(base, "h", ".config/crush/hooks/h/hook.json") == nil ||
-		removeAntigravityHook(base, "h", hookRel) == nil {
+		removeAntigravityHook(base, "h", hookRel, nil) == nil {
 		t.Error("a malformed file that names the hook was accepted")
 	}
 }

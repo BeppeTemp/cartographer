@@ -92,7 +92,7 @@ func registerKiroHook(baseDir, hookName, fullDestDir string) (string, bool, erro
 // removeKiroHook strips hookName's entry from cartographer.json — the inverse of
 // registerKiroHook, called from PruneManaged. The file goes with its last entry.
 // No-op, with no write, when the file or the entry is absent.
-func removeKiroHook(baseDir, hookName string) error {
+func removeKiroHook(baseDir, hookName string, roots *[]string) error {
 	path := kiroHooksPath(baseDir)
 	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
 		return nil
@@ -112,7 +112,7 @@ func removeKiroHook(baseDir, hookName string) error {
 		if err := safewrite.Remove(baseDir, path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("provisioning: remove %s: %w", path, err)
 		}
-		pruneEmptyDirs(baseDir, filepath.Join(kiroHooksRelPath...))
+		noteRoots(roots, pruneEmptyDirs(baseDir, filepath.Join(kiroHooksRelPath...)))
 		return nil
 	}
 	doc["hooks"] = hooks
