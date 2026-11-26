@@ -45,6 +45,8 @@ func Write(baseDir, path, begin, end, body string) error {
 	}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
+		// Unrecorded on purpose: a directory this creates is never removed
+		// (docs/sync.md §Pruning); blocktext cannot import the configurator's ledger.
 		if err := safewrite.MkdirAllNoFollow(baseDir, filepath.Dir(path), 0o755); err != nil {
 			return err
 		}

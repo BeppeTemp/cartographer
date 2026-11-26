@@ -215,6 +215,8 @@ func TrustCodexProject(codexConfigPath, workspaceDir string) (TrustResult, error
 	out = append(out, line...)
 	out = append(out, '\n')
 
+	// Unrecorded on purpose: a directory this creates is never removed
+	// (docs/sync.md §Pruning).
 	if err := safewrite.MkdirAllNoFollow(base, codexDir, 0o755); err != nil {
 		return TrustResult{Line: line}, err
 	}

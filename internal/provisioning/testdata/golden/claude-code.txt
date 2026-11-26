@@ -4,7 +4,10 @@
     ".claude/settings.json": [
       "notify"
     ]
-  }
+  },
+  "dirs": [
+    ".claude"
+  ]
 }
 
 === file .cartographer-sync.lock.json

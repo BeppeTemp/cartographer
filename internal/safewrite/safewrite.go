@@ -207,6 +207,68 @@ func MkdirAllNoFollow(baseDir, dir string, perm os.FileMode) error {
 	return notWritable(baseDir, dir, os.MkdirAll(dir, perm), false)
 }
 
+// beforeMkdir is a test seam: called with the component about to be made, after
+// the walk accepted the path, so a test can make it first (the EEXIST race).
+var beforeMkdir func(path string)
+
+// MkdirAllNoFollowCreated is MkdirAllNoFollow that also says which directories
+// it made: the slash paths, relative to baseDir, of the components it created
+// itself, shallowest first. The walk is EnsureSafeDir first, then each missing
+// component is made with os.Mkdir, one at a time; a component that exists, or
+// that another process made first (EEXIST), is not listed. On an error it
+// returns what it had created so far. A dir outside baseDir creates what is
+// missing and lists nothing: no base anchors a relative path for it.
+func MkdirAllNoFollowCreated(baseDir, dir string, perm os.FileMode) (created []string, err error) {
+	rel, relErr := filepath.Rel(baseDir, dir)
+	if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		if IsUnsafe(dir) {
+			return nil, refusal(dir)
+		}
+		return nil, notWritable(baseDir, dir, os.MkdirAll(dir, perm), false)
+	}
+	if err := EnsureSafeDir(baseDir, rel); err != nil {
+		return nil, err
+	}
+	if rel == "." {
+		return nil, notWritable(baseDir, dir, os.MkdirAll(dir, perm), false)
+	}
+	if _, err := os.Stat(baseDir); errors.Is(err, os.ErrNotExist) {
+		if err := os.MkdirAll(baseDir, perm); err != nil {
+			return nil, err
+		}
+	}
+	current := baseDir
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		if part == "" {
+			continue
+		}
+		current = filepath.Join(current, part)
+		fi, err := os.Stat(current)
+		if err == nil {
+			if !fi.IsDir() {
+				return created, &os.PathError{Op: "mkdir", Path: current, Err: syscall.ENOTDIR}
+			}
+			continue
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return created, err
+		}
+		if beforeMkdir != nil {
+			beforeMkdir(current)
+		}
+		switch err := os.Mkdir(current, perm); {
+		case err == nil:
+			r, _ := filepath.Rel(baseDir, current)
+			created = append(created, filepath.ToSlash(r))
+		case errors.Is(err, os.ErrExist):
+			// Made by someone else between the Stat and the Mkdir: not ours.
+		default:
+			return created, notWritable(baseDir, current, err, false)
+		}
+	}
+	return created, nil
+}
+
 // WriteFile writes path after checking the file and every directory component
 // between baseDir and it.
 func WriteFile(baseDir, path string, data []byte, perm os.FileMode) error {

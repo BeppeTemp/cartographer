@@ -1511,11 +1511,10 @@ func writeWorkspaceExclusions(workspace string, providers []string, owned ownedP
 	for _, name := range providers {
 		provider := configurator.Provider(name)
 		excluded = append(excluded, provisioning.OwnedLocalInstructions(workspace, provider)...)
-		if provider == configurator.ProviderClaudeCode {
-			// The record of the settings files Cartographer created here
-			// (#1269) is its own file: untracked, so excluded, never committed.
-			excluded = append(excluded, configurator.CreatedLedgerName)
-		}
+		// The record of what Cartographer created here (settings files, #1269;
+		// the provider roots it made, any provider's) is its own file:
+		// untracked, so excluded, never committed.
+		excluded = append(excluded, configurator.CreatedLedgerName)
 		blocks := workspaceBlockFiles(provider)
 		ownedPaths, err := owned(provider)
 		if err != nil {
