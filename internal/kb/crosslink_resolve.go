@@ -57,6 +57,11 @@ func (kb *KB) CrossTarget(l CrossLink) CrossTarget { return kb.CrossTargets([]Cr
 func (kb *KB) CrossTargets(links []CrossLink) []CrossTarget {
 	out := make([]CrossTarget, len(links))
 	m := kb.Mounts()
+	type guard struct {
+		followed bool
+		err      error
+	}
+	guards := map[string]guard{}
 	has := map[string]map[okf.ConceptID]struct{}{}
 	errs := map[string]error{}
 	for i, l := range links {
@@ -68,6 +73,22 @@ func (kb *KB) CrossTargets(links []CrossLink) []CrossTarget {
 			// A link naming this KB (by its name or an alias) is never an edge:
 			// lint reports it, write [[<id>]] instead.
 			continue
+		}
+		// An alias is followed only to the remote the KB's own relation of that
+		// name declares (relations guard). A link by the current name pays nothing.
+		if m.Canonical(l.KB) != l.KB {
+			g, seen := guards[l.KB]
+			if !seen {
+				g.followed, g.err = kb.aliasFollowed(l.KB, target)
+				guards[l.KB] = g
+			}
+			if g.err != nil {
+				out[i].Err = g.err
+				continue
+			}
+			if !g.followed {
+				continue
+			}
 		}
 		out[i].Mounted = true
 		name := m.Canonical(l.KB)
@@ -141,6 +162,20 @@ func (kb *KB) inbounds(target okf.ConceptID) ([]inbound, map[string]uint64, erro
 		}
 		gens[x] = v.generation
 		for _, n := range names {
+			if len(v.crossByTarget[n]) == 0 {
+				continue
+			}
+			if n != self {
+				// An alias of this KB, as x's page wrote it: followed only to the
+				// remote x's relation of that name declares.
+				followed, err := other.aliasFollowed(n, kb)
+				if err != nil {
+					return nil, nil, fmt.Errorf("cross-KB links of %q are unknown: %w", x, err)
+				}
+				if !followed {
+					continue
+				}
+			}
 			for tid, srcs := range v.crossByTarget[n] {
 				if target != "" && tid != target {
 					continue
@@ -289,4 +324,35 @@ func sameGens(a, b map[string]uint64) bool {
 		}
 	}
 	return true
+}
+
+// aliasFollowed says whether a link of this KB that names a KB as name reaches
+// target. A name that is target's current mount name is always followed (a
+// link alone carries no remote; a mounted name beats an alias). An alias is
+// followed unless this KB declares a relation of that name (Relations) and
+// target's normalized origin is not the relation's remote, or target has none:
+// the same comparison as a relation's own resolution. An error is an unknown:
+// reading Relations or the origin failed. Hot path: the first check returns
+// before any memo is read, and both reads after it are in-memory within
+// relationsMaxAge.
+func (kb *KB) aliasFollowed(name string, target *KB) (bool, error) {
+	m := kb.Mounts()
+	if m == nil || m.Canonical(name) == name {
+		return true, nil
+	}
+	rels, err := kb.Relations()
+	if err != nil {
+		return false, err
+	}
+	for _, r := range rels {
+		if r.Name != name {
+			continue
+		}
+		origin, ok, err := target.NormalizedOriginErr()
+		if err != nil {
+			return false, err
+		}
+		return ok && origin == r.Remote, nil
+	}
+	return true, nil
 }

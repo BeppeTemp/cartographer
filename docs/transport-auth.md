@@ -123,7 +123,7 @@ call that names the old KB in its `kb` argument (a session that outlived the
 restart still has it in its schemas) is dispatched to the new one, through that
 KB's own policy, audit and git wrapper. An alias selects *which KB a URL names*
 and never widens a token: scopes are not migrated (D177), so a token scoped to
-`kb:<old>` is still refused at the renamed KB. An alias whose target is not
+`kb:<old>` is still refused at the renamed KB. A cross-KB link `[[kb:<old>/<id>]]` follows the alias too, and is authorized by the KB's current name: a caller who cannot read the current KB sees it as unresolved, the same as an absent KB; when the page's KB declares a relation named `<old>`, the alias is followed only to that relation's remote. An alias whose target is not
 mounted stays unknown. Only the routed `?kbs=` follows aliases: the per-KB
 endpoints (`/mcp?kb=<old>`, `/mcp/<old>`) keep answering that the KB does not
 exist.
