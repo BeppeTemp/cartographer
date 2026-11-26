@@ -3,6 +3,7 @@ import type { DashboardEntry, DashboardGroup, DashboardResolved, DashboardWidget
 import { accentColor, widgetIcon } from "../lib/dashboard";
 import { Icon } from "./Icon";
 import { Markdown } from "./Markdown";
+import { DashboardTable } from "./DashboardTable";
 
 /**
  * A resolved dashboard drawn as a grid of cards (four columns, one under
@@ -11,7 +12,7 @@ import { Markdown } from "./Markdown";
  * so nothing here assumes a title, a source or a hash: a widget with no title
  * is named by its id.
  *
- * Drawn here: `stat`, `note`, `kanban`, `list`, `agenda` and the error tile of a widget
+ * Drawn here: `stat`, `note`, `kanban`, `list`, `agenda`, `table`, `timeline` and the error tile of a widget
  * that failed to resolve. Any other type shows a neutral tile naming it.
  */
 export function DashboardView({
@@ -138,9 +139,42 @@ function WidgetBody({ widget, onOpen }: { widget: DashboardWidget; onOpen?(conce
       ) : (
         <p className="page-note">Nothing here.</p>
       );
+    case "table":
+      return <DashboardTable entries={widget.entries ?? []} columns={widget.columns} onOpen={onOpen} />;
+    case "timeline":
+      // Dated entries, oldest first (the resolver ordered them); grouped by `group_by` when the widget has one.
+      return widget.groups && widget.groups.length > 0 ? (
+        <div>
+          {widget.groups.map((g: DashboardGroup, i) => (
+            <section key={`${g.key}-${i}`} aria-label={`${g.key || "(none)"}, ${g.total}`}>
+              <h3 className="dashboard__column-title">
+                {g.key || "(none)"} <span className="dashboard__count">{g.total}</span>
+              </h3>
+              <Timeline entries={g.entries ?? []} dateField={widget.date_field} onOpen={onOpen} />
+            </section>
+          ))}
+        </div>
+      ) : (
+        <Timeline entries={widget.entries ?? []} dateField={widget.date_field} onOpen={onOpen} />
+      );
     default:
       return <p className="page-note">A {widget.type ?? "unknown"} widget is not drawn yet.</p>;
   }
+}
+
+/** One dated row per entry: the date beside the card. `date_field` is absent for a caller without whole-KB read, so the default is tried. */
+function Timeline({ entries, dateField, onOpen }: { entries: DashboardEntry[]; dateField?: string; onOpen?(conceptId: string): void }) {
+  if (entries.length === 0) return <p className="page-note">Nothing here.</p>;
+  return (
+    <ol className="dashboard__timeline">
+      {entries.map((e, i) => (
+        <li key={`${e.id}-${i}`} className="dashboard__moment">
+          <time className="dashboard__when">{e.fields?.[dateField || "review_after"] ?? ""}</time>
+          <EntryCard entry={e} onOpen={onOpen} />
+        </li>
+      ))}
+    </ol>
+  );
 }
 
 function EntryList({ entries, onOpen }: { entries: DashboardEntry[]; onOpen?(conceptId: string): void }) {

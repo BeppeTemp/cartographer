@@ -1180,6 +1180,59 @@ button.row {
 .dashboard__day {
   min-width: 0;
 }
+.dashboard__table-wrap {
+  margin-top: var(--space-2);
+  overflow-x: auto;
+}
+.dashboard__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+.dashboard__table th,
+.dashboard__table td {
+  padding: var(--space-1) var(--space-2);
+  text-align: start;
+  border-bottom: 1px solid var(--border);
+}
+.dashboard__sort,
+.dashboard__cell-link {
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: start;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.dashboard__sort {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.dashboard__sort:focus-visible,
+.dashboard__cell-link:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.dashboard__timeline {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.dashboard__moment {
+  display: grid;
+  grid-template-columns: 6.5rem 1fr;
+  gap: var(--space-2);
+  align-items: start;
+}
+.dashboard__when {
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  padding-top: var(--space-3);
+}
 .dashboard__due {
   color: var(--sev-error);
   font-weight: 600;

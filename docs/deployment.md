@@ -1348,8 +1348,8 @@ With `web.enabled` on — the default in HTTP mode — the same binary also serv
 - `/api/v1/…` is not part of the Atlas: it is the public read-only API, served only with `api.enabled` and whatever `web.enabled` says (an Atlas-less Meridian can still offer it). It serves the `stable` and `preview` tiers of the same route table, without the Atlas's operator wording, and the event stream `/api/v1/kbs/{kb}/events` (`api.max_streams_per_token` open streams per token, `api.max_streams` in all; over either the answer is `429`). A reverse proxy must not buffer `text/event-stream` and must keep the connection open for at least the 20 s heartbeat (nginx: `proxy_buffering off`, `proxy_read_timeout` above 20 s).
 - The Work page draws the KB's dashboards (`dashboard_patch`, `control-plane.md` §MCP API) from a selector in its header,
   read-only: the default option is the Work board, the choice is kept in the address as `?dashboard=<name>` and resets when the
-  KB changes. Widgets are `stat`, `note`, `kanban`, `list` and `agenda` (cards like the Work board's, a `review_after` that is due in red,
-  a kanban column showing the resolver's total, not the rows shown; an agenda lists the overdue entries first, then one row per day); a widget that failed to resolve draws an error tile beside
+  KB changes. Widgets are `stat`, `note`, `kanban`, `list`, `agenda`, `table` and `timeline` (cards like the Work board's, a `review_after` that is due in red,
+  a kanban column showing the resolver's total, not the rows shown; an agenda lists the overdue entries first, then one row per day; a table sorts by a click on a header, a timeline lists the dated entries oldest first, grouped by `group_by` when given); a widget that failed to resolve draws an error tile beside
   its neighbours, and an agent's edit appears within one revision poll. Editing is the agents' job: the page has no controls.
 - `/api/ui/v1/…` — the JSON the UI reads (→ `control-plane.md` §Read-only UI API). Its Settings page lists every
   server and per-KB setting with its value and origin, read-only (D743, §Configuration above).
