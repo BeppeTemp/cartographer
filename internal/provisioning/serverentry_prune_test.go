@@ -21,7 +21,7 @@ func TestPruneServerEntry_RemovesOnlyTheClientOwnedEntry(t *testing.T) {
 		{Kind: "mcp", Name: "cartographer", Path: ".mcp.json", Source: provisioning.SourceClient},
 		{Kind: "skill", Name: "s", Path: ".claude/skills/s", Source: "kb:kb-a"},
 	}}
-	got, err := provisioning.PruneServerEntry(ws, configurator.ProviderClaudeCode, lock, false)
+	got, _, err := provisioning.PruneServerEntry(ws, configurator.ProviderClaudeCode, lock, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func TestPruneServerEntry_RemovesOnlyTheClientOwnedEntry(t *testing.T) {
 		t.Fatalf("lock = %+v", got.Managed)
 	}
 	// Idempotent: a second run has nothing to remove.
-	if again, err := provisioning.PruneServerEntry(ws, configurator.ProviderClaudeCode, got, false); err != nil || len(again.Managed) != 1 {
+	if again, _, err := provisioning.PruneServerEntry(ws, configurator.ProviderClaudeCode, got, false); err != nil || len(again.Managed) != 1 {
 		t.Fatalf("second run: %v %+v", err, again.Managed)
 	}
 }
@@ -46,7 +46,7 @@ func TestPruneServerEntry_DryRunTouchesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	lock := provisioning.Lock{Managed: []provisioning.ManagedFile{{Kind: "mcp", Name: "cartographer", Path: ".mcp.json", Source: provisioning.SourceClient}}}
-	if _, err := provisioning.PruneServerEntry(ws, configurator.ProviderClaudeCode, lock, true); err != nil {
+	if _, _, err := provisioning.PruneServerEntry(ws, configurator.ProviderClaudeCode, lock, true); err != nil {
 		t.Fatal(err)
 	}
 	if b, _ := os.ReadFile(cell); string(b) != body {

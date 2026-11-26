@@ -110,6 +110,11 @@ type disconnectProviderResult struct {
 	Provider      string
 	ConfigRemoved bool
 	Pruned        []provisioning.ManagedFile
+	// RemovedRoots are the provisioning roots the prune removed (a dry run: would
+	// remove) because Cartographer created them and left them empty.
+	RemovedRoots []string
+	// UnknownRoots (dry run): recorded roots the prediction could not read.
+	UnknownRoots []string
 	// Workspaces is what the provider's workspace projections wrote, per
 	// repository, pruned the way `workspace unbind` + `sync` would (#1324).
 	Workspaces []workspacePruned
@@ -125,8 +130,10 @@ type disconnectProviderResult struct {
 // workspacePruned is one repository a disconnect cleaned: Path is its root,
 // Pruned the managed files removed under it.
 type workspacePruned struct {
-	Path   string
-	Pruned []provisioning.ManagedFile
+	Path         string
+	Pruned       []provisioning.ManagedFile
+	RemovedRoots []string
+	UnknownRoots []string
 	// Kept names what was left in the repository and why: a file changed since
 	// the sync, or a lockfile path that does not lie inside the repository.
 	Kept []string
@@ -213,9 +220,11 @@ func doDisconnectLocked(opts disconnectOptions) (disconnectResult, error) {
 
 	claudeDirs, _ := claudeConfigDirs(opts.Dir, cfg)
 	var disconnected []string // the providers whose entry was not refused
+	predictors := map[string]*provisioning.RootPredictor{}
 	for _, p := range opts.Providers {
 		pr := disconnectProviderResult{Provider: p}
 
+		configExisted := provisioning.MCPConfigFileExists(opts.Dir, configurator.Provider(p))
 		_, removed, err := removeMCPEntries(cfg.ServerName, cfg.KnownKBs, []string{p}, opts.Dir, claudeDirs, cfg.Auth, cfg.TokenEnv(), opts.DryRun, nil)
 		if provisioning.IsRefusal(err) {
 			// One provider's symlinked config does not stop the others.
@@ -227,12 +236,35 @@ func doDisconnectLocked(opts disconnectOptions) (disconnectResult, error) {
 			return disconnectResult{}, fmt.Errorf("remove config for %s: %w", p, err)
 		}
 		pr.ConfigRemoved = removed[p]
+		if !opts.DryRun && configExisted {
+			// The configurator removes the config file but never a root; one the file
+			// left empty goes here, announced (a dry run predicts it with the prune).
+			// Only when this run deleted the file: an empty directory that held none
+			// is the user's.
+			pr.RemovedRoots = append(pr.RemovedRoots, provisioning.PruneConfigFileParents(opts.Dir, configurator.Provider(p))...)
+		}
 
 		lock := lockFile.ForProvider(p)
 		// The managed paths are relative to the base dir the provider actually
 		// materialized under, which the Lock records when it is not opts.Dir
 		// (D141) — pruning against the wrong one silently no-ops.
-		pruned, err := provisioning.PruneManaged(lock.Managed, provisioning.LockBaseDir(lock, opts.Dir), opts.DryRun)
+		// A dry run predicts the roots by name (RootPredictor). One predictor per base
+		// dir serves every provider of the pass, in the order the real run goes, so a
+		// root two providers share is predicted where the real run removes it; the
+		// real run deleted the provider's MCP config files above, so the prediction
+		// counts them too.
+		base := provisioning.LockBaseDir(lock, opts.Dir)
+		var predict *provisioning.PredictOptions
+		if opts.DryRun {
+			if predictors[base] == nil {
+				predictors[base] = provisioning.NewRootPredictor(base)
+			}
+			predict = &provisioning.PredictOptions{Predictor: predictors[base], Provider: p, Whole: true, ConfigFiles: base == opts.Dir}
+		}
+		rep, err := provisioning.PruneManagedReportWith(lock.Managed, base, opts.DryRun, predict)
+		pr.UnknownRoots = rep.UnknownRoots
+		pruned := rep.Pruned
+		pr.RemovedRoots = append(pr.RemovedRoots, rep.RemovedRoots...)
 		var pruneRefused *provisioning.PruneRefusedError
 		if errors.As(err, &pruneRefused) {
 			// Some managed files sit behind a symlink (D148): what could be
@@ -352,7 +384,8 @@ func printDisconnectSummary(res disconnectResult, dryRun bool) {
 				fmt.Printf("%s[%s] removed mcp config entry\n", prefix, pr.Provider)
 			}
 			printPrunedFiles(pr.Provider, pr.Pruned, prefix)
-			printPrunedWorkspaces(pr, prefix)
+			printDisconnectRoots(pr.Provider, pr.RemovedRoots, pr.UnknownRoots, prefix, dryRun)
+			printPrunedWorkspaces(pr, prefix, dryRun)
 			for _, w := range pr.Refused {
 				fmt.Printf("%s[%s] kept connected: %s\n", prefix, pr.Provider, escapeControl(w))
 			}
@@ -364,7 +397,8 @@ func printDisconnectSummary(res disconnectResult, dryRun bool) {
 			fmt.Printf("%s[%s] skipped mcp config entry (not found)\n", prefix, pr.Provider)
 		}
 		printPrunedFiles(pr.Provider, pr.Pruned, prefix)
-		printPrunedWorkspaces(pr, prefix)
+		printDisconnectRoots(pr.Provider, pr.RemovedRoots, pr.UnknownRoots, prefix, dryRun)
+		printPrunedWorkspaces(pr, prefix, dryRun)
 		if len(pr.Pruned) == 0 && len(pr.Workspaces) == 0 {
 			fmt.Printf("%s[%s] skipped skill prune (nothing managed)\n", prefix, pr.Provider)
 		}
@@ -374,6 +408,18 @@ func printDisconnectSummary(res disconnectResult, dryRun bool) {
 	}
 	if res.TrayUninstalled {
 		fmt.Println("removed the status icon: no agent is connected")
+	}
+}
+
+// printDisconnectRoots is printPrunedRoots with the dry-run prefix of this summary.
+func printDisconnectRoots(provider string, roots, unknown []string, prefix string, dryRun bool) {
+	var b strings.Builder
+	printPrunedRoots(&b, provider, roots, dryRun)
+	printUnknownRoots(&b, provider, unknown)
+	for _, l := range strings.SplitAfter(b.String(), "\n") {
+		if l != "" {
+			fmt.Print(prefix + l)
+		}
 	}
 }
 
@@ -445,17 +491,18 @@ func pruneProviderWorkspaces(lockFile *provisioning.LockFile, cfg *clientconfig.
 
 		toPrune, kept, _ := verifiedPrunable(managed, lock, provider, base)
 
-		pruned, err := provisioning.PruneManaged(toPrune, base, dryRun)
+		rep, err := provisioning.PruneManagedReportWith(toPrune, base, dryRun, &provisioning.PredictOptions{Provider: provider, Whole: true})
+		pruned := rep.Pruned
 		var pruneRefused *provisioning.PruneRefusedError
 		if errors.As(err, &pruneRefused) || provisioning.IsRefusal(err) {
-			pr.Workspaces = append(pr.Workspaces, workspacePruned{Path: key.Workspace, Pruned: pruned, Kept: kept})
+			pr.Workspaces = append(pr.Workspaces, workspacePruned{Path: key.Workspace, Pruned: pruned, RemovedRoots: rep.RemovedRoots, UnknownRoots: rep.UnknownRoots, Kept: kept})
 			refused = append(refused, fmt.Sprintf("workspace %s: %v", key.Workspace, err))
 			continue
 		}
 		if err != nil {
 			return nil, fmt.Errorf("prune %s: %w", key.String(), err)
 		}
-		pr.Workspaces = append(pr.Workspaces, workspacePruned{Path: key.Workspace, Pruned: pruned, Kept: kept})
+		pr.Workspaces = append(pr.Workspaces, workspacePruned{Path: key.Workspace, Pruned: pruned, RemovedRoots: rep.RemovedRoots, UnknownRoots: rep.UnknownRoots, Kept: kept})
 		lockFile.RemoveProjection(key)
 		if dryRun {
 			continue
@@ -474,10 +521,11 @@ func pruneProviderWorkspaces(lockFile *provisioning.LockFile, cfg *clientconfig.
 
 // printPrunedWorkspaces names each repository a disconnect cleaned and the
 // files it removed there.
-func printPrunedWorkspaces(pr disconnectProviderResult, prefix string) {
+func printPrunedWorkspaces(pr disconnectProviderResult, prefix string, dryRun bool) {
 	for _, w := range pr.Workspaces {
 		fmt.Printf("%s[%s] cleaned the projection in %s\n", prefix, pr.Provider, w.Path)
 		printPrunedFiles(pr.Provider, w.Pruned, prefix)
+		printDisconnectRoots(pr.Provider, w.RemovedRoots, w.UnknownRoots, prefix, dryRun)
 		for _, k := range w.Kept {
 			fmt.Printf("%s[%s] kept %s\n", prefix, pr.Provider, k)
 		}

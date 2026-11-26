@@ -1917,7 +1917,11 @@ func pruneOrphanProjections(st syncStreams, lockFile *provisioning.LockFile, dec
 		for _, k := range kept {
 			fmt.Fprintf(st.err(), "warning: %s: kept %s\n", key.String(), k)
 		}
-		removed, err := provisioning.PruneManaged(toPrune, base, false)
+		rep, err := provisioning.PruneManagedReport(toPrune, base, false)
+		removed := rep.Pruned
+		// A root the prune removed is announced even when the pass is refused
+		// further down: it is already gone.
+		printPrunedRoots(st.out(), key.Provider, rep.RemovedRoots, false)
 		if err == nil && unverifiable {
 			// A file that could not even be read (an unreadable folder) is not
 			// judged: it stays, like a denied removal, and the next run retries.

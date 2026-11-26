@@ -387,7 +387,9 @@ type AppliedResult struct {
 	// PrunedRoots are the provisioning roots (slash paths relative to the base
 	// dir) this run removed because Cartographer created them and the prune left
 	// them empty; the caller announces them.
-	PrunedRoots   []string
+	PrunedRoots []string
+	// UnknownRoots (dry run only): recorded roots the prediction could not read.
+	UnknownRoots  []string
 	NeedsApproval []contract.Artifact
 	// HeldKBsWithoutSection are the ApplyOptions.HeldKBs whose region is not in
 	// the block on disk: nothing is carried for them, so the client drops their
@@ -2118,6 +2120,7 @@ hookLoop:
 	}
 
 	if opts.DryRun {
+		result.PrunedRoots, result.UnknownRoots = wouldPruneRoots(opts.BaseDir, result.Pruned)
 		for _, mf := range append(slices.Clone(result.Written), result.Pruned...) {
 			result.Warnings = appendFollowedLinkNotes(result.Warnings, opts.BaseDir, filepath.Join(opts.BaseDir, mf.Path))
 		}
@@ -3695,13 +3698,21 @@ func appendBlock(content, block string) string {
 // (AppliedResult.PrunedRoots, PruneReport.RemovedRoots) so no root leaves a user's
 // home without a line saying so; TestEveryPruneCallerSurfacesRoots pins it.
 func pruneEmptyDirs(baseDir, relPath string) (removedRoots []string) {
+	return pruneEmptyDirsFrom(baseDir, relPath, true)
+}
+
+// pruneEmptyDirsFrom is pruneEmptyDirs where removeRoots=false stops the climb at
+// every provisioning root, recorded or not: the levels below it go, the root never
+// does. removeEmptyDestDir uses it, so a root a user emptied after an earlier run
+// recorded it is not taken out silently by an undo that has no result to announce it.
+func pruneEmptyDirsFrom(baseDir, relPath string, removeRoots bool) (removedRoots []string) {
 	dir := filepath.Dir(relPath)
 	for dir != "." && dir != string(filepath.Separator) {
 		if isPluginBoundary(dir) {
 			return removedRoots
 		}
 		isRoot := configurator.IsRootDir(dir)
-		if isRoot && !configurator.WasDirCreated(baseDir, dir) {
+		if isRoot && (!removeRoots || !configurator.WasDirCreated(baseDir, dir)) {
 			return removedRoots
 		}
 		// A symlinked directory, or one under a symlink, is someone else's:
@@ -3781,17 +3792,39 @@ func PruneManaged(managed []ManagedFile, baseDir string, dryRun bool) ([]Managed
 type PruneReport struct {
 	Pruned       []ManagedFile
 	RemovedRoots []string
+	// UnknownRoots (dry run only): recorded roots the prediction could not read, so
+	// it cannot say whether the run removes them.
+	UnknownRoots []string
 }
 
 // PruneManagedReport is PruneManaged with the removed roots: a caller that prints
 // what a prune did uses it, so a root never leaves silently.
 func PruneManagedReport(managed []ManagedFile, baseDir string, dryRun bool) (PruneReport, error) {
-	if !dryRun {
-		// A recorded root whose directory is gone (or was replaced) is the user's now.
-		_ = configurator.ReconcileCreatedDirs(baseDir)
+	return PruneManagedReportWith(managed, baseDir, dryRun, nil)
+}
+
+// PruneManagedReportWith is PruneManagedReport with the state of a dry-run
+// prediction (RootPredictor): a disconnect passes the same predictor to every
+// provider so a root two of them share is predicted where the real run removes it,
+// and says its MCP config files go too. A real run ignores opts.
+func PruneManagedReportWith(managed []ManagedFile, baseDir string, dryRun bool, opts *PredictOptions) (PruneReport, error) {
+	if dryRun {
+		// The files a dry run reports are the real list; the roots are predicted by name.
+		pruned, err := pruneManaged(managed, baseDir, true, nil, nil, nil)
+		var o PredictOptions
+		if opts != nil {
+			o = *opts
+		}
+		if o.Predictor == nil {
+			o.Predictor = NewRootPredictor(baseDir)
+		}
+		roots, unknown := o.Predictor.Predict(prunedFilesOf(baseDir, o.Provider, pruned, o.Whole, o.ConfigFiles))
+		return PruneReport{Pruned: pruned, RemovedRoots: roots, UnknownRoots: unknown}, err
 	}
+	// A recorded root whose directory is gone (or was replaced) is the user's now.
+	_ = configurator.ReconcileCreatedDirs(baseDir)
 	var roots []string
-	pruned, err := pruneManaged(managed, baseDir, dryRun, nil, nil, &roots)
+	pruned, err := pruneManaged(managed, baseDir, false, nil, nil, &roots)
 	return PruneReport{Pruned: pruned, RemovedRoots: roots}, err
 }
 
@@ -4533,9 +4566,10 @@ func singleArtifactContent(a contract.Artifact, opts ApplyOptions) ([]byte, erro
 func removeEmptyDestDir(baseDir, fullDestDir string) {
 	_ = safewrite.RemoveEmptyDir(fullDestDir)
 	if rel, relErr := filepath.Rel(baseDir, fullDestDir); relErr == nil {
-		// A root made and undone inside one delivery was never visible to the
-		// user: nothing to announce (the one sanctioned discard of the result).
-		_ = pruneEmptyDirs(baseDir, rel)
+		// Never a root (removeRoots false): what a refused delivery undoes are the
+		// levels it made; a root stays, and the ledger removes it with a later prune,
+		// which announces it.
+		pruneEmptyDirsFrom(baseDir, rel, false)
 	}
 }
 

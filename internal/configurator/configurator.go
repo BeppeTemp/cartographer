@@ -694,8 +694,13 @@ func removeEntryAt(cfg *ServerConfig, provider Provider, baseDir, relPath string
 			// ".kiro" (a provisioning root boundary that may still hold skills/
 			// agents/hooks; os.Remove's own "not empty" error is the natural guard
 			// even without this check, but the guard keeps intent explicit).
+			// A provisioning root is never removed here: the prune that follows
+			// (provisioning.PruneConfigFileParents) removes it only when the ledger
+			// lists it, and announces it.
 			if parent := filepath.Dir(fullPath); parent != baseDir {
-				_ = safewrite.RemoveEmptyDir(parent)
+				if rel, rerr := filepath.Rel(baseDir, parent); rerr != nil || !IsRootDir(rel) {
+					_ = safewrite.RemoveEmptyDir(parent)
+				}
 			}
 			return true, nil
 		}

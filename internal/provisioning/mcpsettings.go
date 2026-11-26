@@ -212,19 +212,20 @@ func mcpProviderFromPath(path string) configurator.Provider {
 // nothing is written into a workspace for it, so the only job left is to clean
 // up what an older client left in a repository: it runs on every project
 // projection, and is a no-op once the entry is gone.
-func PruneServerEntry(baseDir string, provider configurator.Provider, lock Lock, dryRun bool) (Lock, error) {
+func PruneServerEntry(baseDir string, provider configurator.Provider, lock Lock, dryRun bool) (Lock, []string, error) {
 	cell := contract.DestDirScoped("mcp", "", provider, contract.ScopeProject)
 	if cell == "" {
-		return lock, nil
+		return lock, nil, nil
 	}
+	var roots []string
 	kept := make([]ManagedFile, 0, len(lock.Managed))
 	for _, mf := range lock.Managed {
 		if mf.Kind == "mcp" && mf.Source == SourceClient {
 			if !dryRun {
-				// roots nil on purpose: what this removes is a pre-D737 leftover of a
-				// version without the ledger, so no root under it is recorded as ours.
-				if err := removeMCPServer(baseDir, mf.Name, provider, filepath.ToSlash(mf.Path), nil); err != nil {
-					return lock, fmt.Errorf("provisioning: remove workspace entry %s: %w", mf.Name, err)
+				// A root recorded by a later run can be climbed here: the roots it
+				// removes are returned for the caller to announce.
+				if err := removeMCPServer(baseDir, mf.Name, provider, filepath.ToSlash(mf.Path), &roots); err != nil {
+					return lock, roots, fmt.Errorf("provisioning: remove workspace entry %s: %w", mf.Name, err)
 				}
 			}
 			continue
@@ -232,5 +233,33 @@ func PruneServerEntry(baseDir string, provider configurator.Provider, lock Lock,
 		kept = append(kept, mf)
 	}
 	lock.Managed = kept
-	return lock, nil
+	return lock, roots, nil
+}
+
+// MCPConfigFileExists reports whether provider's own MCP config file is on disk
+// (Lstat). A caller that removes the entries compares it before and after, to know
+// the removal deleted the file.
+func MCPConfigFileExists(baseDir string, provider configurator.Provider) bool {
+	d, ok := configurator.Lookup(provider)
+	if !ok || d.MCPConfigPath == "" {
+		return false
+	}
+	_, err := os.Lstat(filepath.Join(baseDir, d.ConfigPath()))
+	return err == nil
+}
+
+// PruneConfigFileParents climbs from provider's MCP config file after a removal
+// deleted it, removing the levels it left empty and, as the prune does, a
+// provisioning root the ledger lists as created and that is now empty. It returns
+// the roots it removed, for the caller to announce: the configurator itself never
+// removes a root. Call it only when this run deleted the file (it existed before
+// and not after): a directory that was already empty, with no config file in it, is
+// the user's. A config file still on disk, or a provider without one, does nothing.
+func PruneConfigFileParents(baseDir string, provider configurator.Provider) []string {
+	d, ok := configurator.Lookup(provider)
+	if !ok || d.MCPConfigPath == "" || MCPConfigFileExists(baseDir, provider) {
+		return nil
+	}
+	_ = configurator.ReconcileCreatedDirs(baseDir)
+	return pruneEmptyDirs(baseDir, d.ConfigPath())
 }

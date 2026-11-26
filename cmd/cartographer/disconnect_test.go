@@ -23,6 +23,7 @@ var testSkillDir = map[string]string{
 	"codex":    ".codex",
 	"kiro":     ".kiro",
 	"opencode": ".opencode",
+	"crush":    ".config/crush",
 }
 
 // setupDisconnectFixture builds, in a fresh t.TempDir(), everything a real
