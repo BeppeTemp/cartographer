@@ -306,6 +306,41 @@ func TestCmdKBRename_RewritesClientBindings(t *testing.T) {
 	}
 }
 
+// TestCmdKBRename_NoServerConfigRewritesClientBindings: the bindings do not
+// depend on the server config, so a rename without one still moves both the
+// provider and the workspace binding and says only the registration is skipped
+// (#2358).
+func TestCmdKBRename_NoServerConfigRewritesClientBindings(t *testing.T) {
+	if !hasGitBinary() {
+		t.Skip("git not available")
+	}
+	home := writeClientBindings(t, "http://127.0.0.1:39273")
+	dataDir := seedRenameKB(t, "wiki")
+
+	var code int
+	out := withStdout(t, func() {
+		withNoGuidance(t, func() {
+			code = cmdKBRename([]string{"wiki", "atlas", "--data", dataDir, "--config", filepath.Join(dataDir, "no-config.yaml")})
+		})
+	})
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0:\n%s", code, out)
+	}
+	if !strings.Contains(out, "only the server-side registration is skipped") || !strings.Contains(out, "rewrote 2 client binding(s)") {
+		t.Errorf("the output does not name the skipped registration and the rewritten bindings:\n%s", out)
+	}
+	cfg, err := clientconfig.Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Clients["claude"].KBs; !slices.Equal(got, []string{"kb-b", "atlas"}) {
+		t.Errorf("clients.claude.kbs = %v, want [kb-b atlas]", got)
+	}
+	if got := cfg.Workspaces["kiro"][0].KBs; !slices.Equal(got, []string{"atlas"}) {
+		t.Errorf("workspaces.kiro[0].kbs = %v, want [atlas]", got)
+	}
+}
+
 // TestPlanKBRename_LeavesRemoteBindings: a client pointed at another server
 // binds that server's KBs, which a local rename does not touch.
 func TestPlanKBRename_LeavesRemoteBindings(t *testing.T) {
