@@ -11,6 +11,8 @@
 #   CHANGES_RESULT needs.changes.result
 #   CHANGES_WEB    needs.changes.outputs.web
 #   HEAD_SHA       github.event.pull_request.head.sha (pull_request only)
+#   SAME_TREE      needs.same-tree.outputs.green (push only): `true` when a green dispatched run
+#                  tested this tree and the legs skipped (scripts/ci-same-tree.sh)
 #   REPO           github.repository
 #   GH_TOKEN       a token that reads statuses and collaborators' permission
 #   GATE_POLL_TRIES, GATE_POLL_INTERVAL   how long to wait for a signoff (default 13 x 15 s)
@@ -48,6 +50,11 @@ if [ "${EVENT:-}" = pull_request ] && [ "${TEST_RESULT:-}" = skipped ]; then
   fail "no maintainer signoff on $HEAD_SHA: run make signoff on this branch (it also re-runs this job)"
 fi
 
+# A push whose tree a green dispatched run already tested: its legs skipped on purpose.
+if [ "${EVENT:-}" = push ] && [ "${SAME_TREE:-}" = true ] && [ "${TEST_RESULT:-}" = skipped ]; then
+  echo "gate: a green dispatched run tested this tree (same-tree): the legs skipped"
+  exit 0
+fi
 [ "${TEST_RESULT:-}" = success ] || fail "test is ${TEST_RESULT:-unknown}"
 case "${WEB_RESULT:-}" in
   success) ;;

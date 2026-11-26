@@ -124,6 +124,10 @@ func TestCIGateDecisionTable(t *testing.T) {
 		{"contributor PR, cancelled", with(maint, "TEST_RESULT", "cancelled", "WEB_RESULT", "success"), nil, nil, false, "test"},
 		{"push, green", map[string]string{"EVENT": "push", "TEST_RESULT": "success", "WEB_RESULT": "success", "CHANGES_RESULT": "skipped"}, nil, nil, true, ""},
 		{"push, test skipped", map[string]string{"EVENT": "push", "TEST_RESULT": "skipped", "WEB_RESULT": "success", "CHANGES_RESULT": "skipped"}, nil, nil, false, "test"},
+		// A green dispatched run tested the pushed tree (same-tree): the legs skipped on purpose.
+		{"push, same tree, legs skipped", map[string]string{"EVENT": "push", "SAME_TREE": "true", "TEST_RESULT": "skipped", "WEB_RESULT": "skipped", "CHANGES_RESULT": "skipped"}, nil, nil, true, ""},
+		{"push, same tree, but test failed", map[string]string{"EVENT": "push", "SAME_TREE": "true", "TEST_RESULT": "failure", "WEB_RESULT": "skipped", "CHANGES_RESULT": "skipped"}, nil, nil, false, "test"},
+		{"a PR cannot claim the same tree", with(maint, "SAME_TREE", "true", "TEST_RESULT", "skipped", "EVENT", "pull_request"), []string{`[]`}, nil, false, "make signoff"},
 		{"push, web skipped", map[string]string{"EVENT": "push", "TEST_RESULT": "success", "WEB_RESULT": "skipped", "CHANGES_RESULT": "skipped"}, nil, nil, false, "web"},
 		{"merge_group, web skipped", map[string]string{"EVENT": "merge_group", "TEST_RESULT": "success", "WEB_RESULT": "skipped", "CHANGES_RESULT": "skipped"}, nil, nil, false, "web"},
 		{"workflow_dispatch, green", map[string]string{"EVENT": "workflow_dispatch", "TEST_RESULT": "success", "WEB_RESULT": "success", "CHANGES_RESULT": "skipped"}, nil, nil, true, ""},

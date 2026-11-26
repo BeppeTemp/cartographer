@@ -1,5 +1,6 @@
 ---
 topic: project-governance
+amended_by: D2415
 ---
 
 # D785 — CI splits its slow legs across runners

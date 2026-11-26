@@ -1,7 +1,7 @@
 ---
 topic: project-governance
 amends: D1610, D1750
-amended_by: D2128, D2293, D2304, D2311
+amended_by: D2128, D2293, D2304, D2311, D2415
 ---
 
 # D2040 — The gate of a maintainer's change runs on GitHub-hosted runners, every leg main runs

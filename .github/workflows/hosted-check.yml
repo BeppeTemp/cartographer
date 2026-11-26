@@ -23,6 +23,10 @@ on:
         description: 'Go packages the Windows leg tests (empty: no Windows leg)'
         type: string
         default: ''
+      win_shards:
+        description: 'The Windows shard indexes, a JSON array (scripts/hosted-check.sh: as many as the pre-check would use)'
+        type: string
+        default: '[0, 1, 2, 3, 4, 5]'
       e2e:
         description: Also run the e2e scenarios
         type: boolean
@@ -69,17 +73,18 @@ jobs:
           done
           make check-run CHECK_PKGS="$PKGS" ${E2E:+CHECK_E2E=1}
 
-  # The Windows leg of the train gate on a hosted runner: same setup and same sharding as ci.yml's
-  # test-windows legs, one runner per shard (D785): `test-shard.sh 6 all` on one runner would only
-  # split its CPUs six ways (#2159). scripts/hosted-check.sh reads the run's job conclusions, and
+  # The Windows leg of the train gate on a hosted runner: same setup as ci.yml's test-windows legs,
+  # one runner per shard (D785): `test-shard.sh 6 all` on one runner would only split its CPUs six
+  # ways (#2159). The shards are as many as the pre-check uses for these packages (win_shards, one
+  # to four, scripts/ready-check-plan.sh --count), not always six: a small change holds fewer runners. scripts/hosted-check.sh reads the run's job conclusions, and
   # the `windows` job below collects the shards under the name it reports as the Windows leg.
   windows-shard:
-    name: windows (${{ matrix.shard }}/6)
+    name: windows (${{ matrix.shard }}/${{ strategy.job-total }})
     if: startsWith(github.ref, 'refs/heads/check/') && inputs.win_pkgs != ''
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5]
+        shard: ${{ fromJSON(inputs.win_shards) }}
     runs-on: windows-latest
     timeout-minutes: 60
     defaults:
@@ -106,16 +111,20 @@ jobs:
       - name: test-shard
         env:
           WIN_PKGS: ${{ inputs.win_pkgs }}
+          WIN_SHARDS: ${{ inputs.win_shards }}
           SHARD: ${{ matrix.shard }}
+          TOTAL: ${{ strategy.job-total }}
         run: |
           # Defence in depth: the script validates too.
           # Whole-string match (no newline), and no word starting with "-" (a go test flag).
           bad() { echo "hosted-check: bad package list" >&2; exit 2; }
           [[ $WIN_PKGS =~ ^[A-Za-z0-9_./\ -]*$ ]] || bad
+          # win_shards: a JSON array of one-digit shard indexes, this shard one of them.
+          [[ $WIN_SHARDS =~ ^\[[0-9](,\ ?[0-9])*\]$ && $SHARD =~ ^[0-9]$ ]] || { echo "hosted-check: bad win_shards" >&2; exit 2; }
           for w in $WIN_PKGS; do
             if [[ $w == -* ]]; then bad; fi
           done
-          bash scripts/test-shard.sh 6 "$SHARD" $WIN_PKGS
+          bash scripts/test-shard.sh "$TOTAL" "$SHARD" $WIN_PKGS
 
   # The one Windows verdict: red when any shard is not green. Skipped with the shards when the
   # change has no Windows package, so `make check-hosted` reads one leg, `windows`.
