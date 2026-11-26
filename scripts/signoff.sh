@@ -31,6 +31,10 @@
 #                 `signoff.sh --hosted-jobs` prints HOSTED_JOBS and exits.
 #   SIGNOFF_HOSTED  non-empty: the same as SIGNOFF_GATE=hosted (older setups).
 #   SIGNOFF_LOG_TRIES (5)  the reads of a failed hosted job's log, SIGNOFF_POLL apart, while it is empty.
+#   SIGNOFF_RERUN  hosted: the id of a ci.yml run of this sha whose red the lander gates again. Its failed
+#                 and cancelled jobs are rerun (`gh run rerun --failed`) and the verdict is the new
+#                 attempt's, the legs that were green kept; a run of another sha, or a rerun GitHub
+#                 refuses, dispatches a whole new run as without it.
 #   SIGNOFF_MAKE  with SIGNOFF_GATE=host, the command that runs make targets, split on whitespace (default
 #                 `make`). A command that takes make's arguments and runs them on
 #                 another machine from the same tree (for instance a wrapper that
@@ -227,7 +231,7 @@ hosted() { # $1 = why the gate runs in CI, $2 = `fallback` when the build host w
   echo "signoff: $1: ci.yml runs the gate, every job of: $HOSTED_JOBS" >&2
   still_head
   push
-  local t0 id= v= i existing before run fb= jobs
+  local t0 id= v= i existing before run fb= jobs att
   [ "${2:-}" != fallback ] || fb=" fallback=host-unavailable"
   read -r -a jobs <<<"$HOSTED_JOBS"
   t0=$(date +%s)
@@ -239,6 +243,24 @@ hosted() { # $1 = why the gate runs in CI, $2 = `fallback` when the build host w
     gh run list -R "$slug" --workflow ci.yml --branch "$branch" --event workflow_dispatch --commit "$sha" \
       --json databaseId --jq '.[].databaseId'
   }
+  # The second path (SIGNOFF_RERUN): the same run, its failed jobs again. A run id keeps across
+  # attempts, so the run to follow is that one once its attempt number has grown: until then its
+  # jobs are the red attempt's.
+  if [[ "${SIGNOFF_RERUN:-}" =~ ^[0-9]+$ ]] &&
+    att=$(gh run view "$SIGNOFF_RERUN" -R "$slug" --json attempt,headSha --jq '"\(.attempt) \(.headSha)"' 2>/dev/null) &&
+    [ "${att#* }" = "$sha" ] && [[ "${att%% *}" =~ ^[0-9]+$ ]] &&
+    gh run rerun "$SIGNOFF_RERUN" -R "$slug" --failed >/dev/null 2>&1; then
+    id=$SIGNOFF_RERUN
+    echo "signoff: ci.yml run $id: its failed jobs run again (attempt $((${att%% *} + 1)))" >&2
+    for i in $(seq 1 "${SIGNOFF_DISPATCH_TRIES:-30}"); do
+      v=$(gh run view "$id" -R "$slug" --json attempt --jq .attempt 2>/dev/null || true)
+      [[ "$v" =~ ^[0-9]+$ ]] && [ "$v" -gt "${att%% *}" ] && break
+      v=
+      sleep "${SIGNOFF_POLL:-10}"
+    done
+    [ -n "$v" ] || die "the new attempt of ci.yml run $id did not appear: nothing posted"
+    v=
+  else
   # Captured first: a failed list must stop here, not read as "no run yet" (which would
   # reopen the stale-run case).
   existing=$(list_runs 2>/dev/null) || die "cannot list the ci.yml runs of $branch: nothing posted"
@@ -251,6 +273,7 @@ hosted() { # $1 = why the gate runs in CI, $2 = `fallback` when the build host w
     sleep "${SIGNOFF_POLL:-10}"
   done
   [ -n "$id" ] || die "the dispatched ci.yml run of $sha did not appear: nothing posted"
+  fi
   echo "signoff: waiting for ci.yml run $id" >&2
   # The verdict (hosted_verdict) is read as soon as it is known: the first red job ends the
   # wait, the rest of the run is cancelled (its runners are free for the next gate), and the

@@ -1359,7 +1359,10 @@ again from the merged sources (`make web`, Node on the lander's machine; `LAND_B
 in the tests), and the gate's `TestBundleMatchesSource` proves it; a conflict anywhere else, or a failed build, is
 still a rejection. Pending decisions are numbered once, after the last pick of a train (D2304): the picks keep the `D-new-<slug>` placeholders, so a change that edits a line next to an earlier change's citation, or the earlier change's `D-new-<slug>.md`, applies as written, and the only check of a pick is a slug `main` or an earlier change of the train already holds. Then a citation is checked: a placeholder must be numbered on `main`, or added by a member of the change's own unit (earlier or later) or by an earlier unit, else that change is rejected (its unit as any rejection) and the queue is composed again, with no gate spent. The train's decisions then take the next numbers in commit order, and each commit is created again in order (same message, author and dates) with its decision files renamed and the placeholders rewritten in the files the train touched so far, never `_test.go` or `testdata/`; a bisection that lands a prefix keeps the prefix's numbers. A change that adds a `D-new-` citation under `web/` gets the bundle built again (the rewrite makes it stale, also when a pick rewrote it already; the later commits of the train that touch `web/` or the bundle too, the others take the previous commit's), and is rejected when that build fails. `make ready` warns of a `D-new-` citation that nothing queued before the change adds (a warning: the change that adds it may not be queued yet). A train whose signoff retried flaky tests lands on that gate, with a `bug`
 issue naming them. A red train whose failure the signoff's targeted retry confirmed goes
-straight to bisection; any other red train is gated a second time on the same tree: green
+straight to bisection; any other red train is gated a second time on the same tree (hosted: the
+signoff gets the red run's id, `SIGNOFF_RERUN`, and reruns its failed and cancelled jobs with
+`gh run rerun --failed`, following the new attempt, the green legs kept; a run of another sha or
+a rerun GitHub refuses dispatches a whole new run): green
 then is a flaky test, the train lands and a `bug` issue names the failing tests (Go, vitest
 and Playwright names read from the log, the e2e scenarios as `e2e.<scenario>` with their first
 failing lines in the body, a Go panic or `fatal error:` as `pkg.Test (panic)` or `pkg (panic: <message>)`: the test is
@@ -1485,7 +1488,9 @@ fails closed, never tested alone. On the replayed tree it runs the Windows tests
 the chain can break (`scripts/ready-check-plan.sh` reads the union of the paths of each queued
 commit's own diff: `affected-pkgs.sh --code`, one to four shards by weight) and, when the chain
 touches `web/` or `internal/webui/`, `make web-check web-test`, the legs `make check` does not
-run. `make ready AFTER=<slug>` cancels the run still going on `ready/<slug>`, best effort (one
+run, and on Linux (`readers`) the tests that read the repository or the combined tree
+(`./internal/repodocs/...`, `internal/docskb`, `internal/boundaries`, `internal/webui`), which a moved
+`main` reddens. `make ready AFTER=<slug>` cancels the run still going on `ready/<slug>`, best effort (one
 warning line when GitHub refuses): that change is no longer its unit's tip. A unit's verdict is the pre-check of its tips, the others' are not
 read: red if one is red, else running if one runs, else green (green or no verdict: none started
 within `LAND_PRECHECK_START`, 5 minutes, still running past `LAND_PRECHECK_WAIT`, 20 minutes,

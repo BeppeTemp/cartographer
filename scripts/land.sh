@@ -49,7 +49,8 @@
 # host failed (exit N) before the gate finished` is for people: the log holds the change's own
 # output, so the code decides) is not red: the same tree is gated again, no flaky
 # issue, up to LAND_INFRA_TRIES gates in a row; a host that stays down stops the lander with
-# the queue untouched. Any other red: one re-run of the same tree; green then means a flaky
+# the queue untouched. Any other red: one re-run of the same tree (hosted: the failed and cancelled
+# jobs of the same ci.yml run, signoff.sh SIGNOFF_RERUN); green then means a flaky
 # test, so the train lands and a `bug` issue names the tests. Red twice: bisection over the
 # train's prefixes that end at a unit's boundary finds the first failing unit, whose last tip
 # in queue order is rejected (`the train gate is red with the chain <first>..<tip> and green
@@ -1004,7 +1005,7 @@ gate_once() { # $1 = log file; signoff.sh on the train branch: exit 0 green, 1 r
   # Streamed to the lander's log as it runs (a gate takes minutes), and kept in $1.
   set +e
   if [ "$gate_mode" = hosted ]; then
-    (cd "$wt" && SIGNOFF_PROBE_FILE="$pf" "$here/signoff.sh" 3<<<"$gate_token") 2>&1 | tee "$1" | gate_watch >&2
+    (cd "$wt" && SIGNOFF_RERUN=$gate_rerun SIGNOFF_PROBE_FILE="$pf" "$here/signoff.sh" 3<<<"$gate_token") 2>&1 | tee "$1" | gate_watch >&2
   else
     (cd "$wt" && SIGNOFF_PROBE_FILE="$pf" "$here/signoff.sh" 3<<<"$gate_token") 2>&1 | tee "$1" >&2
   fi
@@ -1026,11 +1027,15 @@ gate_once() { # $1 = log file; signoff.sh on the train branch: exit 0 green, 1 r
 # test failed, so no re-run of a red, no bisection and no flaky issue. A host that stays down
 # stops the lander with the queue untouched, naming the failure. Each failed attempt's log is
 # kept as $1.host<n>; $1 holds the last attempt, which is the one the caller reads.
+# gate_rerun: the hosted run whose failed jobs the next gate reruns (signoff.sh SIGNOFF_RERUN), set
+# for the re-run of a red train only: the legs already green are kept, the same tree, the same jobs.
+gate_rerun=
 gate() { # $1 = log file; exit 0 green, 1 red, 2 not a test (the caller dies)
   local rc n=1 max=${LAND_INFRA_TRIES:-3} why
   while :; do
     ST_RUN=
     rc=0; gate_once "$1" || rc=$?
+    gate_rerun= # a gate again after an infrastructure failure dispatches a whole run
     ST_RUN=$(sed -n 's/^signoff: waiting for ci\.yml run \([0-9][0-9]*\)$/\1/p' "$1" 2>/dev/null | tail -n 1 || true)
     [ "$rc" != 3 ] && return "$rc"
     # The words only (the exit code decided): the signoff prints its line last.
@@ -1727,6 +1732,7 @@ while :; do
       log "red, and red again on the signoff's targeted retry of${fails:+ $fails}: not a flake"
     else
       status_phase rerun
+      gate_rerun=$ST_RUN
       rc2=0; gate "$glog.2" || rc2=$?
       [ "$rc2" != 2 ] || die "the gate of $branch failed for a reason that is not a test (see $glog.2): the queue is untouched"
     fi

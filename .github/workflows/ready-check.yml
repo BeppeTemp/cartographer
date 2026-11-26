@@ -10,8 +10,9 @@ name: ready-check
 # then test the sources without the bundle (`bundle=stale`, below), which the lander builds again.
 # The lander reads this run's conclusion on the commit of a unit's tip
 # (scripts/land.sh): a red unit is gated alone, so it no longer turns a whole train red and
-# costs a bisection. The browser suite, the Linux tests and the combined tree stay with the
-# train gate.
+# costs a bisection. The `readers` job runs the tests that read the repository or the combined
+# tree (repodocs, docskb, boundaries, webui), the ones that break when main moves under a change.
+# The browser suite and the rest of the Linux tests stay with the train gate.
 #
 # Only a maintainer can push a ready/ branch, so no pull request's code runs here; the jobs
 # hold no secret and only read the repository. What to run is decided by
@@ -127,10 +128,39 @@ jobs:
         run: make web NPM_CI= && cd web && npm run --silent budget
       - run: make web-test NPM_CI=
 
+  # The tests that read the repository or the combined tree, on the replayed chain: they are the
+  # ones a moved main reddens, and no other leg of the pre-check runs them.
+  readers:
+    name: readers
+    needs: plan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Replay the queued chain on main
+        id: replay
+        run: scripts/ready-check-base.sh > /dev/null
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+      - name: Configure git for tests
+        run: |
+          git config --global user.name ci
+          git config --global user.email ci@local
+          git config --global init.defaultBranch master
+      - env:
+          READY_CHECK_BUNDLE: ${{ steps.replay.outputs.bundle }}
+        # The quarantine applies, as on every go test (test-shard.sh skips internal/repodocs).
+        run: |
+          re=$(scripts/quarantine.sh --skip)
+          go test -count=1 ${re:+-skip "$re"} ./internal/repodocs/... ./internal/docskb ./internal/boundaries ./internal/webui
+
   # The verdict the lander reads: green when every leg that ran is green.
   ready-check:
     name: ready-check
-    needs: [plan, windows, web]
+    needs: [plan, windows, web, readers]
     if: "!cancelled()"
     runs-on: ubuntu-latest
     steps:
