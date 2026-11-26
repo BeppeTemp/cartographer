@@ -47,7 +47,7 @@ func TestSyncAnnouncesEveryRemovedRoot(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(base, ".claude", "mine.md"), []byte("user"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := configurator.NoteCreatedDirs(base, []string{".config", ".config/opencode", ".claude"}); err != nil {
+	if err := configurator.NoteCreatedDirs(base, []string{".config", ".config/opencode", ".config/opencode/skills", ".config/opencode/skills/x", ".claude", ".claude/skills", ".claude/skills/y"}); err != nil {
 		t.Fatal(err)
 	}
 	const opencodeSkill = ".config/opencode/skills/x/SKILL.md"

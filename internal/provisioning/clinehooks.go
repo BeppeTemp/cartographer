@@ -181,7 +181,7 @@ func reconcileClineDispatchers(baseDir, exclude string) (warnings map[string]str
 		case owner == clineForeign:
 			warnings[event] = fmt.Sprintf("cline: %s already exists and is not Cartographer's; the %s hooks of this KB were installed but not wired (rename or move that file, then sync)", path, event)
 		default:
-			if err := mkdirAllNoFollow(docs, filepath.Dir(path), 0o755); err != nil {
+			if err := safewrite.MkdirAllNoFollow(docs, filepath.Dir(path), 0o755); err != nil {
 				return warnings, fmt.Errorf("provisioning: mkdir %s: %w", filepath.Dir(path), err)
 			}
 			if err := writeFileAtomicNoFollow(docs, path, generateClineDispatcher(event, bin, hookHostWindows), 0o755); err != nil {

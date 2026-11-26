@@ -339,9 +339,8 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 			migrateLegacyOpenCode(r, absoluteBaseDir, true)
 			continue
 		}
-		// The path was checked by safewrite.CheckPath above. A root this makes is
-		// recorded in the ledger; a plugin provider's MCP directory is not a member
-		// of the root set, so it records nothing (accepted gap: it is never removed).
+		// The path was checked by safewrite.CheckPath above. Every directory this
+		// makes is recorded in the ledger (D2409 amended).
 		madeDirs, mkErr := safewrite.MkdirAllNoFollowCreated(absoluteBaseDir, filepath.Dir(fullPath), 0o755)
 		if len(madeDirs) > 0 {
 			_ = NoteCreatedDirs(absoluteBaseDir, madeDirs)
@@ -694,12 +693,17 @@ func removeEntryAt(cfg *ServerConfig, provider Provider, baseDir, relPath string
 			// ".kiro" (a provisioning root boundary that may still hold skills/
 			// agents/hooks; os.Remove's own "not empty" error is the natural guard
 			// even without this check, but the guard keeps intent explicit).
-			// A provisioning root is never removed here: the prune that follows
-			// (provisioning.PruneConfigFileParents) removes it only when the ledger
-			// lists it, and announces it.
+			// Only a level the ledger lists as created goes (D2409 amended): one
+			// that was there before the connect is the user's. A provisioning root
+			// is never removed here: the prune that follows
+			// (provisioning.PruneConfigFileParents) removes it, and announces it.
 			if parent := filepath.Dir(fullPath); parent != baseDir {
-				if rel, rerr := filepath.Rel(baseDir, parent); rerr != nil || !IsRootDir(rel) {
-					_ = safewrite.RemoveEmptyDir(parent)
+				if rel, rerr := filepath.Rel(baseDir, parent); rerr == nil && !IsRootDir(rel) && WasDirCreated(baseDir, rel) {
+					if safewrite.RemoveEmptyDir(parent) == nil {
+						if _, serr := os.Lstat(parent); errors.Is(serr, os.ErrNotExist) {
+							_ = ForgetCreatedDir(baseDir, rel)
+						}
+					}
 				}
 			}
 			return true, nil

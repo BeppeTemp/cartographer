@@ -3681,11 +3681,11 @@ func appendBlock(content, block string) string {
 // leaves no empty ".claude/skills/<name>/", ".opencode/hooks/<name>/", etc. behind.
 //
 // The climb stops (without removing) at BaseDir itself and at a plugin root. A
-// provisioning root (configurator.IsRootDir) is removed only when the created-files
-// ledger lists it as made by Cartographer, it is a real directory and it is empty;
-// a root that existed before, one created by an older version (unknown to the
-// ledger) and a non-empty one stay (D63, D2409). The levels
-// below a root keep D63: removed when empty, whoever made them.
+// provisioning root (configurator.IsRootDir) and every level below one is removed
+// only when the created-files ledger lists it as made by Cartographer, it is a real
+// directory and it is empty; a directory that existed before, one created by an
+// older version (unknown to the ledger) and a non-empty one stay (D63, D2409
+// amended). Only a root is announced: the levels below one are silent.
 //
 // os.Remove fails on a non-empty directory: that failure (any error other than
 // "already gone") is the guard against removing a directory that still holds other
@@ -3712,7 +3712,7 @@ func pruneEmptyDirsFrom(baseDir, relPath string, removeRoots bool) (removedRoots
 			return removedRoots
 		}
 		isRoot := configurator.IsRootDir(dir)
-		if isRoot && (!removeRoots || !configurator.WasDirCreated(baseDir, dir)) {
+		if isRoot && !removeRoots {
 			return removedRoots
 		}
 		// A symlinked directory, or one under a symlink, is someone else's:
@@ -3727,18 +3727,29 @@ func pruneEmptyDirsFrom(baseDir, relPath string, removeRoots bool) (removedRoots
 		if isRoot && lerr != nil {
 			return removedRoots
 		}
+		// A level that is already gone (a sibling's removal, the configurator's
+		// own parent removal) has nothing to remove: the climb goes on.
+		if errors.Is(lerr, os.ErrNotExist) {
+			dir = filepath.Dir(dir)
+			continue
+		}
+		// A level the ledger does not list was there before, or an older version
+		// made it: it is the user's, and the climb stops (D2409 amended).
+		if !configurator.WasDirCreated(baseDir, dir) {
+			return removedRoots
+		}
 		err := safewrite.RemoveEmptyDir(filepath.Join(baseDir, dir))
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return removedRoots
 		}
+		// RemoveEmptyDir returns nil without removing a link, so only an Lstat that
+		// finds nothing proves the level is gone; a non-empty one, a link or any
+		// error keeps the entry and stops the climb.
+		if _, serr := os.Lstat(filepath.Join(baseDir, dir)); !errors.Is(serr, os.ErrNotExist) {
+			return removedRoots
+		}
+		_ = configurator.ForgetCreatedDir(baseDir, dir) // a stale entry is reconciled by the next pass
 		if isRoot {
-			// RemoveEmptyDir returns nil without removing a link, so only an
-			// Lstat that finds nothing proves the root is gone; a non-empty one,
-			// a link or any error keeps the entry and stops the climb.
-			if _, serr := os.Lstat(filepath.Join(baseDir, dir)); !errors.Is(serr, os.ErrNotExist) {
-				return removedRoots
-			}
-			_ = configurator.ForgetCreatedDir(baseDir, dir) // a stale entry is reconciled by the next pass
 			removedRoots = append(removedRoots, filepath.ToSlash(dir))
 		}
 		dir = filepath.Dir(dir)

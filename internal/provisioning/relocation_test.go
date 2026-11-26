@@ -43,6 +43,11 @@ func TestApply_RelocatesArtifactWhoseDestinationMoved(t *testing.T) {
 	if err := os.WriteFile(hookFile, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// The older version's levels are unknown to the ledger and would stay: record
+	// them as the sync that made them would have.
+	if err := configurator.NoteCreatedDirs(baseDir, []string{".opencode", ".opencode/skills", ".opencode/skills/kb-create"}); err != nil {
+		t.Fatal(err)
+	}
 	lock := res.NewLock
 	for i := range lock.Managed {
 		lock.Managed[i].Path = strings.Replace(lock.Managed[i].Path, ".config/opencode/skills", ".opencode/skills", 1)

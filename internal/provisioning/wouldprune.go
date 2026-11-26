@@ -95,9 +95,6 @@ func (p *RootPredictor) Predict(files []string) (roots, unknown []string) {
 				break
 			}
 			isRoot := configurator.IsRootDir(dir)
-			if isRoot && !configurator.WasDirCreated(p.baseDir, dir) {
-				break
-			}
 			if ensureSafeDir(p.baseDir, dir) != nil {
 				break
 			}
@@ -114,6 +111,9 @@ func (p *RootPredictor) Predict(files []string) (roots, unknown []string) {
 				continue // already gone: the real climb goes on
 			}
 			if !fi.IsDir() {
+				break
+			}
+			if !configurator.WasDirCreated(p.baseDir, dir) {
 				break
 			}
 			empty, readable := p.endsEmpty(dir)
@@ -167,7 +167,7 @@ func (p *RootPredictor) walkEmpty(dir string) (empty, readable bool) {
 		if p.gone[rel] {
 			continue
 		}
-		if e.Type()&os.ModeSymlink == 0 && e.IsDir() && p.above[rel] {
+		if e.Type()&os.ModeSymlink == 0 && e.IsDir() && p.above[rel] && configurator.WasDirCreated(p.baseDir, rel) {
 			sub, ok := p.endsEmpty(rel)
 			if !ok {
 				return false, false

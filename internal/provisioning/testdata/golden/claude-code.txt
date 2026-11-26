@@ -6,7 +6,13 @@
     ]
   },
   "dirs": [
-    ".claude"
+    ".claude",
+    ".claude/agents",
+    ".claude/hooks",
+    ".claude/hooks/notify",
+    ".claude/skills",
+    ".claude/skills/notes",
+    ".claude/skills/review"
   ]
 }
 

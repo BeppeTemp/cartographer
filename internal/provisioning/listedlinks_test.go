@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
@@ -83,6 +84,9 @@ func TestPruneEmptyDirsNeverUnlinksAListedDirectoryLink(t *testing.T) {
 		t.Fatal(err)
 	}
 	listLinks(t, link)
+	if err := configurator.NoteCreatedDirs(base, []string{"custom/x"}); err != nil {
+		t.Fatal(err)
+	}
 
 	pruneEmptyDirs(base, filepath.Join("custom", "x", "gone.md"))
 	if fi, err := os.Lstat(link); err != nil || fi.Mode()&os.ModeSymlink == 0 {
