@@ -759,6 +759,14 @@ func pullCandidatesPartial(cfg *clientconfig.Config, health *client.Health, kbNa
 			}
 		}
 	}
+	// A Cartographer server (it names its version, as a bare test double or a
+	// pre-multi-KB peer does not) that lists no KB to this caller has nothing to pull: the bare
+	// call resolveKBTargets would make for an empty selection is answered with
+	// "kb parameter required", which would fail the sync that has to remove
+	// what a follower of the server held (the listed, empty answer).
+	if len(kbNames) == 0 && health.IsServer() && health.KBs != nil && len(*health.KBs) == 0 {
+		return cs, nil, nil
+	}
 	targets, err := resolveKBTargets(health, kbNames)
 	if err != nil {
 		return cs, nil, err

@@ -426,6 +426,28 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		if !facts.Listed {
 			entryKBs = nil
 		}
+		switch kbListAnswer(facts, healthErr) {
+		case kbAnswerAnonymous:
+			// A server with auth that lists no KB to this caller has not
+			// answered which KBs the token reads (the token is unset or not
+			// accepted as an identity): the KBs this client follows stay as they
+			// were, instead of leaving for want of an answer.
+			if cfg.Auth && len(previousKnownKBs) > 0 {
+				fmt.Fprintln(errw, "warning: the server did not list its KBs (is the token set and valid?): the KBs this client follows are left as they were")
+				kbs = append([]string(nil), previousKnownKBs...)
+				entryKBs = kbs
+			}
+		case kbAnswerEmpty:
+			// An identified token that reads no KB: the answer, and the one a
+			// provider that follows the server follows to none.
+			if len(previousKnownKBs) > 0 {
+				if opts.DryRun {
+					fmt.Fprintln(out, "[dry-run] would remove: the server lists no KB for this token: every KB this client follows leaves")
+				} else {
+					fmt.Fprintln(out, "the server lists no KB for this token: every KB this client follows leaves")
+				}
+			}
+		}
 		// D187: the live topology wins over the persisted one, and is persisted
 		// with the rest of the server-owned cache below.
 		routedPath = facts.RoutedPath

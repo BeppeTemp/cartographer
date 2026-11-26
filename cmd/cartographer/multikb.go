@@ -224,6 +224,39 @@ func enumerateKBsOverHTTP(serverURL string, auth bool, tokenSpec string, allowIn
 	return facts, nil
 }
 
+// kbAnswer is what a /health call told the client about which KBs its token
+// reads. Only kbAnswerListed and kbAnswerEmpty are an answer about that: the
+// other two say nothing, and a sync that follows the server changes nothing on
+// them (acting on a failure or an anonymous reply would remove KBs because a
+// restart or an unset token made the list unreadable).
+type kbAnswer int
+
+const (
+	// kbAnswerNone: the call failed (network, HTTP error, a server that is
+	// still bootstrapping).
+	kbAnswerNone kbAnswer = iota
+	// kbAnswerAnonymous: a 200 with no kbs key: auth is on and the token is
+	// unset or was not sent, or a server that does not name its KBs.
+	kbAnswerAnonymous
+	// kbAnswerListed: a list with at least one KB.
+	kbAnswerListed
+	// kbAnswerEmpty: `"kbs": []`, an identified token that reads no KB.
+	kbAnswerEmpty
+)
+
+// kbListAnswer classifies the result of enumerateKBs.
+func kbListAnswer(facts serverFacts, healthErr error) kbAnswer {
+	switch {
+	case healthErr != nil:
+		return kbAnswerNone
+	case !facts.Listed:
+		return kbAnswerAnonymous
+	case len(facts.Names) == 0:
+		return kbAnswerEmpty
+	}
+	return kbAnswerListed
+}
+
 // effectiveToolPrefixes turns the /health facts a caller already fetched into a
 // KB name -> effective prefix map (D120). Returns nil when the server was
 // unreachable or advertises no KB list, so a caller can tell "verified" from
