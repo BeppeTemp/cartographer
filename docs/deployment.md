@@ -1400,6 +1400,7 @@ With `web.enabled` on — the default in HTTP mode — the same binary also serv
   KB's own keys and placeholders. Before any client of the viewer has reported, the Compass tab shows the keys of
   `.cartographer.yaml` at their defaults (`client_template`, D948). The
   `panel=services`, `panel=sources` and `panel=paths` links land on Secrets, Work and Settings.
+  A cross-KB link `[[kb:<name>/<id>]]` in a page body is a link, to that page in its KB, only when the server says `resolved` for the caller (the concept's `cross` list); in any other state it is the text the author wrote, with no link and nothing of the other KB. The concept's Links tab lists those edges under "Other KBs", and the page graph draws a resolved one as a small stub node, read from `GET /api/ui/v1/kbs/{kb}/graph/external` beside the graph.
 
 The static bundle is reachable without a bearer token, because it is the page
 that asks for one and it carries no server or KB data; `/api/ui/v1` is not, and

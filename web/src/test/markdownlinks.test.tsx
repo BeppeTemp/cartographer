@@ -81,3 +81,39 @@ describe("a malformed wiki-link target", () => {
     expect(container.querySelector("a.markdown__wikilink")).not.toBeNull();
   });
 });
+
+// AC-cross-kb-links-21
+describe("linkWikiLinks cross", () => {
+  const cross = [
+    { direction: "out" as const, kb: "kb-b", id: "infra/dns", state: "resolved" as const },
+    { direction: "out" as const, kb: "kb-b", id: "infra/gone", state: "missing" as const },
+    { direction: "out" as const, kb: "kb-b", id: "infra/hidden", state: "unresolved" as const },
+    { direction: "out" as const, kb: "kb-b", id: "infra/scope", state: "out_of_scope" as const },
+  ];
+  it("renders a resolved link as a link to the other KB's page", () => {
+    expect(linkWikiLinks("see [[kb:kb-b/infra/dns|the DNS]]", cross)).toBe("see [the DNS](cross-link/kb-b/infra%2Fdns)");
+  });
+  it.each(["infra/gone", "infra/hidden", "infra/scope", "infra/none"])("%s is plain text with no href", (id) => {
+    expect(linkWikiLinks(`[[kb:kb-b/${id}]]`, cross)).toBe(`kb:kb-b/${id}`);
+  });
+  it("a link with no list, a server qualifier or in code is never a link", () => {
+    expect(linkWikiLinks("[[kb:kb-b/infra/dns]]")).toBe("kb:kb-b/infra/dns");
+    expect(linkWikiLinks("[[kb:kb-b@srv/infra/dns]]", cross)).toBe("kb:kb-b@srv/infra/dns");
+    expect(linkWikiLinks("`[[kb:kb-b/infra/dns]]`", cross)).toBe("`[[kb:kb-b/infra/dns]]`");
+  });
+  it("an in-KB link keeps its form", () => {
+    expect(linkWikiLinks("[[a/b]]", cross)).toBe("[a/b](concept-link/a%2Fb)");
+  });
+  it("follows a resolved link into the other KB, and draws the rest as text", async () => {
+    const open = vi.fn();
+    const { container } = render(
+      <Markdown conceptId="a/b" cross={cross} onOpenCross={open}>
+        {"[[kb:kb-b/infra/dns]] and [[kb:kb-b/infra/hidden]]"}
+      </Markdown>,
+    );
+    expect(container.querySelectorAll("a")).toHaveLength(1);
+    await userEvent.click(screen.getByRole("link", { name: "kb:kb-b/infra/dns" }));
+    expect(open).toHaveBeenCalledWith("kb-b", "infra/dns");
+    expect(container.textContent).toContain("kb:kb-b/infra/hidden");
+  });
+});

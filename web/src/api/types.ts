@@ -248,6 +248,23 @@ export interface OutlineEntry {
   bytes: number;
 }
 
+/** One edge to or from a page of another KB. `state` is how the server
+ *  resolved it for this caller (absent on an incoming edge: it is resolved);
+ *  `unresolved` is one value for every reason, so it never says why. */
+export interface CrossEdge {
+  direction: "out" | "in";
+  kb: string;
+  id: string;
+  state?: "resolved" | "missing" | "unresolved" | "out_of_scope";
+}
+
+/** GET /kbs/{kb}/graph/external: the cross-KB edges of the pages drawn. */
+export interface ExternalEdges {
+  edges: (CrossEdge & { from: string })[];
+  limit: number;
+  truncated: boolean;
+}
+
 export interface Concept {
   id: string;
   title: string;
@@ -260,6 +277,9 @@ export interface Concept {
   outbound: string[];
   inbound: string[];
   broken: string[];
+  /** The edges to and from pages of other KBs, as the caller may know them;
+   *  absent from a server that predates them. */
+  cross?: CrossEdge[];
   /** Skills, agents and hooks that reference this concept explicitly; absent
    *  for a principal that cannot see the whole KB. */
   used_by?: { kind: string; name: string }[];

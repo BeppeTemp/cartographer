@@ -1,5 +1,6 @@
 import { setServerNow } from "../lib/serverclock";
 import type {
+  ExternalEdges,
   Artifact,
   ArtifactList,
   SecretList,
@@ -300,6 +301,12 @@ export function fetchChanges(kb: string, since: string, signal?: AbortSignal): P
 /** The caller's open work, up to the route's cap (D302), with the kind of each contradiction. */
 export function fetchWork(kb: string, signal?: AbortSignal): Promise<WorkResponse> {
   return get<WorkResponse>(`/kbs/${encodeURIComponent(kb)}/work?limit=200&fields=contradiction_kind`, signal);
+}
+
+/** The cross-KB edges of the pages the caller sees, per caller: never part of the cached graph. */
+export function fetchExternalEdges(kb: string, scope: string | null, signal?: AbortSignal): Promise<ExternalEdges> {
+  const q = scope ? `?scope=${encodeURIComponent(scope)}` : "";
+  return get<ExternalEdges>(`/kbs/${encodeURIComponent(kb)}/graph/external${q}`, signal);
 }
 
 /** The KB's dashboards: names only for a caller that cannot read the whole KB. */

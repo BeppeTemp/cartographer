@@ -47,7 +47,7 @@ function urls(fetchMock: ReturnType<typeof stubApi>): string[] {
 }
 const clusterCalls = (m: ReturnType<typeof stubApi>) => urls(m).filter((u) => u.includes("/graph/clusters"));
 const flatCalls = (m: ReturnType<typeof stubApi>) =>
-  urls(m).filter((u) => u.includes("/graph") && !u.includes("/graph/clusters"));
+  urls(m).filter((u) => u.includes("/graph") && !u.includes("/graph/clusters") && !u.includes("/graph/external"));
 const params = (u: string) => new URL(u, "http://example.com").searchParams;
 
 describe("the clustered graph's data layer", () => {

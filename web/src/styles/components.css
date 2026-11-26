@@ -3336,6 +3336,12 @@ code.mapcontract__label {
   background: var(--surface-2);
 }
 
+.inspector__link--muted {
+  color: var(--text-muted, inherit);
+  opacity: 0.8;
+  cursor: help;
+}
+
 .inspector__link-swatch {
   flex: none;
   width: 8px;

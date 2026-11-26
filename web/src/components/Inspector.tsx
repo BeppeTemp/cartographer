@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Concept, LintFinding } from "../api/types";
+import type { Concept, CrossEdge, LintFinding } from "../api/types";
 import { withoutRedundantLinksSection } from "../lib/linksection";
 import { collectionVar } from "../lib/palette";
 import { ConceptHistory } from "./ConceptHistory";
@@ -23,6 +23,10 @@ interface Props {
   /** The Atlas address of a concept, for links that open in a new tab. */
   hrefOf?(id: string): string;
   onPreview(id: string | null): void;
+  /** Opens a page of another KB (a resolved cross-KB link or row). */
+  onOpenCross?(kb: string, id: string): void;
+  /** The Atlas address of a page of another KB, for open-in-new-tab. */
+  crossHrefOf?(kb: string, id: string): string;
   /** Opens an artifact on the Artifacts panel. */
   onOpenArtifact?(kind: string, name: string): void;
   onClose(): void;
@@ -50,6 +54,8 @@ export function Inspector({
   onNavigate,
   hrefOf,
   onPreview,
+  onOpenCross,
+  crossHrefOf,
   onOpenArtifact,
   onClose,
 }: Props) {
@@ -77,6 +83,7 @@ export function Inspector({
     (concept?.outbound.length ?? 0) +
     (concept?.inbound.length ?? 0) +
     (concept?.used_by?.length ?? 0) +
+    (concept?.cross?.length ?? 0) +
     (concept?.superseded_by ? 1 : 0) +
     (concept?.supersedes?.length ?? 0);
 
@@ -185,7 +192,12 @@ export function Inspector({
               )}
               {concept.body.trim() ? (
                 <ContentBoundary resetKey={concept.id}>
-                  <Markdown onNavigate={onNavigate} hrefOf={hrefOf} conceptId={concept.id} outbound={concept.outbound}>
+                  <Markdown onNavigate={onNavigate} hrefOf={hrefOf} conceptId={concept.id}
+                    outbound={concept.outbound}
+                    cross={concept.cross}
+                    onOpenCross={onOpenCross}
+                    crossHrefOf={crossHrefOf}
+                  >
                     {withoutRedundantLinksSection(withoutLeadingTitle(concept.body), concept.id, concept.outbound)}
                   </Markdown>
                 </ContentBoundary>
@@ -211,6 +223,18 @@ export function Inspector({
                 onNavigate={onNavigate}
                 onPreview={onPreview}
               />
+              {!!concept.cross?.length && (
+                <section className="inspector__group" aria-label="Other KBs">
+                  <h3 className="inspector__group-title">
+                    Other KBs <span className="inspector__count">{concept.cross.length}</span>
+                  </h3>
+                  <ul className="inspector__links">
+                    {concept.cross.map((e) => (
+                      <CrossRow key={`${e.direction}/${e.kb}/${e.id}`} edge={e} onOpenCross={onOpenCross} />
+                    ))}
+                  </ul>
+                </section>
+              )}
               {(!!concept.superseded_by || !!concept.supersedes?.length) && (
                 <section className="inspector__group" aria-label="Supersede chain">
                   <h3 className="inspector__group-title">Supersede chain</h3>
@@ -393,4 +417,37 @@ function formatValue(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
+}
+
+/** One edge to or from another KB. Only a resolved one is a link; `missing` is
+ *  styled as a broken link; every other state is the same muted text with the
+ *  same tooltip, whatever the cause: the page never says why it is unavailable. */
+function CrossRow({ edge, onOpenCross }: { edge: CrossEdge; onOpenCross?(kb: string, id: string): void }) {
+  const arrow = edge.direction === "out" ? "→" : "←";
+  const label = `${edge.kb}/${edge.id}`;
+  if (edge.state === undefined || edge.state === "resolved") {
+    return (
+      <li>
+        <button type="button" className="inspector__link" onClick={() => onOpenCross?.(edge.kb, edge.id)} disabled={!onOpenCross}>
+          <span className="inspector__link-kind" aria-hidden="true">
+            {arrow}
+          </span>
+          <span className="inspector__link-text">
+            <span className="inspector__link-id">{label}</span>
+          </span>
+        </button>
+      </li>
+    );
+  }
+  const missing = edge.state === "missing";
+  return (
+    <li>
+      <span
+        className={missing ? "chip chip--broken" : "inspector__link inspector__link--muted"}
+        title={missing ? undefined : "not available to you or not found"}
+      >
+        <span aria-hidden="true">{missing ? "\u26A0" : arrow}</span> {label}
+      </span>
+    </li>
+  );
 }
