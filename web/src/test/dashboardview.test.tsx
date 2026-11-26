@@ -41,8 +41,8 @@ describe("DashboardView", () => {
   });
 
   it("names a type it does not draw yet and works with structural keys only", () => {
-    render(<DashboardView data={base([{ id: "k", type: "links", total: 2 }, { id: "s", type: "stat", total: 1, groups: [{ key: "open", total: 1 }] }])} />);
-    expect(screen.getByText(/links widget is not drawn yet/)).toBeInTheDocument();
+    render(<DashboardView data={base([{ id: "k", type: "gauge", total: 2 }, { id: "s", type: "stat", total: 1, groups: [{ key: "open", total: 1 }] }])} />);
+    expect(screen.getByText(/gauge widget is not drawn yet/)).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2, name: "k" })).toBeInTheDocument();
     expect(screen.getByText("open")).toBeInTheDocument();
   });
@@ -191,3 +191,27 @@ describe("table and timeline widgets", () => {
   });
 });
 
+describe("links widget", () => {
+  // AC-kbdash-30: a resolved id is a link into the Atlas, a missing one reads "not found".
+  it("draws a resolved id as a link and a missing id as not found", () => {
+    const onOpen = vi.fn();
+    render(
+      <DashboardView
+        onOpen={onOpen}
+        data={base([
+          {
+            id: "l",
+            type: "links",
+            title: "Reading",
+            total: 3,
+            entries: [{ id: "dev/a", title: "Alpha page" }, { id: "gone", state: "missing" }, { id: "", state: "missing" }],
+          },
+        ])}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Alpha page" }));
+    expect(onOpen).toHaveBeenCalledWith("dev/a");
+    expect(screen.getAllByText("not found")).toHaveLength(2);
+    expect(screen.queryByText("gone")).toBeNull();
+  });
+});
