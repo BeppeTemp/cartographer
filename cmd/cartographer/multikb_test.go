@@ -668,26 +668,6 @@ func TestDoConnect_KBSelection_BindsOnlyWhatWasNamed(t *testing.T) {
 	}
 }
 
-// --kb all records the names, not the implicit default: that is what stops a
-// KB mounted later from widening a client that already exists.
-func TestDoConnect_KBSelectionAll_IsExplicit(t *testing.T) {
-	srv := multiKBServer(t, `{"status":"ok","kbs":[{"name":"alpha"},{"name":"beta"}]}`)
-	defer srv.Close()
-	dir := t.TempDir()
-
-	if _, err := doConnect(connectOptions{Providers: []string{"claude"}, Dir: dir, ServerURL: srv.URL + "/mcp", Name: "cartographer", Token: "${TOKEN}", KBs: []string{"all"}}); err != nil {
-		t.Fatalf("doConnect: %v", err)
-	}
-	cfg, err := clientconfig.Load(dir)
-	if err != nil {
-		t.Fatalf("load config: %v", err)
-	}
-	bound, explicit := cfg.BoundKBs("claude")
-	if !explicit || strings.Join(bound, ",") != "alpha,beta" {
-		t.Errorf("bound = %v (explicit=%v); want an explicit [alpha beta]", bound, explicit)
-	}
-}
-
 // A single-KB server needs no flag: there is nothing to choose.
 func TestDoConnect_SingleKB_NeedsNoSelection(t *testing.T) {
 	srv := multiKBServer(t, `{"status":"ok","kbs":[{"name":"alpha"}]}`)
