@@ -44,11 +44,16 @@ func splitCommaList(values []string) []string {
 	return out
 }
 
-// kbSelectionAll is the sentinel that selects every mounted KB. It is recorded
-// as an explicit binding to their names, never as the implicit default: that
-// difference is what keeps a KB mounted later from widening a client that
-// already exists.
+// kbSelectionAll is the sentinel that selects every mounted KB. A provider
+// connect binds with it records the `kbs: all` marker (clientconfig BindAll),
+// which follows the server; only a workspace binding, which is fail-closed,
+// keeps the names mounted now.
 const kbSelectionAll = "all"
+
+// isAllSelection reports whether the --kb (or form) choice is the sentinel.
+func isAllSelection(selection []string) bool {
+	return len(selection) == 1 && selection[0] == kbSelectionAll
+}
 
 // resolveKBSelection turns the operator's --kb (or form) choice into the list
 // of KBs this connect may deliver, validated against what the server actually
@@ -1250,12 +1255,27 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 	if err != nil {
 		return connectResult{}, err
 	}
-	if selected != nil {
+	all := isAllSelection(opts.KBs)
+	if selected != nil || all {
 		// In memory in every mode, including --dry-run: the projection the run
 		// reports must be the one the selection produces. The write itself is
 		// already guarded at step 3.
 		for _, provider := range opts.Providers {
+			if all && opts.Workspace != "" {
+				// A workspace binding is a snapshot list (below); the provider's
+				// global binding is not touched by it.
+				continue
+			}
 			existing.ResetBinding(provider)
+			if all {
+				if opts.NoLineage || len(opts.Exclude) > 0 {
+					return connectResult{}, fmt.Errorf("--no-lineage and --exclude need KB names (not --kb all): there is nothing to follow without them")
+				}
+				if err := existing.BindAll(provider); err != nil {
+					return connectResult{}, err
+				}
+				continue
+			}
 			for _, kb := range selected {
 				if err := existing.Bind(provider, kb); err != nil {
 					return connectResult{}, err
@@ -1274,6 +1294,9 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 	// a provider-global connect materializes every selected KB into $HOME and
 	// undoing that afterwards is a migration, not a choice.
 	if opts.Workspace != "" {
+		if all && !opts.DryRun {
+			fmt.Fprintln(opts.out(), "note: --kb all in a workspace binds the KBs mounted now; the folder does not follow later changes")
+		}
 		for _, provider := range opts.Providers {
 			p := configurator.Provider(provider)
 			if !provisioning.SupportsProjectScope(p) {
@@ -1658,12 +1681,14 @@ func resolveConnectKBs(cfg *clientconfig.Config, opts connectOptions, facts serv
 	return out, err
 }
 
-// allProvidersBound reports whether every provider already has an explicit
-// binding recorded — the difference between "these KBs" and "whatever is
-// known", which BoundKBs is the only place allowed to resolve.
+// allProvidersBound reports whether every provider already has a binding
+// recorded: a named list, or the all marker (a declared choice that resolves
+// like the default, so BoundKBs alone does not tell it from "never chose") —
+// the difference between "chosen" and "whatever is known", which BoundKBs is
+// the only place allowed to resolve.
 func allProvidersBound(cfg *clientconfig.Config, providers []string) bool {
 	for _, p := range providers {
-		if _, explicit := cfg.BoundKBs(p); !explicit {
+		if _, explicit := cfg.BoundKBs(p); !explicit && !cfg.FollowsServer(p) {
 			return false
 		}
 	}

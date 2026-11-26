@@ -83,6 +83,7 @@ func printClientUsage(w *os.File) {
 	fmt.Fprintln(w, "Usage: cartographer client list")
 	fmt.Fprintln(w, "       cartographer client show <provider>")
 	fmt.Fprintln(w, "       cartographer client bind <provider> <kb>[,<kb>...] [--no-lineage | --exclude <kb>[,<kb>...]]   adds KBs to the provider's binding; the flags opt it out of lineage")
+	fmt.Fprintln(w, "       cartographer client bind <provider> --all   follows every KB the server mounts, now and later (kbs: all)")
 	fmt.Fprintln(w, "       cartographer client unbind <provider> <kb>[,<kb>...]   removes KBs from it")
 	fmt.Fprintln(w, "       cartographer client reset <provider>                   restores every known KB")
 	fmt.Fprintln(w, "       cartographer client update [--check=true|false]")
@@ -218,8 +219,11 @@ func clientKB(dir string, cfg *clientconfig.Config, args []string) int {
 // piece of information that makes `client list` actionable: the same list of
 // names means "declared" or "everything the server happens to mount today"
 // depending on this column.
-func bindingOrigin(explicit bool) string {
-	if explicit {
+func bindingOrigin(cfg *clientconfig.Config, provider string) string {
+	if cfg.FollowsServer(provider) {
+		return "all (follows the server)"
+	}
+	if _, explicit := cfg.BoundOwnKBs(provider); explicit {
 		return "explicit"
 	}
 	return "default (all known)"
@@ -252,10 +256,10 @@ func clientList(cfg *clientconfig.Config, args []string) int {
 		fmt.Println("no agent connected (run `cartographer connect`)")
 		return 0
 	}
-	fmt.Printf("%-12s %-22s %s\n", "PROVIDER", "ORIGIN", "KBS")
+	fmt.Printf("%-12s %-24s %s\n", "PROVIDER", "ORIGIN", "KBS")
 	for _, p := range cfg.Agents {
-		kbs, explicit := cfg.BoundOwnKBs(p)
-		fmt.Printf("%-12s %-22s %s%s\n", p, bindingOrigin(explicit), formatKBList(kbs), lineageNote(cfg, p)+lineageFlagsNote(cfg, p))
+		kbs, _ := cfg.BoundOwnKBs(p)
+		fmt.Printf("%-12s %-24s %s%s\n", p, bindingOrigin(cfg, p), formatKBList(kbs), lineageNote(cfg, p)+lineageFlagsNote(cfg, p))
 	}
 	return 0
 }
@@ -280,10 +284,10 @@ func clientShow(cfg *clientconfig.Config, args []string) int {
 		return code
 	}
 
-	kbs, explicit := cfg.BoundKBs(provider)
+	kbs, _ := cfg.BoundKBs(provider)
 	own, _ := cfg.BoundOwnKBs(provider)
 	fmt.Printf("provider   %s\n", provider)
-	fmt.Printf("origin     %s\n", bindingOrigin(explicit))
+	fmt.Printf("origin     %s\n", bindingOrigin(cfg, provider))
 	fmt.Printf("bound      %s%s\n", formatKBList(own), lineageFlagsNote(cfg, provider))
 	if l := cfg.ProviderLineage(provider); len(l) > 0 {
 		fmt.Printf("lineage    %s (by lineage of %s)\n", formatKBList(l), strings.Join(own, ", "))
@@ -384,7 +388,41 @@ func lineageFlagsNote(cfg *clientconfig.Config, provider string) string {
 	return ""
 }
 
+// clientBindAll is `client bind <provider> --all`: it records the all marker,
+// replacing the list and its lineage keys. It needs no network, like the rest of
+// `client`: the marker names no KB to validate.
+func clientBindAll(dir string, cfg *clientconfig.Config, args []string) int {
+	if len(args) != 1 || strings.HasPrefix(args[0], "-") || strings.Contains(args[0], ",") {
+		fmt.Fprintln(os.Stderr, "Error: --all takes only the provider: it cannot be combined with KB names or lineage flags")
+		printClientUsage(os.Stderr)
+		return 2
+	}
+	provider := args[0]
+	if code := requireConnected(cfg, provider); code != 0 {
+		return code
+	}
+	was := "the default"
+	if cfg.FollowsServer(provider) {
+		was = "all already"
+	} else if own, explicit := cfg.BoundOwnKBs(provider); explicit {
+		was = formatKBList(own)
+	}
+	if err := cfg.BindAll(provider); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
+		return 2
+	}
+	if code := saveClientConfig(dir, cfg); code != 0 {
+		return code
+	}
+	fmt.Printf("%s now follows every KB the server mounts (it was bound to %s)\n", provider, was)
+	fmt.Println("run `cartographer sync` to apply")
+	return 0
+}
+
 func clientBind(dir string, cfg *clientconfig.Config, args []string) int {
+	if i := slices.Index(args, "--all"); i >= 0 {
+		return clientBindAll(dir, cfg, append(append([]string(nil), args[:i]...), args[i+1:]...))
+	}
 	args, exclude, noLineage, lineageGiven, code := splitBindLineageFlags(args)
 	if code != 0 {
 		return code
@@ -548,11 +586,16 @@ func clientReset(dir string, cfg *clientconfig.Config, args []string) int {
 		return code
 	}
 
+	hadAll := cfg.FollowsServer(provider)
 	cfg.ResetBinding(provider)
 	if code := saveClientConfig(dir, cfg); code != 0 {
 		return code
 	}
-	fmt.Printf("%s returned to the default: every known KB\n", provider)
+	if hadAll {
+		fmt.Printf("%s: the all binding is gone; it still follows the server through the default: every known KB\n", provider)
+	} else {
+		fmt.Printf("%s returned to the default: every known KB\n", provider)
+	}
 	fmt.Println("run `cartographer sync` to apply")
 	return 0
 }

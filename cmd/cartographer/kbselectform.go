@@ -20,6 +20,10 @@ type kbSelectModel struct {
 	kbs      []string
 	selected []bool
 	cursor   int
+	// allLater is the extra row below the KBs: every KB, the ones mounted later
+	// too. Ticking it unticks the names and the other way round, so the answer is
+	// either the list or the sentinel, never both.
+	allLater bool
 	done     bool
 	cancel   bool
 	errMsg   string
@@ -48,11 +52,19 @@ func (m kbSelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cursor--
 		}
 	case "down", "j":
-		if m.cursor < len(m.kbs)-1 {
+		if m.cursor < len(m.kbs) { // the extra row is index len(kbs)
 			m.cursor++
 		}
 	case " ", "x":
-		m.selected[m.cursor] = !m.selected[m.cursor]
+		if m.cursor == len(m.kbs) {
+			m.allLater = !m.allLater
+			if m.allLater {
+				m.selected = make([]bool, len(m.kbs))
+			}
+		} else {
+			m.selected[m.cursor] = !m.selected[m.cursor]
+			m.allLater = false
+		}
 		m.errMsg = ""
 	case "a":
 		// Selecting every KB is a legitimate answer — it is the difference
@@ -61,9 +73,10 @@ func (m kbSelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for i := range m.selected {
 			m.selected[i] = true
 		}
+		m.allLater = false
 		m.errMsg = ""
 	case "enter":
-		if len(m.chosen()) == 0 {
+		if len(m.chosen()) == 0 && !m.allLater {
 			m.errMsg = "select at least one KB (space to toggle, a for all, esc to cancel)"
 			return m, nil
 		}
@@ -71,6 +84,14 @@ func (m kbSelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 	return m, nil
+}
+
+// result is the answer: the sentinel for the extra row, else the ticked names.
+func (m kbSelectModel) result() []string {
+	if m.allLater {
+		return []string{kbSelectionAll}
+	}
+	return m.chosen()
 }
 
 func (m kbSelectModel) chosen() []string {
@@ -98,6 +119,14 @@ func (m kbSelectModel) View() string {
 		}
 		fmt.Fprintf(&b, "%s[%s] %s\n", cursor, mark, kb)
 	}
+	cursor, mark := "  ", " "
+	if m.cursor == len(m.kbs) {
+		cursor = "> "
+	}
+	if m.allLater {
+		mark = "x"
+	}
+	fmt.Fprintf(&b, "\n%s[%s] %s\n", cursor, mark, "all of them, and the ones mounted later")
 	if m.errMsg != "" {
 		fmt.Fprintf(&b, "\n%s\n", m.errMsg)
 	}
@@ -117,5 +146,5 @@ func runKBSelectForm(kbs []string) (selection []string, ok bool, err error) {
 	if m.cancel || !m.done {
 		return nil, false, nil
 	}
-	return m.chosen(), true, nil
+	return m.result(), true, nil
 }

@@ -704,6 +704,9 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 			}
 		}
 		p.BindingOrigin = "default"
+		if cfg.FollowsServer(p.Name) {
+			p.BindingOrigin = "all"
+		}
 		if explicit {
 			p.BindingOrigin = "explicit"
 			p.Lineage = providerLineage(cfg, p.Name)

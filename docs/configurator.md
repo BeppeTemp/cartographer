@@ -152,7 +152,9 @@ decides every step **before** running any:
 - **KB binding (D190).** `--kb` is passed through. Without it: one KB binds itself; agents that
   already carry a binding keep it; a KB this run adds next to existing ones is bound alone (the
   narrowest choice); otherwise, with two or more KBs and nothing to go on, an interactive run
-  asks with the same picker as `connect` and a non-interactive one exits 2 naming `--kb`.
+  asks with the same picker as `connect` and a non-interactive one exits 2 naming `--kb`. The picker
+  has one extra choice, "all of them, and the ones mounted later", which records `kbs: all` (the
+  provider follows the server); ticking every KB records the list.
 - **Refusals, all before any change:** no `git` on `PATH` (2.43 or later is required, D2038); a client already pointed at a
   non-loopback server (setup provisions a local one — `connect` is the command for a remote
   server); no remote and no mounted KB in a non-interactive run; no agent detected and none named.
@@ -494,7 +496,7 @@ Before anything is written, `connect` checks the URL against the server it reach
 |------|---------|-------------|
 | (positional) | `all` | `claude` \| `opencode` \| `codex` \| `kiro` \| `antigravity` \| `crush` \| `copilot` \| `pi` \| `cline` \| `all` (all detected agents) |
 | `--agents` | *(unset)* | Comma-separated subset (`claude,codex`); cannot be combined with the positional provider |
-| `--kb` | *(unset)* | Which KBs this client may receive (repeatable, or comma-separated; `all` for every mounted KB). Required on a **first** connect against a server mounting two or more KBs — see below (D190) |
+| `--kb` | *(unset)* | Which KBs this client may receive (repeatable, or comma-separated). `all` records `kbs: all` for each target provider instead of the names mounted now: the provider receives every KB the server mounts, resolved like a provider with no binding, and `--kb all` over an existing list replaces it. To switch the other way run `client bind <provider> <kb>[,<kb>...]`; to switch a list to `all` without the network, `client bind <provider> --all`, or edit the file to `kbs: all`. A connect without `--kb` leaves a provider holding `all` as it is. With `--workspace`, `all` binds the folder to the KBs mounted now and prints a note, because a workspace binding never follows the server (the provider's own binding is not changed). Required on a **first** connect against a server mounting two or more KBs — see below (D190) |
 | `--no-lineage`, `--exclude <kb>[,<kb>...]` | *(unset)* | With `--kb <names>`: opt the provider out of the KBs the named ones depend on (lineage, `docs/sync.md`): the first follows no relation, the second leaves the named KBs out. They are stored with the binding and replace it whole, so a connect repeating `--kb` without them turns them off. Without `--kb`, with `--kb all`, together, or naming a KB also given to `--kb` they are a usage error (exit 2) |
 | `--server-url` | `http://127.0.0.1:39273/mcp` | Cartographer server URL |
 | `--auth` | `false` | Enables the Bearer header in generated configs |
@@ -629,6 +631,8 @@ provider. Read-only.
 ```bash
 cartographer status
 ```
+
+Each provider also reports `bound_kbs` and `binding_origin` in `--output json` (and on its `kbs` line): `explicit` for a list of names, `all` for `kbs: all`, `default` for no binding; the last two follow the server.
 
 Exit code: `0` all providers in sync, `1` at least one provider in drift, `2` error (no
 `.cartographer.yaml`, server unreachable, ...). For every provider it also prints per-kind
@@ -1005,7 +1009,7 @@ cartographer connect claude --no-input \
 ```
 
 - A provider named positionally forces the non-interactive path. With none named and no agent detected the command exits 1 and writes nothing.
-- A server that mounts two or more KBs needs `--kb` on the first connect. `--kb all` reads Meridian's KB list, so a connect made where Meridian is unreachable (an image build) names the KBs instead.
+- A server that mounts two or more KBs needs `--kb` on the first connect. `--kb all` reads Meridian's KB list, so a connect made where Meridian is unreachable (an image build) names the KBs instead: an image build still names the KBs, `--kb all` needs the list.
 - The token is the variable `--token-env` names. `connect` copies it to `~/.cartographer-token` (`0600`) so a run without the variable still authenticates, but **the agent's own process must export the same variable**, because the MCP entry references it.
 - A plain `http://` URL on a non-loopback host is refused unless `--allow-insecure-http` (§Transport security).
 
@@ -1824,7 +1828,7 @@ line on stderr that names what to redo: the known KBs come back with the next `s
 
 **The machine file, `.cartographer-machine.json` (D1728).** What Compass's own commands record and no sync can rebuild: the local approvals (`cartographer approve`; hooks, executable artifacts and MCP descriptors, under `<kind>/<name>` for the first two), the `approvals_migrated` marker and the opt-outs `sync_timer_opt_out` and `tray_opt_out`. JSON, mode 0600, never hand-edited, and **fail closed**, unlike the state file: if it exists and cannot be read or parsed, `Load` approves nothing, treats the pre-approval migration as done (so nothing installed is approved in its place) and warns that the file is unreadable; `Save` leaves it untouched, and a command that would record an approval or an opt-out stops with an error until the file is fixed or removed (removing it asks for every approval again). A machine with nothing to record has no such file. An installation from before keeps these keys in `.cartographer.yaml` (the approvals and the marker) and in the state file (the opt-outs): `Load` reads them while the machine file is absent, and the first save or `client realign` writes the machine file, then drops the old keys, after keeping `.cartographer.yaml.bak-pre-machine`. Once the machine file exists the old keys are ignored. `approvals_migrated: true` stays in the YAML as a tombstone and the two opt-outs are still copied into the state file for this minor, so an older client after a downgrade sees the marker set (it never re-approves what is installed), no approvals (it asks again) and its opt-outs. If the machine file later disappears (deleted, a dangling link) the tombstone makes `Load` approve nothing, migrate nothing and warn to give the approvals again with `cartographer approve`; the pre-migration YAML is the `.bak-pre-machine` copy. While the file is unreadable, `Save` and `client realign` keep the old YAML keys and stop rather than drop them. The machine file is read even when `.cartographer.yaml` does not exist: the commands that write without one (`connect`, the opt-out commands, `plugin`) start from `clientconfig.LoadOrDefault`, the defaults plus the machine and state files, so a connect never replaces it with defaults (D2365).
 
-`providers` is user-owned: `sync` never writes it, and `connect` writes a provider's binding only on its first connect, when it has none (the KB selection, `--kb`); it is otherwise maintained with `cartographer client` (below).
+`providers` is user-owned: `sync` never writes it, and `connect` writes a provider's binding only on its first connect, when it has none (the KB selection, `--kb`), or when `--kb` is given again; it is otherwise maintained with `cartographer client` (below). `kbs` is a list of KB names, or the word `all` (`kbs: all`): the provider then receives every KB the server mounts, as one with no binding does but as a recorded choice; `kbs: [all]` is a list naming a KB called `all`, and any other scalar is a load error. A downgraded client cannot read `kbs: all` and asks to fix or delete the file.
 
 `.cartographer.yaml` is written atomically (a temporary file beside it, `fsync`, rename) and the operator's own file keeps what they gave it: a **symlink** (stow, yadm) is followed and its target replaced, so the link survives; an existing **mode** is kept (a literal token only ever takes group and other access away, never gives it). This differs from the no-follow rule of the Compass directories (D148) because it is the operator's own file, written on their own command, not a path inside somebody else's checkout. A key the file does not carry (`server.url`, `server.name`, `server.token`) loads as the schema's default, as `Default()` does; an explicit empty value stays empty.
 
@@ -1838,11 +1842,12 @@ a failure.
 
 | Command | Effect |
 |---|---|
-| `client list` | one row per connected provider: resolved KBs and the origin of the answer (`explicit` / `default (all known)`) |
+| `client list` | one row per connected provider: resolved KBs and the origin of the answer (`explicit` / `all (follows the server)` / `default (all known)`) |
 | `client show <provider>` | that provider's bound KBs, its origin, and the known KBs it is **not** bound to; for `claude` also a `config dirs` line: `$HOME` (default), each declared dir, and an undeclared `CLAUDE_CONFIG_DIR` marked `not declared` |
 | `client bind <provider> <kb>[,<kb>...]` | adds to the binding (the output lists the resulting binding and what this call added); creating the first binding narrows the provider from "every known KB" to only those listed, and the output says so; it asks Meridian for its KB list once and refuses a KB Meridian does not mount (without rewriting the cached list, `sync` owns it, D721); with Meridian unreachable it falls back to the cached list and only warns; duplicates in the list are stored once; `--no-lineage` or `--exclude <kb>[,<kb>...]` after the list opt the provider out of lineage and replace the stored options whole, as `workspace bind` does (a bind without them turns them off), with the usage errors of `connect --kb` and a bind of a KB the provider excludes refused; `client show` and `client list` print `[no lineage]` / `[exclude core-kb]` and the lineage KBs with the KB they come from, and `client show` the `client bind` command that repeats the options |
+| `client bind <provider> --all` | records `kbs: all` in place of the list (and its lineage options): the provider follows every KB the server mounts. It needs no network, prints what the provider was bound to and `run cartographer sync to apply`; `--all` with a KB name or a lineage flag is a usage error. A `client bind <provider> <kb>` on a provider holding `all` replaces it with the list `[kb]`, printing the same reduction note as a first bind |
 | `client unbind <provider> <kb>[,<kb>...]` | removes; removing the last KB leaves the provider bound to **no** KBs |
-| `client reset <provider>` | deletes the binding, returning the provider to the default |
+| `client reset <provider>` | deletes the binding, returning the provider to the default; for `all` it says the marker is gone and that the provider still follows the server through the default |
 | `client update [--check=true\|false]` | shows, or sets, `update_check` (D254, D906) |
 | `client realign [--reorder]` | realigns `.cartographer.yaml` to the current settings table, the same pass `sync` runs (the original is kept as `.cartographer.yaml.bak-<version>`); `--reorder` also writes the keys in the table's order, leaving a mapping as it is when one of its keys aliases (or merges) an anchor another of its keys defines |
 | `client symlinks <provider> [--add <path>] [--remove <path>]` | lists, adds or removes the provider's `allow_symlinks` entries (§Symlinked config files and directories are refused unless listed); entries are compared expanded and cleaned, a `--remove` that matches nothing exits 1, and an entry that is `~`, `$HOME`, `/`, the home directory or holds a control character is refused |
