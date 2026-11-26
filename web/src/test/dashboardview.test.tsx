@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { DashboardView, isDue } from "../components/DashboardView";
 import type { DashboardResolved } from "../api/types";
@@ -41,8 +41,8 @@ describe("DashboardView", () => {
   });
 
   it("names a type it does not draw yet and works with structural keys only", () => {
-    render(<DashboardView data={base([{ id: "k", type: "table", total: 2 }, { id: "s", type: "stat", total: 1, groups: [{ key: "open", total: 1 }] }])} />);
-    expect(screen.getByText(/table widget is not drawn yet/)).toBeInTheDocument();
+    render(<DashboardView data={base([{ id: "k", type: "links", total: 2 }, { id: "s", type: "stat", total: 1, groups: [{ key: "open", total: 1 }] }])} />);
+    expect(screen.getByText(/links widget is not drawn yet/)).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2, name: "k" })).toBeInTheDocument();
     expect(screen.getByText("open")).toBeInTheDocument();
   });
@@ -121,3 +121,73 @@ describe("DashboardView", () => {
     expect(screen.getByText(/Review due 2000-01-01/)).toHaveClass("dashboard__due");
   });
 });
+
+describe("table and timeline widgets", () => {
+  // AC-kbdash-26: a table sorts by clicking a header, a timeline groups by group_by.
+  it("sorts a table by a clicked header, ascending then descending", () => {
+    render(
+      <DashboardView
+        data={base([
+          {
+            id: "t",
+            type: "table",
+            title: "Tasks",
+            total: 3,
+            columns: ["title", "customer"],
+            entries: [
+              { id: "a", title: "Bravo", fields: { customer: "kb-b" } },
+              { id: "b", title: "Alpha", fields: { customer: "kb-c" } },
+              { id: "c", title: "Charlie" },
+            ],
+          },
+        ])}
+      />,
+    );
+    const names = () => screen.getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell")[0]?.textContent);
+    expect(names()).toEqual(["Bravo", "Alpha", "Charlie"]);
+    fireEvent.click(screen.getByRole("button", { name: /^title/ }));
+    expect(names()).toEqual(["Alpha", "Bravo", "Charlie"]);
+    fireEvent.click(screen.getByRole("button", { name: /^title/ }));
+    expect(names()).toEqual(["Charlie", "Bravo", "Alpha"]);
+    // An empty cell stays last whichever way the column runs.
+    fireEvent.click(screen.getByRole("button", { name: /^customer/ }));
+    expect(names()).toEqual(["Bravo", "Alpha", "Charlie"]);
+    fireEvent.click(screen.getByRole("button", { name: /^customer/ }));
+    expect(names()).toEqual(["Alpha", "Bravo", "Charlie"]);
+  });
+
+  it("draws a table with no columns (restricted caller) with the default ones", () => {
+    render(<DashboardView data={base([{ id: "t", type: "table", total: 1, entries: [{ id: "a", title: "Alpha", type: "task", status: "open" }] }])} />);
+    expect(screen.getAllByRole("columnheader").map((h) => h.textContent?.trim())).toEqual(["title", "type", "status"]);
+  });
+
+  it("groups a timeline by group_by with the dates in the resolver's order", () => {
+    render(
+      <DashboardView
+        data={base([
+          {
+            id: "tl",
+            type: "timeline",
+            title: "When",
+            total: 3,
+            date_field: "due",
+            group_by: "status",
+            groups: [
+              { key: "open", total: 2, entries: [{ id: "a", title: "First", fields: { due: "2026-01-02" } }, { id: "b", title: "Second", fields: { due: "2026-03-04" } }] },
+              { key: "done", total: 1, entries: [{ id: "c", title: "Third", fields: { due: "2026-02-01" } }] },
+            ],
+          },
+        ])}
+      />,
+    );
+    const open = screen.getByRole("region", { name: "open, 2" });
+    expect(within(open).getAllByRole("listitem").map((li) => li.querySelector("time")?.textContent)).toEqual(["2026-01-02", "2026-03-04"]);
+    expect(screen.getByRole("region", { name: "done, 1" })).toHaveTextContent("2026-02-01");
+  });
+
+  it("draws an ungrouped timeline as one dated list", () => {
+    render(<DashboardView data={base([{ id: "tl", type: "timeline", total: 1, entries: [{ id: "a", title: "Only", fields: { review_after: "2026-05-06" } }] }])} />);
+    expect(screen.getByText("2026-05-06")).toBeInTheDocument();
+  });
+});
+
