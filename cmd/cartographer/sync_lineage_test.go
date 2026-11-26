@@ -33,6 +33,9 @@ type lineageServer struct {
 	routed    string                    // routed endpoint path in /health, "" for none
 	// instructions: every KB's pull also carries an instructions artifact.
 	instructions bool
+	// skillsLine: every KB's instructions carry the generated `Skills:` line
+	// after the routing paragraph, as the server writes it.
+	skillsLine bool
 	// hookKB: the KB whose pull also carries a hook.
 	hookKB string
 	// agents: every KB's pull also carries an agent named agent-<kb>.
@@ -97,6 +100,9 @@ func newLineageServer(t *testing.T, mounted ...string) *lineageServer {
 			}
 			if s.instructions {
 				body := []byte("# section of " + kb + "\n")
+				if s.skillsLine {
+					body = []byte("# section of " + kb + "\n\nSkills: skill-" + kb + "\n")
+				}
 				if s.directives {
 					body = append(body, []byte("<!-- cartographer:directive:language:"+kb+" -->\n")...)
 				}

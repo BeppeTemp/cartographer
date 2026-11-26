@@ -425,15 +425,17 @@ func dropKBArtifacts(cfg *clientconfig.Config, arts []contract.Artifact) []contr
 }
 
 // withoutOptedOutSkillsLines rewrites the instructions artifact of every KB
-// with `artifacts: false` so its block no longer lists skills (#1408). It must
-// run on the manifest VerifiedManifest returned: the rewrite changes the hash
-// the signature covers, and Apply trusts the Signed flag and never re-verifies.
-func withoutOptedOutSkillsLines(cfg *clientconfig.Config, m contract.Manifest) contract.Manifest {
-	if len(cfg.KBOptions) == 0 {
+// with `artifacts: false` so its block no longer lists skills (#1408), and, in
+// a bundle-only projection, of every KB it carries: a transversal KB's skills
+// are not installed there, so the region must not name them. It must run on the
+// manifest VerifiedManifest returned: the rewrite changes the hash the
+// signature covers, and Apply trusts the Signed flag and never re-verifies.
+func withoutOptedOutSkillsLines(cfg *clientconfig.Config, p syncProjection, m contract.Manifest) contract.Manifest {
+	if len(cfg.KBOptions) == 0 && !p.BundleOnly {
 		return m
 	}
 	for i, a := range m.Artifacts {
-		if kb, ok := strings.CutPrefix(a.Source, "kb:"); ok && a.Kind == "instructions" && !cfg.KBArtifacts(kb) {
+		if kb, ok := strings.CutPrefix(a.Source, "kb:"); ok && a.Kind == "instructions" && (p.BundleOnly || !cfg.KBArtifacts(kb)) {
 			m.Artifacts[i] = provisioning.WithoutSkillsLine(a)
 		}
 	}
@@ -456,11 +458,15 @@ func boundKBUnion(cfg *clientconfig.Config, providers []string) (names []string,
 		if !explicit {
 			anyDefault = true
 		}
-		for _, kb := range bound {
+		// A transversal KB is pulled for the provider's user-level block even
+		// when it is bound to nothing.
+		for _, kb := range append(slices.Clone(bound), cfg.TransversalKBs(p)...) {
 			if _, seen := requiredBy[kb]; !seen {
 				names = append(names, kb)
 			}
-			requiredBy[kb] = append(requiredBy[kb], p)
+			if !slices.Contains(requiredBy[kb], p) {
+				requiredBy[kb] = append(requiredBy[kb], p)
+			}
 		}
 	}
 	sort.Strings(names)

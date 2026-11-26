@@ -211,6 +211,8 @@ than one exists.
 
 A KB with `knowledge_bases.<kb>.artifacts: false` (D1408) keeps its region but loses the `Skills:` line, and no subagent sentence is written for it.
 
+A **transversal KB** (`knowledge_bases.<kb>.transversal`, `client kb --transversal`) has its region in the user-level block of every provider in workspace scope, also where no folder is bound to it: brief, with no `Skills:` line (its skills are not installed there), and its full body only when it opted in with `block: full`. The first `sync` after the flag is set writes the file once (creating it when missing) and the second writes nothing; clearing the flag removes the region, and the block itself when it was the last one. A folder bound to the same KB keeps its own full region there, so the KB is named in both files (accepted duplication; a `block: full` KB pays its body twice, and `instructions_size.go` reports a block over 16 KiB). A provider whose descriptor has no global `instructions` cell reports the KB's instructions as unsupported and writes no file; a provider in provider scope has no transversal KB.
+
 The agent client's steering file carries **one** managed block, shared by every mounted KB, delimited by
 `<!-- cartographer:instructions:begin … -->` / `<!-- cartographer:instructions:end -->`. The block is
 **brief by default** ([D1182](decisions/D1182-the-managed-block-is-brief-by-default.md)): it is paid on every
