@@ -208,3 +208,14 @@ func settingsFindings(k *kb.KB) []Finding {
 	}
 	return findings
 }
+
+// loadRemotePathPrefixes is the KB's remote_path_prefixes from settings.yaml:
+// the working copy's file, the well-formed items. A KB without the file, or an
+// unreadable one (reported once by settingsFindings), has none.
+func loadRemotePathPrefixes(k *kb.KB) []string {
+	st, err := k.ReadSettings()
+	if err != nil || st.Unparseable {
+		return nil
+	}
+	return st.Settings.RemotePathPrefixes()
+}

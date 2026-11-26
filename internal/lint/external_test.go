@@ -94,7 +94,7 @@ func TestMachinePath_RemoteFencedBlocks(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			got := len(disallowedMachinePaths(tc.body)) > 0
+			got := len(disallowedMachinePaths(tc.body, nil)) > 0
 			if got != tc.flagged {
 				t.Errorf("flagged=%v, want %v for %q", got, tc.flagged, tc.body)
 			}
@@ -137,7 +137,7 @@ func TestMachinePath_HomeSegmentInsideRelativePath(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := len(disallowedMachinePaths(tc.body)) > 0; got != tc.want {
+			if got := len(disallowedMachinePaths(tc.body, nil)) > 0; got != tc.want {
 				t.Fatalf("flagged=%v want %v for %q", got, tc.want, tc.body)
 			}
 		})

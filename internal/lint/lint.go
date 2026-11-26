@@ -392,6 +392,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 	// malformed entry, a declared key nothing cites — belong to paths.yaml,
 	// a KB-level file, so only an unscoped lint reports them.
 	registry, registryFindings := loadRegistryLint(k)
+	remotePrefixes := loadRemotePathPrefixes(k)
 	if scopeNorm == "" {
 		findings = append(findings, registryFindings...)
 		findings = append(findings, settingsFindings(k)...)
@@ -526,7 +527,7 @@ func runChecks(k *kb.KB, scope string, scopeNeighbors bool, opts Options) ([]Fin
 		if hasFM {
 			parsed, _ = okf.ParseFrontmatter(fmRaw)
 		}
-		in := conceptInput{RelPath: relPath, Body: body, FrontmatterRaw: fmRaw, Parsed: parsed, Registry: registry, History: pageHistory(k, id)}
+		in := conceptInput{RelPath: relPath, Body: body, FrontmatterRaw: fmRaw, Parsed: parsed, Registry: registry, RemotePrefixes: remotePrefixes, History: pageHistory(k, id)}
 		if len(parts) > 1 && archiveSet[parts[0]] {
 			c := contracts[parts[0]]
 			in.MapName, in.Contract = parts[0], &c
@@ -1152,14 +1153,16 @@ func orphanFinding(id okf.ConceptID, relPath string, isRetired, ledgerEntry bool
 // allowed match so a later disallowed match still surfaces. Returns "" when
 // every candidate is allowed or there is none.
 func firstDisallowedMachinePath(body string) string {
-	if all := disallowedMachinePaths(body); len(all) > 0 {
+	if all := disallowedMachinePaths(body, nil); len(all) > 0 {
 		return all[0]
 	}
 	return ""
 }
 
 // disallowedMachinePaths is every distinct disallowed candidate, in order.
-func disallowedMachinePaths(body string) []string {
+// remotePrefixes are the KB's remote_path_prefixes (settings.yaml): a candidate
+// under one is a path on a remote host the KB documents, not a client-local one.
+func disallowedMachinePaths(body string, remotePrefixes []string) []string {
 	candidates := machinePathRe.FindAllStringIndex(body, -1)
 	if len(candidates) == 0 {
 		return nil
@@ -1179,7 +1182,7 @@ func disallowedMachinePaths(body string) []string {
 		}
 		// Prose punctuation after a path is not part of it.
 		candidate := strings.TrimRight(body[span[0]:span[1]], ",;:.)")
-		if candidate == "" || matchesAllowedPrefix(candidate) || seen[candidate] {
+		if candidate == "" || matchesAllowedPrefix(candidate) || matchesRemotePrefix(candidate, remotePrefixes) || seen[candidate] {
 			continue
 		}
 		seen[candidate] = true
@@ -1216,6 +1219,27 @@ func matchesAllowedPrefix(candidate string) bool {
 		}
 	}
 	return false
+}
+
+// matchesRemotePrefix reports whether candidate is under one of the KB's
+// remote_path_prefixes, by path segment: "/home/user/services" covers
+// "/home/user/services/app" but not "/home/user/servicesX".
+func matchesRemotePrefix(candidate string, prefixes []string) bool {
+	for _, prefix := range prefixes {
+		if pathHasPrefix(candidate, prefix) || pathHasPrefix(foldDrive(candidate), foldDrive(prefix)) {
+			return true
+		}
+	}
+	return false
+}
+
+// foldDrive upper-cases the drive letter of a Windows path, which the file
+// system treats as case-insensitive: c:\srv and C:\srv are the same prefix.
+func foldDrive(p string) string {
+	if len(p) >= 2 && p[1] == ':' && p[0] >= 'a' && p[0] <= 'z' {
+		return string(p[0]-'a'+'A') + p[1:]
+	}
+	return p
 }
 
 // builtinAllowPrefixes are the conventional tool paths every reader's machine

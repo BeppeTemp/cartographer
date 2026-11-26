@@ -219,7 +219,7 @@ func (c *Config) Settings(kbNames []string) View {
 			if key == "branch" {
 				continue // not in the view before D906 either: it is the remote's to say
 			}
-			if key == "depends_on" {
+			if key == "depends_on" || key == "remote_path_prefixes" {
 				continue // read from the default branch on demand, never a resolved KBSpec value
 			}
 			k.Path = "kbs[]." + key

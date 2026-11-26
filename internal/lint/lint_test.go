@@ -1844,3 +1844,79 @@ func TestRun_KBSchemeLinks_NoBrokenLink(t *testing.T) {
 		}
 	}
 }
+
+// machinePathRemoteBody documents one canonical remote-host path in prose, a
+// bullet and a table row.
+const machinePathRemoteBody = "---\ntype: Note\n---\n" +
+	"The stack lives in /home/user/services/app on the host.\n\n" +
+	"- config: /home/user/services/app/config.yaml\n\n" +
+	"| what | path |\n|---|---|\n| data | /home/user/services/app/data |\n"
+
+func machinePathRemoteKB(t *testing.T, settings string) *kb.KB {
+	t.Helper()
+	k := tempKB(t)
+	writeFile(t, k.DataRoot(), "arch/remote.md", machinePathRemoteBody)
+	if settings != "" {
+		writeFile(t, k.Root, kb.SettingsFile, settings)
+	}
+	return k
+}
+
+// remote_path_prefixes: a path under a declared prefix raises nothing, in
+// prose, a bullet or a table (#2392).
+func TestRun_MachinePath_RemotePathPrefixesCovers(t *testing.T) {
+	t.Parallel()
+	k := machinePathRemoteKB(t, "remote_path_prefixes:\n  - /home/user/services/\n")
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if hasCheck(findings, "arch/remote.md", "machine_path") {
+		t.Errorf("a path under a declared prefix raised machine_path: %v", findings)
+	}
+	if got := CheckConcept(k, "arch/remote", machinePathRemoteBody); hasCheck(got, "arch/remote.md", "machine_path") {
+		t.Errorf("CheckConcept ignores the prefix: %v", got)
+	}
+}
+
+// A Windows drive letter matches case-insensitively.
+func TestMatchesRemotePrefix_DriveCase(t *testing.T) {
+	t.Parallel()
+	if !matchesRemotePrefix(`C:\srv\app\x`, []string{`c:\srv`}) || !matchesRemotePrefix(`c:\srv\app`, []string{`C:\srv`}) {
+		t.Error("drive letter case must not matter")
+	}
+	if matchesRemotePrefix(`C:\srvX`, []string{`c:\srv`}) {
+		t.Error("segment match lost")
+	}
+}
+
+// Without the key the same page still raises it.
+func TestRun_MachinePath_RemotePathPrefixesAbsent(t *testing.T) {
+	t.Parallel()
+	k := machinePathRemoteKB(t, "")
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !hasCheck(findings, "arch/remote.md", "machine_path") {
+		t.Errorf("expected machine_path without the key: %v", findings)
+	}
+}
+
+// The prefix matches by path segment, and covers only what it names.
+func TestRun_MachinePath_RemotePathPrefixesBySegment(t *testing.T) {
+	t.Parallel()
+	k := tempKB(t)
+	writeFile(t, k.Root, kb.SettingsFile, "remote_path_prefixes: [/home/user/services]\n")
+	writeFile(t, k.DataRoot(), "arch/sibling.md", "---\ntype: Note\n---\nSee /home/user/servicesX/app.\n")
+	writeFile(t, k.DataRoot(), "arch/other.md", "---\ntype: Note\n---\nSee /home/user/notes.\n")
+	findings, err := Run(k, "", false)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	for _, p := range []string{"arch/sibling.md", "arch/other.md"} {
+		if !hasCheck(findings, p, "machine_path") {
+			t.Errorf("%s: expected machine_path, got %v", p, findings)
+		}
+	}
+}
