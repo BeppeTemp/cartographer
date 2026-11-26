@@ -251,19 +251,59 @@ type ClientBinding struct {
 	// every KB) and on `kbs: []` (no seed).
 	NoLineage bool
 	Exclude   []string
+	// FollowsServer is the `kbs: all` marker: the provider receives every KB the
+	// server mounts, as the default does, but as a recorded choice (written only
+	// by `connect --kb all` and `client bind --all`, never by sync). It excludes
+	// KBs and KBsSet, and the lineage keys, which belong to a named list.
+	FollowsServer bool
 }
 
 // AccessReadMin is the one value of ClientBinding.Access: the routed mount's
 // minimal read-only tool profile (D1184).
 const AccessReadMin = "read-min"
 
-// Explicit reports whether the binding declares a KB set.
+// Explicit reports whether the binding declares a named KB set. The all marker
+// is not one: it resolves like the default (see BoundKBs).
 func (b ClientBinding) Explicit() bool { return b.KBsSet || len(b.KBs) > 0 }
 
+// kbsAll is the scalar that `kbs` takes to follow the server. A list stays a
+// list, so `kbs: [all]` is the KB named all and no list can mean "every KB" by
+// accident.
+const kbsAll = "all"
+
+// kbsSetting is the value of a `kbs` key: a list of KB names, or the word all.
+type kbsSetting struct {
+	List []string
+	All  bool
+}
+
+func (k *kbsSetting) UnmarshalYAML(node *yaml.Node) error {
+	switch node.Kind {
+	case yaml.SequenceNode:
+		return node.Decode(&k.List)
+	case yaml.ScalarNode:
+		if node.Value == kbsAll && (node.Tag == "!!str" || node.Tag == "") {
+			k.All = true
+			return nil
+		}
+	}
+	return fmt.Errorf("clientconfig: line %d: `kbs` must be a list of KB names, or all", node.Line)
+}
+
+func (k kbsSetting) MarshalYAML() (interface{}, error) {
+	if k.All {
+		return kbsAll, nil
+	}
+	if k.List == nil {
+		return []string{}, nil
+	}
+	return k.List, nil
+}
+
 type clientBindingYAML struct {
-	KBs        []string `yaml:"kbs"`
-	ConfigDirs []string `yaml:"config_dirs,omitempty"`
-	Access     string   `yaml:"access,omitempty"`
+	KBs        kbsSetting `yaml:"kbs"`
+	ConfigDirs []string   `yaml:"config_dirs,omitempty"`
+	Access     string     `yaml:"access,omitempty"`
 
 	AllowSymlinks []string `yaml:"allow_symlinks,omitempty"`
 	NoLineage     bool     `yaml:"no_lineage,omitempty"`
@@ -276,12 +316,12 @@ func (b *ClientBinding) UnmarshalYAML(node *yaml.Node) error {
 	if err := node.Decode(&raw); err != nil {
 		return err
 	}
-	*b = ClientBinding{KBs: raw.KBs, ConfigDirs: raw.ConfigDirs, Access: raw.Access, AllowSymlinks: raw.AllowSymlinks,
+	*b = ClientBinding{KBs: raw.KBs.List, FollowsServer: raw.KBs.All, ConfigDirs: raw.ConfigDirs, Access: raw.Access, AllowSymlinks: raw.AllowSymlinks,
 		NoLineage: raw.NoLineage, Exclude: raw.Exclude}
 	if node.Kind == yaml.MappingNode {
 		for i := 0; i+1 < len(node.Content); i += 2 {
 			if node.Content[i].Value == "kbs" {
-				b.KBsSet = true
+				b.KBsSet = !raw.KBs.All
 			}
 		}
 	}
@@ -292,7 +332,9 @@ func (b *ClientBinding) UnmarshalYAML(node *yaml.Node) error {
 // entry round-trips without gaining a default-deny key.
 func (b ClientBinding) MarshalYAML() (interface{}, error) {
 	out := map[string]interface{}{}
-	if b.Explicit() {
+	if b.FollowsServer {
+		out["kbs"] = kbsAll
+	} else if b.Explicit() {
 		kbs := b.KBs
 		if kbs == nil {
 			kbs = []string{}
@@ -1020,6 +1062,13 @@ func (c *Config) AddAgent(name string) {
 // (a lineage KB is never a seed), calls BoundOwnKBs; every caller that decides
 // what the provider receives calls BoundKBs.
 //
+// The all marker (`kbs: all`, ClientBinding.FollowsServer) resolves exactly as
+// the default does: KnownKBs, explicit false, no lineage (every readable mounted
+// KB is already received, so a closure adds nothing). Every consumer reads
+// explicit as "a named list", and for all of them following the server is the
+// right answer for the marker; FollowsServer tells the two apart where the
+// origin is shown. No caller tests the marker to decide a KB set.
+//
 // The returned slice is a copy: mutating it cannot corrupt the config.
 func (c *Config) BoundKBs(provider string) (kbs []string, explicit bool) {
 	own, explicit := c.BoundOwnKBs(provider)
@@ -1042,7 +1091,8 @@ func (c *Config) BoundKBs(provider string) (kbs []string, explicit bool) {
 }
 
 // BoundOwnKBs is the KB list of provider as written, with no lineage: what
-// BoundKBs returned before lineage existed. The default is every known KB.
+// BoundKBs returned before lineage existed. The default and the all marker are
+// every known KB.
 func (c *Config) BoundOwnKBs(provider string) (kbs []string, explicit bool) {
 	// Presence of the `kbs` key decides, not presence of the entry: an entry
 	// with only config_dirs (D755) is not a binding.
@@ -1050,6 +1100,28 @@ func (c *Config) BoundOwnKBs(provider string) (kbs []string, explicit bool) {
 		return append([]string(nil), binding.KBs...), true
 	}
 	return append([]string(nil), c.KnownKBs...), false
+}
+
+// FollowsServer reports whether provider holds the all marker (`kbs: all`).
+func (c *Config) FollowsServer(provider string) bool {
+	return c.Clients[provider].FollowsServer
+}
+
+// BindAll records the all marker for provider: it replaces the list (or the
+// default) and the lineage keys that went with it, and keeps what is not a KB
+// binding (config_dirs, access, allow_symlinks).
+func (c *Config) BindAll(provider string) error {
+	if provider == "" || provider != strings.TrimSpace(provider) {
+		return fmt.Errorf("clientconfig: invalid provider name %q", provider)
+	}
+	if c.Clients == nil {
+		c.Clients = make(map[string]ClientBinding)
+	}
+	b := c.Clients[provider]
+	b.KBs, b.KBsSet, b.NoLineage, b.Exclude = nil, false, false, nil
+	b.FollowsServer = true
+	c.Clients[provider] = b
+	return nil
 }
 
 // ProviderLineage is the KBs BoundKBs adds to provider's written list, in
@@ -1112,6 +1184,8 @@ func (c *Config) Bind(provider, kb string) error {
 		c.Clients = make(map[string]ClientBinding)
 	}
 	binding := c.Clients[provider]
+	// The marker is replaced by the list [kb], with no lineage keys: it had none.
+	binding.FollowsServer = false
 	for _, existing := range binding.KBs {
 		if existing == kb {
 			return nil
@@ -1266,7 +1340,8 @@ func (c *Config) UnsetAllowSymlink(provider, path string) bool {
 		kept = append(kept, e)
 	}
 	b.AllowSymlinks = kept
-	if !b.Explicit() && len(b.ConfigDirs) == 0 && b.Access == "" && len(kept) == 0 {
+	// The marker is a binding: dropping it would silently turn `all` into the default.
+	if !b.Explicit() && !b.FollowsServer && len(b.ConfigDirs) == 0 && b.Access == "" && len(kept) == 0 {
 		delete(c.Clients, provider)
 		if len(c.Clients) == 0 {
 			c.Clients = nil
@@ -1283,7 +1358,7 @@ func (c *Config) ResetBinding(provider string) {
 	// config_dirs is not part of the KB binding (D755): keep it.
 	// access is the connection's profile (D1184), not a KB binding: keep it too.
 	if b, ok := c.Clients[provider]; ok && (len(b.ConfigDirs) > 0 || b.Access != "" || len(b.AllowSymlinks) > 0) {
-		// KBs, NoLineage and Exclude go with the binding.
+		// KBs, the all marker, NoLineage and Exclude go with the binding.
 		c.Clients[provider] = ClientBinding{ConfigDirs: b.ConfigDirs, Access: b.Access, AllowSymlinks: b.AllowSymlinks}
 		return
 	}
