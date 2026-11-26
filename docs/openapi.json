@@ -519,6 +519,101 @@
         ],
         "type": "object"
       },
+      "KBMap": {
+        "additionalProperties": false,
+        "properties": {
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/KBMapLink"
+            },
+            "type": "array"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/KBMapNode"
+            },
+            "type": "array"
+          },
+          "relations": {
+            "items": {
+              "$ref": "#/components/schemas/KBMapRelation"
+            },
+            "type": "array"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "links",
+          "nodes",
+          "relations",
+          "truncated"
+        ],
+        "type": "object"
+      },
+      "KBMapLink": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "count",
+          "from",
+          "to"
+        ],
+        "type": "object"
+      },
+      "KBMapNode": {
+        "additionalProperties": false,
+        "properties": {
+          "concepts_total": {
+            "type": "integer"
+          },
+          "layer": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "relations_unavailable": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "layer",
+          "name",
+          "ready"
+        ],
+        "type": "object"
+      },
+      "KBMapRelation": {
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to"
+        ],
+        "type": "object"
+      },
       "KBRow": {
         "additionalProperties": false,
         "properties": {
@@ -943,6 +1038,36 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/kb-map": {
+      "get": {
+        "operationId": "kb-map",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KBMap"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          }
+        },
+        "summary": "The KBs the caller can see, with their relations and cross-KB links",
+        "x-stability": "preview"
+      }
+    },
     "/api/v1/kbs": {
       "get": {
         "operationId": "kbs",

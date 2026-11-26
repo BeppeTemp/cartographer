@@ -402,7 +402,7 @@ operator, the generic wording (whoever runs the integration adds the KB to its
 `?kbs=` URL) otherwise (D1101). A finding that names another KB is shown only to
 a caller who reads that KB whole, in every surface (`lint` and its totals,
 `gate_check`, the write gate, `kb_status`, the Atlas), and a lint sample never
-counts it. `broken_cross_kb_link` is such a finding. The orphan verdict counts a cross-KB edge only for a caller who reads that KB whole: the shared lint always reports the orphan and names the KBs that would clear it (`Finding.ClearedBy`), and a caller who reads one of them is not shown it, so a caller who cannot read the KB sees the same verdict whether or not the page it links, or that links it, exists there.
+counts it. `broken_cross_kb_link` is such a finding. The Atlas KB map (`GET /kb-map`) lists only the KBs the caller can see, takes declared relations only from KBs the caller reads whole, and counts a cross link only when the caller can read both of its pages. The orphan verdict counts a cross-KB edge only for a caller who reads that KB whole: the shared lint always reports the orphan and names the KBs that would clear it (`Finding.ClearedBy`), and a caller who reads one of them is not shown it, so a caller who cannot read the KB sees the same verdict whether or not the page it links, or that links it, exists there.
 
 For HTTP requests:
 

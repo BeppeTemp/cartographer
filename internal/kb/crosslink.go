@@ -71,7 +71,13 @@ func ExtractCrossLinks(body string) []CrossLink {
 // CrossLinks returns, per concept, the cross-KB links of its body, from the
 // current view. The map is shared: never mutate it.
 func (kb *KB) CrossLinks() (map[okf.ConceptID][]CrossLink, error) {
-	v, err := kb.graphView()
+	return kb.CrossLinksWithin(0)
+}
+
+// CrossLinksWithin is CrossLinks for a poller: a view some reader validated
+// less than maxAge ago is trusted, as GraphGenerationWithin does.
+func (kb *KB) CrossLinksWithin(maxAge time.Duration) (map[okf.ConceptID][]CrossLink, error) {
+	v, err := kb.graphViewWithin(maxAge)
 	if err != nil {
 		return nil, err
 	}

@@ -155,15 +155,34 @@ type uiKBList struct {
 	KBs []uiKBRow `json:"kbs"`
 }
 
-func (m *MultiKBServer) uiListKBs(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+// uiVisibleKB is one KB the caller may see: a row of GET /kbs and a node of
+// GET /kb-map.
+type uiVisibleKB struct {
+	Info KBInfo
+	Srv  *Server
+}
+
+// visibleKBs is the one loop that decides which KBs the caller is shown, sorted
+// by name: GET /kbs and GET /kb-map both call it, so their sets cannot drift.
+func (m *MultiKBServer) visibleKBs(ctx requestContext) []uiVisibleKB {
 	_, infos, _ := m.readiness()
-	rows := []uiKBRow{}
+	var out []uiVisibleKB
 	for _, info := range infos {
 		srv, ok := m.servers[info.Name]
 		if !ok || srv.kbRef == nil || !uiKBVisible(ctx, srv.kbRef) {
 			continue
 		}
+		out = append(out, uiVisibleKB{Info: info, Srv: srv})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Info.Name < out[j].Info.Name })
+	return out
+}
+
+func (m *MultiKBServer) uiListKBs(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	rows := []uiKBRow{}
+	for _, v := range m.visibleKBs(ctx) {
+		info, srv := v.Info, v.Srv
 		row := uiKBRow{
 			Name:         info.Name,
 			Status:       info.Status,
