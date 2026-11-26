@@ -236,7 +236,7 @@ config, unknown recipe, an unset variable, the Source or server unreadable); `3`
 **Output** (stdout, plain text, tab-separated): `recipe`, `shape`, `kind`, `source`, `locator`, `cursor_in`, `config`;
 one row per entry (change, key, revision, content bytes, title; at most 50, then `(+N more)`); `counts`;
 `next_cursor` in full, to paste back with `--cursor`; `summary` (entries, content bytes, estimated tokens, duration).
-Warnings go to stderr as `warning:` lines, among them `no_ingest_plan` when no `IngestPlan` lists the Source.
+Warnings go to stderr as `warning:` lines, among them `no_ingest_plan` when no `IngestPlan` lists the Source (the poll puts its units in the map that plan lives in, `docs/deployment.md` §The `poll` task).
 For a system recipe the header adds `check:` (the identity label) and `state:` (`no stored state`, `trusted, N
 groups`, or `untrusted (reason)`, in which case the diff is against an empty state, as the poll's baseline rebuild
 would be, except that the poll seeds a group that already has a unit with its newest unit's revision: it is `modified`, not `added`, and untouched if the revision did not move; the test does not read units); the rows are the changed groups in key order (revision computed by the Surveyor), `counts` adds `unchanged`,

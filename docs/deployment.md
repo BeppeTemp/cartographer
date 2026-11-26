@@ -777,7 +777,7 @@ the first unit that is claimable (`open`, or `in-progress` whose `review_after` 
 Surveyor may take, claimed with `concept_patch` and `if_match` (`claimed_by` = the replica identity, `review_after` = today
 + 2 days: a day-granular crash net, since a Surveyor that fails or stops releases the unit at once). The profile's `tier`
 decides the units: a `small` profile takes `executor: any`, a `large` one also `large`; `human` is never taken. A unit
-whose Source names a `connector` other than the built-in `git`, or whose `locator` is not `http(s)` (for `git`: not an `https://<repo>#<path>` on `git.allow_hosts`), is skipped, not failed. The instructions are the
+whose Source names a `connector` other than the built-in `git`, or whose `locator` is not `http(s)` (for `git`: not an `https://<repo>#<path>` on `git.allow_hosts`), is skipped, not failed, except that the locator is not checked for a unit with `content_asset` (inline content) or for a unit of a `system` Source; such a unit is still skipped when its `system` recipe is not declared or its `content_asset` name is invalid. The instructions are the
 unit-mode section of the bundled `cartographer-kb-ingest`, embedded in the binary (a binary without it does not start). The
 model gets the allowlist plus `source_fetch`, except for a unit that carries inline content (`content_asset`), which is fed from its asset and gets no `source_fetch`; `source_fetch` is a Surveyor-side tool with no argument that fetches only the claimed unit's
 Source locator (GET without credentials; same-host redirects only; 1 MiB, 30 s; text, HTML as plain text; a page is data, never
@@ -948,13 +948,13 @@ fetch:
 ```
 
 **The `poll` task (D1262).** `{kind: poll, model: <profile>, default_interval: 24h, min_interval: 1h,
-max_entries: 200}`, at most once. It reads the feed Sources (`source_shape: feed`) of each KB and takes the due one
+max_entries: 200}`, at most once. Prerequisites: run `ingest_setup` first (advice: the poll does not check it); exactly one `IngestPlan` lists the feed in `sources` (else `no_ingest_plan` or `ambiguous_ingest_plan`); the journal of the Sources exists (`source_register` defaults to `sources`, pass `map` for another). It reads the feed Sources (`source_shape: feed`) of each KB and takes the due one
 checked longest ago (`feed_checked_at` plus `feed_interval`, else `default_interval`). One feed per run: it checks the
 recipe and its host list, leases the feed (`feed_checked_at`, compare-and-swap: the loser skips silently), finds the one
 `IngestPlan` that lists the feed in `sources` and lists the entries with the recipe, with no model. For each added or
 modified entry it looks for the document's Source by locator, shapes the unit, then registers the Source (never
 `sha256`; an `ingested` Source returns to `pending`) just before it creates an `IngestUnit` at the ID
-`<unit map>/<slug>-<8 hex of sha256(feed|locator|revision)>`; a unit that exists means the entry was handled and costs
+`<unit map>/<slug>-<8 hex of sha256(feed|locator|revision)>`; the unit map is the map the `IngestPlan` lives in (the first segment of its ID), or the map of its existing units when it has some; the plan's `maps` only limits where `targets` may point, and a plan outside a map that has no units yet fails with `unit_refused`; a unit that exists means the entry was handled and costs
 nothing. A new unit costs one model call with no tools (plan, feed and entry as delimited data, plus, when the entry has text, inline or fetched,
 a `content` data block with its first 6 KiB, cut with a `[truncated n bytes]` marker; the answer is JSON the Surveyor validates and retries once), made before the Source is registered, so a failed call leaves no Source without
 its unit; a changed document reuses the previous unit's fields with no call. The cursor advances only after every entry is handled; a spent grant leaves it, and the next poll
@@ -1136,6 +1136,7 @@ The stop timeout is at least 30 s, the grace period the Surveyor itself advises 
 `surveyor --config <file> --once` evaluates the triggers once, runs if a task is due and exits. Each of these is a trap:
 
 - The config still needs `schedule.window`, and `--once` runs only when the window holds at launch: **the CronJob's schedule falls inside the window**. Use a window as wide as the CronJob needs; `00:00` to `23:59` is the widest the loader accepts (equal start and end is refused), and a launch in the last minute does nothing and exits 0.
+- A feed is polled only when due (`feed_checked_at` plus `feed_interval`, default 24h), so a repeat `--once` test inside the interval may do nothing (the first poll, or a failure, sets `feed_checked_at`); clearing `feed_checked_at` makes the next poll run.
 - Nothing is kept on local disk and the budget is rebuilt from the KBs' logs, so a CronJob loses nothing between runs.
 - Two overlapping runs both run a due task (there is no lock), so `concurrencyPolicy` is `Forbid`.
 - The exit codes are 0 done, 1 runtime failure and 2 start error. The Job does not retry (`restartPolicy: Never`, `backoffLimit: 0`) and the next schedule is the retry. Bound a run with `activeDeadlineSeconds`.

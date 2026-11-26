@@ -14,7 +14,7 @@ environment variables, never values. This record covers the first PR of the seri
 inline content as a `draft`-staged asset follow in the later PRs of the same plan and will
 extend it. Their rules are fixed by the plan and recorded here when they land: a unit's ID
 is `<unit map>/<slug>-<8 hex of sha256(feed | locator | revision)>` and the unit is the
-idempotency token; listing needs no model; nothing a KB contains selects code, a command, an
+idempotency token (the unit map is the map the `IngestPlan` lives in, or that of its existing units: `docs/deployment.md` §The `poll` task); listing needs no model; nothing a KB contains selects code, a command, an
 argument or a path.
 
 **Why.** The worker is stateless (it has no volume), so the only place a cursor survives a
