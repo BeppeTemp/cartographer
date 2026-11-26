@@ -46,6 +46,17 @@ value is never filled in from memory. Documentation is not evidence: a change th
 would flip a matrix cell is confirmed with a probe
 (`.claude/skills/cartographer-audit-clients/references/probes.md`), not from a changelog line.
 
+**The user-level instructions file of a transversal KB (D2410).** The region of a KB
+declared `knowledge_bases.<kb>.transversal` (no `Skills:` line) is written to the global `instructions`
+cell of each provider in workspace scope, and the stdio bridge adds the KB read-only: Claude Code
+`$HOME/.claude/CLAUDE.md`, Codex `$HOME/.codex/AGENTS.md`, OpenCode `$HOME/.config/opencode/AGENTS.md`, Kiro
+`$HOME/.kiro/steering/cartographer.md`, Antigravity `$HOME/.gemini/GEMINI.md` (probed on CLI 1.5.8), Copilot CLI
+`$HOME/.copilot/copilot-instructions.md`, Pi `$HOME/.pi/agent/AGENTS.md`, Crush `$HOME/.config/crush/CRUSH.md`
+(no project instructions cell: a folder-bound KB gets no block there). Cline has no project cell (D1018), so only
+provider scope, where the flag has no effect; a plugin provider gets its descriptor's cell, or reports the
+instructions as unsupported. That a client loads its file in a folder under no binding is not probed
+(`probes.md` §User-level instructions in an unbound folder): unverified until recorded here.
+
 **Project skills and instructions below a bound folder (probe 2026-10-21, D1019).** A project
 skill and project instructions in a bound non-git folder `W`, asked back from `W`, from a git
 repository `W/repo` and from a plain subfolder `W/plain`. A client that looks for project

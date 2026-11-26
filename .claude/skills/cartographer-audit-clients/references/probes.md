@@ -16,6 +16,21 @@ the keys that pin a tool or server, and how server instructions are shown.
 Probe the global location and the project-local one separately; a matrix cell is
 one or the other.
 
+## User-level instructions in an unbound folder (a transversal KB, any client with a user-level instructions cell)
+
+The question is whether the client loads its user-level instructions file in a
+session started in a folder under no binding, the only place a transversal KB's
+region is read. Run it for each client that can be in workspace scope.
+
+1. A scratch `HOME`-like base dir (or the real one with the file saved first) where the
+   client's global `instructions` cell (`DestinationMatrix["instructions"]`) holds a
+   marker block with one unique token, and a fresh `mktemp -d` folder that is not a git
+   repository and has no instructions file of its own.
+2. Start the client there non-interactively and ask it to repeat the token. The negative
+   control is the same run with the block removed: the token must not appear.
+3. Record the client version, the file and the verdict in `docs/harnesses.md` (the
+   transversal KB table); a client that does not load it there gets a line saying so.
+
 ## Write-findings probe (D353, any client)
 
 Seeded from #637–#640 (2026-10-09). The question is three-fold: does a

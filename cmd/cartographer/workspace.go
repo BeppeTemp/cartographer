@@ -1282,7 +1282,7 @@ func buildProjectionManifests(st syncStreams, cfg *clientconfig.Config, projecti
 		if err != nil {
 			return nil, nil, nil, fmt.Errorf("%s: %w", p.Label(), err)
 		}
-		verified = withoutCLISkill(p.Provider, withoutOptedOutSkillsLines(cfg, verified))
+		verified = withoutCLISkill(p.Provider, withoutOptedOutSkillsLines(cfg, p, verified))
 		// Set after verification, which copies only the signed catalogue.
 		verified.Placeholders = cs.placeholdersForProjection(cfg, p)
 		verified.PathRegistries = cs.pathRegistriesForProjection(cfg, p)
