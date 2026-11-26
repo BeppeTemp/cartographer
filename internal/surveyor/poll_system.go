@@ -260,6 +260,10 @@ func (r *pollRun) runSystem(ctx context.Context, rec recipe.Recipe, planID strin
 		case err != nil:
 			if ctx.Err() == nil {
 				// Tokens went to the groups already tried: leave their reasons on the Source.
+				if errors.As(err, new(modelCallError)) {
+					// modelFailed already wrote the feed_error, the one that says why the poll stopped.
+					return err
+				}
 				return errors.Join(err, r.recordFailed(failed))
 			}
 			return err
@@ -402,6 +406,13 @@ func handledBy(u unitRow, c system.Change) bool {
 	return u.change != recipe.Removed && u.rev == c.Group.Revision
 }
 
+// modelCallError marks an error of a group's model call that modelFailed has
+// already recorded on the feed, so the caller does not overwrite it with the
+// groups that failed before.
+type modelCallError struct{ error }
+
+func (e modelCallError) Unwrap() error { return e.error }
+
 // systemGroup handles one changed group. reason is a non-empty failure for the
 // group alone; stop means the grant cannot cover another model call (the groups
 // handled so far are kept and the rest wait for the next poll).
@@ -465,7 +476,9 @@ func (r *pollRun) systemGroup(ctx context.Context, rec recipe.Recipe, sc *sysCtx
 		if prev == nil {
 			ans, cut, bad, merr := r.model(ctx, rec, recipe.Entry{Key: c.Key, Title: title, Change: c.Kind}, sc.planBody, sc.maps, problem)
 			if merr != nil {
-				return h, "", false, merr
+				// The same path as a feed poll's model call (D2387): model_failed with a
+				// short retry, the error still returned for the runner.
+				return h, "", false, modelCallError{r.modelFailed(ctx, recipe.Entry{Key: c.Key}, merr)}
 			}
 			if cut {
 				return h, "", true, nil
