@@ -453,7 +453,7 @@ func TestLanderFlakyIssueTitleIsBounded(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := filepath.Join(dir, "args")
-	landBash(t, []string{"safe_names", "issue_title", "issue_flaky"},
+	landBash(t, []string{"safe_names", "issue_title", "flaky_head", "issue_flaky"},
 		`repo=up/proj; log() { :; }; issue_flaky "$1" "$2" "$3"`,
 		[]string{"PATH=" + dir + string(os.PathListSeparator) + os.Getenv("PATH"), "OUT=" + out},
 		"kb.TestA\nkb.TestB", what, "the body")
@@ -461,7 +461,7 @@ func TestLanderFlakyIssueTitleIsBounded(t *testing.T) {
 	// The body gets the quarantine line and `Found-by: gate`, each after a blank line (printed one
 	// argument per line here).
 	const quarantine = "To take it out of the gate while it is fixed, add it to test/quarantine.tsv with this issue's number."
-	if want := "flaky: kb.TestA kb.TestB " + what; !reflect.DeepEqual(args, []string{"issue", "create", "-R", "up/proj", "--label", "bug", "--title", want, "--body", "the body", "", quarantine, "", "Found-by: gate"}) {
+	if want := "flaky: kb.TestA kb.TestB " + what; !reflect.DeepEqual(args, []string{"issue", "create", "-R", "up/proj", "--label", "bug", "--label", "accepted", "--title", want, "--body", "the body", "", quarantine, "", "Found-by: gate"}) {
 		t.Errorf("gh got %q", args)
 	}
 }

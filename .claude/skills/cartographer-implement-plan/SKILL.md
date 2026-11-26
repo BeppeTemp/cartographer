@@ -36,6 +36,7 @@ failure to read it, is **contributor mode**. State the mode to the user in one l
 
 - `main` is protected: every change of a plan is queued as one commit (`make ready`) and lands in a train PR the lander gates and rebase-merges (`CONTRIBUTING.md` §Pull requests). No direct pushes.
 - `make ready` (which pushes `ready/<slug>` and starts the lander) requires an explicit user decision or a standing approval (the user's own Claude Code permission settings, e.g. `Bash(make ready*)`, or `.claude/settings.local.json`). **Never work around the approval gate** — surface it and let the user choose.
+- An `accepted` `bug` issue is the standing approval of `make ready` for its one `fix-<n>` change (`CONTRIBUTING.md` §Fixes without a plan), declared in the report as `standing policy of the maintainer: accepted bug #<n>`, unless the triage's `Profile:` line names a profile with standing `no` in `scripts/profiles.tsv` (today `process` and `security`), the fix is over 150 production lines, or it is breaking: those ask the maintainer. An `accepted` `bug` opened by anyone other than a maintainer (author association OWNER, MEMBER or COLLABORATOR) or `github-actions[bot]` is outside the standing approval: it needs a maintainer's design comment and an explicit `make ready` from the maintainer.
 
 ## 0 — Keep the coordinator cheap
 

@@ -130,6 +130,25 @@ if [ -n "${PROFILE:-}" ]; then
   # Not a Lander- line: it stays on the commit that lands.
   git interpret-trailers --in-place --trailer "Profile: $PROFILE" "$full"
 fi
+# A fix that closes an issue and says nowhere where its defect was found takes the issue's
+# `Found-by:` and `Introduced-by:` lines (CONTRIBUTING.md §Issues), only from a body written by a
+# maintainer (author association OWNER, MEMBER or COLLABORATOR, as cartographer-fix-implementer
+# reads it) or the workflows' bot github-actions[bot] (a ci-red report; the lander's flaky issues are
+# the maintainer's), the authors whose text the process trusts: anyone
+# else's body is public text, never copied into a commit. Each line is checked for its shape here
+# and by trailers-lint.sh below; nothing is copied when gh cannot answer.
+if head -n 1 "$full" | grep -qE '^fix(\(|!|:)' && ! grep -qiE '^(found-by|introduced-by)[[:space:]]*:' "$full" &&
+  issue=$(grep -oE '^Closes #[0-9]+' "$full" | head -n 1 | tr -dc 0-9) && [ -n "$issue" ]; then
+  if ib=$(gh api "repos/$repo/issues/$issue" --jq '.user.login + " " + .author_association + "\n" + (.body // "")' 2>/dev/null); then
+    case "$(sed -n 1p <<<"$ib")" in "github-actions[bot] "* | *" OWNER" | *" MEMBER" | *" COLLABORATOR") trusted=1 ;; *) trusted= ;; esac
+    if [ -n "$trusted" ]; then
+      while IFS= read -r l; do
+        git interpret-trailers --in-place --trailer "$l" "$full"
+        echo "ready: copied \"$l\" from issue #$issue" >&2
+      done < <(sed -n '2,$p' <<<"$ib" | tr -d '\r' | grep -E '^(Found-by: [a-z-]+|Introduced-by: [A-Za-z0-9#._/-]+)$' | head -n 4)
+    fi
+  fi
+fi
 why=$("$here/trailers-lint.sh" "$full" 2>&1) || die "the message does not say where the defect was found (Found-by, Introduced-by), or its Cost line is malformed: $why"
 args=()
 [ -z "${AFTER:-}" ] || args+=(--trailer "Lander-After: $AFTER")
