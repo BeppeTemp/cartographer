@@ -18,8 +18,12 @@
 # (what scripts/ready-check-plan.sh reads); everything else goes to stderr. A replay that
 # conflicts exits 1 with `ready-check: the chain does not apply on main: <files>`: a red
 # verdict, so the lander gates the unit alone. A plain cherry-pick: a pick the lander
-# rescues (an edit of a pending decision main holds numbered, a conflict in the Atlas bundle)
-# is red here too, and costs the unit a gate of its own, not a rejection.
+# rescues by an edit of a pending decision main holds numbered is red here too, and costs the
+# unit a gate of its own, not a rejection. A conflict in internal/webui/dist only (the committed
+# Atlas bundle: two frontend changes always conflict there) is not red: main's side is kept, the
+# stderr says `bundle=stale`, and so does `bundle=stale` appended to $GITHUB_OUTPUT when it is set,
+# so the jobs test the sources without the bundle's provenance (ready-check.yml); the lander
+# builds the bundle again for every commit touching web/ (scripts/land.sh).
 # internal/repodocs/landertest/ready_check_test.go pins it. Plain bash 3.2.
 set -euo pipefail
 
@@ -33,7 +37,7 @@ fi
 trap 'rm -f "$READY_CHECK_COPY"' EXIT
 
 main() {
-  local ready c a p seen chain=() paths="" files i
+  local ready c a p seen chain=() paths="" files i stale=false
   ready=$(git for-each-ref --format='%(objectname)' 'refs/remotes/origin/ready/')
   git rev-parse -q --verify 'refs/remotes/origin/main^{commit}' >/dev/null ||
     { echo "ready-check: no origin/main in this checkout (fetch-depth: 0)" >&2; exit 1; }
@@ -65,14 +69,28 @@ main() {
     # -n then commit: a member main already holds replays as an empty commit, not an error.
     if ! git cherry-pick -n "$c" >&2 2>&1; then
       files=$(git diff --name-only --diff-filter=U | tr '\n' ' ')
-      git cherry-pick --abort >/dev/null 2>&1 || git reset -q --hard >/dev/null 2>&1 || true
-      echo "ready-check: the chain does not apply on main: ${files% }" >&2
-      exit 1
+      if [ -n "$files" ] && ! printf '%s\n' $files | grep -qv '^internal/webui/dist/'; then
+        # The whole directory back to main's: a new hashed asset of the change would stay staged
+        # beside main's bundle after a plain checkout of HEAD's files.
+        git rm -rf -q --cached -- internal/webui/dist >/dev/null 2>&1 || true
+        git clean -qfdx -- internal/webui/dist >/dev/null 2>&1 || true
+        git checkout HEAD -- internal/webui/dist 2>/dev/null || true
+        git add -A internal/webui/dist
+        stale=true
+      else
+        git cherry-pick --abort >/dev/null 2>&1 || git reset -q --hard >/dev/null 2>&1 || true
+        echo "ready-check: the chain does not apply on main: ${files% }" >&2
+        exit 1
+      fi
     fi
     git -c user.name=ready-check -c user.email=ready-check@localhost -c commit.gpgsign=false \
       commit -q --no-verify --allow-empty -C "$c" >&2
   done
   echo "ready-check: ${#chain[@]} queued change(s) replayed on main $(git rev-parse --short refs/remotes/origin/main)" >&2
+  if $stale; then
+    echo "ready-check: only the Atlas bundle conflicted, main's kept: bundle=stale" >&2
+    [ -z "${GITHUB_OUTPUT:-}" ] || echo bundle=stale >>"$GITHUB_OUTPUT"
+  fi
   printf '%s' "$paths" | grep . | sort -u || true
 }
 

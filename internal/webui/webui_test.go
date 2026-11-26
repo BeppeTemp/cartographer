@@ -20,6 +20,11 @@ const sourceDir = "../../web"
 // still be told when a colleague's frontend change was committed without its
 // rebuilt bundle.
 func TestBundleMatchesSource(t *testing.T) {
+	// The pre-check of a queued change whose replay kept main's bundle on the change's sources
+	// (scripts/ready-check-base.sh: bundle=stale); the lander builds it again before the gate.
+	if os.Getenv("READY_CHECK_BUNDLE") == "stale" {
+		t.Skip("the pre-check replay kept main's bundle: stale by construction")
+	}
 	if _, err := os.Stat(sourceDir); os.IsNotExist(err) {
 		t.Skip("frontend sources are not present in this tree")
 	}

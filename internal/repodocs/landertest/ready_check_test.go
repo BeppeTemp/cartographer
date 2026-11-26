@@ -322,6 +322,38 @@ func TestReadyCheckBaseReplaysTheQueuedChainOnMain(t *testing.T) {
 			t.Errorf("stderr must end with %q, got:\n%s", want, errOut)
 		}
 	})
+	// Two frontend changes always conflict in the committed bundle: a conflict there only is not
+	// red. Main's bundle is kept, the sources are the change's, and the jobs learn the bundle is
+	// stale from $GITHUB_OUTPUT; a conflict elsewhere beside it is still red.
+	t.Run("a conflict in the bundle only is not red", func(t *testing.T) {
+		r := newChainRepo(t)
+		m0 := r.git(r.work, "rev-parse", "HEAD")
+		// The change also adds a hashed asset main does not have: it goes with the change's bundle.
+		x := r.commit(m0, "feat: x", map[string]string{"internal/webui/dist/index.js": "x\n", "internal/webui/dist/assets/x-1a2b.js": "x\n", "web/src/x.ts": "x\n"})
+		r.push(x, "ready/x")
+		r.push(r.commit(m0, "fix: other ui", map[string]string{"internal/webui/dist/index.js": "main\n"}), "main")
+		ghOut := filepath.Join(r.tmp, "github-output")
+		r.env = append(r.env, "GITHUB_OUTPUT="+ghOut)
+		out, errOut, dir, ok := r.replay(x)
+		if !ok || !slices.Equal(strings.Fields(out), []string{"internal/webui/dist/assets/x-1a2b.js", "internal/webui/dist/index.js", "web/src/x.ts"}) || !strings.Contains(errOut, "bundle=stale") {
+			t.Fatalf("ok=%v paths=%q\n%s", ok, out, errOut)
+		}
+		if b, _ := os.ReadFile(filepath.Join(dir, "internal/webui/dist/index.js")); string(b) != "main\n" {
+			t.Errorf("main's bundle is kept, got %q", b)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "internal/webui/dist/assets/x-1a2b.js")); err == nil {
+			t.Error("the change's new asset stays in main's bundle")
+		}
+		if b, _ := os.ReadFile(ghOut); string(b) != "bundle=stale\n" {
+			t.Errorf("$GITHUB_OUTPUT = %q, want bundle=stale", b)
+		}
+		y := r.commit(m0, "feat: y", map[string]string{"internal/webui/dist/index.js": "y\n", "a.txt": "y\n"})
+		r.push(y, "ready/y")
+		r.push(r.commit(r.git(r.work, "rev-parse", "HEAD"), "fix: a", map[string]string{"a.txt": "main\n", "internal/webui/dist/index.js": "main2\n"}), "main")
+		if _, errOut, _, ok := r.replay(y); ok || !strings.Contains(errOut, "does not apply on main: ") {
+			t.Errorf("a conflict outside the bundle is red: ok=%v\n%s", ok, errOut)
+		}
+	})
 	t.Run("a single change on the current main", func(t *testing.T) {
 		r := newChainRepo(t)
 		m0 := r.git(r.work, "rev-parse", "HEAD")

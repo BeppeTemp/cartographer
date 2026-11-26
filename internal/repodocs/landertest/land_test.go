@@ -497,9 +497,10 @@ func TestLanderGatesARedPrecheckAlone(t *testing.T) {
 	}
 }
 
-// While every queued change's pre-check still runs, the build host does not idle: the
-// oldest change is gated alone, where a broken leg costs no bisection; the next one too.
-func TestLanderGatesAChangeAloneWhileThePrechecksRun(t *testing.T) {
+// A unit whose pre-check still runs joins the train like a green one (D-new-train-batching): the
+// change was reviewed with a green check-hosted and the train gate runs every leg of the pre-check,
+// so two changes queued together share one gate whatever their pre-checks are doing.
+func TestLanderTakesUnitsWhosePrechecksRun(t *testing.T) {
 	e := newLandEnv(t)
 	e.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"a2.txt": "a\n"})
 	e.queue("b", "fix(kb): b\n", "2026-01-01T11:00:00Z", map[string]string{"b.txt": "b\n"})
@@ -511,19 +512,8 @@ func TestLanderGatesAChangeAloneWhileThePrechecksRun(t *testing.T) {
 	if got := strings.Join(e.mainSubjects(), " | "); got != "fix(kb): a | fix(kb): b" {
 		t.Fatalf("main holds %q\n%s", got, out)
 	}
-	if n := strings.Count(out, "is still running and nothing else is ready: gated alone"); n != 2 {
-		t.Errorf("each change alone while its pre-check runs: %d\n%s", n, out)
-	}
-	// Past LAND_PRECHECK_WAIT a running pre-check is no verdict: the changes travel together.
-	e2 := newLandEnv(t)
-	e2.queue("a", "fix(kb): a\n", "2026-01-01T10:00:00Z", map[string]string{"a2.txt": "a\n"})
-	e2.queue("b", "fix(kb): b\n", "2026-01-01T11:00:00Z", map[string]string{"b.txt": "b\n"})
-	running = e2.upGit("rev-parse", "ready/a") + " " + e2.upGit("rev-parse", "ready/b")
-	if out, ok := e2.land("FAKE_PRECHECK_RUNNING=" + running); !ok {
-		t.Fatalf("land failed\n%s", out)
-	}
-	if n := strings.Count(e2.makeLog(), "-k gate"); n != 1 {
-		t.Errorf("a pre-check running past the wait does not split the train: %d gates\n%s", n, e2.makeLog())
+	if n := strings.Count(e.makeLog(), "-k gate"); n != 1 || strings.Contains(out, "gated alone") {
+		t.Errorf("one train for both: %d gates\n%s", n, out)
 	}
 }
 
@@ -1100,35 +1090,37 @@ func TestLanderRebuildsTheBundleAfterNumberingACitationUnderWeb(t *testing.T) {
 			t.Errorf("the bundle was not rebuilt after a diff over 64 KB")
 		}
 	})
-	t.Run("citation in a test file, no build", func(t *testing.T) {
+	// A change touching web/ is built once at its pick (D-new-train-batching), never again by the
+	// numbering when the numbering rewrites nothing under web/.
+	t.Run("citation in a test file, built once at the pick", func(t *testing.T) {
 		e := newLandEnv(t)
-		marker := filepath.Join(t.TempDir(), "ran")
 		e.queue("a", "feat(atlas): a\n", "2026-01-01T10:00:00Z", map[string]string{
 			dec + "D-new-foo.md":   files[dec+"D-new-foo.md"],
 			"web/x_test.go":        "// D-new-foo\n",
 			"web/testdata/fix.txt": "D-new-foo\n",
 		})
-		out, ok := e.land("LAND_BUNDLE_BUILD=" + bundleBuildScript(t, e, marker, true))
+		build, count := countingBuild(t, e)
+		out, ok := e.land("LAND_BUNDLE_BUILD=" + build)
 		if !ok || e.refs("failed/") != "" {
 			t.Fatalf("the change must land, failed=%q\n%s", e.refs("failed/"), out)
 		}
-		if _, err := os.Stat(marker); err == nil {
-			t.Error("the bundle was built for a citation the numbering does not rewrite")
+		if n, _ := os.ReadFile(count); strings.Count(string(n), "run") != 1 {
+			t.Errorf("one build at the pick, none for a citation the numbering does not rewrite: %q", n)
 		}
 	})
-	t.Run("no citation, no build", func(t *testing.T) {
+	t.Run("no citation, built once at the pick", func(t *testing.T) {
 		e := newLandEnv(t)
-		marker := filepath.Join(t.TempDir(), "ran")
 		e.queue("a", "feat(atlas): a\n", "2026-01-01T10:00:00Z", map[string]string{
 			dec + "D-new-foo.md": "---\ntopic: x\n---\n\n# D-new-foo — Foo\n",
 			"web/src/a.ts":       "// plain\n",
 		})
-		out, ok := e.land("LAND_BUNDLE_BUILD=" + bundleBuildScript(t, e, marker, true))
+		build, count := countingBuild(t, e)
+		out, ok := e.land("LAND_BUNDLE_BUILD=" + build)
 		if !ok || e.refs("failed/") != "" {
 			t.Fatalf("the change must land, failed=%q\n%s", e.refs("failed/"), out)
 		}
-		if _, err := os.Stat(marker); err == nil {
-			t.Error("the bundle was built although web/ cites no pending decision")
+		if n, _ := os.ReadFile(count); strings.Count(string(n), "run") != 1 {
+			t.Errorf("one build at the pick, none after the numbering: %q", n)
 		}
 	})
 }

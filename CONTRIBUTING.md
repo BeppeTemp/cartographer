@@ -296,9 +296,11 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
     PR on the current `main` that it did not open is adopted (one on an older `main` is closed).
   - **Pre-check and status.** Each queued change gets a hosted pre-check
     (`ready-check.yml`: its Windows tests and, for `web/`, the frontend unit tests, on its chain,
-    the changes it follows through `AFTER=`, replayed on the current `main`): a train of
-    several units takes only those whose tip is green, and a red one is gated alone. The lander waits up to
-    10 minutes (or for 4 green changes) before composing so that changes queued meanwhile share a train
+    the changes it follows through `AFTER=`, replayed on the current `main`; a replay conflict in the committed
+    Atlas bundle only is not red): a train takes every unit whose tip is not red, one still running included,
+    and a red one is gated alone (D2414). The lander builds the bundle again for every picked
+    commit that touches `web/`, and `make web` refuses untracked files under `web/`. The lander waits up to
+    15 minutes (or for 4 green changes) before composing so that changes queued meanwhile share a train
     (`make ready NOW=1` skips the wait). `make land-status` shows the queue by unit with each pre-check
     verdict and a red one's failed jobs; `make requeue SLUG=<slug>` rebuilds a queued or rejected change and the ones after it on the current `main`, keeping messages and queue places, in one atomic push (`FIRST=1`: first in the queue); `make land` runs the lander in the foreground (`DRY=1` prints the next train).
     Queued changes have no cap: a train holds at most 8 changes, and a longer chain is gated alone. On macOS the

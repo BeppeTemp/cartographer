@@ -104,7 +104,12 @@ smoke: build demo-kb ## Build + quick stdio test
 # passes `NPM_CI=` (empty) to the targets so none repeats it.
 NPM_CI ?= npm ci --silent &&
 
+# The bundle's source hash counts git-tracked files only: a file under web/ that is not added yet
+# would build a bundle whose provenance names other sources than the ones that land.
 web: ## Build the embedded Atlas UI bundle into internal/webui/dist (needs Node, see web/.nvmrc)
+	@u=$$(git ls-files --others --exclude-standard -- web/ 2>/dev/null); [ -z "$$u" ] || { \
+		echo "web: untracked files under web/ (git add them first, the bundle hashes tracked files only):"; \
+		echo "$$u"; exit 1; }
 	@cd web && $(NPM_CI) npm run build
 	@go run ./internal/webui/gen ./web ./internal/webui/dist
 
