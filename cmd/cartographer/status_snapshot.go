@@ -585,7 +585,13 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 	// report.
 	knownBefore := cfg.KnownKBs
 	if health.KBs != nil {
-		cfg.HeldKBs = heldNames(heldKBs(cfg.KnownKBs, s.KBs, health.SkippedKBs, nil))
+		var connected []string
+		for i := range s.Providers {
+			if s.Providers[i].Connected {
+				connected = append(connected, s.Providers[i].Name)
+			}
+		}
+		cfg.HeldKBs = heldNames(heldKBs(cfg.KnownKBs, s.KBs, health.SkippedKBs, declaredTransversal(cfg, connected)))
 		cfg.KnownKBs = slices.DeleteFunc(slices.Clone(cfg.KnownKBs), func(kb string) bool { return !slices.Contains(s.KBs, kb) })
 		defer func() { cfg.HeldKBs, cfg.KnownKBs = nil, knownBefore }()
 	}
@@ -866,8 +872,17 @@ func workspaceProviderDiff(cfg *clientconfig.Config, ps []syncProjection, manife
 			r = resolveProjectionSet([]syncProjection{sp}, manifests, contract.ProjectOptions{})[projectionKey(sp)]
 		}
 		pm := r.Manifest
-		diffLock = statusLock(diffLock, cfg, pm, nil)
+		// The transversal KBs sync holds for a failed mount stay in the
+		// bundle-only projection as sync carried them: no drift while held.
+		var heldHere []string
+		if sp.BundleOnly {
+			heldHere = cfg.HeldTransversalKBs(sp.Provider)
+		}
+		diffLock = statusLock(diffLock, cfg, pm, stringSet(heldHere))
 		ro := statusResolveOptions(cfg, sp.Provider, manifests[projectionKey(sp)])
+		if len(heldHere) > 0 {
+			ro.BaseDir, ro.HeldKBs = provisioning.LockBaseDir(lock, dir), heldWithInstructions(lock, heldHere)
+		}
 		// The same answer sync gave the projection, or the paths-section hash
 		// status recomputes would differ from the recorded one for good (#1897).
 		ro.WithholdLocalPaths = withholdLocalPaths(sp)

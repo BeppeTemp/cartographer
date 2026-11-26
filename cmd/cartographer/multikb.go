@@ -599,6 +599,32 @@ func heldKBs(previous, live []string, skipped []client.SkippedKB, also []string)
 	return out
 }
 
+// declaredTransversal is the transversal KBs of every provider in targets, as
+// the client file declares them (Config.DeclaredTransversalKBs), sorted and
+// deduplicated: the `also` of heldKBs.
+func declaredTransversal(cfg *clientconfig.Config, targets []string) []string {
+	var out []string
+	for _, p := range targets {
+		for _, kb := range cfg.DeclaredTransversalKBs(p) {
+			if !slices.Contains(out, kb) {
+				out = append(out, kb)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// transversalNamed reports whether any provider's list names kb.
+func transversalNamed(byProvider map[string][]string, kb string) bool {
+	for _, names := range byProvider {
+		if slices.Contains(names, kb) {
+			return true
+		}
+	}
+	return false
+}
+
 // heldNames lists the names of held.
 func heldNames(held []heldKB) []string {
 	out := make([]string, len(held))

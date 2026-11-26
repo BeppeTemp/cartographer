@@ -445,7 +445,15 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		// lock entries and region of the block stay, its per-KB entry is kept,
 		// and it stays in known_kbs so the next sync still knows it.
 		if facts.health != nil {
-			held = heldKBs(previousKnownKBs, kbs, facts.health.SkippedKBs, nil)
+			// A transversal KB is held too when the server lists it in
+			// skipped_kbs, even if the last sync did not know it: the failed
+			// pull would otherwise stop the whole bundle-only projection of
+			// its provider. heldKBs is the one function that decides it.
+			held = heldKBs(previousKnownKBs, kbs, facts.health.SkippedKBs, declaredTransversal(cfg, targets))
+			// Runtime only: Config.TransversalKBs leaves the held ones out of
+			// the pull set, the projection and the derivation candidates.
+			cfg.HeldKBs = heldNames(held)
+			defer func() { cfg.HeldKBs = nil }()
 		}
 		if names := heldNames(held); len(names) > 0 && entryKBs != nil {
 			entryKBs = withRetainedKBs(entryKBs, names)
@@ -619,13 +627,21 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	// server saw change at this sync (printKBFollow), kept for the closing sum
 	// and the approvals line of the arrivals.
 	var followers, addedKBs, removedKBs []string
+	// heldTransversal is, per workspace-scope provider, the transversal KBs held
+	// this run: carried in its bundle-only projection like a held KB.
+	heldTransversal := map[string][]string{}
 	if healthErr == nil {
 		printKnownKBsChange(out, previousKnownKBs, withRetainedKBs(kbs, heldNames(held)), opts.DryRun)
 		followers = followingProviders(cfg, targets)
 		addedKBs, removedKBs = kbDiff(previousKnownKBs, withRetainedKBs(kbs, heldNames(held)))
 		printKBFollow(out, addedKBs, removedKBs, followers, opts.DryRun)
-		if len(followers) > 0 {
-			for _, h := range held {
+		for _, p := range targets {
+			if names := cfg.HeldTransversalKBs(p); len(names) > 0 {
+				heldTransversal[p] = names
+			}
+		}
+		for _, h := range held {
+			if len(followers) > 0 || transversalNamed(heldTransversal, h.Name) {
 				fmt.Fprintf(out, "held %s: the server could not mount it (%s), its files stay\n", escapeControl(h.Name), escapeControl(h.Reason))
 			}
 		}
@@ -671,7 +687,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	}
 	var pruneDenied []string
 	writeDenied := slices.Clone(hookDenied)
-	results, err := materializeForProviders(manifests, projections, dir, facts.Version, opts.DryRun, opts.NoHeal, portabilityOptions{PruneDenied: &pruneDenied, WriteDenied: &writeDenied, SearchRoots: cfg.ScanRoots(), Paths: cfg.Paths, Streams: opts.Streams, HeldPlugins: heldPlugins(cfg), HeldKBs: heldSet(held, followers), HeldFor: stringSet(followers), MCPTokenEnv: tokenEnvName(cfg)}, kbOrderForProviders(cfg, targets), approvals)
+	results, err := materializeForProviders(manifests, projections, dir, facts.Version, opts.DryRun, opts.NoHeal, portabilityOptions{PruneDenied: &pruneDenied, WriteDenied: &writeDenied, SearchRoots: cfg.ScanRoots(), Paths: cfg.Paths, Streams: opts.Streams, HeldPlugins: heldPlugins(cfg), HeldKBs: heldSet(held, followers), HeldTransversal: heldTransversal, HeldFor: stringSet(followers), MCPTokenEnv: tokenEnvName(cfg)}, kbOrderForProviders(cfg, targets), approvals)
 	if err != nil {
 		return syncResult{}, err
 	}

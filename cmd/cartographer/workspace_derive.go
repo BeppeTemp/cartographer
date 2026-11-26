@@ -176,6 +176,11 @@ func derivationScope(cfg *clientconfig.Config, targets []string) (providers, can
 			continue
 		}
 		providers = append(providers, p)
+		// The transversal KBs are pulled with the rest (so the manifest build
+		// reuses the pull) but are never seeds: their relations and paths.yaml
+		// are read by nothing, unless the KB is also bound. The held ones are
+		// out of the pull set (Config.TransversalKBs).
+		add(cfg.TransversalKBs(p))
 		// The own list: a lineage KB is never a seed of derivation.
 		bound, _ := cfg.BoundOwnKBs(p)
 		add(bound)
