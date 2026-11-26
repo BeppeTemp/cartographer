@@ -652,3 +652,21 @@ func TestBridgeReadOnlyUnconfirmedStreamKeepsTheSerialization(t *testing.T) {
 		t.Fatal("the next request was forwarded while an unconfirmed stream was still open")
 	}
 }
+
+// AC-transv-5: the URL a session sends carries the transversal KB in kbs= and
+// names it in readonly=.
+func TestBridgeQueryCarriesTransversal(t *testing.T) {
+	rs := newRoutedServer(t, "kb-a", "kb-b")
+	cfg := bridgeConfig(rs)
+	if err := cfg.SetWorkspaceScope("claude", clientconfig.ScopeWorkspace); err != nil {
+		t.Fatal(err)
+	}
+	cfg.SetKBTransversal("kb-a", true)
+	ws := mkdir(t, t.TempDir())
+	bind(t, cfg, ws, "kb-b")
+	b := &Bridge{Cfg: cfg, Provider: "claude", Dir: ws, Token: testToken}
+	got, err := b.endpoint(Resolve(cfg, "claude", ws))
+	if err != nil || !strings.HasSuffix(got, "/mcp/routed?kbs=kb-a,kb-b&readonly=kb-a&provisioned=1") {
+		t.Errorf("endpoint = %q err=%v", got, err)
+	}
+}

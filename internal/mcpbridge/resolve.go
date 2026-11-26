@@ -51,6 +51,12 @@ type Scope struct {
 	// readonly=, which narrows only. Empty for a ReadOnly scope: access=read
 	// already covers every KB.
 	ReadOnlyKBs []string
+	// Transversal are the KBs added to this session because the client file
+	// declares them transversal (knowledge_bases.<kb>.transversal) and the
+	// folder's binding does not carry them, sorted. They are in KBs and in
+	// ReadOnlyKBs: instructions and read access everywhere, never a write tool
+	// outside a binding. For Describe and logs.
+	Transversal []string
 	// Unbound is true for the two provider scopes: the folder is under no
 	// binding, whatever the access mode. False for a binding, an error and the
 	// roots scope.
@@ -105,9 +111,17 @@ func Resolve(cfg *clientconfig.Config, provider, dir string) Scope {
 	}
 	if bound {
 		kbs := clientconfig.RoutedBinding(cfg.KnownKBs, w.KBs)
+		ro := intersect(cfg.ReadOnlyKBs(), kbs)
+		// A binding with no KB (--no-kb) stays closed: an explicit binding wins
+		// over a derived one, the person's declaration included.
+		var added []string
+		if len(kbs) > 0 {
+			kbs, ro, added = withTransversal(cfg, provider, kbs, ro)
+		}
 		return Scope{
 			KBs:         kbs,
-			ReadOnlyKBs: intersect(cfg.ReadOnlyKBs(), kbs),
+			ReadOnlyKBs: ro,
+			Transversal: added,
 			Source:      "workspace " + w.Path,
 			Binding:     &w,
 		}
@@ -147,10 +161,18 @@ func providerScope(cfg *clientconfig.Config, provider string) Scope {
 	ro := mode != "write"
 	bound, explicit := cfg.BoundKBs(provider)
 	if !explicit {
-		return Scope{All: true, ReadOnly: ro, ReadOnlyKBs: readOnlyUnless(ro, cfg.ReadOnlyKBs()), Unbound: true, AccessOrigin: origin, Source: "provider default"}
+		// The whole set is served, the transversal KBs in it: in write mode
+		// they are named read-only, as everywhere outside a binding.
+		ros, added := cfg.ReadOnlyKBs(), []string(nil)
+		if !ro {
+			ros, added = withReadOnly(ros, cfg.TransversalKBs(provider))
+		}
+		return Scope{All: true, ReadOnly: ro, ReadOnlyKBs: readOnlyUnless(ro, ros), Transversal: added, Unbound: true, AccessOrigin: origin, Source: "provider default"}
 	}
 	kbs := clientconfig.RoutedBinding(cfg.KnownKBs, bound)
-	return Scope{KBs: kbs, ReadOnly: ro, ReadOnlyKBs: readOnlyUnless(ro, intersect(cfg.ReadOnlyKBs(), kbs)), Unbound: true, AccessOrigin: origin, Source: "provider binding"}
+	roKBs := intersect(cfg.ReadOnlyKBs(), kbs)
+	kbs, roKBs, added := withTransversal(cfg, provider, kbs, roKBs)
+	return Scope{KBs: kbs, ReadOnly: ro, ReadOnlyKBs: readOnlyUnless(ro, roKBs), Transversal: added, Unbound: true, AccessOrigin: origin, Source: "provider binding"}
 }
 
 // ResolveRoots is the fallback for a client that declares MCP roots while the
@@ -192,7 +214,70 @@ func ResolveRoots(cfg *clientconfig.Config, provider string, roots []string) (Sc
 		kbs = append(kbs, kb)
 	}
 	sort.Strings(kbs)
-	return Scope{KBs: kbs, ReadOnlyKBs: intersect(cfg.ReadOnlyKBs(), kbs), Source: "roots", Dirs: dirs}, true
+	ro := intersect(cfg.ReadOnlyKBs(), kbs)
+	kbs, ro, added := withTransversal(cfg, provider, kbs, ro)
+	return Scope{KBs: kbs, ReadOnlyKBs: ro, Transversal: added, Source: "roots", Dirs: dirs}, true
+}
+
+// withoutNames is list minus drop, in order.
+func withoutNames(list, drop []string) []string {
+	var out []string
+	for _, n := range list {
+		if !containsName(drop, n) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// withReadOnly is ro with names added, sorted and deduplicated; added is the
+// names that were not in it.
+func withReadOnly(ro, names []string) (out, added []string) {
+	out = append([]string(nil), ro...)
+	for _, n := range names {
+		if !containsName(out, n) {
+			out = append(out, n)
+			added = append(added, n)
+		}
+	}
+	sort.Strings(out)
+	return out, added
+}
+
+func containsName(list []string, n string) bool {
+	for _, m := range list {
+		if m == n {
+			return true
+		}
+	}
+	return false
+}
+
+// withTransversal adds to a session's effective KB set the transversal KBs of
+// provider that the set does not already carry, and names each added one
+// read-only. It is applied to the effective set (the binding's KBs with their
+// lineage, the provider's BoundKBs), never to the own lists that seed a
+// lineage closure, so a transversal KB is never an input of one. A KB already
+// in the set keeps the access the folder gives it. kbs and ro are sorted and
+// deduplicated; added is the names put in.
+func withTransversal(cfg *clientconfig.Config, provider string, kbs, ro []string) (outKBs, outRO, added []string) {
+	have := map[string]bool{}
+	for _, k := range kbs {
+		have[k] = true
+	}
+	for _, k := range cfg.TransversalKBs(provider) {
+		if !have[k] {
+			added = append(added, k)
+		}
+	}
+	if len(added) == 0 {
+		return kbs, ro, nil
+	}
+	outKBs = append(append([]string(nil), kbs...), added...)
+	sort.Strings(outKBs)
+	outRO = append(append([]string(nil), ro...), added...)
+	sort.Strings(outRO)
+	return outKBs, outRO, added
 }
 
 // rootPath turns a file:// root URI into a local path. Windows URIs look like
@@ -218,6 +303,22 @@ func rootPath(uri string) (string, bool) {
 
 // Describe is the one-line human form of a scope.
 func (s Scope) Describe() string {
+	// The added KBs are named once, on the `+` part, not as members of the set.
+	set := s
+	if own := withoutNames(s.KBs, s.Transversal); len(own) > 0 {
+		set.KBs = own
+	} else if len(s.Transversal) > 0 && !s.All {
+		// Nothing but the added KBs: the set is "no KB" of its own.
+		set.KBs = nil
+	}
+	d := set.describeSet()
+	if s.Err == nil && len(s.Transversal) > 0 {
+		d += "; + " + strings.Join(s.Transversal, ", ") + " read-only (transversal)"
+	}
+	return d
+}
+
+func (s Scope) describeSet() string {
 	switch {
 	case s.Err != nil:
 		return fmt.Sprintf("no KB (%s)", s.Err)

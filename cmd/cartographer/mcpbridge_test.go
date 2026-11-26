@@ -588,3 +588,32 @@ func TestWorkspaceResolveLabelsACLIProvider(t *testing.T) {
 		t.Errorf("unbound output:\n%s", got)
 	}
 }
+
+// A folder bound with --no-kb gets no transversal KB, and `workspace resolve`
+// says "no KB" without a transversal line; a workspace-scope provider with no
+// binding (HTTP entry) says the KB has instructions only there.
+func TestWorkspaceResolveTransversalNoKBAndHTTPEntry(t *testing.T) {
+	ws := t.TempDir()
+	canon, err := clientconfig.CanonicalWorkspacePath(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := bridgeConfigFor(t, "claude", "codex")
+	cfg.Clients = map[string]clientconfig.ClientBinding{"codex": {KBs: []string{"kb-b"}, KBsSet: true}}
+	for _, p := range []string{"claude", "codex"} {
+		if err := cfg.SetWorkspaceScope(p, clientconfig.ScopeWorkspace); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfg.SetKBTransversal("kb-a", true)
+	if err := cfg.BindWorkspace("claude", ws, nil); err != nil {
+		t.Fatal(err)
+	}
+	got := renderWorkspaceResolve(cfg, ws, []string{"claude", "codex"})
+	if !strings.Contains(got, "  bound by "+canon+"  ->  no KB\n") || strings.Contains(strings.SplitN(got, "codex", 2)[0], "transversal") {
+		t.Errorf("--no-kb output:\n%s", got)
+	}
+	if !strings.Contains(got, "transversal kb-a: instructions only, no read access here") {
+		t.Errorf("the HTTP-entry provider is not told:\n%s", got)
+	}
+}

@@ -920,8 +920,8 @@ func renderWorkspaceResolve(cfg *clientconfig.Config, path string, providers []s
 			fmt.Fprintf(&sb, "  unusable binding: %v\n  no KB is served here until it is fixed\n", scope.Err)
 		case scope.Binding != nil:
 			kbs := "no KB"
-			if len(scope.KBs) > 0 {
-				kbs = strings.Join(scope.KBs, ", ")
+			if own := without(scope.KBs, scope.Transversal); len(own) > 0 {
+				kbs = strings.Join(own, ", ")
 			}
 			if scope.Binding.Derived {
 				fmt.Fprintf(&sb, "  bound by %s  ->  %s  (derived from %s; `workspace bind %s %s --no-kb` opts out here)\n",
@@ -934,10 +934,13 @@ func renderWorkspaceResolve(cfg *clientconfig.Config, path string, providers []s
 			fmt.Fprintf(&sb, "  unbound: the provider's default set (every KB)\n")
 		default:
 			kbs := "no KB"
-			if len(scope.KBs) > 0 {
-				kbs = strings.Join(scope.KBs, ", ")
+			if own := without(scope.KBs, scope.Transversal); len(own) > 0 {
+				kbs = strings.Join(own, ", ")
 			}
 			fmt.Fprintf(&sb, "  unbound: the provider's binding  ->  %s\n", kbs)
+		}
+		if len(scope.Transversal) > 0 && scope.Err == nil {
+			fmt.Fprintf(&sb, "  + %s read-only (transversal: `client kb <kb> --transversal=false` clears it)\n", strings.Join(scope.Transversal, ", "))
 		}
 		// Only a bridge entry carries the mode: an http entry is not narrowed
 		// by any binding, so it is not made read-only either.
@@ -957,9 +960,40 @@ func renderWorkspaceResolve(cfg *clientconfig.Config, path string, providers []s
 		}
 		if entry == "http" {
 			fmt.Fprintf(&sb, "  this client has no bridge entry, so bindings do not narrow its session\n")
+			if names := transversalWithoutAccess(cfg, p); len(names) > 0 {
+				fmt.Fprintf(&sb, "  transversal %s: instructions only, no read access here (the HTTP entry serves the provider's own KBs; bind a folder to give the provider the bridge)\n", strings.Join(names, ", "))
+			}
 		}
 	}
 	return sb.String()
+}
+
+// transversalWithoutAccess is the transversal KBs of provider that its HTTP
+// entry does not serve: the entry carries the provider's own KBs, and only the
+// bridge adds a transversal KB to a session.
+func transversalWithoutAccess(cfg *clientconfig.Config, provider string) []string {
+	own, explicit := cfg.BoundKBs(provider)
+	if !explicit {
+		return nil
+	}
+	var out []string
+	for _, kb := range cfg.TransversalKBs(provider) {
+		if !slices.Contains(own, kb) {
+			out = append(out, kb)
+		}
+	}
+	return out
+}
+
+// without returns list minus the names in drop, in order.
+func without(list, drop []string) []string {
+	var out []string
+	for _, v := range list {
+		if !slices.Contains(drop, v) {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // dedupe keeps the first occurrence of each value, in order.
