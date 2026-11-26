@@ -566,6 +566,63 @@ func refusedEntryKBs(err error, baseName string, kbs []string) []string {
 	return out
 }
 
+// heldKB is a KB the server was told to serve and could not mount now, with the
+// reason it gave.
+type heldKB struct{ Name, Reason string }
+
+// heldKBs names the KBs a sync holds instead of removing: the ones in previous
+// (the KBs of the last sync) or also, absent from live (what the server mounts
+// now) and present in skipped (what it could not mount, only for a caller that
+// reads them). A mount that failed is down, not gone: removing its artifacts for
+// it would be a data loss on the client. A KB in neither list is gone, and is
+// removed as before. Sorted by name.
+//
+// It takes no manifest: a held KB is by construction not pulled, so its result
+// is also what sync takes out of the pull set and hands to
+// portabilityOptions.HeldKBs, and the manifest never holds a name it returns.
+func heldKBs(previous, live []string, skipped []client.SkippedKB, also []string) []heldKB {
+	var out []heldKB
+	seen := map[string]bool{}
+	for _, name := range append(append([]string(nil), previous...), also...) {
+		if seen[name] || slices.Contains(live, name) {
+			continue
+		}
+		for _, sk := range skipped {
+			if sk.Name == name {
+				seen[name] = true
+				out = append(out, heldKB{Name: name, Reason: sk.Reason})
+				break
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// heldNames lists the names of held.
+func heldNames(held []heldKB) []string {
+	out := make([]string, len(held))
+	for i, h := range held {
+		out[i] = h.Name
+	}
+	return out
+}
+
+// heldSet is the held KBs as the set portabilityOptions.HeldKBs takes: only a
+// run with a provider that follows the server holds anything (an explicit list
+// or a workspace list naming a KB the server lost is a stale selection, #2199,
+// as before).
+func heldSet(held []heldKB, followers []string) map[string]bool {
+	if len(held) == 0 || len(followers) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(held))
+	for _, h := range held {
+		out[h.Name] = true
+	}
+	return out
+}
+
 // withRetainedKBs is current followed by the KBs of retained it does not hold:
 // the persisted list of a run that could not remove every stale per-KB entry.
 func withRetainedKBs(current, retained []string) []string {

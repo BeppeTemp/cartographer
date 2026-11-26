@@ -150,6 +150,18 @@ func BeginStable(begin string) string {
 // its terminator) is replaced; no marker line at all is Absent; every other
 // shape is Corrupted and content comes back unchanged.
 func ReplaceBlock(content, begin, end, replacement string) (string, Outcome) {
+	start, stop, outcome := BlockRange(content, begin, end)
+	if outcome != Found {
+		return content, outcome
+	}
+	return content[:start] + replacement + content[stop:], Found
+}
+
+// BlockRange is the locator ReplaceBlock replaces through: with the same rules
+// (whole marker lines, exactly one begin followed by exactly one end), the byte
+// range of a Found block, from the start of its begin line to just after the
+// terminator of its end line. For any other outcome start and stop are 0.
+func BlockRange(content, begin, end string) (start, stop int, outcome Outcome) {
 	stable := BeginStable(begin)
 	var beginAt, endStop = -1, -1
 	begins, ends := 0, 0
@@ -182,11 +194,11 @@ func ReplaceBlock(content, begin, end, replacement string) (string, Outcome) {
 	}
 	switch {
 	case begins == 0 && ends == 0:
-		return content, Absent
+		return 0, 0, Absent
 	case begins != 1 || ends != 1 || endBeforeBegin:
-		return content, Corrupted
+		return 0, 0, Corrupted
 	}
-	return content[:beginAt] + replacement + content[endStop:], Found
+	return beginAt, endStop, Found
 }
 
 // CheckFile reports ErrCorruptedBlock (wrapped) when the file at path holds a

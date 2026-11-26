@@ -49,6 +49,11 @@ type Config struct {
 	// KBChange is what the last sync that changed KnownKBs added and removed
 	// (the state file's kb_change); nil when none was recorded.
 	KBChange *KBChange `yaml:"-"`
+	// HeldKBs are the KBs the server could not mount (it lists them in
+	// skipped_kbs) that this run judges as held, not gone (heldKBs in
+	// cmd/cartographer). Runtime only, never persisted: `status` sets it for the
+	// run so it judges a projection the way sync applied it.
+	HeldKBs []string `yaml:"-"`
 
 	// ServerMountMode records the mount topology the server advertised at the
 	// last successful connect/sync (D187): "routed" when it serves every KB

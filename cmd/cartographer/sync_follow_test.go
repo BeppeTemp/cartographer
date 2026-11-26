@@ -26,8 +26,10 @@ type followServer struct {
 	status int      // HTTP status of /health (0 = 200)
 	body   string   // the /health body when status is 200; "" builds it from kbs
 	kbs    []string // listed KBs, nil omits the key
-	listed bool
-	pulled map[string]int
+	// skipped are the KBs the server could not mount (health skipped_kbs).
+	skipped []string
+	listed  bool
+	pulled  map[string]int
 	// payload, when set, is the sync_pull answer of a KB instead of its skill.
 	payload func(kb string) string
 }
@@ -48,6 +50,13 @@ func newFollowServer(t *testing.T, kbs ...string) *followServer {
 				return
 			}
 			h := map[string]any{"status": "ok", "version": "v0.30.0"}
+			if len(f.skipped) > 0 {
+				var sk []map[string]any
+				for _, n := range f.skipped {
+					sk = append(sk, map[string]any{"name": n, "reason": "mount failed: the path moved"})
+				}
+				h["skipped_kbs"] = sk
+			}
 			if f.listed {
 				list := []map[string]any{}
 				for _, k := range f.kbs {
@@ -251,6 +260,30 @@ func TestSyncHealthShapesChangeOnlyOnAnAnswer(t *testing.T) {
 			}
 		})
 	}
+
+	// Nothing mounted because every mount failed: the server lists `kbs: []` with
+	// the KBs it could not mount in skipped_kbs, and nothing is removed (WP5).
+	t.Run("listed empty with skipped", func(t *testing.T) {
+		srv := newFollowServer(t, "one", "two")
+		dir := followHome(t, srv, "all", "one", "two")
+		if _, _, err := followSync(t, dir, syncOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		srv.set(func(f *followServer) { f.kbs, f.skipped = []string{}, []string{"one", "two"} })
+		out, errOut, err := followSync(t, dir, syncOptions{})
+		if err != nil {
+			t.Fatalf("sync: %v\n%s", err, errOut)
+		}
+		if !hasSkill(dir, "one") || !hasSkill(dir, "two") || knownKBsOf(t, dir) != "one,two" {
+			t.Errorf("a failed mount removed what it held: known=%q\n%s", knownKBsOf(t, dir), out)
+		}
+		if strings.Contains(out, "every KB this client follows leaves") {
+			t.Errorf("the KBs held for a failed mount are said to leave:\n%s", out)
+		}
+		if !strings.Contains(out, "held one:") || !strings.Contains(out, "held two:") {
+			t.Errorf("the hold is not reported:\n%s", out)
+		}
+	})
 
 	t.Run("listed empty", func(t *testing.T) {
 		srv := newFollowServer(t, "one", "two")
