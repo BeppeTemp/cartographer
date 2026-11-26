@@ -102,8 +102,9 @@ type DashboardWidget struct {
 	HorizonDays int    `yaml:"horizon_days,omitempty" json:"horizon_days,omitempty"` // agenda, default 14
 	Show        string `yaml:"show,omitempty"         json:"show,omitempty"`         // stat: count | groups
 
-	// IDs is the list of a links widget: concept ids of this KB, in the order
-	// the author wrote them. The kb:<name>/<id> form is not accepted yet.
+	// IDs is the list of a links widget: concept ids of this KB or, in the
+	// kb:<name>/<id> form, of another KB mounted on the server, in the order
+	// the author wrote them.
 	IDs []string `yaml:"ids,omitempty" json:"ids,omitempty"`
 
 	// Problem is set by the tolerant read only: why this widget cannot draw.
@@ -388,7 +389,21 @@ func checkWidget(w DashboardWidget, seen map[string]bool) []string {
 			case id == "" || len(id) > 200 || strings.ContainsFunc(id, unicode.IsControl):
 				add("link id %q must be a non-empty concept id of at most 200 bytes with no control character", id)
 			case strings.HasPrefix(id, "kb:"):
-				add("link id %q names another KB: a links widget takes ids of this KB only", id)
+				// The one parser of cross-KB links (ParseCrossLink) judges the
+				// form; the target is looked at when the widget is resolved.
+				l, _ := ParseCrossLink(id)
+				switch {
+				case strings.HasSuffix(id, ".md"):
+					add("link id %q must not end in .md", id)
+				case !kbNameRe.MatchString(l.KB):
+					add("link id %q: %q is not a KB name (letters, digits, - and _)", id, l.KB)
+				case l.Server != "" && !kbNameRe.MatchString(l.Server):
+					add("link id %q: %q is not a server name", id, l.Server)
+				case !strings.Contains(id, "/"):
+					add("link id %q has no concept id: want kb:<name>/<id>", id)
+				case l.Malformed:
+					add("link id %q: %q is not a canonical concept id (relative, slash-separated, no empty, . or .. segment, no backslash)", id, string(l.ID))
+				}
 			case okf.ValidateID(id) != nil:
 				add("link id %q is not a canonical concept id (relative, slash-separated, no empty, . or .. segment, no backslash)", id)
 			}
