@@ -142,16 +142,20 @@ func toolConceptArchive(k *kb.KB) Tool {
 			if reason != "" {
 				detail += ", " + reason
 			}
+			var moveMap map[string]string
 			result, errRes := applyConceptMoves(k, []conceptMoveEntry{{SourceID: params.ID, TargetID: target}}, true, moveOptions{
 				LogTitle:       fmt.Sprintf("concept_archive: %s -> %s (%s)", params.ID, target, detail),
 				View:           newCallerView(ctx, k),
 				ReportMentions: true,
+				MoveMapOut:     &moveMap,
 			})
 			if errRes != nil {
 				return *errRes, nil
 			}
 			result["status"] = status
-			return jsonResult(result), nil
+			res := jsonResult(result)
+			res.crossMoves = crossMovesOf(k, moveMap)
+			return res, nil
 		},
 	}
 }

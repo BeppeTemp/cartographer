@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
 // This file used to carry Cartographer's own MCP wire implementation: the
@@ -105,6 +107,10 @@ type ToolResult struct {
 	// call's completion event: a fact only the handler learns, such as the
 	// resolver hooks a secret resolution asked (identifiers, never a value).
 	AuditResources map[string]string `json:"-"`
+	// crossMoves, if set by a move handler, are the pages that changed address
+	// (this KB's current name on both sides): withCrossRewrite retargets the
+	// cross-KB links to them after the commit. Never on the wire.
+	crossMoves []kb.CrossRetarget
 }
 
 // jsonResult builds a ToolResult whose single text block is v as compact JSON.

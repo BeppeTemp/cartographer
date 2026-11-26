@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"context"
 	"crypto/ed25519"
 	"encoding/json"
 	"fmt"
@@ -27,6 +28,12 @@ type Deps struct {
 	// that touches two of them (concept_transfer, D760). Nil — single-KB stdio —
 	// makes that tool answer that it needs a server mounting both KBs.
 	KBByName func(name string) (*kb.KB, bool)
+	// CallKB runs a tool of another mounted KB through that KB's own Server, as
+	// if the caller had called it there (authorization, hooks, audit, lock,
+	// write gate, commit and push are the target's). It is how a write in one
+	// KB reaches another after the first released its lock (crossrewrite.go).
+	// Nil (single-KB stdio, bare tests) means there is no other KB.
+	CallKB func(ctx context.Context, name, tool string, args json.RawMessage) ToolResult
 	// Presets are the presets of the plugins pinned in the server config, for
 	// preset_list; none (the default) lists nothing.
 	Presets []PresetEntry
@@ -147,11 +154,11 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	register(toolCommitGate(k))
 	register(toolGateCheck(k))
 	register(gitWrap(k, toolSupersede(k)))
-	register(gitWrap(k, toolConceptMove(k, rec)))
+	register(withCrossRewrite(deps, k, gitWrap(k, toolConceptMove(k, rec))))
 	register(gitWrap(k, toolCrossLinkRewrite(k)))
 	// Takes both KBs' git locks and commits each itself (D760): not gitWrap.
 	register(toolConceptTransfer(k, deps))
-	register(gitWrap(k, toolConceptArchive(k)))
+	register(withCrossRewrite(deps, k, gitWrap(k, toolConceptArchive(k))))
 	register(gitWrap(k, toolConceptBatch(k, facts)))
 	register(gitWrap(k, toolConceptDelete(k)))
 	register(gitWrap(k, toolConflictResolve(k)))

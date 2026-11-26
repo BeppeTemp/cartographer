@@ -1952,11 +1952,16 @@ func toolConceptMove(k *kb.KB, rec *searchReconciler) Tool {
 				rewriteLinks = *params.RewriteLinks
 			}
 
-			result, errRes := applyConceptMoves(k, moves, rewriteLinks, moveOptions{View: newCallerView(ctx, k), RefuseStrictType: true, ReportMentions: true, MentionCandidates: rec.mentionCandidates})
+			var moveMap map[string]string
+			result, errRes := applyConceptMoves(k, moves, rewriteLinks, moveOptions{View: newCallerView(ctx, k), RefuseStrictType: true, ReportMentions: true, MentionCandidates: rec.mentionCandidates, MoveMapOut: &moveMap})
 			if errRes != nil {
 				return *errRes, nil
 			}
-			return jsonResult(result), nil
+			res := jsonResult(result)
+			if rewriteLinks { // rewrite_links=false leaves linkers alone, other KBs' too
+				res.crossMoves = crossMovesOf(k, moveMap)
+			}
+			return res, nil
 		},
 	}
 }
@@ -1980,6 +1985,10 @@ type moveOptions struct {
 	// one of the old IDs, so the mentions scan reads those files only; nil
 	// result = unknown, scan every concept.
 	MentionCandidates func(oldIDs []string) map[string]bool
+	// MoveMapOut, when set, receives the old -> new id map of every page the
+	// call moved (descendants of an expanded concept included): the input of
+	// the cross-KB follow-up, kept out of the JSON result.
+	MoveMapOut *map[string]string
 }
 
 // applyConceptMoves validates every move, applies them, rebases the moved
@@ -2185,6 +2194,9 @@ func applyConceptMoves(k *kb.KB, moves []conceptMoveEntry, rewriteLinks bool, op
 		logLines = append(logLines, fmt.Sprintf("- %s → %s", mv.sourceID, mv.targetID))
 	}
 
+	if opts.MoveMapOut != nil {
+		*opts.MoveMapOut = moveMap
+	}
 	result := map[string]interface{}{
 		"moves": applied,
 	}
