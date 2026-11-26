@@ -412,6 +412,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	kbs := facts.Names
 	var entriesByProvider map[string][]mcpEntry
 	var entryKBs []string
+	var held []heldKB
 	var routedPath string
 	if healthErr != nil {
 		fmt.Fprintf(errw, "Warning: MCP entry reconciliation skipped, server unreachable: %v\n", healthErr)
@@ -438,10 +439,28 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 				kbs = append([]string(nil), previousKnownKBs...)
 				entryKBs = kbs
 			}
-		case kbAnswerEmpty:
-			// An identified token that reads no KB: the answer, and the one a
-			// provider that follows the server follows to none.
-			if len(previousKnownKBs) > 0 {
+		}
+		// A KB the server was told to serve and could not mount now is held, not
+		// removed: it is not pulled (cfg.KnownKBs below is the live list), its
+		// lock entries and region of the block stay, its per-KB entry is kept,
+		// and it stays in known_kbs so the next sync still knows it.
+		if facts.health != nil {
+			held = heldKBs(previousKnownKBs, kbs, facts.health.SkippedKBs, nil)
+		}
+		if names := heldNames(held); len(names) > 0 && entryKBs != nil {
+			entryKBs = withRetainedKBs(entryKBs, names)
+		}
+		// A listed, empty answer (an identified token that reads no KB) is the
+		// answer a provider that follows the server follows to none: it says so,
+		// for the KBs that actually leave (a KB held for a failed mount does not).
+		if kbListAnswer(facts, healthErr) == kbAnswerEmpty {
+			var leaving []string
+			for _, kb := range previousKnownKBs {
+				if !slices.Contains(heldNames(held), kb) {
+					leaving = append(leaving, kb)
+				}
+			}
+			if len(leaving) > 0 {
 				if opts.DryRun {
 					fmt.Fprintln(out, "[dry-run] would remove: the server lists no KB for this token: every KB this client follows leaves")
 				} else {
@@ -601,10 +620,15 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	// and the approvals line of the arrivals.
 	var followers, addedKBs, removedKBs []string
 	if healthErr == nil {
-		printKnownKBsChange(out, previousKnownKBs, kbs, opts.DryRun)
+		printKnownKBsChange(out, previousKnownKBs, withRetainedKBs(kbs, heldNames(held)), opts.DryRun)
 		followers = followingProviders(cfg, targets)
-		addedKBs, removedKBs = kbDiff(previousKnownKBs, kbs)
+		addedKBs, removedKBs = kbDiff(previousKnownKBs, withRetainedKBs(kbs, heldNames(held)))
 		printKBFollow(out, addedKBs, removedKBs, followers, opts.DryRun)
+		if len(followers) > 0 {
+			for _, h := range held {
+				fmt.Fprintf(out, "held %s: the server could not mount it (%s), its files stay\n", escapeControl(h.Name), escapeControl(h.Reason))
+			}
+		}
 		if opts.DryRun {
 			if lockFile, lerr := provisioning.ReadLockFile(lockFilePath(dir)); lerr == nil {
 				approvals = previewPreApprovalInstalls(out, cfg, lockFile, manifests, projections, len(pullFailures) == 0)
@@ -614,10 +638,10 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 			}
 		} else {
 			mounted := cfg.KnownKBs
-			cfg.KnownKBs = withRetainedKBs(mounted, retainedKBs)
+			cfg.KnownKBs = withRetainedKBs(withRetainedKBs(mounted, retainedKBs), heldNames(held))
 			// The record of what changed travels with known_kbs in the same
 			// save; a sync that changed nothing keeps the previous one.
-			if rec := kbChangeRecord(previousKnownKBs, mounted, time.Now()); rec != nil && len(opts.Clients) == 0 {
+			if rec := kbChangeRecord(previousKnownKBs, cfg.KnownKBs, time.Now()); rec != nil && len(opts.Clients) == 0 {
 				cfg.KBChange = rec
 			}
 			if len(opts.Clients) > 0 {
@@ -647,7 +671,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	}
 	var pruneDenied []string
 	writeDenied := slices.Clone(hookDenied)
-	results, err := materializeForProviders(manifests, projections, dir, facts.Version, opts.DryRun, opts.NoHeal, portabilityOptions{PruneDenied: &pruneDenied, WriteDenied: &writeDenied, SearchRoots: cfg.ScanRoots(), Paths: cfg.Paths, Streams: opts.Streams, HeldPlugins: heldPlugins(cfg), MCPTokenEnv: tokenEnvName(cfg)}, kbOrderForProviders(cfg, targets), approvals)
+	results, err := materializeForProviders(manifests, projections, dir, facts.Version, opts.DryRun, opts.NoHeal, portabilityOptions{PruneDenied: &pruneDenied, WriteDenied: &writeDenied, SearchRoots: cfg.ScanRoots(), Paths: cfg.Paths, Streams: opts.Streams, HeldPlugins: heldPlugins(cfg), HeldKBs: heldSet(held, followers), HeldFor: stringSet(followers), MCPTokenEnv: tokenEnvName(cfg)}, kbOrderForProviders(cfg, targets), approvals)
 	if err != nil {
 		return syncResult{}, err
 	}

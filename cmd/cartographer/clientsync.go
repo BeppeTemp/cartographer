@@ -1025,6 +1025,14 @@ type portabilityOptions struct {
 	// HeldPlugins are the plugins that cannot be read this run: their lock
 	// entries are carried forward unchanged instead of pruned (heldPlugins).
 	HeldPlugins map[string]bool
+	// HeldKBs are the KBs the server could not mount this run (heldKBs): their
+	// lock entries are carried forward and their region of the instructions
+	// block is kept (provisioning.ApplyOptions.HeldKBs).
+	HeldKBs map[string]bool
+	// HeldFor are the providers the hold applies to: the ones that follow the
+	// server, in their global projection. An explicit list or a workspace list
+	// naming a KB the server lost is a stale selection, as before.
+	HeldFor map[string]bool
 	// MCPTokenEnv is the token variable of the client configuration, passed on
 	// to a launcher entry (Codex filters the environment).
 	MCPTokenEnv string
@@ -1165,6 +1173,20 @@ func materializeForProviders(manifests map[string]contract.Manifest, projections
 		// A plugin that cannot be read this run retires nothing: its entries
 		// leave the diff and are carried forward (splitHeldPlugins).
 		lockForApply, held := splitHeldPlugins(previous, portability.HeldPlugins)
+		// The same for a KB the server could not mount: its files, its lock
+		// entries and its region of the block stay as they are.
+		heldKBsHere := portability.HeldKBs
+		if !portability.HeldFor[p.Provider] || p.Scope != contract.ScopeGlobal {
+			heldKBsHere = nil
+		}
+		lockForApply, heldKBEntries := splitHeldKBs(lockForApply, heldKBsHere)
+		for _, mf := range heldKBEntries {
+			if mf.Kind == "instructions" {
+				if kb, _ := strings.CutPrefix(mf.Source, "kb:"); !slices.Contains(opts.HeldKBs, kb) {
+					opts.HeldKBs = append(opts.HeldKBs, kb)
+				}
+			}
+		}
 		opts.Lock = lockForApply
 		if p.Derived && len(p.SkipKinds) > 0 {
 			var rest []provisioning.ManagedFile
@@ -1233,6 +1255,15 @@ func materializeForProviders(manifests map[string]contract.Manifest, projections
 			applied.NewLock = lock
 		}
 		applied.NewLock.Managed = append(applied.NewLock.Managed, held...)
+		for _, mf := range heldKBEntries {
+			// A held KB whose region is not in the block on disk has nothing
+			// to keep: its instructions entry would claim a section that is
+			// not there.
+			if kb, _ := strings.CutPrefix(mf.Source, "kb:"); mf.Kind == "instructions" && slices.Contains(applied.HeldKBsWithoutSection, kb) {
+				continue
+			}
+			applied.NewLock.Managed = append(applied.NewLock.Managed, mf)
+		}
 		// Record the base dir only when it is not the lockfile's own
 		// directory: every existing lockfile keeps its current meaning and no
 		// migration runs (D141). SetProjection records it for a workspace.

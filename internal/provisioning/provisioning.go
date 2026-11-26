@@ -305,6 +305,13 @@ type ApplyOptions struct {
 	// default meaning "every known KB") keeps the alphabetical fallback.
 	KBOrder []string
 
+	// HeldKBs are the KBs the server was told to serve and could not mount now:
+	// their region of the instructions block is carried from the block on disk
+	// (heldKBSections) and never rebuilt, and the client carries their lock
+	// entries. Set for the global projection of a provider that follows the
+	// server, by the sync and by status alike.
+	HeldKBs []string
+
 	// InstructionsRel, when non-empty, is the project-scope file the
 	// "instructions" block goes into, instead of the matrix cell (D1019): a
 	// derived workspace binding must not edit a CLAUDE.md git tracks, so Claude
@@ -378,6 +385,10 @@ type AppliedResult struct {
 	Written       []ManagedFile
 	Pruned        []ManagedFile
 	NeedsApproval []contract.Artifact
+	// HeldKBsWithoutSection are the ApplyOptions.HeldKBs whose region is not in
+	// the block on disk: nothing is carried for them, so the client drops their
+	// instructions lock entry instead of holding it.
+	HeldKBsWithoutSection []string
 	// Unsupported: artifacts whose kind has no known destination for the
 	// provider (DestDir == ""). Distinct from NeedsApproval: no approval
 	// unblocks them — the provider simply doesn't support them.
@@ -2329,6 +2340,9 @@ func applyInstructionsGroup(m contract.Manifest, diff Diff, opts ApplyOptions, t
 		return nil
 	}
 
+	heldSecs, heldMissing := heldInstructions(opts, destRel)
+	result.HeldKBsWithoutSection = heldMissing
+
 	// Trigger: did something in the instructions kind change in this Apply —
 	// or did the managed block disappear from the provider's file (D139)?
 	// The block is rewritten when the instructions artifact itself changed, and
@@ -2385,19 +2399,7 @@ func applyInstructionsGroup(m contract.Manifest, diff Diff, opts ApplyOptions, t
 	for i, name := range opts.KBOrder {
 		rank[name] = i
 	}
-	sort.Slice(current, func(i, j int) bool {
-		ri, oki := rank[current[i].Name]
-		rj, okj := rank[current[j].Name]
-		if oki && okj {
-			return ri < rj
-		}
-		if oki != okj {
-			// Declared KBs sort before ones absent from the binding order,
-			// so an ordering change can never drop a section.
-			return oki
-		}
-		return current[i].Name < current[j].Name
-	})
+	sort.Slice(current, func(i, j int) bool { return kbBefore(rank, current[i].Name, current[j].Name) })
 
 	// Expanded content and hash computed here, once per authorized artifact,
 	// regardless of triggered: newManaged (below) must stay consistent with the
@@ -2466,23 +2468,28 @@ func applyInstructionsGroup(m contract.Manifest, diff Diff, opts ApplyOptions, t
 	// that hash without the approvals and notes a sync holds, so the two would
 	// disagree for good. Its trigger is blockBodyIs below, with the @AGENTS.md import.
 	envSection := environmentSection(m, opts)
+	// A held KB's region counts as a section: without any, the block goes.
+	have := len(signed) > 0 || len(heldSecs) > 0
 	var pathsSection, sharedSection string
-	if len(signed) > 0 {
-		sections := make([]string, 0, len(signed))
+	if have {
+		sections := make([]string, 0, len(signed)+len(heldSecs))
 		for _, a := range signed {
 			sections = append(sections, string(expandedContent[a.Name]))
+		}
+		for _, name := range sortedHeldNames(heldSecs) {
+			sections = append(sections, heldSectionBody(heldSecs[name]))
 		}
 		if sharedSectionWanted(sections) {
 			sharedSection = SharedOperationalSection(opts.FeedbackMode)
 		}
 	}
-	if opts.ExpandPlaceholders && len(signed) > 0 {
+	if opts.ExpandPlaceholders && have {
 		pathsSection = buildPathsSection(pathsTableRows(opts, tracker))
 		*pathsHash = pathsSectionHash(sharedSection + "\x00" + pathsSection + cliHashPart)
 		if !triggered && *pathsHash != opts.Lock.PathsSectionHash {
 			triggered = true
 		}
-	} else if len(signed) > 0 {
+	} else if have {
 		// A server-built manifest expands nothing and has no paths section,
 		// but the shared operational section is still client-owned text of the
 		// block: without its hash a release that edits it left the block old
@@ -2503,15 +2510,25 @@ func applyInstructionsGroup(m contract.Manifest, diff Diff, opts ApplyOptions, t
 	// KB's instructions can end with any line, so the section is never found by
 	// what it starts with.
 	var body string
-	if len(signed) > 0 {
+	if have {
 		// Each KB's snippet is individually attributed (D182 WP1): current is
 		// already in the order applyInstructionsGroup will render (WP2's
 		// opts.KBOrder-aware sort above), so signed — a filtered copy of current —
-		// carries that same order through to the wrap.
-		snippets := make([]string, 0, len(signed))
+		// carries that same order through to the wrap. A held KB's region is
+		// spliced in at the place the same order gives it, byte for byte.
+		type section struct{ name, text string }
+		secs := make([]section, 0, len(signed)+len(heldSecs))
 		for _, a := range signed {
 			content := strings.TrimRight(string(expandedContent[a.Name]), "\n")
-			snippets = append(snippets, wrapKBSection(a.Name, content))
+			secs = append(secs, section{a.Name, wrapKBSection(a.Name, content)})
+		}
+		for _, name := range sortedHeldNames(heldSecs) {
+			secs = append(secs, section{name, heldSecs[name]})
+		}
+		sort.SliceStable(secs, func(i, j int) bool { return kbBefore(rank, secs[i].name, secs[j].name) })
+		snippets := make([]string, 0, len(secs))
+		for _, sec := range secs {
+			snippets = append(snippets, sec.text)
 		}
 		body = strings.Join(snippets, "\n\n")
 
@@ -2546,7 +2563,7 @@ func applyInstructionsGroup(m contract.Manifest, diff Diff, opts ApplyOptions, t
 	fullPath := filepath.Join(opts.BaseDir, destRel)
 	header := instructionsFileHeader(opts.Provider, destRel)
 
-	if !triggered && len(signed) > 0 {
+	if !triggered && have {
 		if !blockBodyMatchesHeader(fullPath, body, header) {
 			triggered = true
 		}
@@ -2556,7 +2573,7 @@ func applyInstructionsGroup(m contract.Manifest, diff Diff, opts ApplyOptions, t
 		return nil
 	}
 
-	if len(signed) == 0 {
+	if !have {
 		// A block another projection of this workspace still renders into the
 		// same file stays (D364): Codex, OpenCode and Antigravity share AGENTS.md.
 		if !opts.DryRun && !opts.CoOwnedPaths[filepath.ToSlash(destRel)] {
@@ -2626,6 +2643,30 @@ func applyInstructionsGroup(m contract.Manifest, diff Diff, opts ApplyOptions, t
 		})
 	}
 	return nil
+}
+
+// kbBefore orders two KB names for the block: the binding's declared order first,
+// then alphabetical, so an ordering change can never drop a section.
+func kbBefore(rank map[string]int, a, b string) bool {
+	ra, oka := rank[a]
+	rb, okb := rank[b]
+	if oka && okb {
+		return ra < rb
+	}
+	if oka != okb {
+		return oka
+	}
+	return a < b
+}
+
+// sortedHeldNames lists the names of a held-section map, sorted.
+func sortedHeldNames(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for n := range m {
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // instructionsOrderChanged reports whether newOrder (this run's authorized
@@ -4416,7 +4457,11 @@ func instructionsResolutionDrift(m contract.Manifest, opts ApplyOptions, tracker
 		signed = append(signed, a)
 		sections = append(sections, string(expandInstructionsText(content, opts, tracker)))
 	}
-	if len(signed) == 0 {
+	heldSecs, _ := heldInstructions(opts, instructionsDest(opts))
+	for _, name := range sortedHeldNames(heldSecs) {
+		sections = append(sections, heldSectionBody(heldSecs[name]))
+	}
+	if len(signed) == 0 && len(heldSecs) == 0 {
 		return nil
 	}
 	var shared string

@@ -280,6 +280,27 @@ func splitHeldPlugins(lock provisioning.Lock, held map[string]bool) (rest provis
 	return rest, heldEntries
 }
 
+// splitHeldKBs is splitHeldPlugins for the KBs the server could not mount this
+// run (heldKBs): their lock entries, of every kind, are carried forward
+// unchanged and never diffed. Held means the server is down for the KB, not that
+// it left: a KB that left is absent from the server's list and from its skipped
+// list, and is pruned.
+func splitHeldKBs(lock provisioning.Lock, held map[string]bool) (rest provisioning.Lock, heldEntries []provisioning.ManagedFile) {
+	if len(held) == 0 {
+		return lock, nil
+	}
+	rest = lock
+	rest.Managed = nil
+	for _, mf := range lock.Managed {
+		if kb, ok := strings.CutPrefix(mf.Source, "kb:"); ok && held[kb] {
+			heldEntries = append(heldEntries, mf)
+		} else {
+			rest.Managed = append(rest.Managed, mf)
+		}
+	}
+	return rest, heldEntries
+}
+
 // pluginPrep is what `setup` and `connect` hand to preparePlugins.
 type pluginPrep struct {
 	Sources []string // the --plugin values

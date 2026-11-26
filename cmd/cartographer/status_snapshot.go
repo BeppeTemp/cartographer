@@ -575,6 +575,20 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 			}
 		}
 	}
+	// What sync would pull is what the server lists now: a KB the last sync knew
+	// that the server no longer lists is not pulled (a stale selection would turn
+	// the whole status unavailable), and it stays in the lock, so it reads as
+	// drift until a sync removes it. A KB the server could not mount is held by
+	// sync, not removed: its lock entries and its region of the block stay, so the
+	// projections are judged as sync applied them, or it would read as drift for as
+	// long as it is down. knownBefore keeps the last sync's list for the pending
+	// report.
+	knownBefore := cfg.KnownKBs
+	if health.KBs != nil {
+		cfg.HeldKBs = heldNames(heldKBs(cfg.KnownKBs, s.KBs, health.SkippedKBs, nil))
+		cfg.KnownKBs = slices.DeleteFunc(slices.Clone(cfg.KnownKBs), func(kb string) bool { return !slices.Contains(s.KBs, kb) })
+		defer func() { cfg.HeldKBs, cfg.KnownKBs = nil, knownBefore }()
+	}
 	routedPath := ""
 	if health.Routed() {
 		routedPath = health.RoutedPath
@@ -680,8 +694,16 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 			} else {
 				pm, _ = provisioning.ProjectManifest(manifests[p.Name], configurator.Provider(p.Name), contract.ScopeGlobal, contract.ProjectOptions{})
 			}
-			diffLock := statusLock(lockFile.ForProvider(p.Name), cfg, pm)
-			d = provisioning.ComputeDiffResolved(pm, diffLock, statusResolveOptions(cfg, p.Name, manifests[p.Name]))
+			// The hold applies to a provider that follows the server, as in sync.
+			var heldHere []string
+			if _, explicit := cfg.BoundKBs(p.Name); !explicit {
+				heldHere = cfg.HeldKBs
+			}
+			diffLock := statusLock(lockFile.ForProvider(p.Name), cfg, pm, stringSet(heldHere))
+			ro := statusResolveOptions(cfg, p.Name, manifests[p.Name])
+			// The held regions of the block are judged where sync carries them.
+			ro.BaseDir, ro.HeldKBs = provisioning.LockBaseDir(lockFile.ForProvider(p.Name), dir), heldWithInstructions(lockFile.ForProvider(p.Name), heldHere)
+			d = provisioning.ComputeDiffResolved(pm, diffLock, ro)
 			if r := unitemizedDrift("", pm, diffLock, d); r != "" {
 				reasons = append(reasons, r)
 			}
@@ -721,7 +743,8 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		if !explicit {
 			p.kbChange = cfg.KBChange
 			if health.KBs != nil {
-				p.KBsPending = pendingKBs(s.KBs, cfg.KnownKBs)
+				// A held KB is down, not gone: sync would keep it, so it is not pending.
+				p.KBsPending = pendingKBs(s.KBs, slices.DeleteFunc(slices.Clone(knownBefore), func(kb string) bool { return slices.Contains(cfg.HeldKBs, kb) }))
 			}
 		}
 		if explicit {
@@ -781,8 +804,10 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 // forward untouched, and with the revision those entries explain (the manifest
 // lacks the plugin's artifacts while the recorded revision has them) taken
 // from the manifest, so only a material difference is drift.
-func statusLock(lock provisioning.Lock, cfg *clientconfig.Config, pm contract.Manifest) provisioning.Lock {
+func statusLock(lock provisioning.Lock, cfg *clientconfig.Config, pm contract.Manifest, heldKB map[string]bool) provisioning.Lock {
 	rest, held := splitHeldPlugins(lock, heldPlugins(cfg))
+	rest, heldKBEntries := splitHeldKBs(rest, heldKB)
+	held = append(held, heldKBEntries...)
 	if len(held) > 0 {
 		rest.AppliedRevision = pm.Revision
 	}
@@ -841,7 +866,7 @@ func workspaceProviderDiff(cfg *clientconfig.Config, ps []syncProjection, manife
 			r = resolveProjectionSet([]syncProjection{sp}, manifests, contract.ProjectOptions{})[projectionKey(sp)]
 		}
 		pm := r.Manifest
-		diffLock = statusLock(diffLock, cfg, pm)
+		diffLock = statusLock(diffLock, cfg, pm, nil)
 		ro := statusResolveOptions(cfg, sp.Provider, manifests[projectionKey(sp)])
 		// The same answer sync gave the projection, or the paths-section hash
 		// status recomputes would differ from the recorded one for good (#1897).
@@ -1392,4 +1417,28 @@ func pendingKBs(live, known []string) *kbsPending {
 		return nil
 	}
 	return &kbsPending{Added: added, Removed: removed}
+}
+
+// stringSet is the set of names.
+func stringSet(names []string) map[string]bool {
+	if len(names) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(names))
+	for _, n := range names {
+		out[n] = true
+	}
+	return out
+}
+
+// heldWithInstructions is the held KBs that have an instructions entry in lock:
+// the ones whose region of the block sync carries (materializeForProviders).
+func heldWithInstructions(lock provisioning.Lock, held []string) []string {
+	var out []string
+	for _, mf := range lock.Managed {
+		if kb, ok := strings.CutPrefix(mf.Source, "kb:"); ok && mf.Kind == "instructions" && slices.Contains(held, kb) && !slices.Contains(out, kb) {
+			out = append(out, kb)
+		}
+	}
+	return out
 }
