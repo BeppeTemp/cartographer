@@ -25,6 +25,11 @@ type RelationUnresolved struct {
 	Name   string `json:"name"`
 	Remote string `json:"remote"`
 	Reason string `json:"reason"`
+	// Via are the current names of the KBs a cycle or too_deep reason rests on:
+	// the path from the target back to this KB (cycle), or every KB the walk
+	// entered (too_deep), the target first. Never serialized: the lint uses it
+	// to show the finding only to a caller who reads all of them.
+	Via []string `json:"-"`
 }
 
 // RelationView is what a caller learns of one KB's dependencies. Arrays are
@@ -92,6 +97,7 @@ func (env RelationEnv) edge(node *KB, rel Relation) (relationEdge, string, error
 type walkResult struct {
 	order   []string // current names, discovery order, start included
 	cycle   bool     // self is reachable
+	path    []string // the first path found from start back to self, start first
 	tooDeep bool     // relationNodeCap would be passed
 }
 
@@ -101,6 +107,7 @@ func (env RelationEnv) walk(self *KB, start relationEdge, entered map[string]boo
 	var res walkResult
 	seen := map[string]bool{}
 	var visit func(e relationEdge) error
+	var stack []string
 	visit = func(e relationEdge) error {
 		if !entered[e.name] && len(entered) >= relationNodeCap {
 			res.tooDeep = true
@@ -109,6 +116,8 @@ func (env RelationEnv) walk(self *KB, start relationEdge, entered map[string]boo
 		seen[e.name] = true
 		entered[e.name] = true
 		res.order = append(res.order, e.name)
+		stack = append(stack, e.name)
+		defer func() { stack = stack[:len(stack)-1] }()
 		rels, err := e.target.Relations()
 		if err != nil {
 			return err
@@ -122,6 +131,9 @@ func (env RelationEnv) walk(self *KB, start relationEdge, entered map[string]boo
 				continue
 			}
 			if next.target == self {
+				if !res.cycle {
+					res.path = append([]string(nil), stack...)
+				}
 				res.cycle = true
 				continue
 			}
@@ -169,6 +181,7 @@ func ResolveRelations(env RelationEnv, self *KB) (RelationView, error) {
 		if reason == "" && followed[e.name] {
 			continue // two declared names reaching one target count once
 		}
+		var via []string
 		if reason == "" {
 			res, werr := env.walk(self, e, entered)
 			if werr != nil {
@@ -177,8 +190,10 @@ func ResolveRelations(env RelationEnv, self *KB) (RelationView, error) {
 			switch {
 			case res.tooDeep:
 				reason = RelationTooDeep
+				via = res.order
 			case res.cycle:
 				reason = RelationCycle
+				via = res.path
 			default:
 				followed[e.name] = true
 				v.Resolved = append(v.Resolved, e.name)
@@ -190,7 +205,7 @@ func ResolveRelations(env RelationEnv, self *KB) (RelationView, error) {
 			}
 		}
 		if reason != "" {
-			v.Unresolved = append(v.Unresolved, RelationUnresolved{Name: r.Name, Remote: r.Remote, Reason: reason})
+			v.Unresolved = append(v.Unresolved, RelationUnresolved{Name: r.Name, Remote: r.Remote, Reason: reason, Via: via})
 		}
 	}
 	for n := range entered {

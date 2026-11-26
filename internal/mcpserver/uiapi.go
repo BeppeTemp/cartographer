@@ -684,10 +684,17 @@ func uiWholeFindings(ctx requestContext, srv *Server) ([]lint.Finding, error) {
 				// A clean KB: nil would mean "no precomputed findings" below.
 				all = []lint.Finding{}
 			}
-			return uiVisibleFindingsFrom(ctx, srv.kbRef, "", all)
+			return uiVisibleFindingsFrom(ctx, srv.kbRef, "", appendRelationFindings(ctx, srv.kbRef, all))
 		}
 	}
-	return uiVisibleFindings(ctx, srv.kbRef, "")
+	all, err := lint.Run(srv.kbRef, "", false)
+	if err != nil {
+		return nil, err
+	}
+	if all == nil {
+		all = []lint.Finding{} // nil would mean "no precomputed findings"
+	}
+	return uiVisibleFindingsFrom(ctx, srv.kbRef, "", appendRelationFindings(ctx, srv.kbRef, all))
 }
 
 func uiVisibleFindings(ctx requestContext, k *kb.KB, scope string) ([]lint.Finding, error) {
