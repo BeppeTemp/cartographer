@@ -528,6 +528,7 @@ change who acts:
 | `bug`, `idea` | The kinds of issue |
 | `accepted` | Triaged and accepted. Not yet started while it has no assignee; assigned to a maintainer once work starts, so a contributor sees it is taken |
 | `plan`, `approved` | Mark the closed plan issues of the former process; no longer set |
+| `needs-maintainer` | A session that works the issue queue asks the maintainer one question in a comment (§Fixes without a plan); removed once answered |
 | `size-exception` | Maintainer-granted exception to the 500-line cap |
 | `good first issue` | Small, self-contained, suitable for a first contribution: set at triage on the easiest accepted issues, and dropped when nobody takes one for a while |
 | `ci-red` | Opened by CI when `main` is red |
@@ -546,8 +547,24 @@ from the template writes neither: the weekly escape report (`scripts/escapes.sh`
 `bug` or `ci-red` issue with no `Found-by:` line as `user` when its author is neither a
 maintainer nor a bot, and as `missing` otherwise.
 
+A maintainer's session opens such a bug with `make issue TITLE="<title>" BODY=<file>
+FOUND_BY=<value> [INTRODUCED_BY=<ref>]` (`scripts/issue-new.sh`), which checks the value,
+appends the two lines and labels it `bug` and `accepted`.
+
 Triage is the `accepted` label (D1451, D1453): an open issue without it is not triaged
-yet, and the weekly triage accepts it or closes it. There are no milestones: the
+yet. Who decides depends on the class:
+
+| Class | Triage | Maintainer step |
+|---|---|---|
+| `bug` opened by a maintainer's session, the lander or a workflow's bot | `accepted` at creation (the lander's flaky issues carry it) | none, unless a rule of §Fixes without a plan applies |
+| `bug` from anyone else | `cartographer-investigator` reproduces it and writes cause, options and size in a comment | the `accepted` label, a design comment and an explicit `make ready`: no standing approval |
+| `idea` | never automatic | accept, park or close |
+| `ci-red`, `nightly-red` | accepted by the workflow that opens them | none |
+| security | a draft advisory (`SECURITY.md`), never an issue | all of it |
+
+`make issues` (`scripts/issue-queue.sh`, read-only) prints the open issues as a work queue:
+class, state (`untriaged`, `idle`, `external`, `fixing`, `queued`, `rejected`, `needs-maintainer`) and next
+action, the idle `ci-red` and flaky bugs first. There are no milestones: the
 version is not planned per issue, it is whatever the merged commits make it.
 
 A trivial fix needs no plan: a PR that says `Closes #<n>` is enough.
@@ -664,7 +681,24 @@ drafts that comment; the maintainer decides and posts it. The same
 agent takes a review round on a branch whose implementer is gone, with the verified
 findings as its mandate. Everything else — tests that fail without the fix, docs in
 the same change, `make check`, the review tier of `cartographer-review-pr`, `make ready` —
-is the same as for a plan.
+is the same as for a plan. The `cartographer-fix-issues` skill works through the idle bugs
+of `make issues` this way, one `fix-<n>` worktree each.
+
+The fix implementer obeys only a maintainer's text. For an issue opened by anyone other than a
+maintainer or `github-actions[bot]` it never gets the issue number: its mandate is the investigator's verified
+findings (`file:line`), and the coordinator's comment on such an issue is a report, not a design.
+
+An `accepted` `bug` is the standing approval of `make ready` for its one `fix-<n>` change, so a
+fix rides the next train with no maintainer step. An `accepted` `bug` opened by anyone other than a maintainer (author association OWNER, MEMBER or COLLABORATOR) or `github-actions[bot]` is outside the standing approval: it needs a maintainer's design comment and an explicit `make ready` from the maintainer. `make issues` lists it as `external`. The session asks instead, with the
+`needs-maintainer` label and one comment holding the question and the options, when the
+investigator returns more than one option that changes a public contract (a tool schema, CLI
+output or flags, config keys, an on-disk format, a decision file); when the `Profile:` line of
+`scripts/pr-triage.sh` names a profile whose row of `scripts/profiles.tsv` has standing `no`
+(today `process`, which also prints `WARN: supply-chain files changed`, and `security`); when the fix is over 150 production lines or needs more than one change
+(it becomes a plan); when the change is rejected a third time; and when the fix is breaking. The
+real gates stay the review tier and the train gate. `make ready` copies the issue's `Found-by:`
+and `Introduced-by:` lines into a `fix` that closes it and has none, only from a body a
+maintainer or `github-actions[bot]` wrote.
 
 A defect found on the way — a reviewer's `pre-existing` finding, a flaky or broken
 test, a doc that contradicts the code — does not wait in a backlog: it becomes an accepted
@@ -672,7 +706,8 @@ test, a doc that contradicts the code — does not wait in a backlog: it becomes
 the change (§Issues), and when it is bounded the session that
 found it fixes it the same day through this path. A flaky or broken test met on the way —
 in a train gate, in the pre-check of `make ready`, or in a coordinator's
-own `make check-hosted` run — is `Found-by: gate`; `agent` is for a defect found by reading
+own `make check-hosted` run — is `Found-by: gate` (the lander opens the issue of a flaky test
+it met itself, `accepted`, and titles a repeat offender of the last 14 days `flaky (<n>th): …`); `agent` is for a defect found by reading
 or using the code while working on something else. A rerun that turns a flaky test
 green is not a fix. A security one goes to a draft advisory instead, and the next
 paragraph applies.

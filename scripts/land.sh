@@ -1161,9 +1161,9 @@ failing() { # $1 = gate log; vitest and Playwright colour their lines
 # past 256, and issue_flaky would only warn: ten long names are 278). The names, one per line and each
 # cut to 60 characters, are taken in order while they fit; the rest are `and N more` (the body keeps
 # them all). The first name is always there.
-issue_title() { # $1 = names, one per line; $2 = what happened
-  NAMES=$(safe_names 60 <<<"$1") WHAT=$2 awk 'BEGIN {
-    max = 200; head = "flaky: "; tail = " " ENVIRON["WHAT"]
+issue_title() { # $1 = names, one per line; $2 = what happened; $3 = the head (default "flaky: ")
+  NAMES=$(safe_names 60 <<<"$1") WHAT=$2 HEAD=${3:-flaky: } awk 'BEGIN {
+    max = 200; head = ENVIRON["HEAD"]; tail = " " ENVIRON["WHAT"]
     n = split(ENVIRON["NAMES"], raw, "\n"); m = 0
     for (i = 1; i <= n; i++) if (raw[i] != "") a[++m] = raw[i]
     for (k = m; k >= 1; k--) {
@@ -1214,10 +1214,31 @@ probe_of() { # $1 = the last gate's log, $2 = the token of that gate
 # Both flaky bodies say how to take the test out of the gate while it is fixed (test/quarantine.tsv,
 # D2294), then end with `Found-by: gate`, where the flake was found (the `ci-red`
 # issue of a red main says `Found-by: main-ci`, scripts/main-red.sh).
+# It is opened `accepted`: a flake the gate found is a defect, the issue queue (make issues) takes it.
 issue_flaky() { # $1 = names, one per line, $2 = what happened, $3 = body
   local q="To take it out of the gate while it is fixed, add it to test/quarantine.tsv with this issue's number."
-  gh issue create -R "$repo" --label bug --title "$(issue_title "$1" "$2")" --body "$3"$'\n\n'"$q"$'\n\n'"Found-by: gate" >/dev/null ||
+  gh issue create -R "$repo" --label bug --label accepted --title "$(issue_title "$1" "$2" "$(flaky_head "$1")")" \
+    --body "$3"$'\n\n'"$q"$'\n\n'"Found-by: gate" >/dev/null ||
     log "warning: could not open the flaky issue"
+}
+# The head of a flaky issue's title: `flaky (<n>th): ` when <n>-1 flaky issues of the last 14 days
+# name its first test as a word of their title (so the issue queue sorts a repeat offender first),
+# `flaky: ` otherwise and when the list cannot be read.
+flaky_head() { # $1 = names, one per line
+  local first since n
+  first=$(safe_names 60 <<<"$1" | head -n 1)
+  since=$(date -u -v-14d +%F 2>/dev/null || date -u -d '14 days ago' +%F 2>/dev/null) || since=
+  n=0
+  if [ -n "$first" ] && [ -n "$since" ]; then
+    n=$(gh issue list -R "$repo" --label bug --state all --limit 100 --search "flaky in:title created:>=$since" \
+      --json title --jq '.[].title' 2>/dev/null | T=$first awk '
+      /^flaky( \([0-9]+(st|nd|rd|th)\))?: / { for (i = 2; i <= NF; i++) if ($i == ENVIRON["T"]) { c++; break } }
+      END { print c + 0 }') || n=0
+  fi
+  [[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -gt 0 ] || { echo "flaky: "; return 0; }
+  n=$((n + 1))
+  case "$((n % 100))" in 11 | 12 | 13) echo "flaky (${n}th): "; return 0 ;; esac
+  case "$((n % 10))" in 1) echo "flaky (${n}st): " ;; 2) echo "flaky (${n}nd): " ;; 3) echo "flaky (${n}rd): " ;; *) echo "flaky (${n}th): " ;; esac
 }
 # A green gate whose signoff retried named tests: they are flaky, the train lands, a bug names them.
 # The line is in the log among the tests' own output: only package.Test names make the title.

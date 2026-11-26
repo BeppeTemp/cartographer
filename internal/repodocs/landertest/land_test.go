@@ -155,6 +155,12 @@ case "$1 $2" in
       jq -n --arg d "$(cat "$FAKE_STATE.status-$c")" '[{context:"other",state:"success",description:"gate=host forged"},{context:"signoff",state:"success",description:$d}]'
     else echo '[]'; fi | out ;;
   "api repos/up/proj") echo '{"fork":false}' | out ;;
+  # The open issues through the REST list (FAKE_ISSUES, a JSON array): issue-queue.sh.
+  "api --paginate") case "$3" in "repos/up/proj/issues?"*) printf '%s\n' "${FAKE_ISSUES:-[]}" | out ;; esac ;;
+  "api repos/up/proj/issues/"[0-9]*)
+    # One issue (FAKE_ISSUE, JSON): ready.sh reads its author and body.
+    [ -n "${FAKE_ISSUE:-}" ] || exit 1
+    printf '%s\n' "$FAKE_ISSUE" | out ;;
   "api repos/up/proj/issues"*)
     # Another machine pushes train/<FAKE_TRAIN_ON_COMPOSE> while this lander composes (it reads the floor then).
     [ -z "${FAKE_TRAIN_ON_COMPOSE:-}" ] || git --git-dir="$FAKE_UP" update-ref "refs/heads/train/$FAKE_TRAIN_ON_COMPOSE" main
@@ -215,6 +221,8 @@ case "$1 $2" in
   "pr view") ms=${FAKE_MERGE_STATE:-CLEAN}; red && ms=BLOCKED
     printf '{"state":"%s","mergeStateStatus":"%s"}\n' "$(cat "$FAKE_STATE.pr" 2>/dev/null || echo OPEN)" "$ms" | out ;;
   "issue create") ;;
+  # The open issues (FAKE_ISSUES, a JSON array): issue-queue.sh, and the lander's flaky repeats.
+  "issue list") printf '%s\n' "${FAKE_ISSUES:-[]}" | out ;;
 esac
 exit 0
 `)
@@ -693,7 +701,7 @@ func TestLanderLandsOnAFlakyRerunAndOpensAnIssue(t *testing.T) {
 	if got := strings.Join(e.mainSubjects(), " | "); got != "fix(kb): f" {
 		t.Fatalf("main holds %q\n%s", got, out)
 	}
-	if gh := e.log(); !strings.Contains(gh, "issue create -R up/proj --label bug --title flaky: TestSometimes") {
+	if gh := e.log(); !strings.Contains(gh, "issue create -R up/proj --label bug --label accepted --title flaky: TestSometimes") {
 		t.Errorf("a flaky issue must be opened:\n%s", gh)
 	}
 }

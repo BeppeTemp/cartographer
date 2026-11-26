@@ -1,4 +1,4 @@
-.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke docker-surveyor docker-surveyor-smoke clean e2e e2e-nightly e2e-upgrade usage-test demo-image demo-smoke demo-worker-test demo-tf-check helm-check test-install test-linux worktree-add worktree-rm worktree-clean dev gate decisions-index kiro-agents changelog-areas decisions-new codemap runs-where settings-example openapi web web-test web-perf web-check e2e-web hero vulncheck lint-workflows signoff signoff-platform web-gate check check-run check-hosted ready land land-status requeue status test-rerun
+.PHONY: help build test race vet fmt fmt-check run run-http smoke smoke-http docker docker-smoke docker-surveyor docker-surveyor-smoke clean e2e e2e-nightly e2e-upgrade usage-test demo-image demo-smoke demo-worker-test demo-tf-check helm-check test-install test-linux worktree-add worktree-rm worktree-clean dev gate decisions-index kiro-agents changelog-areas decisions-new codemap runs-where settings-example openapi web web-test web-perf web-check e2e-web hero vulncheck lint-workflows signoff signoff-platform web-gate check check-run check-hosted ready land land-status requeue status issues issue test-rerun
 VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo dev)
 
 # gofmt takes paths, and `gofmt -l .` walks every hidden directory — including
@@ -338,6 +338,13 @@ land-status: ## The lander's queue, its open train PR, the rejected changes and 
 # What waits for the maintainer in one read-only command (scripts/status.sh has the sections).
 status: ## What waits for the maintainer: rejected changes, the queue with verdicts, worktrees to read, main's CI, untriaged issues ([STATUS_PLANS=<command>] adds your plans)
 	@STATUS_PLANS="$(STATUS_PLANS)" ./scripts/status.sh
+
+# The open issues as a work queue (scripts/issue-queue.sh, read-only), and a maintainer's accepted bug.
+issues: ## The open issues as a work queue: class, state, next action, the fixable ones first
+	@./scripts/issue-queue.sh
+
+issue: ## Maintainer only: open an accepted bug (TITLE="<title>" BODY=<file> FOUND_BY=<value> [INTRODUCED_BY=<ref>])
+	@TITLE="$(TITLE)" BODY="$(BODY)" FOUND_BY="$(FOUND_BY)" INTRODUCED_BY="$(INTRODUCED_BY)" ./scripts/issue-new.sh
 
 # A queued or rejected change rebuilt on the current main, with the changes that follow it
 # (scripts/requeue.sh has the rules).
