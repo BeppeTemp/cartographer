@@ -1,8 +1,10 @@
 package client_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -600,6 +602,9 @@ func TestCall_SlowServerIsNotReportedUnreachable(t *testing.T) {
 	release := make(chan struct{})
 	var arrivals atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Counted only once the whole request is read: a deadline that falls
+		// while the client still writes the body says nothing (#2416).
+		io.Copy(io.Discard, r.Body)
 		arrivals.Add(1)
 		<-release
 	}))
@@ -630,6 +635,52 @@ func TestCall_SlowServerIsNotReportedUnreachable(t *testing.T) {
 		return
 	}
 	t.Fatal("the request never reached the handler within the budget")
+}
+
+// A deadline that is a bare context error (no "awaiting headers" text) after
+// the whole request was written still names the server as up but slow (#2416).
+// The context ends only once the handler has read the request, so no timing
+// decides which phase the deadline falls in.
+func TestCall_ContextDeadlineAfterRequestSentIsNotUnreachable(t *testing.T) {
+	release := make(chan struct{})
+	arrived := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.Copy(io.Discard, r.Body)
+		close(arrived)
+		<-release
+	}))
+	defer srv.Close()
+	defer close(release)
+
+	ctx := &deadlineCtx{Context: context.Background(), done: make(chan struct{})}
+	go func() {
+		<-arrived
+		time.Sleep(100 * time.Millisecond) // the client's write returned long before
+		close(ctx.done)
+	}()
+	_, err := client.New(srv.URL+"/mcp", "").CallContext(ctx, "kb_status", map[string]any{})
+	if err == nil {
+		t.Fatal("Call succeeded against a server that never answers")
+	}
+	if msg := err.Error(); strings.Contains(msg, "could not reach") || !strings.Contains(msg, "did not answer in time") {
+		t.Fatalf("error = %q, want the server named as up but slow", msg)
+	}
+}
+
+// deadlineCtx ends with context.DeadlineExceeded when done is closed.
+type deadlineCtx struct {
+	context.Context
+	done chan struct{}
+}
+
+func (c *deadlineCtx) Done() <-chan struct{} { return c.done }
+func (c *deadlineCtx) Err() error {
+	select {
+	case <-c.done:
+		return context.DeadlineExceeded
+	default:
+		return nil
+	}
 }
 
 // D254: latest_version is decoded when present and empty when absent.
