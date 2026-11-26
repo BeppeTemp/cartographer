@@ -129,6 +129,9 @@ func setKBField(dst *KBSpec, part KBSpec, key string) bool {
 		// one committed on the remote's default branch, read on demand by
 		// KB.Relations, like `branch` (D903): the working copy's value never
 		// becomes policy here.
+	case "remote_path_prefixes":
+		// Nothing to copy: the lint reads it from the working copy's
+		// settings.yaml (KB.ReadSettings), it is not a server policy.
 	default:
 		return false
 	}

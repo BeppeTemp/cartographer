@@ -171,6 +171,9 @@ type conceptInput struct {
 	FrontmatterRaw string           // raw frontmatter block (between ---), for malformed detection
 	Parsed         *okf.Frontmatter // nil when the concept has no readable frontmatter
 	Registry       registryLint
+	// RemotePrefixes are the KB's remote_path_prefixes: machine_path does not
+	// flag a path under one.
+	RemotePrefixes []string
 	MapName        string          // "" outside a map
 	Contract       *kb.MapContract // nil outside a map
 	// Catalog is the KB's templates (D352); nil unless the page's map sets a
@@ -232,9 +235,9 @@ func frontmatterFindings(in conceptInput) []Finding {
 
 	// --- machine_path (D75 WP6 / D124) ---
 	// A verbatim external document is not the KB's writing (#1195, D1195).
-	if all := disallowedMachinePaths(in.Body); len(all) > 0 && !externalOrigin(parsed) {
+	if all := disallowedMachinePaths(in.Body, in.RemotePrefixes); len(all) > 0 && !externalOrigin(parsed) {
 		disallowed := all[0]
-		msg := fmt.Sprintf("client-local path %q — use {{repo:<key>}}/{{path:<name>}} instead (D75), or $HOME/… for a path in the reader's own home; operational paths on containers/remote hosts are not client-local (D124): a path on a remote host goes in a fenced block that opens with its `ssh <host>` line or a `user@host$` prompt, or follows a line naming `ssh <host>`; a verbatim third-party document is marked `origin: external`", disallowed)
+		msg := fmt.Sprintf("client-local path %q — use {{repo:<key>}}/{{path:<name>}} instead (D75), or $HOME/… for a path in the reader's own home; a path on a remote host the KB documents is covered by listing its prefix under remote_path_prefixes in settings.yaml; operational paths on containers/remote hosts are not client-local (D124): a path on a remote host goes in a fenced block that opens with its `ssh <host>` line or a `user@host$` prompt, or follows a line naming `ssh <host>`; a verbatim third-party document is marked `origin: external`", disallowed)
 		// One finding per concept, but naming every path: fixing the first
 		// must not be how the author learns about the second.
 		if rest := all[1:]; len(rest) > 0 {
@@ -432,6 +435,7 @@ func CheckConcept(k *kb.KB, id okf.ConceptID, content string) []Finding {
 	}
 	in := conceptInput{RelPath: okf.IDToPath(id), Body: body, FrontmatterRaw: fmRaw, Parsed: parsed, History: pageHistory(k, id)}
 	in.Registry, _ = loadRegistryLint(k)
+	in.RemotePrefixes = loadRemotePathPrefixes(k)
 	if parts := strings.Split(string(id), "/"); len(parts) > 1 {
 		if contract, err := k.ReadMapContract(parts[0]); err == nil {
 			in.MapName, in.Contract = parts[0], &contract

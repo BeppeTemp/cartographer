@@ -32,6 +32,7 @@ const (
 	kindBranch                       // a git branch name
 	kindSlug                         // artifact_prefix: a lowercase slug, at most MaxArtifactPrefix characters
 	kindRelations                    // depends_on: a list of {name, remote}, checked item by item
+	kindPathList                     // remote_path_prefixes: a list of absolute paths, checked item by item
 )
 
 // MaxArtifactPrefix is the longest artifact_prefix: a skill name is at most 64
@@ -63,7 +64,15 @@ var settingsKeys = map[string]settingSpec{
 	// remote's default branch only (KB.Relations); the working copy's value is
 	// parsed and shown. Each item is checked on its own (parseRelations).
 	relationsKey: {kind: kindRelations},
+	// remote_path_prefixes are the path prefixes of the remote hosts the KB
+	// documents: the machine_path lint check does not flag a path under one.
+	RemotePathPrefixesKey: {kind: kindPathList},
 }
+
+// RemotePathPrefixesKey is the settings.yaml key listing the path prefixes of
+// the remote hosts a KB documents (machine_path does not flag a path under
+// one).
+const RemotePathPrefixesKey = "remote_path_prefixes"
 
 // settingsServerOnly are the kbs[] keys bound to one machine; a KB that names
 // one gets a finding that says so rather than "unknown key".
@@ -201,7 +210,12 @@ type Settings struct {
 	keys      []string
 	mapping   *yaml.Node
 	relations []Relation // the well-formed items of depends_on
+	prefixes  []string   // the well-formed items of remote_path_prefixes
 }
+
+// RemotePathPrefixes returns the well-formed items of remote_path_prefixes,
+// trailing separators removed.
+func (s Settings) RemotePathPrefixes() []string { return append([]string(nil), s.prefixes...) }
 
 // Has reports whether the KB file sets key.
 func (s Settings) Has(key string) bool {
@@ -296,6 +310,17 @@ func ParseSettings(data []byte) (Settings, []SettingsMalformed, error) {
 			out.mapping.Content = append(out.mapping.Content, k, v)
 			continue
 		}
+		if spec.kind == kindPathList {
+			prefixes, itemBad, ok := parsePathList(key, v)
+			bad = append(bad, itemBad...)
+			if !ok {
+				continue
+			}
+			out.prefixes = prefixes
+			out.keys = append(out.keys, key)
+			out.mapping.Content = append(out.mapping.Content, k, v)
+			continue
+		}
 		if reason := checkSetting(spec, v); reason != "" {
 			bad = append(bad, SettingsMalformed{Key: key, Reason: reason})
 			continue
@@ -305,6 +330,82 @@ func ParseSettings(data []byte) (Settings, []SettingsMalformed, error) {
 	}
 	return out, bad, nil
 }
+
+// parsePathList checks a list of absolute paths item by item: a POSIX path
+// ("/home/user/services") or a Windows drive path, never the bare root, which
+// would cover every path. A malformed item is left out and reported; the rest
+// stay. A trailing separator is dropped, so the prefix matches by path segment.
+func parsePathList(key string, v *yaml.Node) (paths []string, bad []SettingsMalformed, ok bool) {
+	if v.Kind == yaml.ScalarNode && v.Tag == "!!null" {
+		return nil, nil, true // `key:` with no value declares none
+	}
+	if v.Kind != yaml.SequenceNode {
+		return nil, []SettingsMalformed{{Key: key, Reason: "must be a list of absolute paths"}}, false
+	}
+	seen := map[string]bool{}
+	for i, item := range v.Content {
+		reason := ""
+		p := strings.TrimSpace(item.Value)
+		switch {
+		case item.Kind != yaml.ScalarNode || item.Tag != "!!str":
+			reason = "must be a string"
+		case !absolutePathRe.MatchString(p):
+			reason = fmt.Sprintf("%q is not an absolute path (/srv/app or C:\\app)", p)
+		case hasDotSegment(p):
+			reason = "a . or .. segment is not a path prefix"
+		default:
+			p = strings.TrimRight(p, `/\`)
+			if p == "" || strings.HasSuffix(p, ":") {
+				reason = "a filesystem root would cover every path"
+			} else if isHomeRootOrAbove(p) {
+				reason = "a home directory or above would turn machine_path off for client-local paths: list the remote host's own directory"
+			}
+		}
+		if reason == "" && seen[p] {
+			reason = fmt.Sprintf("%q declared twice", p)
+		}
+		if reason != "" {
+			bad = append(bad, SettingsMalformed{Key: fmt.Sprintf("%s[%d]", key, i), Reason: reason + "; the item is ignored"})
+			continue
+		}
+		seen[p] = true
+		paths = append(paths, p)
+	}
+	return paths, bad, true
+}
+
+// hasDotSegment reports whether p has a "." or ".." segment, which would let a
+// prefix point above where it reads (/srv/../home/user).
+func hasDotSegment(p string) bool {
+	for _, s := range strings.FieldsFunc(p, func(r rune) bool { return r == '/' || r == '\\' }) {
+		if s == "." || s == ".." {
+			return true
+		}
+	}
+	return false
+}
+
+// isHomeRootOrAbove reports whether p is /home, /Users, /root, C:\Users, or one
+// user's home directly under them: a prefix there would cover the client-local
+// paths machine_path exists to flag. Case-insensitive, either separator.
+func isHomeRootOrAbove(p string) bool {
+	segs := strings.FieldsFunc(strings.ToLower(p), func(r rune) bool { return r == '/' || r == '\\' })
+	if len(segs) == 0 {
+		return false
+	}
+	if len(segs[0]) == 2 && segs[0][1] == ':' { // a drive: C:\Users[\<user>]
+		return len(segs) >= 2 && segs[1] == "users" && len(segs) <= 3 || len(segs) == 1
+	}
+	switch segs[0] {
+	case "home", "users":
+		return len(segs) <= 2
+	case "root":
+		return len(segs) == 1
+	}
+	return false
+}
+
+var absolutePathRe = regexp.MustCompile(`^(?:/|[A-Za-z]:[\\/])`)
 
 func checkSetting(spec settingSpec, v *yaml.Node) string {
 	scalar := v.Kind == yaml.ScalarNode && v.Tag != "!!null"

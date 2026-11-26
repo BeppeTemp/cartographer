@@ -225,6 +225,10 @@ var KBKeys = []settingschema.Key{
 	{Path: "depends_on", Scope: settingschema.ScopeKB, Type: "list", Default: "[]",
 		Description: "The KBs this KB needs, bound together with it. Each item has the name the other KB is mounted under on the server and its git remote; the remote is the guard, so a KB mounted under that name with another origin is not taken for it. Only the settings.yaml committed on the remote's default branch counts. An item that is malformed is ignored and reported.",
 		Example:     "- name: core-kb\n  remote: git.example.com/org/core-kb"},
+	{Path: "remote_path_prefixes", Scope: settingschema.ScopeKB, Type: "list", Default: "[]",
+		Description: "Absolute path prefixes of the remote hosts this KB documents. The machine_path lint check does not flag a path under one, wherever it appears (prose, list, table); the match is by path segment, so /home/user/services covers /home/user/services/app and not /home/user/servicesX. An item that is not an absolute path, has a . or .. segment, or is a home root or above (/home, /home/user, /Users/user, /root, C:\\Users\\user: it would switch the check off for client-local paths) is ignored and reported. Absent: nothing changes.",
+		Example:     "- /home/user/services",
+		Previous:    []string{"Absolute path prefixes of the remote hosts this KB documents. The machine_path lint check does not flag a path under one, wherever it appears (prose, list, table); the match is by path segment, so /home/user/services covers /home/user/services/app and not /home/user/servicesX. An item that is not an absolute path is ignored and reported. Absent: nothing changes."}},
 }
 
 // kbKeyHome is the reason given for a KB-scope key met in kbs[] (D906).

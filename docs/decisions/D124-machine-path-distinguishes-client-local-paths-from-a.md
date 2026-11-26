@@ -1,6 +1,6 @@
 ---
 topic: data-plane
-amended_by: D159
+amended_by: D159, D2413
 ---
 
 # D124 — `machine_path` distinguishes client-local paths from a Map's operational target paths

@@ -351,3 +351,68 @@ func TestDependsOnMalformedRemoteIsRedacted(t *testing.T) {
 		t.Errorf("the finding echoes the credential: %s", bad[0])
 	}
 }
+
+// remote_path_prefixes is checked item by item: a relative path, a bare root and
+// a duplicate are left out and reported, the rest stay, trailing slash dropped.
+func TestRemotePathPrefixesPerItemTolerance(t *testing.T) {
+	t.Parallel()
+	s, bad := keysOf(t, `
+remote_path_prefixes:
+  - /home/user/services/
+  - relative/dir
+  - /
+  - 7
+  - /home/user/services
+  - /srv/app
+`)
+	if !s.Has("remote_path_prefixes") {
+		t.Fatal("the key was dropped with its bad items")
+	}
+	if got := strings.Join(s.RemotePathPrefixes(), ","); got != "/home/user/services,/srv/app" {
+		t.Errorf("prefixes = %s", got)
+	}
+	var keys []string
+	for _, m := range bad {
+		keys = append(keys, m.Key)
+	}
+	if want := "remote_path_prefixes[1],remote_path_prefixes[2],remote_path_prefixes[3],remote_path_prefixes[4]"; strings.Join(keys, ",") != want {
+		t.Errorf("findings = %v, want %s", keys, want)
+	}
+}
+
+// A prefix that is a home root or above would turn machine_path off for
+// client-local paths: refused and reported, a directory below a home stays.
+func TestRemotePathPrefixesRefuseHomeRoots(t *testing.T) {
+	t.Parallel()
+	refused := []string{"/home", "/home/user", "/home/user/", "/Users", "/users/someone", "/root", `C:\Users`, `c:\users\someone`, `C:/Users/someone`, `C:\`}
+	ok := []string{"/home/user/services", "/Users/someone/srv", "/root/app", `C:\Users\someone\srv`, `d:\app`}
+	var b strings.Builder
+	b.WriteString("remote_path_prefixes:\n")
+	for _, p := range append(append([]string{}, refused...), ok...) {
+		b.WriteString("  - '" + p + "'\n")
+	}
+	s, bad := keysOf(t, b.String())
+	if len(bad) != len(refused) {
+		t.Errorf("findings = %v, want %d refused", bad, len(refused))
+	}
+	if got := len(s.RemotePathPrefixes()); got != len(ok) {
+		t.Errorf("kept %v, want %d", s.RemotePathPrefixes(), len(ok))
+	}
+}
+
+// A . or .. segment is refused before the home-root check.
+func TestRemotePathPrefixesRefuseDotSegments(t *testing.T) {
+	t.Parallel()
+	s, bad := keysOf(t, "remote_path_prefixes:\n  - /home/user/..\n  - /srv/../home/user\n  - /srv/./app\n  - /srv/app\n")
+	if len(bad) != 3 || strings.Join(s.RemotePathPrefixes(), ",") != "/srv/app" {
+		t.Errorf("bad=%v kept=%v, want 3 refused and /srv/app kept", bad, s.RemotePathPrefixes())
+	}
+}
+
+func TestRemotePathPrefixesNotAListIsLeftOut(t *testing.T) {
+	t.Parallel()
+	s, bad := keysOf(t, "remote_path_prefixes: /srv/app\n")
+	if s.Has("remote_path_prefixes") || len(bad) != 1 {
+		t.Errorf("has=%v bad=%v, want the key left out with one finding", s.Has("remote_path_prefixes"), bad)
+	}
+}
