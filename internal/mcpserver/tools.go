@@ -157,7 +157,7 @@ func RegisterKBTools(s *Server, k *kb.KB, deps Deps) {
 	register(withCrossRewrite(deps, k, gitWrap(k, toolConceptMove(k, rec))))
 	register(gitWrap(k, toolCrossLinkRewrite(k)))
 	// Takes both KBs' git locks and commits each itself (D760): not gitWrap.
-	register(toolConceptTransfer(k, deps))
+	register(withCrossRewrite(deps, k, toolConceptTransfer(k, deps)))
 	register(withCrossRewrite(deps, k, gitWrap(k, toolConceptArchive(k))))
 	register(gitWrap(k, toolConceptBatch(k, facts)))
 	register(gitWrap(k, toolConceptDelete(k)))

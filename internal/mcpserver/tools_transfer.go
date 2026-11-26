@@ -260,7 +260,25 @@ func runTransfer(ctx context.Context, args json.RawMessage, src *kb.KB, srcName 
 			return transferReport(plan, srcName, dstName, srcSHA, dstSHA, srcOut, tgt)
 		},
 	}
-	return m.run(ctx)
+	res := m.run(ctx)
+	if !res.IsError && plan != nil {
+		// The pages that changed KB: withCrossRewrite retargets the cross-KB
+		// links to them, in the KBs the caller can write, once both locks are
+		// released. Assets are no page and no link target.
+		res.crossMoves = transferCrossMoves(plan, srcName, dstName)
+	}
+	return res
+}
+
+// transferCrossMoves is the plan's old -> new id map as retargets from the
+// source KB to the target KB, sorted.
+func transferCrossMoves(plan *transferPlan, srcName, dstName string) []kb.CrossRetarget {
+	out := make([]kb.CrossRetarget, 0, len(plan.moveMap))
+	for from, to := range plan.moveMap {
+		out = append(out, kb.CrossRetarget{FromKB: srcName, FromID: from, ToKB: dstName, ToID: to})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].FromID < out[j].FromID })
+	return out
 }
 
 // transferReport is the result of a concept_transfer that went through.
@@ -783,6 +801,26 @@ func applyTransferTarget(src, dst *kb.KB, pl *transferPlan, view *callerView) (t
 		}
 	}
 
+	// What the moved pages say about KBs: a cross link to a page that moved with
+	// them, or to a page of dst, would be a self-named finding in dst (a link
+	// naming the KB that holds it), so both become the internal form here, in
+	// the transfer's own dst commit. A link to a page that stays behind in src, or
+	// to a third KB, is a valid cross link and is copied as written.
+	var crossMoves []kb.CrossRetarget
+	var dstOwn []string
+	var srcNames func(string) []string
+	if m, dstName, srcName := dst.Mounts(), dst.MountName(), src.MountName(); m != nil && dstName != "" && srcName != "" {
+		dstOwn = m.NamesFor(dstName)
+		// The names of the source a link of dst may carry: the aliases dst's own
+		// relations rule out are not followed, so a link by one is left alone.
+		followed, err := dst.FollowedNames(srcName)
+		if err != nil {
+			return out, fmt.Errorf("read the relations of the target: %s", relPathErr(err, dst.Root))
+		}
+		srcNames = func(string) []string { return followed }
+		crossMoves = transferCrossMoves(pl, srcName, dstName)
+	}
+
 	// The moved pages' own relative links, rebased from where they were to where
 	// they are (D160). A link to a page that stays behind keeps its path and is
 	// reported by the source scan and by findings.
@@ -799,6 +837,13 @@ func applyTransferTarget(src, dst *kb.KB, pl *transferPlan, view *callerView) (t
 			// concept_move's backlink walk does inside one KB.
 			newBody, w := kb.RewriteLinks(newBody, newBase, pl.moveMap, dst.AssetExists)
 			n += w
+			if dstOwn != nil {
+				var c int
+				newBody, c = kb.RewriteCrossLinks(newBody, dstOwn, crossMoves, srcNames)
+				n += c
+				newBody, c = kb.InternalizeCrossLinks(newBody, dstOwn)
+				n += c
+			}
 			if n == 0 {
 				continue
 			}
@@ -882,7 +927,8 @@ type transferSourceOut struct {
 // applyTransferSource removes the moved concepts from src and turns every link
 // that pointed at them into plain text, so the label survives and the
 // hyperlink does not. A cross-KB link [[kb:<name>/<id>]] is not an internal
-// link and is left as written.
+// link and is left as written here: the links other KBs hold to the moved
+// pages are retargeted afterwards, by withCrossRewrite (cross_link_rewrite).
 func applyTransferSource(src *kb.KB, pl *transferPlan) (transferSourceOut, error) {
 	var out transferSourceOut
 	// Links from pages that stay to a moved asset cannot become plain text
