@@ -14,6 +14,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"strconv"
 	"strings"
@@ -118,12 +119,28 @@ func (e *RemoteError) Unwrap() error { return e.Cause }
 // practice a KB whose git remote is slow or down (#348) -- so "could not
 // reach" would send the operator after a healthy local server. net/http has
 // no typed error for that phase, only this text.
+//
+// The text is not enough: a deadline that falls while the transport is still
+// finishing the request surfaces as a bare "context deadline exceeded". The
+// caller therefore also tells whether the whole request was written (an
+// httptrace WroteRequest without error), which is the same proof the server
+// has it (#2416).
 func unreachableMessage(reqURL string, err error) string {
-	if strings.Contains(err.Error(), "awaiting headers") {
+	return unreachableMessageSent(reqURL, err, false)
+}
+
+func unreachableMessageSent(reqURL string, err error, sent bool) string {
+	if strings.Contains(err.Error(), "awaiting headers") ||
+		(sent && (errors.Is(err, context.DeadlineExceeded) || isTimeout(err))) {
 		return fmt.Sprintf("%s accepted the request but did not answer in time; "+
 			"the server is up, so look at its log for a KB whose git remote is slow or unreachable", reqURL)
 	}
 	return fmt.Sprintf("could not reach %s", reqURL)
+}
+
+func isTimeout(err error) bool {
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
 }
 
 // classifyDialErr distinguishes a DNS failure from any other dial-time
@@ -638,10 +655,14 @@ func (c *MCPClient) doCtx(ctx context.Context, method string, params any) (json.
 		return nil, err
 	}
 
+	var sent atomic.Bool
+	httpReq = httpReq.WithContext(httptrace.WithClientTrace(httpReq.Context(), &httptrace.ClientTrace{
+		WroteRequest: func(i httptrace.WroteRequestInfo) { sent.Store(i.Err == nil) },
+	}))
 	resp, err := HTTPClient(c.HTTP, c.AllowInsecureHTTP).Do(httpReq)
 	if err != nil {
 		return nil, &RemoteError{State: RemoteUnavailable, Code: classifyDialErr(err),
-			Message: unreachableMessage(reqURL, err), Cause: err}
+			Message: unreachableMessageSent(reqURL, err, sent.Load()), Cause: err}
 	}
 	defer resp.Body.Close()
 
