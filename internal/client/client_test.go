@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -597,19 +598,38 @@ func TestHealth_Unauthorized_NamesTokenEnv(t *testing.T) {
 // must not say it could not be reached (#348).
 func TestCall_SlowServerIsNotReportedUnreachable(t *testing.T) {
 	release := make(chan struct{})
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-release }))
+	var arrivals atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		arrivals.Add(1)
+		<-release
+	}))
 	defer srv.Close()
 	defer close(release)
-	c := client.New(srv.URL+"/mcp", "")
-	c.HTTP.Timeout = 200 * time.Millisecond
 
-	_, err := c.Call("kb_status", map[string]any{})
-	if err == nil {
-		t.Fatal("Call succeeded against a server that never answers")
+	// The message depends on the phase the client deadline falls in: only a
+	// deadline after the request reached the handler is "awaiting headers".
+	// On a loaded runner the deadline can fall during dial or write, so an
+	// attempt whose handler never saw the request says nothing and is retried
+	// with a longer budget (#2387).
+	timeout := 200 * time.Millisecond
+	for attempt := 0; attempt < 6; attempt++ {
+		before := arrivals.Load()
+		c := client.New(srv.URL+"/mcp", "")
+		c.HTTP.Timeout = timeout
+		_, err := c.Call("kb_status", map[string]any{})
+		if err == nil {
+			t.Fatal("Call succeeded against a server that never answers")
+		}
+		if arrivals.Load() == before {
+			timeout *= 2
+			continue
+		}
+		if msg := err.Error(); strings.Contains(msg, "could not reach") || !strings.Contains(msg, "did not answer in time") {
+			t.Fatalf("error = %q, want the server named as up but slow", msg)
+		}
+		return
 	}
-	if msg := err.Error(); strings.Contains(msg, "could not reach") || !strings.Contains(msg, "did not answer in time") {
-		t.Fatalf("error = %q, want the server named as up but slow", msg)
-	}
+	t.Fatal("the request never reached the handler within the budget")
 }
 
 // D254: latest_version is decoded when present and empty when absent.
