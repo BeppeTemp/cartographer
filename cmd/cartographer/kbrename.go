@@ -219,28 +219,39 @@ func planKBRename(old, newName, dataDir, configPath string) (*renamePlan, error)
 			configPath = resolved
 		}
 	}
-	if configPath == "" {
-		return p, planCredentialMoves(p, nil)
-	}
-	if _, err := os.Stat(configPath); errors.Is(err, os.ErrNotExist) {
-		return p, planCredentialMoves(p, nil)
-	}
-	cfg, err := config.Load(configPath)
-	if err != nil {
-		return nil, fmt.Errorf("server config %s cannot be read, refusing to rewrite it: %w", configPath, err)
-	}
-	p.ConfigPath = configPath
-	if err := planCredentialMoves(p, cfg); err != nil {
+	// The client bindings are this machine's, not the server config's: they
+	// are planned whether or not a server config exists (#2358).
+	if err := planServerSide(p, configPath, old); err != nil {
 		return nil, err
 	}
-
-	if err := locateKBEntry(p, cfg); err != nil {
-		return nil, err
-	}
-	p.Scopes = scopeRefs(cfg, old)
 	p.ClientKeys = clientRefs(old)
 	p.Bindings = bindingRefs(old)
 	return p, nil
+}
+
+// planServerSide plans what depends on the server config: the kbs[] entry, the
+// auth scopes to report and the credential directory. With no config file only
+// the credential moves are planned.
+func planServerSide(p *renamePlan, configPath, old string) error {
+	if configPath == "" {
+		return planCredentialMoves(p, nil)
+	}
+	if _, err := os.Stat(configPath); errors.Is(err, os.ErrNotExist) {
+		return planCredentialMoves(p, nil)
+	}
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		return fmt.Errorf("server config %s cannot be read, refusing to rewrite it: %w", configPath, err)
+	}
+	p.ConfigPath = configPath
+	if err := planCredentialMoves(p, cfg); err != nil {
+		return err
+	}
+	if err := locateKBEntry(p, cfg); err != nil {
+		return err
+	}
+	p.Scopes = scopeRefs(cfg, old)
+	return nil
 }
 
 // planCredentialMoves lists the KB's credential files to rename. A file already
@@ -460,7 +471,7 @@ func printRenamePreflight(w io.Writer, p *renamePlan) {
 	fmt.Fprintf(w, "renaming %s → %s\n", p.OldPath, p.NewPath)
 	switch {
 	case p.ConfigPath == "":
-		fmt.Fprintln(w, "no server config found: only the directory changes and the alias is recorded")
+		fmt.Fprintln(w, "no server config found: only the server-side registration is skipped (the directory, the alias and this machine's client bindings still change)")
 	case p.EntryIndex < 0:
 		fmt.Fprintf(w, "%s has no kbs[] entry for this KB (mounted by discovery): no entry is created\n", p.ConfigPath)
 	default:
