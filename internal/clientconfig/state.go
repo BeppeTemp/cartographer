@@ -24,6 +24,9 @@ const StateFileName = ".cartographer-state.json"
 type stateFile struct {
 	// KnownKBs is the KB names advertised at the last successful connect/sync.
 	KnownKBs []string `json:"known_kbs"`
+	// KBChange is the last sync that changed KnownKBs. Absent in a state file
+	// written before it, and while nothing was recorded.
+	KBChange *KBChange `json:"kb_change,omitempty"`
 	// ServerMountMode and ServerRoutedPath record the mount topology (D187).
 	ServerMountMode  string `json:"server_mount_mode,omitempty"`
 	ServerRoutedPath string `json:"server_routed_path,omitempty"`
@@ -38,6 +41,16 @@ type stateFile struct {
 	// --no-tray` (D1482): upgrade-repair then does not bring the tray back.
 	// A copy, like SyncTimerOptOut.
 	TrayOptOut bool `json:"tray_opt_out,omitempty"`
+}
+
+// KBChange records what the last sync that changed the KBs the server mounts
+// (known_kbs) added and removed. Server-owned, like KnownKBs: written by the sync
+// in the save that writes known_kbs, never by a person.
+type KBChange struct {
+	// At is the time of that sync, RFC 3339.
+	At      string   `json:"at"`
+	Added   []string `json:"added,omitempty"`
+	Removed []string `json:"removed,omitempty"`
 }
 
 // StatePath returns the full path to the state file inside dir.
@@ -72,7 +85,7 @@ func writeState(dir string, cfg *Config) error {
 
 // writeStateChanged is writeState and says whether it wrote anything.
 func writeStateChanged(dir string, cfg *Config) (bool, error) {
-	s := stateFile{KnownKBs: cfg.KnownKBs, ServerMountMode: cfg.ServerMountMode, ServerRoutedPath: cfg.ServerRoutedPath, SyncTimerOptOut: cfg.SyncTimerOptOut, TrayOptOut: cfg.TrayOptOut}
+	s := stateFile{KnownKBs: cfg.KnownKBs, KBChange: cfg.KBChange, ServerMountMode: cfg.ServerMountMode, ServerRoutedPath: cfg.ServerRoutedPath, SyncTimerOptOut: cfg.SyncTimerOptOut, TrayOptOut: cfg.TrayOptOut}
 	if cfg.Agents != nil {
 		agents := cfg.Agents
 		s.Agents = &agents
@@ -86,7 +99,7 @@ func writeStateChanged(dir string, cfg *Config) (bool, error) {
 	}
 	data = append(data, '\n')
 	old, readErr := os.ReadFile(StatePath(dir))
-	if readErr != nil && len(s.KnownKBs) == 0 && s.ServerMountMode == "" && s.ServerRoutedPath == "" && s.Agents == nil && !s.SyncTimerOptOut && !s.TrayOptOut {
+	if readErr != nil && len(s.KnownKBs) == 0 && s.ServerMountMode == "" && s.ServerRoutedPath == "" && s.KBChange == nil && s.Agents == nil && !s.SyncTimerOptOut && !s.TrayOptOut {
 		return false, nil
 	}
 	if bytes.Equal(old, data) {

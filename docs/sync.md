@@ -127,6 +127,10 @@ repair never invents an approval and never broadens trust; it also
 never disconnects or reconnects a provider. It only runs when Compass is configured against
 that same native service over loopback HTTP; any other endpoint is skipped rather than contacted.
 
+### What a provider that follows the server reports
+
+**`sync` and `status` say what the server's list added or removed for a provider that follows it.** `sync` prints `<kb> mounted: added for <providers>` and `<kb> not mounted any more: removed for <providers>` (`[dry-run] would add <kb> for ...` and `would remove` in a dry run) after the `known_kbs` line, then, after the apply summary, `<kb>: N artifact(s) need approval: cartographer approve <kind> <name> --kb <kb>` for the `needs_approval` artifacts of an added KB (nothing is approved by the sync), and the added KBs count in the closing `this sync widened what is bound: ... KB(s) mounted` line. The sync that changes `known_kbs` records `kb_change` (`{at, added, removed}`) in the state file, in the same save. `status` prints, under a provider that follows the server, `not synced yet: kb-x mounted, kb-y not mounted any more (cartographer sync applies it)` when the server lists what the last sync did not apply (that is not drift), and `last change <date>: + kb-x, - kb-y`; `--output json` carries `kbs_pending` (`{added, removed}`) per provider and `kb_change` at the top. A provider with an explicit list shows neither.
+
 ## Usage scan (D326)
 
 After the apply, `cartographer sync` (not a dry run, only with Meridian reachable) tells each

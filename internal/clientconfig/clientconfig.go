@@ -46,6 +46,9 @@ type Config struct {
 	// legacy `kbs` key written before D169 is still read by Load, and is no
 	// longer written by Save.
 	KnownKBs []string `yaml:"known_kbs,omitempty"`
+	// KBChange is what the last sync that changed KnownKBs added and removed
+	// (the state file's kb_change); nil when none was recorded.
+	KBChange *KBChange `yaml:"-"`
 
 	// ServerMountMode records the mount topology the server advertised at the
 	// last successful connect/sync (D187): "routed" when it serves every KB
@@ -726,6 +729,7 @@ func Load(dir string) (*Config, error) {
 	state, ok := loadState(dir)
 	if ok {
 		cfg.KnownKBs = state.KnownKBs
+		cfg.KBChange = state.KBChange
 		cfg.ServerMountMode = state.ServerMountMode
 		cfg.ServerRoutedPath = state.ServerRoutedPath
 		if state.Agents != nil {
