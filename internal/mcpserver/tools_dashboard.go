@@ -17,7 +17,7 @@ import (
 const dashboardWidgetDoc = "Widget fields: id (slug), type (kanban|list|stat|agenda|note|table|timeline|links), title, icon, accent, width 1-4, " +
 	"source (work, default | concepts), filter {status, map, type, id_prefix, stale, has_items, fields {key: value}, text}, " +
 	"group_by (status|map|type|field:<key>), columns (kanban: values of group_by; table: field names), sort (age|title|status|field:<key>), limit, " +
-	"text (note), date_field (agenda, timeline) and horizon_days (agenda), show (stat: count|groups), ids (links: concept ids of this KB, no filter)."
+	"text (note), date_field (agenda, timeline) and horizon_days (agenda), show (stat: count|groups), ids (links: concept ids of this KB or kb:<name>/<id> of another, no filter)."
 
 // dashboardListEntry is one dashboard of dashboard_list.
 type dashboardListEntry struct {

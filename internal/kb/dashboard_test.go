@@ -350,14 +350,18 @@ func TestValidateDashboardTableAndTimeline(t *testing.T) {
 	}
 }
 
-// AC-kbdash-23
-func TestValidateLinksRefusesKBForm(t *testing.T) {
-	ok := "widgets:\n- id: l\n  type: links\n  ids: [visible/a, b]\n"
+// The kb:<name>/<id> form is accepted through the one cross-link parser
+// (kbdash WP16); a malformed one is refused with the other bad ids.
+func TestValidateLinks(t *testing.T) {
+	ok := "widgets:\n- id: l\n  type: links\n  ids: [visible/a, b, \"kb:other/x\", \"kb:other@srv/dev/y\"]\n"
 	if err := ValidateDashboard([]byte(ok)); err != nil {
 		t.Fatalf("valid: %v", err)
 	}
 	for name, bad := range map[string]string{
-		"kb form":   "widgets:\n- id: l\n  type: links\n  ids: [\"kb:other/x\"]\n",
+		"kb no id":  "widgets:\n- id: l\n  type: links\n  ids: [\"kb:other\"]\n",
+		"kb name":   "widgets:\n- id: l\n  type: links\n  ids: [\"kb:bad name/x\"]\n",
+		"kb dotdot": "widgets:\n- id: l\n  type: links\n  ids: [\"kb:other/../x\"]\n",
+		"kb .md":    "widgets:\n- id: l\n  type: links\n  ids: [\"kb:other/x.md\"]\n",
 		"empty":     "widgets:\n- id: l\n  type: links\n",
 		"filter":    "widgets:\n- id: l\n  type: links\n  ids: [a]\n  filter: {status: [open]}\n",
 		"on list":   "widgets:\n- id: l\n  type: list\n  ids: [a]\n",

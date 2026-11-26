@@ -1226,6 +1226,12 @@ button.row {
   color: var(--primary);
   text-decoration: underline;
 }
+.dashboard__kb {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  margin-right: var(--space-1);
+}
 .dashboard__missing {
   color: var(--text-muted);
   font-style: italic;

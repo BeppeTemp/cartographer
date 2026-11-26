@@ -1,9 +1,11 @@
 package mcpserver
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -367,5 +369,76 @@ func TestResolveLinksHiddenEqualsMissing(t *testing.T) {
 	full := resolveDashboardAt(adminCtx, k, &conformanceCache{}, mk("hidden/hd"), now)
 	if full.Widgets[0].Entries[1].Title != "Secret title" {
 		t.Fatalf("whole-KB caller: %+v", full.Widgets[0].Entries)
+	}
+}
+
+// AC-kbdash-31
+func TestResolveCrossKBLinksNonDisclosure(t *testing.T) {
+	t.Parallel()
+	r := newCrossRig(t)
+	if err := os.WriteFile(filepath.Join(r.b.DataRoot(), "ops", "x.md"), []byte("---\ntype: Note\ntitle: Target page\n---\nx\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 11, 24, 10, 0, 0, 0, time.UTC)
+	entries := func(ctx context.Context, id string) []dashboardEntry {
+		d := kb.Dashboard{Widgets: []kb.DashboardWidget{{ID: "l", Type: "links", IDs: []string{id}}}}
+		return resolveDashboardAt(ctx, r.a, &conformanceCache{}, d, now).Widgets[0].Entries
+	}
+	callers := crossCallers()
+	// A caller who cannot read kb-b: an absent KB, an unreadable one, an
+	// @server-qualified one and a page that does not exist give the same bytes.
+	var want string
+	for _, id := range []string{"kb:nope/ops/x", "kb:kb-b/ops/x", "kb:kb-b@other/ops/x", "kb:kb-b/ops/gone", "kb:old-b/ops/x"} {
+		raw, _ := json.Marshal(entries(callers["a-only"], id))
+		if want == "" {
+			want = string(raw)
+		}
+		if string(raw) != want || strings.Contains(string(raw), "Target") || strings.Contains(string(raw), "kb-b") {
+			t.Errorf("%s: %s, want %s", id, raw, want)
+		}
+	}
+	if want != `[{"id":"","state":"unresolved"}]` {
+		t.Errorf("neutral entry = %s", want)
+	}
+	// A reader of the target sees resolved or missing, and the KB name.
+	if got := entries(callers["reads-a-b"], "kb:old-b/ops/x"); len(got) != 1 || got[0].KB != "kb-b" || got[0].ID != "ops/x" || got[0].Title != "Target page" || got[0].State != "" {
+		t.Errorf("resolved: %+v", got)
+	}
+	if got := entries(callers["reads-a-b"], "kb:kb-b/ops/gone"); len(got) != 1 || got[0].State != "missing" || got[0].Title != "" || got[0].KB != "" {
+		t.Errorf("missing: %+v", got)
+	}
+	// A connection that does not reach kb-b says so, with nothing of the page.
+	scoped := withRoutedSet(callers["reads-a-b"], []string{"kb-a"})
+	if got := entries(scoped, "kb:kb-b/ops/x"); len(got) != 1 || got[0].State != "out_of_scope" || got[0].Title != "" || got[0].ID != "" {
+		t.Errorf("out_of_scope: %+v", got)
+	}
+}
+
+// A widget of cross-KB ids reads no local source (a local source failure does
+// not fail it), and a caller who does not read this KB whole gets no
+// author-typed kb: target in the narrowed output unless the page resolved.
+func TestResolveCrossLinksLazyAndNarrowed(t *testing.T) {
+	t.Parallel()
+	r := newCrossRig(t)
+	now := time.Date(2026, 11, 24, 10, 0, 0, 0, time.UTC)
+	d := kb.Dashboard{Widgets: []kb.DashboardWidget{{ID: "l", Type: "links", IDs: []string{"kb:kb-b/ops/x", "kb:secret-kb/hidden/page", "kb:kb-b/ops/gone"}}}}
+	src := &dashSources{ctx: crossCallers()["reads-a-b"], k: r.a, cc: &conformanceCache{}, now: now, conceptsDone: true, conceptErr: fmt.Errorf("boom")}
+	if w := resolveWidget(src, d.Widgets[0]); w.Problem != "" || len(w.Entries) != 3 || w.Entries[0].KB != "kb-b" {
+		t.Fatalf("cross-only widget touched the local source: %+v", w)
+	}
+	// Partial reader of kb-a (one map), no grant on kb-b: every cross entry is neutral.
+	partial := principal(auth.Permission{KB: "kb-a", Maps: []string{"visible"}})
+	nar := narrowDashboard(resolveDashboardAt(partial, r.a, &conformanceCache{}, d, now)).Widgets[0]
+	raw, _ := json.Marshal(nar)
+	for _, leak := range []string{"secret-kb", "hidden", "ops/x", "ops/gone", "kb-b"} {
+		if strings.Contains(string(raw), leak) {
+			t.Errorf("%q leaks: %s", leak, raw)
+		}
+	}
+	// Partial reader of kb-a who reads kb-b: the resolved page appears, nothing typed for the others.
+	both := principal(auth.Permission{KB: "kb-a", Maps: []string{"visible"}}, auth.Permission{KB: "kb-b"})
+	raw, _ = json.Marshal(narrowDashboard(resolveDashboardAt(both, r.a, &conformanceCache{}, d, now)).Widgets[0])
+	if strings.Contains(string(raw), "secret-kb") || strings.Contains(string(raw), "ops/gone") {
+		t.Errorf("typed target leaks: %s", raw)
 	}
 }

@@ -167,16 +167,28 @@ function WidgetBody({ widget, onOpen }: { widget: DashboardWidget; onOpen?(conce
 /**
  * The ids of a `links` widget in the author's order. The resolver answers `state: "missing"` alike
  * for a hidden and a nonexistent id (and sends no id to a caller without whole-KB read), so a missing
- * row never names what was asked for: it only says "not found".
+ * row never names what was asked for: it only says "not found". A cross-KB id that resolved carries the
+ * name of its KB, drawn beside the title as text (the Atlas opens pages of the open KB only); every
+ * other state of a cross-KB id is the neutral `unresolved` or `out_of_scope`, with no id, KB or title.
  */
+const LINK_STATE_TEXT: Record<string, string> = {
+  missing: "not found",
+  unresolved: "not available",
+  out_of_scope: "not reachable from this connection",
+};
+
 function LinkList({ entries, onOpen }: { entries: DashboardEntry[]; onOpen?(conceptId: string): void }) {
   if (entries.length === 0) return <p className="page-note">Nothing here.</p>;
   return (
     <ul className="dashboard__links">
       {entries.map((e, i) => (
         <li key={`${e.id}-${i}`}>
-          {e.state === "missing" ? (
-            <span className="dashboard__missing">not found</span>
+          {e.state && LINK_STATE_TEXT[e.state] ? (
+            <span className="dashboard__missing">{LINK_STATE_TEXT[e.state]}</span>
+          ) : e.kb ? (
+            <span>
+              <span className="dashboard__kb">{e.kb}</span> {e.title || e.id}
+            </span>
           ) : onOpen ? (
             <button type="button" className="dashboard__cell-link" onClick={() => onOpen(e.id)}>
               {e.title || e.id}

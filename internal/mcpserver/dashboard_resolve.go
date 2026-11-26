@@ -8,6 +8,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/lint"
+	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
 // Dashboard resolver: turns the queries of a dashboard's widgets into entries,
@@ -24,6 +25,7 @@ const (
 // dashboardEntry is a work_list entry, trimmed: what a widget draws.
 type dashboardEntry struct {
 	ID        string            `json:"id"`
+	KB        string            `json:"kb,omitempty"` // a cross-KB links entry that resolved: the target KB's name
 	Title     string            `json:"title,omitempty"`
 	Type      string            `json:"type,omitempty"`
 	Map       string            `json:"map,omitempty"`
@@ -615,18 +617,29 @@ func sortDashRows(rows []dashRow, spec string) {
 // resolveLinks resolves the ids of a links widget against the concepts the
 // caller may read. A hidden id and a nonexistent one take the same branch, so
 // their output is byte-equal (D226); only a readable concept carries a title.
+// An id of the kb:<name>/<id> form goes through resolveCrossLink instead.
 func resolveLinks(src *dashSources, out resolvedWidget) resolvedWidget {
-	rows, err := src.rows("concepts")
-	if err != nil {
-		out.Problem = fmt.Sprintf("concepts source: %s", relPathErr(err, src.k.Root))
-		return out
-	}
-	byID := make(map[string]dashboardEntry, len(rows))
-	for _, r := range rows {
-		byID[r.out.ID] = r.out
-	}
+	// The local concepts are scanned on the first local id only: a widget of
+	// cross-KB ids does no local scan and fails on no local source error.
+	var byID map[string]dashboardEntry
 	out.Entries = make([]dashboardEntry, 0, len(out.IDs))
 	for _, id := range out.IDs {
+		if l, ok := kb.ParseCrossLink(id); ok {
+			out.Entries = append(out.Entries, resolveCrossLink(src, l))
+			continue
+		}
+		if byID == nil {
+			rows, err := src.rows("concepts")
+			if err != nil {
+				out.Problem = fmt.Sprintf("concepts source: %s", relPathErr(err, src.k.Root))
+				out.Entries = nil
+				return out
+			}
+			byID = make(map[string]dashboardEntry, len(rows))
+			for _, r := range rows {
+				byID[r.out.ID] = r.out
+			}
+		}
 		if e, ok := byID[id]; ok {
 			out.Entries = append(out.Entries, dashboardEntry{ID: e.ID, Title: e.Title})
 			continue
@@ -635,4 +648,29 @@ func resolveLinks(src *dashSources, out resolvedWidget) resolvedWidget {
 	}
 	out.Total = len(out.Entries)
 	return out
+}
+
+// resolveCrossLink is the entry of one kb:<name>/<id> id, asked of
+// crossStateFor for this caller on every call (the answer is never kept for
+// another caller). Only a resolved link carries anything (its KB, id and
+// title, which the caller reads); every other state is the state alone, so a
+// KB the caller cannot read, an absent one and an @server-qualified one give
+// the same bytes (D2398), whatever the author spelled.
+func resolveCrossLink(src *dashSources, l kb.CrossLink) dashboardEntry {
+	st := crossStateFor(src.ctx, src.k, l)
+	if st != crossResolved {
+		return dashboardEntry{State: string(st)}
+	}
+	target, canonical, ok := crossMounted(src.k, l.KB)
+	if !ok {
+		return dashboardEntry{State: string(crossUnresolved)}
+	}
+	e := dashboardEntry{ID: string(l.ID), KB: canonical}
+	if c, err := target.ReadConcept(l.ID); err == nil {
+		fmRaw, _, _ := okf.SplitFrontmatter(c.Content)
+		if fm, err := okf.ParseFrontmatter(fmRaw); err == nil {
+			e.Title = frontmatterString(fm, "title")
+		}
+	}
+	return e
 }

@@ -418,6 +418,8 @@ export interface DashboardList {
 /** One row of a resolved widget: the work entry shape, trimmed. */
 export interface DashboardEntry {
   id: string;
+  /** A cross-KB links entry that resolved: the name of the KB the page belongs to. */
+  kb?: string;
   title?: string;
   type?: string;
   map?: string;

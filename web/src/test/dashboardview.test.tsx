@@ -215,3 +215,33 @@ describe("links widget", () => {
     expect(screen.queryByText("gone")).toBeNull();
   });
 });
+
+describe("cross-KB links widget", () => {
+  // AC-kbdash-32: a resolved cross-KB id draws the KB name and a title; the neutral state draws neutral text.
+  it("draws the KB name with the title, and neutral text for unresolved", () => {
+    const onOpen = vi.fn();
+    render(
+      <DashboardView
+        onOpen={onOpen}
+        data={base([
+          {
+            id: "l",
+            type: "links",
+            total: 3,
+            entries: [
+              { id: "ops/x", kb: "kb-b", title: "Target page" },
+              { id: "", state: "unresolved" },
+              { id: "", state: "out_of_scope" },
+            ],
+          },
+        ])}
+      />,
+    );
+    expect(screen.getByText("kb-b")).toBeTruthy();
+    expect(screen.getByText("Target page", { exact: false })).toBeTruthy();
+    expect(screen.getByText("not available")).toBeTruthy();
+    expect(screen.getByText("not reachable from this connection")).toBeTruthy();
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+});
