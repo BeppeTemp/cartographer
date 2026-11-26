@@ -255,3 +255,27 @@ func TestRealignFileKeepsAgentsWhenTheStateCannotBeWritten(t *testing.T) {
 		t.Errorf("agents were dropped without being moved:\n%s", raw)
 	}
 }
+
+// A realignment carries `kbs: all` through unchanged, in the file as it was
+// written and after the flat key is moved into the groups.
+func TestRealignFileKeepsAllMarker(t *testing.T) {
+	for name, file := range allMarkerFiles {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeConfigFile(t, dir, file)
+			if _, _, err := clientconfig.RealignFile(dir, "0.30.0"); err != nil {
+				t.Fatal(err)
+			}
+			if raw := readFile(t, clientconfig.Path(dir)); !strings.Contains(raw, "    kbs: all\n") {
+				t.Errorf("the marker did not survive:\n%s", raw)
+			}
+			cfg, err := clientconfig.Load(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !cfg.FollowsServer("claude") || strings.Join(cfg.Clients["opencode"].KBs, ",") != "kb-a" {
+				t.Errorf("loaded %+v", cfg.Clients)
+			}
+		})
+	}
+}

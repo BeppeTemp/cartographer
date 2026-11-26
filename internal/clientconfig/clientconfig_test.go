@@ -906,3 +906,159 @@ func TestBoundKBsLineage(t *testing.T) {
 		t.Error("lineage options on a provider with no explicit list must be refused")
 	}
 }
+
+// allMarkerFiles are one config per layout holding the all marker beside the
+// other keys of its entry. The flat layout is the retired `clients` key, read
+// until a realignment moves it (D1731); Save writes the groups.
+var allMarkerFiles = map[string]string{
+	"grouped": "providers:\n  claude:\n    kbs: all\n    config_dirs:\n      - $HOME/.claude-work\n    allow_symlinks:\n      - $HOME/.claude\n  opencode:\n    kbs: [kb-a]\n",
+	"flat":    "clients:\n  claude:\n    kbs: all\n    config_dirs: [$HOME/.claude-work]\n    allow_symlinks: [$HOME/.claude]\n  opencode:\n    kbs: [kb-a]\n",
+}
+
+// AC-cad-1: a config with `kbs: all` loads, resolves to known_kbs with
+// explicit == false, and saves back byte-equal: Save writes the groups (it moves
+// the flat layout into them), and a second save over its own output changes
+// nothing.
+func TestAllMarkerRoundTrip(t *testing.T) {
+	for name, file := range allMarkerFiles {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeConfigFile(t, dir, file)
+			cfg, err := clientconfig.Load(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg.KnownKBs = []string{"kb-a", "kb-b"}
+			if !cfg.FollowsServer("claude") || cfg.FollowsServer("opencode") {
+				t.Fatalf("FollowsServer = %v, %v", cfg.FollowsServer("claude"), cfg.FollowsServer("opencode"))
+			}
+			if cfg.Clients["claude"].Explicit() {
+				t.Error("the marker must not be an explicit list")
+			}
+			got, explicit := cfg.BoundKBs("claude")
+			if explicit || strings.Join(got, ",") != "kb-a,kb-b" {
+				t.Errorf("BoundKBs = %v, %v", got, explicit)
+			}
+			if own, explicit := cfg.BoundOwnKBs("claude"); explicit || strings.Join(own, ",") != "kb-a,kb-b" {
+				t.Errorf("BoundOwnKBs = %v, %v", own, explicit)
+			}
+			if err := clientconfig.Save(dir, cfg); err != nil {
+				t.Fatal(err)
+			}
+			raw := readFile(t, clientconfig.Path(dir))
+			if !strings.Contains(raw, "    kbs: all\n") {
+				t.Errorf("the marker is not saved as a scalar:\n%s", raw)
+			}
+			back, err := clientconfig.Load(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := clientconfig.Save(dir, back); err != nil {
+				t.Fatal(err)
+			}
+			if again := readFile(t, clientconfig.Path(dir)); again != raw {
+				t.Errorf("a second save changed the file:\n%s\nwas:\n%s", again, raw)
+			}
+			if b := back.Clients["claude"]; !b.FollowsServer || b.Explicit() || len(b.ConfigDirs) != 1 || len(b.AllowSymlinks) != 1 {
+				t.Errorf("round trip %+v", b)
+			}
+			if b := back.Clients["opencode"]; b.FollowsServer || strings.Join(b.KBs, ",") != "kb-a" {
+				t.Errorf("the list beside it changed: %+v", b)
+			}
+		})
+	}
+}
+
+// AC-cad-2: `kbs: [all]` is a list naming a KB `all`; any other scalar, or a
+// mapping, under kbs is a load error that names the key.
+func TestAllMarkerIsNotAList(t *testing.T) {
+	dir := t.TempDir()
+	writeConfigFile(t, dir, "providers:\n  claude:\n    kbs: [all]\n")
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b := cfg.Clients["claude"]; b.FollowsServer || !b.Explicit() || strings.Join(b.KBs, ",") != "all" {
+		t.Errorf("kbs: [all] = %+v", b)
+	}
+	cfg.KnownKBs = []string{"kb-a"}
+	if got, explicit := cfg.BoundKBs("claude"); !explicit || strings.Join(got, ",") != "all" {
+		t.Errorf("BoundKBs = %v, %v", got, explicit)
+	}
+	for _, bad := range []string{"foo", "\"all \"", "{a: b}", "true", "3"} {
+		for layout, head := range map[string]string{"grouped": "providers:\n  claude:\n    kbs: ", "flat": "clients:\n  claude:\n    kbs: "} {
+			d := t.TempDir()
+			writeConfigFile(t, d, head+bad+"\n")
+			_, err := clientconfig.Load(d)
+			if err == nil || !strings.Contains(err.Error(), "`kbs`") || !strings.Contains(err.Error(), "or all") {
+				t.Errorf("%s kbs: %s: err = %v", layout, bad, err)
+			}
+		}
+	}
+}
+
+// AC-cad-3: removing the last allowed symlink of an entry that holds `kbs: all`
+// keeps the entry and its marker (dropping it would turn all into the default).
+func TestUnsetAllowSymlinkKeepsAllMarker(t *testing.T) {
+	cfg := &clientconfig.Config{}
+	if err := cfg.BindAll("opencode"); err != nil {
+		t.Fatal(err)
+	}
+	b := cfg.Clients["opencode"]
+	b.AllowSymlinks = []string{"$HOME/.config/opencode"}
+	cfg.Clients["opencode"] = b
+	if !cfg.UnsetAllowSymlink("opencode", "$HOME/.config/opencode") {
+		t.Fatal("the link was not found")
+	}
+	if !cfg.FollowsServer("opencode") {
+		t.Errorf("the marker went with the last link: %+v", cfg.Clients)
+	}
+}
+
+// Bind, BindAll, Unbind and ResetBinding on the marker: Bind replaces it with
+// the list [kb] and no lineage keys, BindAll clears the list and the keys and
+// keeps what is not a KB binding, Unbind is the no-op of a non-explicit
+// binding, ResetBinding drops the marker with the rest of the binding.
+func TestAllMarkerBindUnbindReset(t *testing.T) {
+	cfg := &clientconfig.Config{KnownKBs: []string{"kb-a", "kb-b"}}
+	if err := cfg.Bind("claude", "kb-a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.SetProviderLineage("claude", true, []string{"kb-z"}); err != nil {
+		t.Fatal(err)
+	}
+	b := cfg.Clients["claude"]
+	b.ConfigDirs = []string{"$HOME/.claude-work"}
+	cfg.Clients["claude"] = b
+
+	if err := cfg.BindAll("claude"); err != nil {
+		t.Fatal(err)
+	}
+	b = cfg.Clients["claude"]
+	if !b.FollowsServer || b.Explicit() || len(b.KBs) > 0 || b.NoLineage || len(b.Exclude) > 0 || len(b.ConfigDirs) != 1 {
+		t.Errorf("BindAll left %+v", b)
+	}
+	if err := cfg.BindAll(" "); err == nil {
+		t.Error("BindAll accepted an invalid provider name")
+	}
+	if err := cfg.Unbind("claude", "kb-a"); err != nil || !cfg.FollowsServer("claude") {
+		t.Errorf("Unbind on the marker: %v, %+v", err, cfg.Clients["claude"])
+	}
+	if err := cfg.Bind("claude", "kb-b"); err != nil {
+		t.Fatal(err)
+	}
+	b = cfg.Clients["claude"]
+	if b.FollowsServer || strings.Join(b.KBs, ",") != "kb-b" || b.NoLineage || len(b.Exclude) > 0 {
+		t.Errorf("Bind after the marker = %+v", b)
+	}
+	if err := cfg.BindAll("claude"); err != nil {
+		t.Fatal(err)
+	}
+	cfg.ResetBinding("claude")
+	if b := cfg.Clients["claude"]; b.FollowsServer || b.Explicit() || len(b.ConfigDirs) != 1 {
+		t.Errorf("ResetBinding kept %+v", b)
+	}
+	if got, explicit := cfg.BoundKBs("claude"); explicit || len(got) != 2 {
+		t.Errorf("after reset: %v, %v", got, explicit)
+	}
+}

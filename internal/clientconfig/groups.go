@@ -22,7 +22,7 @@ type defaultsGroup struct {
 // scopes, unbound_access and workspaces. Access and Tools are the two halves of
 // the old clients.<p>.access: read-min.
 type providerEntry struct {
-	KBs           *[]string          `yaml:"kbs,omitempty"`
+	KBs           *kbsSetting        `yaml:"kbs,omitempty"`
 	Scope         string             `yaml:"scope,omitempty"`
 	UnboundAccess string             `yaml:"unbound_access,omitempty"`
 	ConfigDirs    []string           `yaml:"config_dirs,omitempty"`
@@ -35,7 +35,8 @@ type providerEntry struct {
 }
 
 // UnmarshalYAML tells an absent kbs key from an empty or a null one: the first
-// leaves the provider on the default KB set, the others bind it to none.
+// leaves the provider on the default KB set, the others bind it to none. The
+// scalar all is the marker that follows the server (kbsSetting).
 func (e *providerEntry) UnmarshalYAML(node *yaml.Node) error {
 	type plain providerEntry
 	var p plain
@@ -44,7 +45,7 @@ func (e *providerEntry) UnmarshalYAML(node *yaml.Node) error {
 	}
 	*e = providerEntry(p)
 	if node.Kind == yaml.MappingNode && e.KBs == nil && pairIndex(node, "kbs") >= 0 {
-		e.KBs = &[]string{}
+		e.KBs = &kbsSetting{List: []string{}}
 	}
 	return nil
 }
@@ -64,12 +65,14 @@ func (c *Config) groups() (defaultsGroup, map[string]providerEntry, map[string]k
 	prov := map[string]providerEntry{}
 	for p, b := range c.Clients {
 		e := providerEntry{ConfigDirs: b.ConfigDirs, AllowSymlinks: b.AllowSymlinks}
-		if b.Explicit() {
+		if b.FollowsServer {
+			e.KBs = &kbsSetting{All: true}
+		} else if b.Explicit() {
 			kbs := b.KBs
 			if kbs == nil {
 				kbs = []string{}
 			}
-			e.KBs = &kbs
+			e.KBs = &kbsSetting{List: kbs}
 			e.NoLineage, e.Exclude = b.NoLineage, b.Exclude
 		}
 		if b.Access == AccessReadMin {
@@ -141,7 +144,8 @@ func (c *Config) applyGroups(y *yamlConfig, path string) error {
 		b, had := c.Clients[p]
 		set := e.KBs != nil || len(e.ConfigDirs) > 0 || e.Access != "" || len(e.AllowSymlinks) > 0
 		if e.KBs != nil {
-			b.KBs, b.KBsSet = *e.KBs, true
+			// The marker counts as set, but is not a named list (Explicit stays false).
+			b.KBs, b.KBsSet, b.FollowsServer = e.KBs.List, !e.KBs.All, e.KBs.All
 		}
 		if len(e.ConfigDirs) > 0 {
 			b.ConfigDirs = e.ConfigDirs
@@ -153,7 +157,11 @@ func (c *Config) applyGroups(y *yamlConfig, path string) error {
 			b.AllowSymlinks = e.AllowSymlinks
 		}
 		if e.KBs != nil {
-			b.NoLineage, b.Exclude = e.NoLineage, e.Exclude
+			// The lineage keys belong to a named list: a marker carries none.
+			b.NoLineage, b.Exclude = e.NoLineage && !e.KBs.All, e.Exclude
+			if e.KBs.All {
+				b.Exclude = nil
+			}
 		}
 		// An entry that sets nothing at all is an empty binding, as clients: {p: {}} was.
 		if set || had || (e.Scope == "" && e.UnboundAccess == "" && len(e.Workspaces) == 0) {
