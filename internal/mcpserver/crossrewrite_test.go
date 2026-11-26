@@ -24,6 +24,7 @@ type moveRig struct {
 
 type moveRigOpts struct {
 	withC, withD bool
+	noLinks      bool // no page of the other KBs links kb-a
 	callKB       func(MultiCall) MultiCall
 }
 
@@ -59,6 +60,9 @@ func newMoveRig(t *testing.T, o moveRigOpts) moveRig {
 	helper.put(t, byName["kb-a"], "ops/zzold", notePage+"the page\n")
 	helper.put(t, byName["kb-a"], "friend", notePage+"unrelated\n")
 	for _, n := range names[1:] {
+		if o.noLinks {
+			continue
+		}
 		helper.put(t, byName[n], "page", notePage+"see [[kb:kb-a/ops/zzold#s|l]]\n")
 		helper.put(t, byName[n], "viaalias", notePage+"see [[kb:old-a/ops/zzold]]\n")
 	}

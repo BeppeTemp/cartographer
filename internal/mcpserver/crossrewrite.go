@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"slices"
 	"sort"
+	"strings"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/okf"
 )
 
 // crossRewriteReason is the only `reason` the follow-up layer sets on a commit
@@ -259,4 +262,60 @@ func mergeCrossReport(res ToolResult, rep crossReport) ToolResult {
 	content[0] = merged.Content[0]
 	res.Content = content
 	return res
+}
+
+// crossDeleteBlockers lists, sorted as "<kb>:<id>", the pages of other KBs that
+// link id of this KB (or, for an expanded concept only, a page under it) and that
+// the caller may rewrite: a KB it writes whole (crossWritable) and a page it
+// sees. A link from any other KB is never listed and never blocks (a refusal
+// would show that the link exists); the delete then leaves broken_cross_kb_link
+// for that KB's governors. Self-named links are no edge, so none shows. A KB
+// whose graph cannot be read is unknown: logged, and no blocker.
+func crossDeleteBlockers(ctx context.Context, k *kb.KB, id string) []string {
+	in, err := k.CrossIncomingAll()
+	if err != nil {
+		log.Printf("cartographer: cross-KB links to %q unknown: %v", id, err)
+		return nil
+	}
+	// Only an expanded concept owns what lies under id+"/": a plain page "foo"
+	// is not deleted with a page "foo/bar".
+	expanded := false
+	if loc, err := k.LocateConcept(okf.ConceptID(id)); err == nil {
+		expanded = loc.Expanded
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, ref := range in {
+		t := string(ref.Target)
+		if t != id && !(expanded && strings.HasPrefix(t, id+"/")) {
+			continue
+		}
+		target, _, ok := crossMounted(k, ref.KB)
+		if !ok || !crossWritable(ctx, k, ref.KB) || !Visible(ctx, target, string(ref.ID)) {
+			continue
+		}
+		entry := ref.KB + ":" + string(ref.ID)
+		if !seen[entry] {
+			seen[entry] = true
+			out = append(out, entry)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// crossKBsOf names, sorted, the KBs of "<kb>:<id>" entries.
+func crossKBsOf(entries []string) []string {
+	var names []string
+	for _, e := range entries {
+		if kbName, _, ok := strings.Cut(e, ":"); ok {
+			names = append(names, kbName)
+		}
+	}
+	return uniqueSorted(names)
+}
+
+func uniqueSorted(in []string) []string {
+	sort.Strings(in)
+	return slices.Compact(in)
 }

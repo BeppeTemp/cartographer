@@ -34,6 +34,13 @@ func TestToolParamFieldsCoverWriteSchemas(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, name := range props(schema) {
+			// A batch delete operation's `force` is a plausible real frontmatter key
+			// (a physics note has one), so it is deliberately NOT reserved: tool_param_field
+			// is auto-repair safe and would drop it silently, and a write of such a
+			// page would be refused. Any other exemption needs the same argument.
+			if name == "force" {
+				continue
+			}
 			if !lint.IsToolParamField(name) {
 				t.Errorf("%s: schema property %q is missing from lint.ToolParamFields", tool.Name, name)
 			}

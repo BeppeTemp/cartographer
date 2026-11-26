@@ -3219,6 +3219,8 @@ type batchOperationRequest struct {
 	ReplaceAll  bool                   `json:"replace_all"`
 	Edits       []patchEditItem        `json:"edits"`
 	IndexEntry  bool                   `json:"index_entry"`
+	// Force, on a delete operation, lifts the cross-KB part of inbound_links.
+	Force bool `json:"force"`
 }
 
 // batchOpBytes is what one operation adds to the batch's aggregate size. A
@@ -3278,6 +3280,7 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 							"unset": {"type": "array", "items": {"type": "string"}},
 							"body": {"type": "string"},
 							"if_match": {"type": "string"},
+							"force": {"type": "boolean"},
 							"index_entry": {"type": "boolean"},
 							"old_string": {"type": "string"},
 							"new_string": {"type": "string"},
@@ -3320,6 +3323,7 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 			prevByID := map[string]string{} // body before the batch: read before the write (D351)
 			var indexPending []pendingIndexEntry
 			deleting := map[string]bool{} // ids of the batch's delete operations (D1327)
+			forced := map[string]bool{}   // delete operations with force: the cross-KB refusal is lifted
 
 			for i, raw := range params.Operations {
 				label := fmt.Sprintf("operation %d of %d", i+1, len(params.Operations))
@@ -3340,6 +3344,9 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 				seen[op.ID] = true
 				label = fmt.Sprintf("%s (%s)", label, op.ID)
 
+				if op.Force && op.Op != "delete" {
+					return errorResult(fmt.Sprintf("%s: force applies to delete operations only", label)), nil
+				}
 				var rawFields map[string]json.RawMessage
 				_ = json.Unmarshal(raw, &rawFields)
 				_, hasEdits := rawFields["edits"]
@@ -3450,7 +3457,7 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 
 				case "delete":
 					if hasEdits || hasSingle || op.Frontmatter != nil || op.FMAppend != nil || op.FMRemove != nil || len(op.Unset) > 0 || op.Body != "" || op.IndexEntry {
-						return errorResult(fmt.Sprintf("%s: a delete operation takes only 'id' and 'if_match'", label)), nil
+						return errorResult(fmt.Sprintf("%s: a delete operation takes only 'id', 'if_match' and 'force'", label)), nil
 					}
 					if !existed {
 						return errorResult(fmt.Sprintf("%s: not found", label)), nil
@@ -3459,6 +3466,9 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 						return errorResult(fmt.Sprintf("stale_write: %s: content_hash does not match if_match%s", label, staleConceptSuffix(ctx, k, op.ID))), nil
 					}
 					deleting[op.ID] = true
+					if op.Force {
+						forced[op.ID] = true
+					}
 					ops = append(ops, kb.BatchWriteOp{ID: okf.ConceptID(op.ID), Delete: true})
 					continue
 
@@ -3507,9 +3517,20 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 					written[string(op.ID)] = true
 				}
 			}
+			var dangling []string // KBs a forced delete leaves links in
 			for _, op := range ops {
 				if !op.Delete {
 					continue
+				}
+				// Links from other KBs the caller can write: no page of this
+				// batch is theirs, so none is exempt; force lifts this part only.
+				if cross := crossDeleteBlockers(ctx, k, string(op.ID)); len(cross) > 0 {
+					if !forced[string(op.ID)] {
+						return errorResult(fmt.Sprintf("inbound_links: %d page(s) of other KBs still link to %s: %s. "+
+							"Relink them there, set force: true on this delete operation to leave them dangling, or use concept_delete; nothing was deleted",
+							len(cross), op.ID, formatIDList(cross))), nil
+					}
+					dangling = append(dangling, crossKBsOf(cross)...)
 				}
 				linkers, err := deleteBlockers(ctx, k, string(op.ID))
 				if err != nil {
@@ -3584,6 +3605,9 @@ func toolConceptBatch(k *kb.KB, facts *factFinder) Tool {
 				entries[i] = batchResultEntry{ID: r.ID, ContentHash: hash, Findings: findings, Repaired: repaired}
 			}
 			response := map[string]interface{}{"results": entries}
+			if dangling = uniqueSorted(dangling); len(dangling) > 0 {
+				response["cross_kb"] = map[string][]string{"dangling": dangling}
+			}
 			if notes := append(indexEntryNotes(indexPending), dropNotes...); len(notes) > 0 {
 				response["curated_indexes"] = notes
 			}
@@ -3713,7 +3737,7 @@ func mapContractViolation(k *kb.KB, id string, fm *okf.Frontmatter) error {
 func toolConceptDelete(k *kb.KB) Tool {
 	return Tool{
 		Name:        "concept_delete",
-		Description: "Permanently removes a concept (git commit) and the line that lists it in its curated index (reported in the result). Refuses with inbound_links (listing the linkers) while other concepts link to it: relink them in the same concept_batch, or use supersede to retire the page; to rename, concept_move. Links are never rewritten. In a git KB force does not lift this: the write gate refuses a delete that leaves a broken link; force only matters in a KB without git, and for an expanded concept that owns assets (it also needs force=true).",
+		Description: "Permanently removes a concept (git commit) and its line in the curated index. Refuses with inbound_links (the linkers) while other concepts, or pages of other KBs you can write (listed <kb>:<id>), link it: relink them in the same concept_batch, supersede, or concept_move. Links are never rewritten. force lifts the cross-KB part (those links dangle; the result names the KBs); a git KB's write gate still refuses a delete that leaves a broken internal link. An expanded concept that owns assets also needs force=true.",
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"required": ["id"],
@@ -3727,7 +3751,7 @@ func toolConceptDelete(k *kb.KB) Tool {
 				},
 				"force": {
 					"type": "boolean",
-					"description": "Skip the inbound_links check (only a KB without git then accepts the broken links; a git KB's write gate still refuses them) and allow deletion of an expanded concept's assets"
+					"description": "Skip the inbound_links check, cross-KB included (a git KB's write gate still refuses broken internal links); allow deleting an expanded concept's assets"
 				}
 			}
 		}`),
@@ -3761,16 +3785,21 @@ func toolConceptDelete(k *kb.KB) Tool {
 			if err != nil {
 				return errorResult(fmt.Sprintf("concept_delete %q: read links: %v", params.ID, relPathErr(err, k.Root))), nil
 			}
-			if len(linkers) > 0 && !params.Force {
+			cross := crossDeleteBlockers(ctx, k, params.ID)
+			if (len(linkers) > 0 || len(cross) > 0) && !params.Force {
 				// Dangling links to a missing concept are not a reason to refuse:
 				// report not found, as the delete itself would.
 				if _, err := k.ReadConcept(okf.ConceptID(params.ID)); errors.Is(err, okf.ErrNotFound) {
 					return errorResult(fmt.Sprintf("concept_delete %q: not found", params.ID)), nil
 				}
+				all := append(append([]string(nil), linkers...), cross...)
+				tail := "in a git KB force: true does not lift this, the write gate refuses a delete that leaves broken links"
+				if len(linkers) == 0 {
+					tail = "force: true deletes it anyway and leaves those links dangling"
+				}
 				return errorResult(fmt.Sprintf("inbound_links: %d concept(s) still link to %s: %s. "+
-					"Relink them in the same concept_batch, use supersede (retire the page but keep it) or concept_move (rename with backlink rewrite); "+
-					"in a git KB force: true does not lift this, the write gate refuses a delete that leaves broken links",
-					len(linkers), params.ID, formatIDList(linkers))), nil
+					"Relink them in the same concept_batch, use supersede (retire the page but keep it) or concept_move (rename with backlink rewrite); %s",
+					len(all), params.ID, formatIDList(all), tail)), nil
 			}
 
 			if _, err := k.DeleteConceptWithAssets(okf.ConceptID(params.ID), params.Force); err != nil {
@@ -3787,6 +3816,9 @@ func toolConceptDelete(k *kb.KB) Tool {
 			}
 			if len(linkers) > 0 {
 				msg += fmt.Sprintf("\nWarning: %d concept(s) still link to %s: %s", len(linkers), params.ID, formatIDList(linkers))
+			}
+			if kbs := crossKBsOf(cross); len(kbs) > 0 {
+				msg += "\ncross_kb: links in " + strings.Join(kbs, ", ") + " now dangle"
 			}
 			return textResult(msg), nil
 		},
