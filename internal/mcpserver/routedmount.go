@@ -717,6 +717,17 @@ func (m *MultiKBServer) routedHandler(toolName string, set []string, sink *Serve
 	}
 }
 
+// CallKB runs tool of the KB mounted as name through that KB's own Server
+// (callTool, the entry routedHandler uses): the policy, write veto, audit and
+// git wrapper are the target's, applied to the caller of ctx. Deps.CallKB.
+func (m *MultiKBServer) CallKB(ctx context.Context, name, tool string, args json.RawMessage) ToolResult {
+	srv, ok := m.servers[name]
+	if !ok {
+		return errorResult(fmt.Sprintf("kb %q is not mounted", name))
+	}
+	return srv.callTool(ctx, tool, args)
+}
+
 // routedConnectionHint is the fixed text of kb_status.connection.hint.
 const routedConnectionHint = "A KB listed in mounted but missing from your instructions' KB list was added after this session started: " +
 	"run cartographer sync (bind it first with cartographer client bind if it is in unbound), then start a new agent session."

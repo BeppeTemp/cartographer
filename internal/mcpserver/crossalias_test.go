@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
@@ -48,5 +49,17 @@ func TestAliasRelationGuardThroughState(t *testing.T) {
 	}
 	if got := crossStateFor(ctx, r.a, kb.CrossLink{KB: "kb-b", ID: "ops/x"}); got != crossResolved {
 		t.Errorf("the current name has no guard: %q", got)
+	}
+}
+
+// AC-cross-kb-rewrite-15
+func TestMoveAfterRenameRewritesOldName(t *testing.T) {
+	t.Parallel()
+	r := newMoveRig(t, moveRigOpts{}) // kb-b/viaalias links [[kb:old-a/...]], old-a being the old name of kb-a
+	if res := r.move(perms(map[string]bool{"kb-a": true, "kb-b": true}), ""); res.IsError {
+		t.Fatal(resultText(res))
+	}
+	if got := pageBody(t, r.kbs["kb-b"], "viaalias"); !strings.HasSuffix(got, "---\nsee [[kb:kb-a/ops/zznew]]\n") {
+		t.Errorf("a link written with the old name must follow, in the current name: %q", got)
 	}
 }

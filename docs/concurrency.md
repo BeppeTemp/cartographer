@@ -11,6 +11,8 @@ clones can synchronize through the same remote, but high-contention
 multi-writer operation is not a supported scaling model; partition KBs across
 instances instead.
 
+A cross-KB rewrite (`concept_move`, `concept_archive`: the links other KBs hold to a moved page) is a sequence of single-KB tool calls made after the origin has committed and released its lock: each KB's `cross_link_rewrite` takes only that KB's lock inside its own git wrapper, and the next starts after the previous returned, so no code of the rewrite ever holds two KB locks and it cannot deadlock with `concept_transfer`'s two-lock order. The origin is never undone because of another KB: a KB whose rewrite failed is listed in the result and keeps `broken_cross_kb_link` until `cross_link_rewrite` is called there (idempotent); a crash between the origin's commit and the follow-ups leaves the same state, with no journal.
+
 `concept_batch` (D125) runs its whole multi-concept transaction under this
 same single per-KB lock — it does not acquire a second one. Every operation
 is validated and its content materialized in memory before the first byte is

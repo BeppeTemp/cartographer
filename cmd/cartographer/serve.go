@@ -911,7 +911,7 @@ func serveHTTP(addr string, boot func(phase func(string)) kbBootstrap, authCfg c
 					s.SetDisplayName("cartographer:" + name)
 				}
 				sqlIdx := sqlIdxs[filepath.Clean(k.Root)]
-				mcpserver.RegisterKBTools(s, k, mcpserver.Deps{SQLIndex: sqlIdx, BundleFS: skillbundle.FS, ArtifactSigner: artifactSigners[i], RoutedMount: true, KBByName: kbByName, Presets: serverPresets})
+				mcpserver.RegisterKBTools(s, k, mcpserver.Deps{SQLIndex: sqlIdx, BundleFS: skillbundle.FS, ArtifactSigner: artifactSigners[i], RoutedMount: true, KBByName: kbByName, CallKB: multi.CallKB, Presets: serverPresets})
 				s.SetToolsProfile(toolsProfile)
 				s.SetAuditLog(auditLog)
 				s.SetHooks(serverHooks)
