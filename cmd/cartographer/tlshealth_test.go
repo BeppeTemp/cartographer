@@ -3,6 +3,7 @@
 package main
 
 import (
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -133,36 +134,56 @@ func TestTLSStartReleasesPortsOnBindError(t *testing.T) {
 		return ln, ln.Addr().String()
 	}
 
+	// A port closed here to be "free" can be taken by another process before
+	// the server binds it (the race of #2409): each subtest retries with new
+	// ports, up to 3 times, and fails with the last real error.
+	retry := func(t *testing.T, attempt func() error) {
+		t.Helper()
+		var err error
+		for i := 0; i < 3; i++ {
+			if err = attempt(); err == nil {
+				return
+			}
+		}
+		t.Fatal(err)
+	}
+
 	t.Run("health port taken", func(t *testing.T) {
-		pub, pubAddr := free()
-		pub.Close()
-		taken, takenAddr := free()
-		defer taken.Close()
-		err := serveHTTP(pubAddr, boot, config.AuthConfig{Mode: "off"}, nil, false, nil, nil, cfg, config.TLSConfig{Enabled: true, HealthAddr: takenAddr})
-		if err == nil || !strings.Contains(err.Error(), takenAddr) {
-			t.Fatalf("serveHTTP error = %v, want one naming %s", err, takenAddr)
-		}
-		again, err := net.Listen("tcp", pubAddr)
-		if err != nil {
-			t.Fatalf("the public port was left bound: %v", err)
-		}
-		again.Close()
+		retry(t, func() error {
+			pub, pubAddr := free()
+			pub.Close()
+			taken, takenAddr := free()
+			defer taken.Close()
+			err := serveHTTP(pubAddr, boot, config.AuthConfig{Mode: "off"}, nil, false, nil, nil, cfg, config.TLSConfig{Enabled: true, HealthAddr: takenAddr})
+			if err == nil || !strings.Contains(err.Error(), takenAddr) {
+				return fmt.Errorf("serveHTTP error = %v, want one naming %s", err, takenAddr)
+			}
+			again, err := net.Listen("tcp", pubAddr)
+			if err != nil {
+				return fmt.Errorf("the public port was left bound: %w", err)
+			}
+			again.Close()
+			return nil
+		})
 	})
 
 	t.Run("public port taken", func(t *testing.T) {
-		taken, takenAddr := free()
-		defer taken.Close()
-		hl, hAddr := free()
-		hl.Close()
-		err := serveHTTP(takenAddr, boot, config.AuthConfig{Mode: "off"}, nil, false, nil, nil, cfg, config.TLSConfig{Enabled: true, HealthAddr: hAddr})
-		if err == nil || !strings.Contains(err.Error(), takenAddr) {
-			t.Fatalf("serveHTTP error = %v, want one naming %s", err, takenAddr)
-		}
-		again, err := net.Listen("tcp", hAddr)
-		if err != nil {
-			t.Fatalf("the health port was bound: %v", err)
-		}
-		again.Close()
+		retry(t, func() error {
+			taken, takenAddr := free()
+			defer taken.Close()
+			hl, hAddr := free()
+			hl.Close()
+			err := serveHTTP(takenAddr, boot, config.AuthConfig{Mode: "off"}, nil, false, nil, nil, cfg, config.TLSConfig{Enabled: true, HealthAddr: hAddr})
+			if err == nil || !strings.Contains(err.Error(), takenAddr) {
+				return fmt.Errorf("serveHTTP error = %v, want one naming %s", err, takenAddr)
+			}
+			again, err := net.Listen("tcp", hAddr)
+			if err != nil {
+				return fmt.Errorf("the health port was bound: %w", err)
+			}
+			again.Close()
+			return nil
+		})
 	})
 }
 
