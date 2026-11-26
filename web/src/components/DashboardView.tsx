@@ -12,7 +12,7 @@ import { DashboardTable } from "./DashboardTable";
  * so nothing here assumes a title, a source or a hash: a widget with no title
  * is named by its id.
  *
- * Drawn here: `stat`, `note`, `kanban`, `list`, `agenda`, `table`, `timeline` and the error tile of a widget
+ * Drawn here: `stat`, `note`, `kanban`, `list`, `agenda`, `table`, `timeline`, `links` and the error tile of a widget
  * that failed to resolve. Any other type shows a neutral tile naming it.
  */
 export function DashboardView({
@@ -157,9 +157,37 @@ function WidgetBody({ widget, onOpen }: { widget: DashboardWidget; onOpen?(conce
       ) : (
         <Timeline entries={widget.entries ?? []} dateField={widget.date_field} onOpen={onOpen} />
       );
+    case "links":
+      return <LinkList entries={widget.entries ?? []} onOpen={onOpen} />;
     default:
       return <p className="page-note">A {widget.type ?? "unknown"} widget is not drawn yet.</p>;
   }
+}
+
+/**
+ * The ids of a `links` widget in the author's order. The resolver answers `state: "missing"` alike
+ * for a hidden and a nonexistent id (and sends no id to a caller without whole-KB read), so a missing
+ * row never names what was asked for: it only says "not found".
+ */
+function LinkList({ entries, onOpen }: { entries: DashboardEntry[]; onOpen?(conceptId: string): void }) {
+  if (entries.length === 0) return <p className="page-note">Nothing here.</p>;
+  return (
+    <ul className="dashboard__links">
+      {entries.map((e, i) => (
+        <li key={`${e.id}-${i}`}>
+          {e.state === "missing" ? (
+            <span className="dashboard__missing">not found</span>
+          ) : onOpen ? (
+            <button type="button" className="dashboard__cell-link" onClick={() => onOpen(e.id)}>
+              {e.title || e.id}
+            </button>
+          ) : (
+            <span>{e.title || e.id}</span>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 /** One dated row per entry: the date beside the card. `date_field` is absent for a caller without whole-KB read, so the default is tried. */
