@@ -45,13 +45,17 @@ type syncProjection struct {
 	// none or for the global projection.
 	Remote string
 	// KBs are the KBs this projection may receive. Empty is a legal, explicit
-	// state and never means "every KB".
+	// state and never means "every KB". For a bundle-only projection they are
+	// the provider's transversal KBs, of which it carries the instructions
+	// artifact only (forProjection): no skill, agent, hook or MCP descriptor,
+	// which stay tied to a binding.
 	KBs []string
 	// OwnKBs is KBs without the ones brought by lineage: what a printed
 	// `workspace bind` command names (a lineage KB is never bound by hand).
 	OwnKBs []string
 	// BundleOnly marks the residual global projection of a workspace-scoped
-	// provider: it carries the transversal bundled skills and nothing
+	// provider: it carries the transversal bundled skills, the plugins and the
+	// instructions artifact of each transversal KB (its KBs), and nothing else
 	// KB-sourced. This is decision 5 made into a flag rather than a convention.
 	BundleOnly bool
 	// Scope is the destination matrix half this projection writes through.
@@ -169,7 +173,9 @@ func projectionsFor(cfg *clientconfig.Config, provider, clientBaseDir string) ([
 		Provider:   provider,
 		BaseDir:    clientBaseDir,
 		BundleOnly: true,
-		Scope:      contract.ScopeGlobal,
+		// The transversal KBs: their instructions only (forProjection).
+		KBs:   cfg.TransversalKBs(provider),
+		Scope: contract.ScopeGlobal,
 	}}
 
 	bindings := cfg.WorkspaceBindings(provider)
@@ -259,6 +265,21 @@ func (cs candidateSet) forProjection(cfg *clientconfig.Config, p syncProjection)
 			// receives its plugins in the global scope (decision 8).
 			if a.Source == "bundle" || contract.IsPluginSource(a.Source) {
 				out = append(out, a)
+			}
+		}
+		// A transversal KB's instructions and nothing else of it: its skills,
+		// agents, hooks and MCP descriptors stay tied to a binding. A server
+		// that does not identify its KBs has no name to match: nothing is
+		// added, fail closed as for a workspace.
+		if !cs.HasBare {
+			permitted := make(map[string]bool, len(p.KBs))
+			for _, kb := range p.KBs {
+				permitted["kb:"+kb] = true
+			}
+			for _, a := range cs.forKBs(p.KBs) {
+				if a.Kind == "instructions" && permitted[a.Source] {
+					out = append(out, a)
+				}
 			}
 		}
 		return out
@@ -1155,10 +1176,10 @@ func buildProjectionManifests(st syncStreams, cfg *clientconfig.Config, projecti
 	anyDefault := false
 	requiredBy := map[string][]string{}
 	for _, p := range projections {
-		if p.BundleOnly {
-			continue
-		}
-		if p.Workspace == "" {
+		// A bundle-only projection pulls nothing of its own but the transversal
+		// KBs it carries the instructions of, which may be bound nowhere: they
+		// join the pulls (and are no reason for the default-scope second pull).
+		if p.Workspace == "" && !p.BundleOnly {
 			if _, explicit := cfg.BoundKBs(p.Provider); !explicit {
 				anyDefault = true
 			}

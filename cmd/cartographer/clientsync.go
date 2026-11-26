@@ -474,7 +474,9 @@ func boundKBUnion(cfg *clientconfig.Config, providers []string) (names []string,
 // and two different global orders made every sync rewrite it twice (#1809). A
 // global projection keeps the provider's binding order (D182).
 func projectionKBOrder(p syncProjection, global map[string][]string) []string {
-	if p.Workspace != "" {
+	if p.Workspace != "" || p.BundleOnly {
+		// A bundle-only projection holds the transversal KBs, in the order of
+		// the list the projection was built with (sorted).
 		return p.KBs
 	}
 	return global[p.Provider]
@@ -1029,6 +1031,10 @@ type portabilityOptions struct {
 	// lock entries are carried forward and their region of the instructions
 	// block is kept (provisioning.ApplyOptions.HeldKBs).
 	HeldKBs map[string]bool
+	// HeldTransversal are, per provider in workspace scope, the transversal KBs
+	// this run holds: the hold applies to the provider's bundle-only projection
+	// whether or not the provider follows the server (Config.HeldTransversalKBs).
+	HeldTransversal map[string][]string
 	// HeldFor are the providers the hold applies to: the ones that follow the
 	// server, in their global projection. An explicit list or a workspace list
 	// naming a KB the server lost is a stale selection, as before.
@@ -1178,6 +1184,12 @@ func materializeForProviders(manifests map[string]contract.Manifest, projections
 		heldKBsHere := portability.HeldKBs
 		if !portability.HeldFor[p.Provider] || p.Scope != contract.ScopeGlobal {
 			heldKBsHere = nil
+		}
+		if p.BundleOnly {
+			// Its only KB-sourced entries are the transversal KBs' instructions:
+			// a KB held for a failed mount must not stop the bundle and the
+			// plugins of the provider, nor lose its region.
+			heldKBsHere = stringSet(portability.HeldTransversal[p.Provider])
 		}
 		lockForApply, heldKBEntries := splitHeldKBs(lockForApply, heldKBsHere)
 		for _, mf := range heldKBEntries {

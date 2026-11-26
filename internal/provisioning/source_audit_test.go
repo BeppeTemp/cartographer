@@ -33,7 +33,7 @@ var sourceSites = map[string]struct {
 	"cmd/cartographer/status_snapshot.go":            {4, "heldWithInstructions names the held KBs with a kb: instructions entry, a plugin has none; trust is `plugin`, never needs_approval; kbAgentIssuePrefix: only a KB's agent has a sync_pull issue to match, a bundle or plugin agent yields none"},
 	"cmd/cartographer/sync_follow.go":                {1, "names the artifacts of an added KB that wait for approval: a plugin artifact has no per-KB approval and is not listed"},
 	"cmd/cartographer/usagesync.go":                  {1, "groups usage per KB and ignores other sources"},
-	"cmd/cartographer/workspace.go":                  {5, "workspace projections permit bundle and bound KBs; plugins join the global scope only (forProjection); the lineage instructions projection selects the instructions of a bound KB by its kb: source, so a plugin artifact never matches and is left out"},
+	"cmd/cartographer/workspace.go":                  {6, "workspace projections permit bundle and bound KBs; plugins join the global scope only (forProjection); the bundle-only projection adds the instructions of a transversal KB by its kb: source, so a plugin artifact never matches; the lineage instructions projection selects the instructions of a bound KB by its kb: source, so a plugin artifact never matches and is left out"},
 	"internal/artifactsig/artifactsig.go":            {2, "identity requires kb:, so a plugin artifact can never be signed"},
 	"internal/clientconfig/clientconfig.go":          {1, "approval keys of KB sources"},
 	"internal/kb/dashboard.go":                       {1, "link scheme of a links widget id naming another KB (kb:<kb>/<id>), refused; not an artifact source"},

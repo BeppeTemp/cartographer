@@ -118,10 +118,28 @@ func (c *Config) SetKBTransversal(kb string, on bool) {
 // deduplicated: none unless provider is in workspace scope (in provider scope
 // the global catalogue already reaches every session, and providers.<p>.kbs is
 // the person's own binding, which a flag must not widen), restricted to the KBs
-// the server mounts when that list is known (RoutedBinding's rule). The single
-// reader both the stdio bridge and sync use. A transversal KB is never added to
-// a binding, and it is never an input of a lineage closure.
+// the server mounts when that list is known (RoutedBinding's rule) and without
+// the ones this run holds (HeldKBs: the server could not mount them, so nothing
+// is pulled for them). The single reader both the stdio bridge and sync use. A
+// transversal KB is never added to a binding, and it is never an input of a
+// lineage closure.
 func (c *Config) TransversalKBs(provider string) []string {
+	if c == nil {
+		return nil
+	}
+	var out []string
+	for _, kb := range RoutedBinding(c.KnownKBs, c.DeclaredTransversalKBs(provider)) {
+		if !containsString(c.HeldKBs, kb) {
+			out = append(out, kb)
+		}
+	}
+	return out
+}
+
+// DeclaredTransversalKBs is TransversalKBs as the file says it, whatever the
+// server mounts or holds: sorted, empty outside workspace scope. sync feeds it
+// to heldKBs, which needs the KBs the server did not list.
+func (c *Config) DeclaredTransversalKBs(provider string) []string {
 	if c == nil || c.WorkspaceScope(provider) != ScopeWorkspace {
 		return nil
 	}
@@ -131,7 +149,20 @@ func (c *Config) TransversalKBs(provider string) []string {
 			flagged = append(flagged, kb)
 		}
 	}
-	return RoutedBinding(c.KnownKBs, flagged)
+	sort.Strings(flagged)
+	return flagged
+}
+
+// HeldTransversalKBs are the transversal KBs of provider that this run holds
+// (HeldKBs): the ones whose region and lock entries sync carries forward.
+func (c *Config) HeldTransversalKBs(provider string) []string {
+	var out []string
+	for _, kb := range c.DeclaredTransversalKBs(provider) {
+		if containsString(c.HeldKBs, kb) {
+			out = append(out, kb)
+		}
+	}
+	return out
 }
 
 // ReadOnlyKBs returns, sorted, the KBs whose access is "read".
