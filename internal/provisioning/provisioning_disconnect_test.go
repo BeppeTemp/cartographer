@@ -7,7 +7,7 @@ package provisioning_test
 // documented exceptions:
 //
 //   - provisioning's own root directories (.claude, .codex, .copilot and the
-//     others listed in provisioningRootDirs in
+//     others listed in configurator.RootDirs in
 //     provisioning.go) are never removed even if they end up empty: they are
 //     deliberate boundaries, not a residue of this feature (they could hold
 //     other content, not managed by Cartographer, in a real system);
@@ -220,7 +220,7 @@ func TestRoundTrip_ConnectDisconnect_NessunResiduo(t *testing.T) {
 	allowedExtra := map[string]bool{
 		// Roots freshly created by this run (kiro/opencode/antigravity didn't exist
 		// before): pruneEmptyDirs boundaries, never removed even if they end up
-		// empty — see provisioningRootDirs.
+		// empty — see configurator.RootDirs.
 		".kiro":            true,
 		".opencode":        true,
 		".config":          true,

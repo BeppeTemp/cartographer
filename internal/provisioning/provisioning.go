@@ -3664,41 +3664,9 @@ func appendBlock(content, block string) string {
 	return trimmed + "\n\n" + block
 }
 
-// provisioningRootDirs are the top-level (relative to BaseDir) directories every
-// provider's artifacts live under — the boundaries pruneEmptyDirs never removes,
-// even left completely empty: they are provisioning's own "mount points", meant to
-// persist across connect/disconnect cycles (and, for .claude/.codex/.opencode, often
-// hold user files — settings.json, config.toml, opencode.json — pruneEmptyDirs has
-// no business touching). Only the levels *created underneath* them (e.g.
-// ".claude/skills/<name>", then ".claude/skills") are ever removed (D63).
-// TestEveryDestinationRootIsAPruneBoundary checks it against both destination
-// matrices: a provider or a workspace cell added later fails there until its root is
-// here. Writers outside the matrix (hook registrations, bootstrap) sit under these too.
-var provisioningRootDirs = map[string]bool{
-	".claude":                            true,
-	".codex":                             true,
-	".kiro":                              true,
-	".opencode":                          true,
-	".config":                            true,
-	filepath.Join(".config", "opencode"): true,
-	filepath.Join(".config", "crush"):    true,
-	".gemini":                            true,
-	".copilot":                           true,
-	".pi":                                true,
-	// .cline also holds Cline's own data/ (settings, sessions): the boundary
-	// keeps it, and only the levels created underneath are pruned.
-	".cline": true,
-	// Workspace scope only (projectDestinationMatrix).
-	".agents": true,
-	".crush":  true,
-	// .github is the repository's own directory (workflows, templates): only
-	// the levels Cartographer created under it are ever pruned.
-	".github": true,
-}
-
 // pruneEmptyDirs removes every directory left empty by the removal of the file at
 // baseDir/relPath, walking upward from relPath's parent — stopping (without
-// removing) at BaseDir itself or at any of provisioningRootDirs (D63). Called after
+// removing) at BaseDir itself or at any of configurator.RootDirs (D63). Called after
 // a ManagedFile has been os.Remove'd (or found already gone) so a disconnect/prune
 // leaves no empty ".claude/skills/<name>/", ".opencode/hooks/<name>/", etc. behind.
 //
@@ -3711,7 +3679,7 @@ var provisioningRootDirs = map[string]bool{
 func pruneEmptyDirs(baseDir, relPath string) {
 	dir := filepath.Dir(relPath)
 	for dir != "." && dir != string(filepath.Separator) {
-		if provisioningRootDirs[dir] || isPluginBoundary(dir) {
+		if configurator.IsRootDir(dir) || isPluginBoundary(dir) {
 			return
 		}
 		// A symlinked directory, or one under a symlink, is someone else's:

@@ -387,7 +387,7 @@ func isBuiltinProvider(name string) bool {
 
 // pluginBoundaries are the prune boundaries c's cells add: the first two
 // segments of each cell's directory (a file cell's directory), so a prune never
-// climbs into the user's own config directory (provisioningRootDirs, D63).
+// climbs into the user's own config directory (configurator.RootDirs, D63).
 func pluginBoundaries(cells map[contract.Scope]map[string]contract.Destination) []string {
 	seen := map[string]bool{}
 	var out []string
