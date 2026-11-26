@@ -416,7 +416,10 @@ func TestReadyCheckJobsReplayTheChain(t *testing.T) {
 			}
 		}
 	}
-	if checkouts != 3 {
-		t.Errorf("ready-check.yml has %d checkouts, want 3 (plan, windows, web)", checkouts)
+	if j, ok := wf.Jobs["readers"]; !ok || !strings.Contains(j.Steps[len(j.Steps)-1].Run, "./internal/repodocs/... ./internal/docskb ./internal/boundaries ./internal/webui") {
+		t.Errorf("the readers job runs the tests that read the repository on the replayed chain")
+	}
+	if checkouts != 4 {
+		t.Errorf("ready-check.yml has %d checkouts, want 4 (plan, windows, web, readers)", checkouts)
 	}
 }

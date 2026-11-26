@@ -284,7 +284,8 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
   - **The train.** The lander (`scripts/land.sh`, started by `make ready`, stopping when
     nothing is landable) cherry-picks whole units onto `main`, up to 8 changes, numbers their pending
     decisions, gates the train **once** with `make signoff` (the package of a named Go test that fails
-    runs once more inside it, and a pass is filed as flaky; red twice, or red on that retry: bisection over
+    runs once more inside it, and a pass is filed as flaky; any other red is gated again, hosted by rerunning the red
+    run's failed jobs; red twice, or red on that retry: bisection over
     whole units rejects the one that breaks it, its tip to `failed/<slug>`, whose last commit message says
     why), and opens one PR `chore(dev): train <id>, <k> change(s)`, **rebase-merged** so each change stays
     its own commit on `main`.
@@ -295,7 +296,7 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
     lander stops (one in `startup_failure` stops it at once: it will not turn green), and an open train
     PR on the current `main` that it did not open is adopted (one on an older `main` is closed).
   - **Pre-check and status.** Each queued change gets a hosted pre-check
-    (`ready-check.yml`: its Windows tests and, for `web/`, the frontend unit tests, on its chain,
+    (`ready-check.yml`: its Windows tests, the tests that read the repository and, for `web/`, the frontend unit tests, on its chain,
     the changes it follows through `AFTER=`, replayed on the current `main`; a replay conflict in the committed
     Atlas bundle only is not red): a train takes every unit whose tip is not red, one still running included,
     and a red one is gated alone (D2414). The lander builds the bundle again for every picked

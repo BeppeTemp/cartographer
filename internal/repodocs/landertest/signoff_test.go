@@ -102,7 +102,9 @@ case "$1 $2" in
         echo "$body" | out ;;
       *) if [ -f "$FAKE_GH_RUNS" ]; then cat "$FAKE_GH_RUNS"; else echo '[]'; fi | out ;;
     esac ;;
-  "run view") case "$*" in *--log*) n=$(cat "$FAKE_GH_LOG.logreads" 2>/dev/null || echo 0); echo $((n + 1)) > "$FAKE_GH_LOG.logreads"; [ "$n" -ge "${FAKE_GH_LOG_EMPTY:-0}" ] && printf '%b' "${FAKE_GH_JOBLOG:-}" ;; *) printf '%s\n' "${FAKE_GH_JOBS:-}" | out ;; esac ;;
+  "run rerun") touch "$FAKE_GH_LOG.reran"; exit "${FAKE_GH_RERUN_RC:-0}" ;;
+  # The attempt of a run: 1, then 2 once it was rerun; its sha is FAKE_GH_HEADSHA.
+  "run view") case "$*" in *attempt*) a=1; [ ! -f "$FAKE_GH_LOG.reran" ] || a=2; printf '{"attempt":%s,"headSha":"%s"}\n' "$a" "${FAKE_GH_HEADSHA:-}" | out ;; *--log*) n=$(cat "$FAKE_GH_LOG.logreads" 2>/dev/null || echo 0); echo $((n + 1)) > "$FAKE_GH_LOG.logreads"; [ "$n" -ge "${FAKE_GH_LOG_EMPTY:-0}" ] && printf '%b' "${FAKE_GH_JOBLOG:-}" ;; *) printf '%s\n' "${FAKE_GH_JOBS:-}" | out ;; esac ;;
   "workflow run") touch "$FAKE_GH_LOG.dispatched"; exit "${FAKE_GH_DISPATCH_RC:-0}" ;;
   "pr view") exit 1 ;;
 esac
@@ -1332,5 +1334,44 @@ func TestSignoffHostedJobsSanitisesNames(t *testing.T) {
 	}
 	if got, want := string(out), "signoff: job web_signoff_ job gate_ success: failure\n"; got != want {
 		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+// A red hosted gate gated again with SIGNOFF_RERUN (the lander's re-run) reruns the failed jobs of
+// that run and follows its new attempt, the green legs kept; a run of another sha, or a rerun
+// GitHub refuses, dispatches a whole new run as before.
+func TestSignoffRerunsTheFailedJobsOfTheSameRun(t *testing.T) {
+	green := hostedRun("completed", "completed success", nil)
+	for _, c := range []struct {
+		name, sha, rc string
+		rerun         bool
+	}{
+		{"the same sha", "", "0", true},
+		{"another sha", "0000000000000000000000000000000000000000", "0", false},
+		{"a rerun GitHub refuses", "", "1", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := newSignoffEnv(t)
+			e.branch(e.work, "feat/x", "x.txt")
+			sha := c.sha
+			if sha == "" {
+				sha = e.run(e.work, "git", "rev-parse", "HEAD")
+			}
+			out, ok := e.signoff(e.work, "SIGNOFF_GATE=hosted", "SIGNOFF_RERUN=7", "FAKE_GH_HEADSHA="+sha, "FAKE_GH_RERUN_RC="+c.rc,
+				`FAKE_GH_DISPATCHED=[{"databaseId":8}]`, "FAKE_GH_JOBS="+green)
+			if !ok {
+				t.Fatalf("signoff failed\n%s", out)
+			}
+			log := e.log(e.ghLog)
+			posts := e.posts()
+			if c.rerun {
+				if !strings.Contains(log, "run rerun 7 -R up/proj --failed") || strings.Contains(log, "workflow run") ||
+					!strings.Contains(out, "ci.yml run 7: its failed jobs run again (attempt 2)") || len(posts) != 1 || !strings.Contains(posts[0], " run=7 ") {
+					t.Errorf("the failed jobs of run 7 run again, nothing dispatched:\n%s\n%s\n%v", out, log, posts)
+				}
+			} else if !strings.Contains(log, "workflow run ci.yml") || len(posts) != 1 || !strings.Contains(posts[0], " run=8 ") {
+				t.Errorf("a whole new run is dispatched:\n%s\n%s\n%v", out, log, posts)
+			}
+		})
 	}
 }
