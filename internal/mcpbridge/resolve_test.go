@@ -406,3 +406,151 @@ func TestResolveLinkedWorktreeOfWorktreesBinding(t *testing.T) {
 		}
 	}
 }
+
+// transversalConfig is a workspace-scope claude with kb-a transversal.
+func transversalConfig(t *testing.T) *clientconfig.Config {
+	t.Helper()
+	cfg := baseConfig()
+	if err := cfg.SetWorkspaceScope("claude", clientconfig.ScopeWorkspace); err != nil {
+		t.Fatal(err)
+	}
+	cfg.SetKBTransversal("kb-a", true)
+	return cfg
+}
+
+// AC-transv-5: in a folder bound to kb-b a workspace-scope session also reaches
+// the transversal kb-a, read-only.
+func TestResolveTransversalReadOnly(t *testing.T) {
+	root := mkdir(t, t.TempDir())
+	cfg := transversalConfig(t)
+	bind(t, cfg, root, "kb-b")
+	s := Resolve(cfg, "claude", root)
+	if !reflect.DeepEqual(s.KBs, []string{"kb-a", "kb-b"}) || !reflect.DeepEqual(s.ReadOnlyKBs, []string{"kb-a"}) || !reflect.DeepEqual(s.Transversal, []string{"kb-a"}) {
+		t.Fatalf("scope = %+v", s)
+	}
+	if got := s.Query(); got != "kbs=kb-a,kb-b&readonly=kb-a" {
+		t.Errorf("query = %q", got)
+	}
+	if got := s.Describe(); !strings.HasPrefix(got, "kb-b (workspace ") || !strings.Contains(got, "; + kb-a read-only (transversal)") || strings.Count(got, "kb-a") != 1 {
+		t.Errorf("describe = %q: kb-a must be named once, on the + part", got)
+	}
+	// A provider in provider scope is unaffected.
+	cfg2 := baseConfig()
+	cfg2.SetKBTransversal("kb-a", true)
+	bind(t, cfg2, root, "kb-b")
+	if s := Resolve(cfg2, "claude", root); !reflect.DeepEqual(s.KBs, []string{"kb-b"}) || s.Transversal != nil {
+		t.Errorf("provider scope scope = %+v", s)
+	}
+}
+
+// AC-transv-6: a KB the folder is bound to keeps the folder's access; --no-kb
+// and a binding with an error get no transversal KB.
+func TestResolveTransversalNotWhereExcluded(t *testing.T) {
+	root := mkdir(t, t.TempDir())
+	both := mkdir(t, root, "both")
+	none := mkdir(t, root, "none")
+	gone := mkdir(t, root, "gone")
+	cfg := transversalConfig(t)
+	bind(t, cfg, both, "kb-a", "kb-b")
+	bind(t, cfg, none)
+	bind(t, cfg, gone, "kb-b")
+	s := Resolve(cfg, "claude", both)
+	if s.ReadOnlyKBs != nil || s.Transversal != nil || strings.Contains(s.Query(), "readonly") {
+		t.Errorf("a bound transversal KB must keep the folder's access: %+v", s)
+	}
+	cfg.SetKBAccess("kb-a", "read")
+	if s := Resolve(cfg, "claude", both); !reflect.DeepEqual(s.ReadOnlyKBs, []string{"kb-a"}) || s.Transversal != nil {
+		t.Errorf("access=read of the KB still applies: %+v", s)
+	}
+	if s := Resolve(cfg, "claude", none); !s.None() || s.Transversal != nil {
+		t.Errorf("--no-kb must stay empty: %+v", s)
+	}
+	if err := os.RemoveAll(gone); err != nil {
+		t.Fatal(err)
+	}
+	if s := Resolve(cfg, "claude", gone); s.Err != nil && (len(s.KBs) > 0 || s.Transversal != nil) {
+		t.Errorf("an erroring binding must stay empty: %+v", s)
+	}
+	broken := &Scope{Err: os.ErrNotExist}
+	if broken.Describe() != "no KB (file does not exist)" {
+		t.Errorf("describe of an error scope = %q", broken.Describe())
+	}
+}
+
+// AC-transv-7: an unbound folder with an explicit provider binding gets the
+// transversal KB, named read-only when the mode is write.
+func TestProviderScopeTransversal(t *testing.T) {
+	cfg := transversalConfig(t)
+	cfg.Clients = map[string]clientconfig.ClientBinding{"claude": {KBs: []string{"kb-b", "kb-c"}, KBsSet: true}}
+	cfg.UnboundModes = map[string]string{"default": "write"}
+	s := Resolve(cfg, "claude", t.TempDir())
+	if got := s.Query(); got != "kbs=kb-a,kb-b,kb-c&readonly=kb-a" {
+		t.Errorf("write mode query = %q", got)
+	}
+	cfg.UnboundModes = nil
+	s = Resolve(cfg, "claude", t.TempDir())
+	if got := s.Query(); got != "kbs=kb-a,kb-b,kb-c&access=read" {
+		t.Errorf("read mode query = %q", got)
+	}
+	// No explicit binding: the whole set is served; in write mode the
+	// transversal KB is still named read-only, in read mode access=read covers it.
+	cfg.Clients = nil
+	s = Resolve(cfg, "claude", t.TempDir())
+	if !s.All || s.Query() != "access=read" {
+		t.Errorf("default scope, read mode = %+v query %q", s, s.Query())
+	}
+	cfg.UnboundModes = map[string]string{"default": "write"}
+	s = Resolve(cfg, "claude", t.TempDir())
+	if !s.All || s.Query() != "readonly=kb-a" || !reflect.DeepEqual(s.Transversal, []string{"kb-a"}) {
+		t.Errorf("default scope, write mode = %+v query %q", s, s.Query())
+	}
+	cfg.SetKBAccess("kb-b", "read")
+	if got := Resolve(cfg, "claude", t.TempDir()).Query(); got != "readonly=kb-a,kb-b" {
+		t.Errorf("with a read-only KB of its own = %q", got)
+	}
+}
+
+// AC-transv-8: the roots scope adds the transversal KB read-only; a provider
+// in provider scope never gets one.
+func TestResolveRootsTransversal(t *testing.T) {
+	root := mkdir(t, t.TempDir())
+	a := mkdir(t, root, "a")
+	cfg := transversalConfig(t)
+	bind(t, cfg, a, "kb-b")
+	s, ok := ResolveRoots(cfg, "claude", []string{fileURI(a)})
+	if !ok || !reflect.DeepEqual(s.KBs, []string{"kb-a", "kb-b"}) || !reflect.DeepEqual(s.ReadOnlyKBs, []string{"kb-a"}) {
+		t.Fatalf("roots = %+v ok=%v", s, ok)
+	}
+	if _, has := s.Dirs["kb-a"]; has {
+		t.Errorf("a transversal KB has no author directory: %v", s.Dirs)
+	}
+	cfg2 := baseConfig()
+	cfg2.SetKBTransversal("kb-a", true)
+	bind(t, cfg2, a, "kb-b")
+	if s, _ := ResolveRoots(cfg2, "claude", []string{fileURI(a)}); !reflect.DeepEqual(s.KBs, []string{"kb-b"}) {
+		t.Errorf("provider scope roots = %+v", s)
+	}
+}
+
+// AC-transv-9: the transversal set is applied to the effective set, after the
+// lineage, and is never an input of a closure.
+func TestTransversalNotInLineage(t *testing.T) {
+	root := mkdir(t, t.TempDir())
+	cfg := transversalConfig(t)
+	cfg.KnownKBs = []string{"kb-a", "kb-b", "kb-c", "kb-d"}
+	bind(t, cfg, root, "kb-b")
+	cfg.SetDerived(clientconfig.DerivedState{Version: 1, Lineage: map[string]clientconfig.DerivedLineage{
+		"kb-b": {Closure: []string{"kb-c"}},
+		"kb-a": {Closure: []string{"kb-d"}}, // a transversal KB's own closure adds nothing
+	}})
+	s := Resolve(cfg, "claude", root)
+	if !reflect.DeepEqual(s.KBs, []string{"kb-a", "kb-b", "kb-c"}) || !reflect.DeepEqual(s.ReadOnlyKBs, []string{"kb-a"}) {
+		t.Fatalf("scope = %+v", s)
+	}
+	// A KB that is both in the lineage and transversal keeps the folder's access.
+	cfg.SetKBTransversal("kb-c", true)
+	s = Resolve(cfg, "claude", root)
+	if !reflect.DeepEqual(s.ReadOnlyKBs, []string{"kb-a"}) || !reflect.DeepEqual(s.Transversal, []string{"kb-a"}) {
+		t.Errorf("a lineage KB must keep the folder's access: %+v", s)
+	}
+}
