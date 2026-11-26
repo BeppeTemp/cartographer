@@ -207,7 +207,7 @@ func uiRevision(w http.ResponseWriter, r *http.Request, k *kb.KB) {
 		writeUIInternal(w, "revision", err)
 		return
 	}
-	rev := uiRevisionBoot + "-" + strconv.FormatUint(gen, 10)
+	rev := uiRevisionBoot + "-" + strconv.FormatUint(gen, 10) + crossRevisionSuffix(r.Context(), k)
 	// A dashboard is a file outside the graph, so the generation does not see
 	// it. Its stamp is one ReadDir of dashboards/ and nothing else: never
 	// lintInputsStamp, which hashes the date and walks the whole KB root and

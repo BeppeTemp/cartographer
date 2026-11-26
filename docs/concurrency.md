@@ -415,7 +415,7 @@ reads the *other* KB's graph snapshot under its graph cache mutex only, never it
 git lock: that mutex is a leaf (no code holding it takes a git lock, and this
 KB's view is released before another's is read), so a lint or a write of KB A
 under A's git lock cannot deadlock with a transfer holding both locks. It never
-writes to the other KB. The price: it sees the other KB's working tree as served,
+writes to the other KB. `CrossLinkedFrom` (which mounted KBs link to this one, the input of the revision suffix) reads one snapshot at a time under each KB's leaf mutex, never two together. The price: it sees the other KB's working tree as served,
 which can be a few milliseconds ahead of its commit; the next read corrects it.
 
 ## Operator recovery

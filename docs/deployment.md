@@ -1494,7 +1494,10 @@ distance (a few changes share one knock, no node moves faster than a single
 knock would move it, and a bulk change of more than 20 origins reheats the
 simulation instead of pushing), while the camera and its slow turn carry on undisturbed. A hidden tab does not poll and checks once on
 return. A caller that cannot see the whole KB gets no revision, so its Atlas
-does not refresh by itself.
+does not refresh by itself. The revision of a KB also moves when a KB it is
+cross-linked with, in either direction, and the caller reads whole, changes; a KB with no
+cross link keeps the same token, and a caller who reads the linked KB only in part is
+not refreshed by it (its view refreshes on the next change of this KB or a reload).
 
 Behind an SSO reverse proxy that protects `/ui` and `/api/ui` only (leave `/mcp`
 on bearer auth) and injects a read-only bearer, the Atlas opens without the token

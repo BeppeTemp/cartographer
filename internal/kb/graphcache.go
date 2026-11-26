@@ -387,6 +387,17 @@ func (kb *KB) GraphGenerationWithin(maxAge time.Duration) (uint64, error) {
 	return v.generation, nil
 }
 
+// graphViewWithin is graphView for a poller: a view validated less than
+// maxAge ago is returned without another walk (maxAge 0 always validates).
+func (kb *KB) graphViewWithin(maxAge time.Duration) (*graphView, error) {
+	kb.graphMu.Lock()
+	defer kb.graphMu.Unlock()
+	if c := kb.graph; c != nil && c.view != nil && !c.stale && time.Since(c.validatedAt) < maxAge {
+		return c.view, nil
+	}
+	return kb.graphViewLocked(nil)
+}
+
 // forgetGraphValidation makes the next GraphGenerationWithin validate: every
 // write goes through WithGitLock, which calls it when the write ends, so the
 // poll never answers with the generation from before a write this server made.
