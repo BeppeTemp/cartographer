@@ -1,6 +1,8 @@
 import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
+import type { CrossEdge } from "../api/types";
+import { isResolvedCross, parseCrossRef } from "../lib/crosslink";
 
 /**
  * Concept bodies are KB content, and a KB is written by agents and by people.
@@ -22,6 +24,9 @@ export function Markdown({
   hrefOf,
   conceptId,
   outbound,
+  cross,
+  onOpenCross,
+  crossHrefOf,
 }: {
   children: string;
   /** Called with a concept id when a [[wiki-link]] or a relative `.md` link is followed. */
@@ -34,6 +39,13 @@ export function Markdown({
   /** The ids the server resolved this body's links to; picks between the two
    *  bases an expanded concept's relative link can have (D149). */
   outbound?: readonly string[];
+  /** The body's edges to other KBs: a `[[kb:<name>/<id>]]` is a link only when
+   *  the server resolved it here, and plain text otherwise. */
+  cross?: readonly CrossEdge[];
+  /** Called with the KB and the id when a resolved cross-KB link is followed. */
+  onOpenCross?(kb: string, id: string): void;
+  /** The Atlas address of a page of another KB, for open-in-new-tab. */
+  crossHrefOf?(kb: string, id: string): string;
 }) {
   return (
     <div className="markdown">
@@ -42,6 +54,24 @@ export function Markdown({
         rehypePlugins={[rehypeSanitize]}
         components={{
           a({ node: _node, href, children: text, ...props }) {
+            if (href?.startsWith(CROSS_HREF)) {
+              const [kb, id] = href.slice(CROSS_HREF.length).split("/").map(decodeConceptTarget);
+              if (!kb || !id) return <span>{text}</span>;
+              return (
+                <a
+                  {...props}
+                  href={crossHrefOf ? crossHrefOf(kb, id) : `?kb=${encodeURIComponent(kb)}&concept=${encodeURIComponent(id)}`}
+                  className="markdown__wikilink"
+                  onClick={(event) => {
+                    if (!onOpenCross) return;
+                    event.preventDefault();
+                    onOpenCross(kb, id);
+                  }}
+                >
+                  {text}
+                </a>
+              );
+            }
             const target = href?.startsWith(CONCEPT_HREF)
               ? decodeConceptTarget(href.slice(CONCEPT_HREF.length))
               : conceptId !== undefined && href
@@ -89,7 +119,7 @@ export function Markdown({
           },
         }}
       >
-        {linkWikiLinks(children)}
+        {linkWikiLinks(children, cross ?? [])}
       </ReactMarkdown>
     </div>
   );
@@ -114,6 +144,8 @@ function decodeConceptTarget(encoded: string): string | null {
  *  the link lost its href and was no longer a link. It is never followed as a
  *  URL: the renderer turns it into in-atlas navigation. */
 const CONCEPT_HREF = "concept-link/";
+/** The href of a resolved cross-KB link: `cross-link/<kb>/<id>`, both percent-encoded. */
+const CROSS_HREF = "cross-link/";
 
 /**
  * linkWikiLinks turns the KB's [[id]], [[id#section]] and [[id|label]] links
@@ -121,10 +153,18 @@ const CONCEPT_HREF = "concept-link/";
  * fenced blocks and inline spans show a wiki-link as the text it is -- and the
  * label defaults to the id, which is what the KB author wrote.
  */
-export function linkWikiLinks(body: string): string {
+export function linkWikiLinks(body: string, cross: readonly CrossEdge[] = []): string {
   return body.replace(CODE_OR_WIKILINK, (m, _fence, _fenceChar, _ticks, id: string | undefined, _section, label: string | undefined) => {
     if (id === undefined) return m;
     const text = (label ?? id).trim().replace(/[[\]]/g, "");
+    // A `kb:` target is never an in-KB concept. It is a link only when the
+    // server said `resolved` for it; for any other state, or none, it is the
+    // text the author wrote, with no href and nothing from the other KB.
+    if (id.trim().startsWith("kb:")) {
+      const ref = parseCrossRef(id);
+      if (!ref || !isResolvedCross(cross, ref.kb, ref.id)) return text;
+      return `[${text}](${CROSS_HREF}${encodeURIComponent(ref.kb)}/${encodeURIComponent(ref.id)})`;
+    }
     return `[${text}](${CONCEPT_HREF}${encodeURIComponent(id.trim())})`;
   });
 }

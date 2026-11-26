@@ -356,6 +356,8 @@ test("the rail's Maps open the Atlas; Health filters by Map in the page (#364, #
 
 test("a truncated graph says so and names how to narrow it", async ({ page }) => {
   await page.route("**/api/ui/v1/kbs/atlas/graph**", async (route) => {
+    // The external-edges read shares the prefix and carries no nodes.
+    if (new URL(route.request().url()).pathname.endsWith("/graph/external")) return route.continue();
     const response = await route.fetch();
     const body = await response.json();
     await route.fulfill({ response, json: { ...body, truncated: true, total_nodes: body.nodes.length + 40 } });

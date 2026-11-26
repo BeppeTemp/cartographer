@@ -14,11 +14,13 @@ import {
   fetchMaps,
   fetchOverview,
   fetchConflicts,
+  fetchExternalEdges,
   restoreToken,
   setToken,
 } from "./api/client";
 import { countForSlug, typesOfSlug } from "./components/TemplateCards";
 import { filterReportByMap } from "./lib/health";
+import { parseCrossRef, withExternalStubs } from "./lib/crosslink";
 import {
   clusterSnapshot,
   clustersAvailable,
@@ -31,6 +33,7 @@ import type {
   CheckCatalog,
   ClusterGraph,
   Concept,
+  ExternalEdges,
   GitConflict,
   GraphSnapshot,
   KBSummary,
@@ -132,6 +135,10 @@ export function App() {
   // The KB the graph on screen belongs to, for the data effect below (read, never a dependency).
   const snapshotKeyNow = useRef("");
   snapshotKeyNow.current = snapshotKey;
+  // The cross-KB edges of the pages drawn, with the KB and Map they were read
+  // for: they are per caller, so they are fetched beside the graph and never
+  // shown under another KB's (or Map's) name.
+  const [external, setExternal] = useState<{ key: string; data: ExternalEdges } | null>(null);
   const [graphError, setGraphError] = useState<unknown>(null);
   const [graphLoading, setGraphLoading] = useState(false);
 
@@ -592,6 +599,20 @@ export function App() {
       });
     return () => controller.abort();
   }, [activeKB, view.scope, artifactsAllowed, phase, handleFailure, reloadKey, live, clustered, unfoldSet, focusNonce]);
+  useEffect(() => {
+    if (phase !== "ready" || !activeKB) return;
+    const controller = new AbortController();
+    const key = `${activeKB}\u0000${view.scope ?? ""}`;
+    // A failed read draws no stub: the edges are an addition to the graph.
+    fetchExternalEdges(activeKB, view.scope, controller.signal)
+      .then((data) => {
+        if (!controller.signal.aborted) setExternal({ key, data });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setExternal(null);
+      });
+    return () => controller.abort();
+  }, [activeKB, view.scope, phase, reloadKey, live]);
   // A concept the clustered graph does not draw (it sits in a folded cluster),
   // whether picked in the palette, the inspector or a link, is asked for once
   // with `focus`: the server unfolds its cluster. An id it cannot see is
@@ -624,11 +645,17 @@ export function App() {
     }
     const controller = new AbortController();
     // A live refetch of the concept already shown keeps it on screen.
-    if (loadedConcept.current !== view.concept) setConceptLoading(true);
+    // The key holds the KB: the same id in another KB is another page, and the
+    // one on screen is not shown under the new KB while it loads.
     const id = view.concept;
+    const loadedKey = `${activeKB}\u0000${id}`;
+    if (loadedConcept.current !== loadedKey) {
+      setConceptLoading(true);
+      if (!loadedConcept.current?.startsWith(`${activeKB}\u0000`)) setConcept(null);
+    }
     fetchConcept(activeKB, id, controller.signal)
       .then((data) => {
-        loadedConcept.current = id;
+        loadedConcept.current = loadedKey;
         setConcept(data);
         setConceptError(null);
       })
@@ -831,13 +858,27 @@ export function App() {
     announce("That view is not available: showing the Atlas.");
   }, [view, extensionsLoaded, extView, announce]);
 
+  /** Follows a link to a page of another KB: that KB's Atlas, on that page. */
+  const openCross = useCallback(
+    (kb: string, id: string) => {
+      navigate({ kb, panel: "atlas", concept: id, scope: null, artifact: null });
+    },
+    [navigate],
+  );
+
   const selectConcept = useCallback(
     (id: string | null) => {
+      // A stub node of the graph stands for a page of another KB.
+      const ref = id ? parseCrossRef(id) : null;
+      if (ref) {
+        openCross(ref.kb, ref.id);
+        return;
+      }
       navigate({ concept: id });
       // On a narrow screen a selection is only visible in its sheet.
       if (id && narrow) setSheet("inspector");
     },
-    [navigate, narrow],
+    [navigate, narrow, openCross],
   );
 
   /** Closing the inspector hands focus back to the concept's row in the node
@@ -904,9 +945,16 @@ export function App() {
     [clusterGraph, unfoldCluster, foldCluster],
   );
 
+  const drawnSnapshot = useMemo(
+    () =>
+      snapshot && external?.key === `${activeKB}\u0000${view.scope ?? ""}` ? withExternalStubs(snapshot, external.data) : snapshot,
+    [snapshot, external, activeKB, view.scope],
+  );
+
   const expandConcept = useCallback(
     (id: string) => {
       const collection = snapshot?.nodes.find((node) => node.id === id)?.collection;
+      if (parseCrossRef(id)) return;
       navigate({ concept: id, scope: collection ?? view.scope });
     },
     [navigate, snapshot, view.scope],
@@ -1001,6 +1049,8 @@ export function App() {
         navigate({ panel: artifactPanel(kind), artifact: kind === "instructions" ? null : `${kind}/${name}` })
       }
       onNavigate={selectConcept}
+      onOpenCross={openCross}
+      crossHrefOf={(kb, id) => viewStateToSearch({ ...view, kb, concept: id, scope: null, artifact: null })}
       hrefOf={(id) => viewStateToSearch({ ...view, concept: id })}
       onPreview={setPreview}
       onClose={closeInspector}
@@ -1200,7 +1250,7 @@ export function App() {
                 </div>
               ) : (
                 <GraphView
-                  snapshot={snapshot}
+                  snapshot={drawnSnapshot ?? snapshot}
                   layoutKey={snapshotKey}
                   loadBirths={activeKB && !view.scope ? () => fetchBirths(activeKB).then((r) => r.births) : undefined}
                   kbName={activeKB ?? undefined}
@@ -1241,6 +1291,11 @@ export function App() {
                       >
                         Clear
                       </button>
+                    </div>
+                  )}
+                  {external?.data.truncated && external.key === `${activeKB}\u0000${view.scope ?? ""}` && (
+                    <div className="graph-filter-notice" role="status">
+                      Some links to other KBs are not drawn: the list is cut.
                     </div>
                   )}
                   {!readingOpen && !scopedMap && (

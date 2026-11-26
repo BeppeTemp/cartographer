@@ -87,6 +87,9 @@ describe("Work", () => {
   });
 });
 
+// The cross-KB edges are read beside the graph, on a route of their own.
+const graphCall = (u: unknown) => String(u).includes("/graph") && !String(u).includes("/graph/external");
+
 describe("App fetches", () => {
   beforeEach(() => {
     window.history.replaceState(null, "", "/ui/?kb=kb-a&scope=infra");
@@ -101,10 +104,10 @@ describe("App fetches", () => {
     const user = userEvent.setup();
     render(<App />);
     const rail = await screen.findByRole("navigation", { name: "Atlas navigation" });
-    await waitFor(() => expect(fetchMock.mock.calls.filter(([u]) => String(u).includes("/graph"))).toHaveLength(1));
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([u]) => graphCall(u))).toHaveLength(1));
     await user.click(within(rail).getByRole("button", { name: /^Atlas/ }));
     await waitFor(() => expect(window.location.search).not.toContain("scope="));
-    await waitFor(() => expect(fetchMock.mock.calls.filter(([u]) => String(u).includes("/graph"))).toHaveLength(2));
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([u]) => graphCall(u))).toHaveLength(2));
     const count = (part: string) => fetchMock.mock.calls.filter(([u]) => String(u).includes(part)).length;
     expect(count("/overview")).toBe(1);
     expect(count("/artifacts")).toBe(1);
