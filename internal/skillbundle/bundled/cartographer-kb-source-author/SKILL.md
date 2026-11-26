@@ -94,19 +94,20 @@ One `source_register` call: `title`, `source_kind`, `locator`, `source_shape`, `
 one. `duplicate: true` means the Source exists: patch it instead. Only when the operator wants globs or an interval
 other than the defaults: `concept_read`, then `concept_patch` with `if_match` for `feed_include` and
 `feed_interval`. Run the test again with `--source <id>` (and `--kb` when the config names several): the stored
-Source must list as before. Tell the operator that until the config is deployed the poll writes
+Source must list as before. `source_register` needs its journal to exist: the default is `sources`, fixed; for another journal pass `map`. Tell the operator that until the config is deployed the poll writes
 `feed_error: recipe_unknown` for this Source, which is harmless.
 
 ## 8. Extend the plan
 
 Hand the Source ID, its shape, its recipe and the operator's intent to `cartographer-kb-ingest-plan`; you do not
 write the plan or units yourself. If the KB has no `IngestPlan`, the planner creates the campaign. The poll needs
-the plan. When the planner is done, run `--source` once more: the plan warning must be gone.
+the plan, and the poll puts the units in the map the plan lives in. When the planner is done, run `--source` once more: the plan warning must be gone.
 
 ## 9. Hand over
 
 List the files changed in the operator's repository (script, instructions, config), the variable names to
 provision, the interpreter or CLI the script needs in the image (a derived image or a mounted volume), the
+environment the script sees (only `PATH`, `HOME` and the variables the config lists), the
 executable mode the script must keep in the deployed volume (for example a ConfigMap `defaultMode`), and the
 commands the operator runs to deploy: written for the operator, run by you never. Close with one `log_append` line
 (Source ID, recipe name, shape; no values).
