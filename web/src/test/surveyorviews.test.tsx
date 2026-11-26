@@ -32,7 +32,19 @@ function open(panel: string) {
   sessionStorage.clear();
 }
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
+});
+
+// Fixtures built on Date.now() and grouped by day cross midnight when the suite runs
+// just after it (#2396): hold the clock at local midday. Only Date is faked, so
+// waitFor and findBy keep their timers.
+const MIDDAY = new Date(2026, 5, 15, 12, 0, 0).getTime();
+function holdMidday() {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(MIDDAY);
+}
 
 async function surveyorTab() {
   const user = userEvent.setup();
@@ -100,20 +112,26 @@ describe("Activity: Surveyor tab", () => {
 });
 
 describe("Activity: the Surveyor's report", () => {
-  beforeEach(() => open("activity"));
-  const at = Date.now() - 3600_000;
   const iso = (ms: number) => new Date(ms).toISOString();
-  const recent = { ...run, run_id: "r9", task: "ingest", started_at: iso(at), duration_ms: 60_000, received_at: iso(at + 61_000), tokens_spent: 700 };
-  const failed = { ...run, run_id: "r8", outcome: "failed", error: "feed down", started_at: iso(at - 7200_000), received_at: iso(at - 7100_000), tokens_spent: 0 };
-  const changes = {
-    since: "7d",
-    commit_count: 3,
-    concepts: [
-      { id: "a/made", change: "added", last_at: iso(at + 30_000), last_edit_at: iso(at + 30_000), authors: ["surveyor/team-a/w-1"], ops: ["concept_write"] },
-      { id: "a/before", change: "modified", last_at: iso(at - 600_000), last_edit_at: iso(at - 600_000), authors: ["surveyor/team-a/w-1"], ops: ["concept_write"] },
-      { id: "a/human", change: "modified", last_at: iso(at + 30_000), last_edit_at: iso(at + 30_000), authors: ["bob"], ops: ["concept_write"] },
-    ],
-  };
+  let recent: typeof run;
+  let failed: typeof run & { error: string };
+  let changes: { since: string; commit_count: number; concepts: object[] };
+  beforeEach(() => {
+    open("activity");
+    holdMidday();
+    const at = Date.now() - 3600_000;
+    recent = { ...run, run_id: "r9", task: "ingest", started_at: iso(at), duration_ms: 60_000, received_at: iso(at + 61_000), tokens_spent: 700 };
+    failed = { ...run, run_id: "r8", outcome: "failed", error: "feed down", started_at: iso(at - 7200_000), received_at: iso(at - 7100_000), tokens_spent: 0 };
+    changes = {
+      since: "7d",
+      commit_count: 3,
+      concepts: [
+        { id: "a/made", change: "added", last_at: iso(at + 30_000), last_edit_at: iso(at + 30_000), authors: ["surveyor/team-a/w-1"], ops: ["concept_write"] },
+        { id: "a/before", change: "modified", last_at: iso(at - 600_000), last_edit_at: iso(at - 600_000), authors: ["surveyor/team-a/w-1"], ops: ["concept_write"] },
+        { id: "a/human", change: "modified", last_at: iso(at + 30_000), last_edit_at: iso(at + 30_000), authors: ["bob"], ops: ["concept_write"] },
+      ],
+    };
+  });
 
   it("keeps the Changes tab as before: the tag stays, the Surveyor's stats and switch are gone", async () => {
     stubApi({ "/changes": () => json(changes), "/components": () => json(componentsAnswer(componentRow({ runs: [recent, failed] }, [{}]))) });
@@ -150,7 +168,10 @@ describe("Activity: the Surveyor's report", () => {
 });
 
 describe("Activity: the Surveyor's runs, honestly", () => {
-  beforeEach(() => open("activity"));
+  beforeEach(() => {
+    open("activity");
+    holdMidday();
+  });
   const DAY = 86_400_000;
   const iso = (ms: number) => new Date(ms).toISOString();
   const mk = (id: string, ago: number, extra: object = {}) => ({
