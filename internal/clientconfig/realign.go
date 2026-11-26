@@ -123,6 +123,8 @@ func migrateLayout(data []byte) ([]byte, error) {
 		return data, nil
 	}
 	pending := len(splitReadMin(root)) > 0
+	// The same rule as the realignment: the move must not carry the flag.
+	pending = len(dropLegacyTransversal(root)) > 0 || pending
 	for _, m := range Retired.Moved {
 		pending = pending || pairIndex(root, strings.SplitN(m.From, ".", 2)[0]) >= 0
 	}
@@ -279,6 +281,14 @@ func prepareRealign(dir string, data []byte) ([]byte, []settingschema.Change, er
 	edited := false
 	for _, p := range splitReadMin(root) {
 		changes = append(changes, settingschema.Change{Kind: settingschema.ChangeMoved, Path: "clients." + p + ".access", Detail: "now access: read with tools: minimal"})
+		edited = true
+	}
+	// kb_options.<kb>.transversal: the flat layout does not carry the flag, so
+	// the move into knowledge_bases must not make it active: it is dropped, and
+	// the line says what to do instead.
+	for _, kb := range dropLegacyTransversal(root) {
+		changes = append(changes, settingschema.Change{Kind: settingschema.ChangeRemoved, Path: "kb_options." + kb + ".transversal",
+			Detail: "the flag exists only under knowledge_bases." + kb + ".transversal; run `cartographer client kb " + kb + " --transversal=true` to set it"})
 		edited = true
 	}
 	// token_env: NAME becomes token: ${NAME}, in place, comments kept. It is

@@ -773,6 +773,7 @@ func Load(dir string) (*Config, error) {
 		cfg.Warnings = append(cfg.Warnings, h.Message())
 	}
 	cfg.Warnings = append(cfg.Warnings, cfg.identityWarnings()...)
+	warnLegacyOnce(Path(dir), legacyTransversalWarnings(data))
 	if len(cfg.SearchRoots) == 0 {
 		// Absent `search_roots` key: both brand-new configs and files written
 		// before this field existed default here, matching Default() (D906).

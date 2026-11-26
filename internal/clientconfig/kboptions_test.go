@@ -145,3 +145,99 @@ func TestKBAccessRoundTripAndLoadErrors(t *testing.T) {
 		t.Errorf("invalid value: %v", err)
 	}
 }
+
+// AC-transv-1
+func TestKBTransversalRoundTrip(t *testing.T) {
+	var nilCfg *clientconfig.Config
+	if nilCfg.KBTransversal("kb-a") {
+		t.Error("nil config is not transversal")
+	}
+	dir := t.TempDir()
+	writeConfigFile(t, dir, "server_url: http://127.0.0.1:39273/mcp\nknowledge_bases:\n  kb-a:\n    transversal: true # everywhere\n")
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.KBTransversal("kb-a") || cfg.KBTransversal("kb-b") || cfg.KBTransversal("") {
+		t.Fatal("transversal not read for kb-a only")
+	}
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if raw := readFile(t, clientconfig.Path(dir)); !strings.Contains(raw, "transversal: true # everywhere") {
+		t.Errorf("lost the key or its comment:\n%s", raw)
+	}
+	// off removes the key, the entry and the map; a sibling option survives.
+	cfg.SetKBArtifacts("kb-a", false)
+	cfg.SetKBTransversal("kb-a", false)
+	if o := cfg.KBOptions["kb-a"]; o.Transversal || cfg.KBArtifacts("kb-a") {
+		t.Errorf("sibling option lost: %+v", o)
+	}
+	cfg.SetKBArtifacts("kb-a", true)
+	if cfg.KBOptions != nil {
+		t.Errorf("map not nil: %v", cfg.KBOptions)
+	}
+	cfg.SetKBTransversal("kb-b", true)
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	cfg.SetKBTransversal("kb-b", false)
+	if err := clientconfig.Save(dir, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if raw := readFile(t, clientconfig.Path(dir)); strings.Contains(raw, "\n  kb-b:") {
+		t.Errorf("false left the entry:\n%s", raw)
+	}
+	writeConfigFile(t, dir, "server_url: http://127.0.0.1:39273/mcp\nknowledge_bases:\n  kb-a:\n    transversal: maybe\n")
+	if _, err := clientconfig.Load(dir); err == nil {
+		t.Error("a non-boolean transversal must be a load error")
+	}
+}
+
+// AC-transv-2
+func TestTransversalKBsByScope(t *testing.T) {
+	var nilCfg *clientconfig.Config
+	if nilCfg.TransversalKBs("claude") != nil {
+		t.Error("nil config has none")
+	}
+	cfg := clientconfig.Default()
+	cfg.SetKBTransversal("kb-b", true)
+	cfg.SetKBTransversal("kb-a", true)
+	if got := cfg.TransversalKBs("claude"); got != nil {
+		t.Errorf("provider scope = %v, want none", got)
+	}
+	if err := cfg.SetWorkspaceScope("claude", clientconfig.ScopeWorkspace); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(cfg.TransversalKBs("claude"), ","); got != "kb-a,kb-b" {
+		t.Errorf("workspace scope = %q, want sorted", got)
+	}
+	if got := cfg.TransversalKBs("codex"); got != nil {
+		t.Errorf("another provider in provider scope = %v", got)
+	}
+	cfg.KnownKBs = []string{"kb-a"}
+	if got := strings.Join(cfg.TransversalKBs("claude"), ","); got != "kb-a" {
+		t.Errorf("restricted to the mounted KBs = %q", got)
+	}
+	// The flag never widens a provider's binding.
+	if kbs, explicit := cfg.BoundOwnKBs("claude"); explicit || len(kbs) != 1 {
+		t.Errorf("binding changed: %v %v", kbs, explicit)
+	}
+}
+
+// AC-transv-3: the flat kb_options layout is a migration input and does not
+// accept the key; the client loader has no unknown-key finding, so what is
+// pinned is that it is not applied as a setting.
+func TestLegacyKBOptionsRejectTransversal(t *testing.T) {
+	dir := t.TempDir()
+	writeConfigFile(t, dir, "server_url: http://127.0.0.1:39273/mcp\nkb_options:\n  kb-a:\n    transversal: true\n")
+	cfg, err := clientconfig.Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.KBTransversal("kb-a") {
+		t.Error("the flat kb_options layout must not set transversal")
+	}
+	// The warning every command prints once, and the realignment that drops the
+	// flag, are in kboptions_legacy_test.go.
+}

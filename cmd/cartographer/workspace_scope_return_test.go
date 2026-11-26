@@ -265,3 +265,15 @@ func TestWorkspaceLacksKinds(t *testing.T) {
 		t.Errorf("claude lacks %v, want none", got)
 	}
 }
+
+// AC-transv-19: the home-directory warning names the narrower alternative.
+func TestWarnBindsHomeNamesTransversal(t *testing.T) {
+	home, _ := filepath.EvalSymlinks(t.TempDir())
+	setHome(t, home)
+	var b strings.Builder
+	warnBindsHome(&b, "claude", home)
+	got := b.String()
+	if !strings.Contains(got, "bound to your home directory") || !strings.Contains(got, "cartographer client kb <kb> --transversal=true") {
+		t.Errorf("warning = %q", got)
+	}
+}
