@@ -225,6 +225,8 @@ export function stubApi(overrides: Record<string, () => Response> = {}) {
     if (url.includes("/kbs/") && url.includes("/sources")) return json({ sources: [] });
     if (url.includes("/kbs/") && url.includes("/history")) return json({ id: "", revisions: [], truncated: false });
     if (url.includes("/kbs/") && url.includes("/assets")) return json({ id: "", assets: [] });
+    // The KB map: absent unless stubbed, the way an older server answers (404).
+    if (url.endsWith("/kb-map")) return json({ error: { code: "not_found", message: "not found" } }, 404);
     if (url.endsWith("/kbs")) return json({ kbs: [{ name: "kb-a", status: "normal", ready: true, artifacts: true }] });
     // Report candidates (D1925): the way a server with feedback switched off answers, so no panel shows any.
     if (url.includes("/feedback/candidates")) {

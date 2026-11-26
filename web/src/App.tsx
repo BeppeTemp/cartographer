@@ -9,6 +9,7 @@ import {
   fetchGraph,
   fetchGraphClusters,
   fetchKBs,
+  fetchKBMap,
   fetchArtifacts,
   fetchLint,
   fetchMaps,
@@ -29,6 +30,7 @@ import {
   unfoldKey,
 } from "./lib/clusters";
 import type {
+  KBMap as KBMapData,
   ArtifactList,
   CheckCatalog,
   ClusterGraph,
@@ -48,6 +50,7 @@ import { PageTabs } from "./components/Page";
 import { MapContractPanel, MAP_PANEL_SLIDE, MAP_PANEL_WIDTH } from "./components/MapContractPanel";
 import { Legend } from "./components/Legend";
 import { Releases } from "./components/Releases";
+import { KBMap } from "./components/KBMap";
 import { Settings } from "./components/Settings";
 import { AuthPrompt } from "./components/AuthPrompt";
 import { CommandPalette } from "./components/CommandPalette";
@@ -119,6 +122,12 @@ export function App() {
   const [view, setView] = useState<ViewState>(() => readViewState());
 
   const [kbs, setKBs] = useState<KBSummary[]>([]);
+  // Whether the server has /kb-map: an older one answers 404 and the entry stays hidden.
+  // The probe's answer is handed to the panel, so opening it does not ask again at once.
+  const [kbMapAvailable, setKBMapAvailable] = useState(true);
+  // Bumps when the caller changes (a 401, a new token): what one caller read is never kept for the next.
+  const [authGen, setAuthGen] = useState(0);
+  const [kbMapProbe, setKBMapProbe] = useState<{ map: KBMapData; at: number } | null>(null);
   const [bootError, setBootError] = useState<unknown>(null);
 
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -287,12 +296,14 @@ export function App() {
 
   /** A 401 anywhere returns to the prompt while keeping the view state: the
    *  user comes back to the concept they were reading, not to a blank atlas. */
+  const forgetCaller = useRef<() => void>(() => {});
   const handleFailure = useCallback((err: unknown) => {
     if (err instanceof ApiError && err.isUnauthorized) {
       // Only a token that was actually sent and refused is a rejection; the
       // first call to a protected server carries none.
       const sent = hasToken();
       clearToken();
+      forgetCaller.current();
       // Several requests fail at once when a token is revoked: the first
       // clears it, so the ones after it must not unsay the rejection.
       setAuthRejected((rejected) => rejected || sent);
@@ -336,6 +347,25 @@ export function App() {
     setView(next);
     replaceView(next);
   }, [kbs, view]);
+
+  // Probe the KB map once there is more than one KB to relate: a 404 is an
+  // older server, and the entry is hidden for the session. On the panel itself
+  // the panel's own fetch answers (below), so the map is not asked for twice.
+  const onKBMapPanel = view.panel === "kbmap";
+  const kbMapKnown = kbMapProbe !== null;
+  useEffect(() => {
+    if (kbs.length < 2 || onKBMapPanel || kbMapKnown) return;
+    const controller = new AbortController();
+    // A response that lands after the caller changed is the old caller's: dropped.
+    fetchKBMap(controller.signal)
+      .then((map) => {
+        if (!controller.signal.aborted) setKBMapProbe({ map, at: Date.now() });
+      })
+      .catch((err: unknown) => {
+        if (!controller.signal.aborted && err instanceof ApiError && err.status === 404) setKBMapAvailable(false);
+      });
+    return () => controller.abort();
+  }, [kbs.length, onKBMapPanel, kbMapKnown, authGen]);
 
   // Back/Forward restores everything the URL carries.
   useEffect(() => {
@@ -412,6 +442,17 @@ export function App() {
   // reload), not on the Map: choosing a Map refetches only the graph. This
   // names what they were last fetched for, and the latest values.
   const sideFetched = useRef("");
+  // The caller changed: nothing the last one read may show for the next, so the
+  // cached views, the totals and the KB map are dropped, and in-flight probes go stale.
+  forgetCaller.current = () => {
+    viewCache.current.clear();
+    overviewKB.current = null;
+    sideFetched.current = "";
+    setKBTotals({});
+    setKBMapProbe(null);
+    setKBMapAvailable(true);
+    setAuthGen((g) => g + 1);
+  };
   const overviewNow = useRef<Overview | null>(null);
   overviewNow.current = overview;
   const artifactsNow = useRef<ArtifactList | null>(null);
@@ -732,6 +773,16 @@ export function App() {
     replaceView(next);
   }, [view, activeKB, kbs, secretsAllowed]);
 
+  // The KB map has nothing to show with one KB or on a server without the
+  // route: a link to it falls back to the atlas.
+  useEffect(() => {
+    if (view.panel !== "kbmap" || phase !== "ready" || kbs.length === 0) return;
+    if (kbs.length > 1 && kbMapAvailable) return;
+    const next = { ...view, panel: "atlas" as const };
+    setView(next);
+    replaceView(next);
+  }, [view, phase, kbs, kbMapAvailable]);
+
   // Health's whole-KB read (D338): the git conflicts answer 404 to a principal that cannot see
   // the whole KB, which is not an error to show — the page leaves those parts out.
   useEffect(() => {
@@ -970,6 +1021,8 @@ export function App() {
         rejected={authRejected}
         onSubmit={(token, remember) => {
           setToken(token, remember);
+          // A new token is a new caller: forget what the last one read.
+          forgetCaller.current();
           setAuthRejected(false);
           setPhase("booting");
           setReloadKey((k) => k + 1);
@@ -1078,6 +1131,7 @@ export function App() {
         narrow={narrow}
         hasSelection={view.panel === "atlas" && view.concept !== null}
         onKBChange={(name) => navigate({ kb: name, scope: null, concept: null, artifact: null, hmap: null })}
+        onOpenKBMap={kbMapAvailable ? () => navigate({ panel: "kbmap", concept: null, artifact: null, hmap: null }) : undefined}
         onThemeChange={setTheme}
         onOpenPalette={() => setPaletteOpen(true)}
         onHome={() => navigate({ panel: "atlas", scope: null, concept: null, artifact: null })}
@@ -1105,6 +1159,16 @@ export function App() {
             <EmptyState
               title="No Knowledge Base is visible"
               detail="This Meridian has no KB mounted that your token can read."
+            />
+          ) : view.panel === "kbmap" ? (
+            <KBMap
+              key={reloadKey}
+              initial={kbMapProbe}
+              onLoaded={(map) => setKBMapProbe({ map, at: Date.now() })}
+              onUnavailable={() => setKBMapAvailable(false)}
+              onOpenKB={(name) =>
+                navigate({ kb: name, panel: "atlas", scope: null, concept: null, artifact: null, hmap: null, unfold: [] })
+              }
             />
           ) : view.panel === "activity" && activeKB ? (
             <Activity

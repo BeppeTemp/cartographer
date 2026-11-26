@@ -17,6 +17,8 @@ interface Props {
   narrow?: boolean;
   hasSelection?: boolean;
   onKBChange(name: string): void;
+  /** Opens the KB map; absent (an older server without the route) or one KB hides the entry. */
+  onOpenKBMap?(): void;
   onThemeChange(theme: Theme): void;
   onOpenPalette(): void;
   /** The brand leads back to the atlas: the whole graph (All), nothing selected. */
@@ -41,6 +43,7 @@ export function TopBar({
   narrow = false,
   hasSelection = false,
   onKBChange,
+  onOpenKBMap,
   onThemeChange,
   onOpenPalette,
   onHome,
@@ -99,6 +102,11 @@ export function TopBar({
 
       {kbs.length > 0 && (
         <KBPicker kbs={kbs} activeKB={activeKB} onChange={onKBChange} />
+      )}
+      {kbs.length > 1 && onOpenKBMap && (
+        <button type="button" className="button" onClick={onOpenKBMap}>
+          KB map
+        </button>
       )}
 
       <button type="button" className="topbar__search field" onClick={onOpenPalette} aria-label="Search concepts">
