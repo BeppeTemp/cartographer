@@ -644,6 +644,11 @@ const maintainerExclusion = "github.event_name != 'pull_request' || " +
 	"github.event.pull_request.user.type != 'Bot' && " +
 	"!startsWith(github.head_ref, 'release-please--'))"
 
+const (
+	sameTreeSkip = "needs.same-tree.outputs.green != 'true'"
+	sameTreePush = "unless a green dispatched run tested its tree"
+)
+
 // ciConditions maps every `if:` expression ci.yml uses, whitespace collapsed, to the events
 // it lets through. An expression not listed here fails the generator with the job's name:
 // a job with a new condition is a row nobody has decided, so its mapping is added by hand.
@@ -654,9 +659,11 @@ var ciConditions = map[string]runsOn{
 	"github.event_name == 'push'":         {"no", "no", "no", "yes"},
 	"github.event_name == 'push' && !cancelled()":         {"no", "no", "no", "yes"},
 	"!cancelled() && github.event_name != 'pull_request'": {"no", "no", "yes", "yes"},
-	maintainerExclusion: {"yes", "no", "yes", "yes"},
-	"!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.web == 'true') && (" + maintainerExclusion + ")": {
-		"when the frontend changed", "no", "yes", "yes"},
+	// The heavy legs skip on a push whose tree a green dispatched run tested (ci.yml same-tree).
+	"!cancelled() && github.event_name != 'pull_request' && " + sameTreeSkip: {"no", "no", "yes", sameTreePush},
+	"!cancelled() && " + sameTreeSkip + " && (" + maintainerExclusion + ")":  {"yes", "no", "yes", sameTreePush},
+	"!cancelled() && " + sameTreeSkip + " && (needs.changes.result != 'success' || needs.changes.outputs.web == 'true') && (" + maintainerExclusion + ")": {
+		"when the frontend changed", "no", "yes", sameTreePush},
 	"!cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.helm == 'true')": {
 		"when the chart changed", "when the chart changed", "yes", "yes"},
 	"!cancelled() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && (needs.changes.result != 'success' || needs.changes.outputs.forge == 'true')))": {
@@ -675,6 +682,10 @@ var buildHostCells = map[string]string{
 	"test-windows-shard": "affected packages only",
 	"test-windows":       "affected packages only",
 }
+
+// GateParts are the prerequisites of the Makefile's `gate` target: the `test` job of ci.yml runs
+// them as steps of its legs, and a build-host gate that runs `make gate` runs them all.
+var GateParts = []string{"fmt-check", "vet", "test", "race"}
 
 // ciJob is one job of ci.yml as the table reads it.
 type ciJob struct {
@@ -899,6 +910,11 @@ func RenderRunsWhere(ciYAML, signoffSh string) (string, error) {
 	inTargets := map[string]bool{}
 	for _, t := range targets {
 		inTargets[t] = true
+		if t == "gate" {
+			for _, p := range GateParts {
+				inTargets[p] = true
+			}
+		}
 	}
 	var left []string
 	for _, s := range byID["test"].makeSteps {

@@ -14,7 +14,8 @@
 # regex over the whole repository exceeds Windows' command-line limit.
 #
 # internal/repodocs and internal/repodocs/landertest are skipped: it checks the repository's documents, not
-# platform behaviour, and the ubuntu `test` job already runs it.
+# platform behaviour, and the ubuntu `test` legs run it. TEST_SHARD_REPODOCS=1 keeps them: the
+# ubuntu legs of ci.yml's `test` are shards of this script too.
 #
 # The quarantined tests (test/quarantine.tsv, scripts/quarantine.sh) are dropped from the
 # plan of their package, exactly (the list names it), before the shards are dealt, and the
@@ -27,12 +28,14 @@ index=${2:?usage: test-shard.sh COUNT INDEX|all [PKG...]}
 shift 2
 logs=$(mktemp -d)
 trap 'rm -rf "$logs"' EXIT
+drop='/internal/repodocs(/landertest)?$'
+[ -z "${TEST_SHARD_REPODOCS:-}" ] || drop='^$'
 "$(dirname "$0")/quarantine.sh" --list >"$logs/quarantine"
 
 if [ "$index" = all ]; then
 	# The test binaries build once, here, rather than in every shard at the same time.
 	# shellcheck disable=SC2046
-	go test -list '.*' $(go list "${@:-./...}" | grep -Ev '/internal/repodocs(/landertest)?$') >/dev/null 2>&1 || true
+	go test -list '.*' $(go list "${@:-./...}" | grep -Ev "$drop") >/dev/null 2>&1 || true
 	# Each shard's log is printed whole after it ends, so the shards do not interleave.
 	pids=()
 	for ((i = 0; i < count; i++)); do
@@ -51,7 +54,7 @@ fi
 # parallel; each package's names come before its `ok <pkg>` line, in the
 # same order on every shard.
 # shellcheck disable=SC2046  # the package list is a word list on purpose
-go test -list '.*' $(go list "${@:-./...}" | grep -Ev '/internal/repodocs(/landertest)?$') >"$logs/list"
+go test -list '.*' $(go list "${@:-./...}" | grep -Ev "$drop") >"$logs/list"
 # The count's file comes through the environment: -v would read a backslash in the path as an escape.
 DROPPED_FILE="$logs/dropped" awk -v n="$count" -v i="$index" '
 	# The quarantine, <package> <Test> ...: by name, not FNR == NR, which an empty list (the usual

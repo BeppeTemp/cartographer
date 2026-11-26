@@ -14,6 +14,9 @@
 #   web     true when the change touches the frontend or its bundle (web/, internal/webui/):
 #           its unit tests and bundle checks run, the browser suite stays in the train gate
 #
+# `ready-check-plan.sh --count <packages...>` prints only the count for those packages: the
+# hosted check (scripts/hosted-check.sh) splits its Windows leg by the same rule.
+#
 # The legs are the ones the build host's `make check` does not run and that turned trains
 # red: the lander reads the verdict on a unit's tip and gates a red unit alone instead
 # (scripts/land.sh).
@@ -21,18 +24,26 @@
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
+
+count_of() { # $* = the packages
+  if [ "$#" = 0 ]; then
+    echo 1
+  elif printf '%s\n' "$@" | grep -qxE '\./\.\.\.|\./internal/mcpserver|\./cmd/cartographer'; then
+    echo 4
+  elif [ "$#" -gt 4 ]; then
+    echo 2
+  else
+    echo 1
+  fi
+}
+if [ "${1:-}" = --count ]; then shift; count_of "$@"; exit 0; fi
+
 paths=$(cat)
 pkgs=$(printf '%s\n' "$paths" | "$here/affected-pkgs.sh" --code | tr '\n' ' ')
 pkgs=${pkgs% }
 
-count=1
-if [ -z "$pkgs" ]; then
-  count=1
-elif printf '%s\n' $pkgs | grep -qxE '\./\.\.\.|\./internal/mcpserver|\./cmd/cartographer'; then
-  count=4
-elif [ "$(printf '%s\n' $pkgs | grep -c .)" -gt 4 ]; then
-  count=2
-fi
+# shellcheck disable=SC2086  # the packages are a word list on purpose
+count=$(count_of $pkgs)
 shards=$(seq 0 $((count - 1)) | paste -sd, -)
 
 web=false

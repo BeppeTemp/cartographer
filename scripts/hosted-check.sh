@@ -196,7 +196,11 @@ list_runs() {
 existing=$(list_runs 2>/dev/null) || unavailable "cannot list the runs of $branch"
 before=$(printf '%s\n' "$existing" | sort -n | tail -n 1)
 before=${before:-0}
-gh workflow run hosted-check.yml -R "$repo" --ref "$branch" -f pkgs="$pkgs" -f win_pkgs="$winpkgs" -f e2e="$e2e" >/dev/null ||
+# The Windows shards, as many as the pre-check would use for these packages (ready-check-plan.sh).
+# shellcheck disable=SC2086  # the packages are a word list on purpose
+nshard=$("$here/ready-check-plan.sh" --count $winpkgs) || nshard=6
+shards=[$(seq 0 $((nshard - 1)) | paste -sd, -)]
+gh workflow run hosted-check.yml -R "$repo" --ref "$branch" -f pkgs="$pkgs" -f win_pkgs="$winpkgs" -f e2e="$e2e" -f win_shards="$shards" >/dev/null ||
   unavailable "cannot dispatch hosted-check.yml on $branch (is it on the default branch?)"
 
 # 7. Find the run.

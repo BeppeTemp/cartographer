@@ -179,6 +179,27 @@ func (r *chainRepo) replay(head string) (stdout, stderr, dir string, ok bool) {
 // The pre-check tests a queued change's chain (it and the queued changes its Lander-After
 // trailers name), replayed on the current main: the unit the lander would land, with what
 // landed since its changes were queued. The paths the plan reads are those of each queued commit's own diff.
+// TestReadyCheckPlanCountsGivenPackages pins `--count`: the hosted check splits its
+// Windows leg by the pre-check's rule, so the two cannot drift.
+func TestReadyCheckPlanCountsGivenPackages(t *testing.T) {
+	needBash(t)
+	for _, c := range []struct {
+		pkgs []string
+		want string
+	}{
+		{nil, "1"},
+		{[]string{"./internal/kb"}, "1"},
+		{[]string{"./..."}, "4"},
+		{[]string{"./internal/kb", "./cmd/cartographer"}, "4"},
+		{[]string{"./a", "./b", "./c", "./d", "./e"}, "2"},
+	} {
+		out, err := exec.Command("bash", append([]string{filepath.Join(repoRoot(t), "scripts", "ready-check-plan.sh"), "--count"}, c.pkgs...)...).Output()
+		if err != nil || strings.TrimSpace(string(out)) != c.want {
+			t.Errorf("--count %v = %q (%v), want %s", c.pkgs, out, err, c.want)
+		}
+	}
+}
+
 func TestReadyCheckBaseReplaysTheQueuedChainOnMain(t *testing.T) {
 	// AC-P3-8: a change queued before a fix landed is tested with the fix, not rebuilt.
 	// AC-P3-9: the tip's paths, so its Windows packages, are those of the whole chain.

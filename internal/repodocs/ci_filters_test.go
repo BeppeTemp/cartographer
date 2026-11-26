@@ -157,6 +157,9 @@ func TestEveryMakeTargetIsRunByCIOrDeclaredLocal(t *testing.T) {
 		"signoff": true, "signoff-platform": true, "web-gate": true,
 		// The signoff's targeted retry of the Go tests a red run named (scripts/signoff.sh).
 		"test-rerun": true,
+		// ci.yml's test legs run gate in its parts, the tests through scripts/test-shard.sh
+		// (D-new-ci-shards; TestTheTestLegsRunTheGateInParts pins that they cover it).
+		"gate": true, "test": true,
 		// The fast tier: what an implementer runs while iterating; make gate is CI's.
 		"check": true, "check-run": true, "check-hosted": true,
 		// The usage test: a headless agent in a maintainer's own session, never a workflow

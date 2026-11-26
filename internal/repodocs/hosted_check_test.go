@@ -667,8 +667,8 @@ func TestHostedCheckWorkflowHasWindowsLeg(t *testing.T) {
 	if !ok {
 		t.Fatal("no windows collector job")
 	}
-	if !strings.Contains(win, "shard: [0, 1, 2, 3, 4, 5]") || !strings.Contains(win, "name: windows (${{ matrix.shard }}/6)") {
-		t.Error("the windows shards are not a matrix of six")
+	if !strings.Contains(win, "shard: ${{ fromJSON(inputs.win_shards) }}") || !strings.Contains(win, "name: windows (${{ matrix.shard }}/${{ strategy.job-total }})") {
+		t.Error("the windows shards are not the matrix the script asks for (win_shards)")
 	}
 	if !strings.Contains(collector, "needs: windows-shard") || !strings.Contains(collector, "if: always() && startsWith(github.ref, 'refs/heads/check/') && inputs.win_pkgs != ''") ||
 		!strings.Contains(collector, "[ \"$RESULT\" = success ]") {
@@ -686,11 +686,15 @@ func TestHostedCheckWorkflowHasWindowsLeg(t *testing.T) {
 	if strings.Contains(win, "permissions:") || strings.Contains(win, "secrets.") {
 		t.Error("the windows job widens the permissions or uses a secret")
 	}
+	if !strings.Contains(win, "WIN_SHARDS: ${{ inputs.win_shards }}") || !strings.Contains(win, `[[ $WIN_SHARDS =~ ^\[[0-9](,\ ?[0-9])*\]$ && $SHARD =~ ^[0-9]$ ]]`) {
+		t.Error("the windows job does not validate win_shards and its shard before running")
+	}
 	if !strings.Contains(win, "WIN_PKGS: ${{ inputs.win_pkgs }}") || !strings.Contains(win, "[[ $WIN_PKGS =~ ^[A-Za-z0-9_./\\ -]*$ ]]") || !strings.Contains(win, "[[ $w == -* ]]") {
 		t.Error("the list reaches the job without env or without the whole-string and flag validation")
 	}
-	if !strings.Contains(win, `bash scripts/test-shard.sh 6 "$SHARD" $WIN_PKGS`) || !strings.Contains(win, "SHARD: ${{ matrix.shard }}") {
-		t.Error("the windows job does not run the gate's command (test-shard.sh 6 <shard> <packages>)")
+	if !strings.Contains(win, `bash scripts/test-shard.sh "$TOTAL" "$SHARD" $WIN_PKGS`) || !strings.Contains(win, "SHARD: ${{ matrix.shard }}") ||
+		!strings.Contains(win, "TOTAL: ${{ strategy.job-total }}") {
+		t.Error("the windows job does not run the gate's command (test-shard.sh <shards> <shard> <packages>)")
 	}
 	if !strings.Contains(win, "shell: bash") || !strings.Contains(win, "git config --global init.defaultBranch master") {
 		t.Error("the windows job lacks the bash shell or the git identity of ci.yml's Windows legs")

@@ -260,7 +260,7 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
   change and rejects one with no record or one recorded below its computed tier. The pre-check and the train gate are unchanged.
 - **What runs where** (D1592, D1610): a contributor's PR runs `test`, the web legs when the frontend changed, `pr-title`
   and `plan-gate`; a maintainer's PR is pushed with `make signoff`, whose `signoff` status `gate` looks for; a train is
-  gated once and `main` runs its jobs again on the push. The required checks are `gate`, `pr-title` and `plan-gate`.
+  gated once and `main` runs its jobs again on the push, unless a green dispatched run already tested its tree (D2415). The required checks are `gate`, `pr-title` and `plan-gate`.
   The train gate is hosted by default (D2040, D2293); `make land GATE=host` gates on the build host.
   A lander whose `scripts/land.sh` or `scripts/signoff.sh` differs from `origin/main`'s exits at its start and before each train (`LAND_ALLOW_STALE=1` runs anyway; `make land-status` only warns): run it from an up-to-date tree.
   `make check` (affected packages) is the tier to iterate with and `make check-hosted` (on GitHub, with a Windows leg) the coordinator's, once on the tip beside the review.

@@ -68,9 +68,9 @@ func TestRunsWhereRefusesAnUnknownCondition(t *testing.T) {
 
 	// A make step of `test` the table cannot read fails rather than drop out of the comparison.
 	for _, form := range []string{"PATH=/x:$PATH make test-install", "make smoke e2e", "|\n          echo first\n          make test-install"} {
-		odd := strings.Replace(ci, "      - run: make test-install\n", "      - run: "+form+"\n", 1)
+		odd := strings.Replace(ci, "        run: make test-install\n", "        run: "+form+"\n", 1)
 		if odd == ci {
-			t.Fatal("ci.yml's test job has no `- run: make test-install` step: update this test")
+			t.Fatal("ci.yml's test job has no `run: make test-install` step: update this test")
 		}
 		if _, err := RenderRunsWhere(odd, sh); err == nil || !strings.Contains(err.Error(), "job test") {
 			t.Errorf("a test step %q must fail, got %v", form, err)
@@ -87,9 +87,10 @@ func TestRunsWhereRows(t *testing.T) {
 	}
 	for _, want := range []string{
 		"| `changes` | yes | yes | no | no | no | no |",
-		"| `test` | yes | no | yes | partly: `make gate smoke-http smoke e2e` | yes | no |",
+		"| `same-tree` | no | no | no | no | yes | no |",
+		"| `test (<leg>)` | yes | no | yes | partly: `make gate smoke-http smoke e2e` | unless a green dispatched run tested its tree | no |",
 		"| `gate` | yes | yes | yes | no | yes, outside the verdict | yes |",
-		"| `test-macos` | no | no | yes | no | yes | no |",
+		"| `test-macos` | no | no | yes | no | unless a green dispatched run tested its tree | no |",
 		"| `forge (<forge>)` | when `test/forge/` changed | when `test/forge/` changed | runs, not waited for | no | no | no |",
 		"| `quarantine` | no | no | no | no | yes, outside the verdict | no |",
 		"| `main-status` | no | no | no | no | yes | no |",
@@ -198,5 +199,27 @@ func TestNoFileDescribesTheBuildHostAsTheGate(t *testing.T) {
 					"describe the build host as an explicit choice (make land GATE=host)", rel, p)
 			}
 		}
+	}
+}
+
+// ci.yml's `test` runs `make gate` in its parts over its legs (D-new-ci-shards): GateParts is the
+// Makefile's `gate` line, and the legs run each part but `test`, whose `go test ./...` is the
+// three test-shard.sh shards with internal/repodocs kept.
+func TestTheTestLegsRunTheGateInParts(t *testing.T) {
+	root := repoRoot(t)
+	m := regexp.MustCompile(`(?m)^gate: ([^#]+)##`).FindStringSubmatch(readFile(t, root, "Makefile"))
+	if m == nil || strings.Join(strings.Fields(m[1]), " ") != strings.Join(GateParts, " ") {
+		t.Fatalf("the Makefile's gate line %q is not GateParts %v", m, GateParts)
+	}
+	ci := readFile(t, root, ".github/workflows/ci.yml")
+	_, job, _ := strings.Cut(ci, "\n  test:\n")
+	job, _, _ = strings.Cut(job, "\n  test-windows-shard:\n")
+	for _, p := range GateParts {
+		if p != "test" && !strings.Contains(job, "run: make "+p+"\n") {
+			t.Errorf("the test legs do not run make %s", p)
+		}
+	}
+	if !strings.Contains(job, "leg: [checks, 0, 1, 2]") || !strings.Contains(job, `run: ./scripts/test-shard.sh 3 "$SHARD"`) || !strings.Contains(job, "TEST_SHARD_REPODOCS: '1'") {
+		t.Error("the test legs do not shard go test ./... three ways with internal/repodocs kept")
 	}
 }
