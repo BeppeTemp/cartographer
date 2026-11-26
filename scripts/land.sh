@@ -121,7 +121,8 @@
 # runs the new script (the same pid: the lock holds). LAND_SELF=1 runs the scripts beside this
 # one instead (the tests, a lander change tried before it lands).
 #
-#   LAND_INFRA_TRIES (3)  LAND_INFRA_WAIT (120 s)
+#   LAND_INFRA_TRIES (3)  LAND_INFRA_WAIT (120 s): also the retries of a failed fetch of origin
+#   LAND_GH_TIMEOUT (120 s: every gh call, and the freeze read, is killed past it)
 #   LAND_WINDOW (600 s)  LAND_WINDOW_MIN (4 green changes)
 #   LAND_MAX (8)  LAND_POLL (30 s)  LAND_MERGE_TRIES (90 polls)  LAND_OPEN_TRIES (120 polls)  LAND_STATE (state dir)
 #   LAND_TRAIN_STALE (21600 s: a train's tip keeps its composition time through the gate, the
@@ -131,13 +132,74 @@
 #   SIGNOFF_GATE is set by the lander (its --gate); the other SIGNOFF_* are passed to
 #   signoff.sh unchanged.
 #
+# The network: a fetch of origin that fails is tried again (LAND_INFRA_TRIES, LAND_INFRA_WAIT) before
+# the lander stops, and every gh call is bounded (LAND_GH_TIMEOUT). A release listing that cannot be
+# read (freeze-open.sh --state: unknown) keeps the last freeze state read ($state/freeze, written by
+# every successful read, the lander's and `make land-status`'s alike; open when none was), and while that state freezes a unit and nothing else is landable the lander waits for the
+# listing instead of stopping with "nothing landable".
+#
+# $state/status.json is the running lander's state for a dashboard, written whole at each
+# transition by the lander that holds $state/pid (never by --status, --dry-run or a lander that
+# finds one running): pid, gate, phase (collecting, composing, gate, rerun, bisect <i>/<n>,
+# merging, waiting-network, waiting-train, stopped), since (the epoch the phase began), updated,
+# branch and train (the train's branch and slugs), run (the hosted gate's ci.yml run id, once the
+# signoff names it), window_close (an epoch, while collecting), not_landable (per unit, named by
+# its oldest member: held, frozen, blocked or loop), last_rejection (slug, reason, at) and, once
+# stopped, why. A write that fails is skipped.
+#
 # Plain bash 3.2 (the macOS default): no associative arrays. No pending decision is cited in
 # this file: the tests queue copies of it, and a citation nothing in their queue adds is rejected.
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
 log() { echo "land: $(date -u +%H:%M:%S) $*" >&2; }
-die() { log "$*"; exit 1; }
+die() { log "$*"; ST_WHY=$*; exit 1; }
+
+# bounded <command...>: runs it in its own process group, killed whole past LAND_GH_TIMEOUT seconds
+# (exit 124), so a child that keeps a $(...) pipe open goes with it. Every gh call of the lander goes
+# through it: one that hung on a dead connection held a composition for an hour and a half.
+bounded() {
+  perl -e 'my $t = shift; my $p = fork; defined $p or exit 127;
+    if (!$p) { setpgrp(0, 0); exec @ARGV or exit 127 }
+    $SIG{ALRM} = sub { kill "KILL", -$p; exit 124 }; alarm $t; waitpid($p, 0);
+    exit($? & 127 ? 128 + ($? & 127) : $? >> 8)' "${LAND_GH_TIMEOUT:-120}" "$@"
+}
+gh() { bounded gh "$@"; }
+
+# status.json (see the header): ST_* hold its fields, status_write writes it once status_on is set
+# (by the lander that holds the pid file), status_phase <phase> moves to a phase.
+status_on=false
+ST_PHASE= ST_SINCE= ST_BRANCH= ST_TRAIN= ST_RUN= ST_CLOSE= ST_NL= ST_REJ_SLUG= ST_REJ_WHY= ST_REJ_AT= ST_WHY=
+status_write() {
+  $status_on || return 0
+  jq -n --argjson pid $$ --arg gate "$gate_mode" --arg phase "$ST_PHASE" --arg since "$ST_SINCE" \
+    --arg branch "$ST_BRANCH" --arg train "$ST_TRAIN" --arg run "$ST_RUN" --arg close "$ST_CLOSE" --arg nl "$ST_NL" \
+    --arg rs "$ST_REJ_SLUG" --arg rw "$ST_REJ_WHY" --arg ra "$ST_REJ_AT" --arg why "$ST_WHY" '
+    def num: if . == "" then null else tonumber end;
+    def str: if . == "" then null else . end;
+    {pid: $pid, gate: $gate, phase: $phase, since: ($since | num), updated: (now | floor),
+     branch: ($branch | str), train: [$train | splits("\n") | select(. != "")], run: ($run | num),
+     window_close: ($close | num),
+     not_landable: [$nl | splits("\n") | select(. != "") | split("\t") | {unit: .[0], reason: .[1]}],
+     last_rejection: (if $rs == "" then null else {slug: $rs, reason: $rw, at: ($ra | num)} end),
+     why: ($why | str)}' 2>/dev/null | (umask 077 && cat >"$status_file.tmp") 2>/dev/null && mv -f "$status_file.tmp" "$status_file" 2>/dev/null || true
+}
+status_phase() { [ "$ST_PHASE" = "$1" ] || ST_SINCE=$(date +%s); ST_PHASE=$1; status_write; }
+
+# net <what> <command...>: a read of origin, tried again up to LAND_INFRA_TRIES times LAND_INFRA_WAIT
+# apart; 1 when every try failed. One failed fetch (a DNS failure after a wake) used to stop the
+# lander, and the queue waited for the next make ready.
+net() {
+  local what=$1 n=1 max=${LAND_INFRA_TRIES:-3}
+  shift
+  until "$@"; do
+    [ "$n" -lt "$max" ] || return 1
+    log "cannot $what: trying again ($n/$max done, in ${LAND_INFRA_WAIT:-120} s)"
+    status_phase waiting-network
+    sleep "${LAND_INFRA_WAIT:-120}"
+    n=$((n + 1))
+  done
+}
 
 # The arguments, checked before anything starts: at most one of --daemon, --status and --dry-run,
 # and --gate hosted|host with any but --status. The gate mode is that option and nothing else.
@@ -164,7 +226,10 @@ common=$(git -C "$here" rev-parse --path-format=absolute --git-common-dir)
 main_repo=${common%/.git}
 key=$(printf %s "$main_repo" | cksum | cut -d' ' -f1)
 state=${LAND_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/cartographer-lander/$key}
-mkdir -p "$state"
+# Private to the user: the status file names trains and rejections, the gate files carry tokens.
+mkdir -p "$state" && chmod 700 "$state" 2>/dev/null || true
+# Read through these names: compose and show_queue have a local `state` of their own.
+status_file=$state/status.json freeze_file=$state/freeze
 max=${LAND_MAX:-8}
 poll=${LAND_POLL:-30}
 window=${LAND_WINDOW:-600}
@@ -287,7 +352,7 @@ run_main() {
 starting() { echo "land: a lander already runs here (starting, pid $(lock_pid))"; exit 0; }
 if [ "$action" != --status ] && [ "$action" != --dry-run ] && [ -z "${LAND_SELF:-}" ] &&
   ! [ "$here/land.sh" -ef "$src/scripts/land.sh" ]; then
-  g fetch -q --no-tags origin main || die "cannot fetch origin"
+  net "fetch origin" g fetch -q --no-tags origin main || die "cannot fetch origin"
   take_src_lock || starting
   if running && [ "$(cat "$state/pid")" != $$ ]; then
     drop_src_lock
@@ -365,7 +430,8 @@ if ! $dry && [ "$action" != --status ]; then
   # deletes the scripts under it (scripts/lander-guard.sh, used by worktree-rm and
   # worktree-clean, reads this file).
   (cd "$here/.." && pwd -P) >"$state/root"
-  trap 'rm -f "$state/pid" "$state/root" "$state/gate"' EXIT
+  trap 'rm -f "$state/pid" "$state/root" "$state/gate"; status_phase stopped' EXIT
+  status_on=true
   # The lander mostly waits (on the gate, on GitHub). A Mac on battery sleeps when idle, and
   # asleep the lander advances only in its dark wakes, a quarter of an hour apart, waking
   # with the network still down: caffeinate keeps it awake (not a closed lid) until the
@@ -400,6 +466,8 @@ fi
 reject() {
   log "rejected $1: $3"
   $dry && return 0
+  ST_REJ_SLUG=$1 ST_REJ_WHY=$3 ST_REJ_AT=$(date +%s)
+  status_write
   local f
   f=$(git -C "$main_repo" commit-tree "$2^{tree}" -p "$2" -m "lander: $3" -m "Fix it on the branch and run make ready again: once the slug is queued again this ref is ignored, and it is deleted when the change lands.")
   g push -q --force origin "$f:refs/heads/failed/$1" "--force-with-lease=refs/heads/ready/$1:$2" ":refs/heads/ready/$1" ||
@@ -489,6 +557,22 @@ failed_jobs() {
   gh run view "$1" -R "$repo" --json jobs --jq '[.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out") | .name] | join(", ")' 2>/dev/null || true
 }
 
+# freeze_read: sets freeze (true while open) from freeze-open.sh --state, and FREEZE_UNKNOWN when the
+# release listing could not be read: the last state read ($state/freeze, which a successful read
+# writes, from the lander or from --status) stands then, open when none was ever read (a feat waits rather than land in a freeze).
+FREEZE_UNKNOWN=false
+freeze_read() {
+  local rc=0 s
+  GH_REPO=$repo bounded "$here/freeze-open.sh" --state >/dev/null 2>&1 || rc=$?
+  case "$rc" in
+    0) s=open FREEZE_UNKNOWN=false ;;
+    1) s=closed FREEZE_UNKNOWN=false ;;
+    *) s=$(cat "$freeze_file" 2>/dev/null || true) FREEZE_UNKNOWN=true ;;
+  esac
+  $FREEZE_UNKNOWN || echo "$s" >"$freeze_file" 2>/dev/null || true
+  if [ "$s" = closed ]; then freeze=false; else freeze=true; fi
+}
+
 # utc_of <epoch>: HH:MM:SS UTC (GNU date, then BSD).
 utc_of() { date -u -d "@$1" +%H:%M:%S 2>/dev/null || date -u -r "$1" +%H:%M:%S; }
 
@@ -565,8 +649,9 @@ compose() {
   TRAIN=
   U_SIZE=() U_FIRST=() U_TIP=() U_LINES=() U_RID=()
   WINDOW_OPEN=false
+  ST_NL= FROZEN=0
   [ -n "$q" ] || return 0
-  if GH_REPO=$repo "$here/freeze-open.sh" >/dev/null 2>&1; then freeze=true; fi
+  freeze_read
   failed=$(g for-each-ref --format='%(refname:lstrip=4)' refs/remotes/origin/failed/)
   units "$q" "$failed"
   n=${#N_SLUG[@]}
@@ -581,7 +666,8 @@ compose() {
       [ -n "$state" ] || [ -z "$(trailer Lander-Hold "${N_SHA[i]}")" ] || state=held
       if [ -z "$state" ] && $freeze && breaking "${N_SHA[i]}"; then state=frozen; fi
     done
-    [ -z "$state" ] || continue
+    [ "$state" != frozen ] || FROZEN=$((FROZEN + 1))
+    if [ -n "$state" ]; then ST_NL="$ST_NL${N_SLUG[c]}"$'\t'"$state"$'\n'; continue; fi
     # The landing order: the oldest queued member whose predecessor is already placed, each time.
     order= done_=" "
     for ((p = 0; p < size; p++)); do
@@ -599,6 +685,7 @@ compose() {
     done
     if [ "$(grep -c . <<<"$order")" != "$size" ]; then
       log "${N_SLUG[c]}: its unit's Lander-After lines form a loop: not landable"
+      ST_NL="$ST_NL${N_SLUG[c]}"$'\t'"loop"$'\n'
       continue
     fi
     # Its tips (no member follows them) decide its verdict; the last of them is its tip.
@@ -897,6 +984,16 @@ number_train() {
 host_rc=69
 infra_line='^signoff: the (build host|Windows machine|hosted runners) failed \(exit [0-9]+\) before the gate finished: nothing pushed, nothing posted$'
 gate_token=
+# gate_watch: a hosted gate's output (the signoff's own lines) passed on to the lander's log, with the
+# ci.yml run's id put in status.json once the signoff names it (digits only, for display: nothing reads
+# it back). It runs in the pipeline's subshell, so gate() reads the id from the log again afterwards.
+gate_watch() {
+  local l
+  while IFS= read -r l || [ -n "$l" ]; do
+    printf '%s\n' "$l"
+    if [ -z "$ST_RUN" ] && [[ "$l" =~ ^signoff:\ waiting\ for\ ci\.yml\ run\ ([0-9]+)$ ]]; then ST_RUN=${BASH_REMATCH[1]}; status_write; fi
+  done
+}
 gate_once() { # $1 = log file; signoff.sh on the train branch: exit 0 green, 1 red, 2 not a test, 3 the build host failed
   local rc pf
   # The probe of a confirmed failure comes back out of band (SIGNOFF_PROBE_FILE, signoff.sh): the log
@@ -910,7 +1007,11 @@ gate_once() { # $1 = log file; signoff.sh on the train branch: exit 0 green, 1 r
   gate_token=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n' || true)
   # Streamed to the lander's log as it runs (a gate takes minutes), and kept in $1.
   set +e
-  (cd "$wt" && SIGNOFF_PROBE_FILE="$pf" "$here/signoff.sh" 3<<<"$gate_token") 2>&1 | tee "$1" >&2
+  if [ "$gate_mode" = hosted ]; then
+    (cd "$wt" && SIGNOFF_PROBE_FILE="$pf" "$here/signoff.sh" 3<<<"$gate_token") 2>&1 | tee "$1" | gate_watch >&2
+  else
+    (cd "$wt" && SIGNOFF_PROBE_FILE="$pf" "$here/signoff.sh" 3<<<"$gate_token") 2>&1 | tee "$1" >&2
+  fi
   rc=${PIPESTATUS[0]}
   set -e
   # Only a red signoff (exit 1) can have confirmed a failure: any other exit leaves no probe.
@@ -932,7 +1033,9 @@ gate_once() { # $1 = log file; signoff.sh on the train branch: exit 0 green, 1 r
 gate() { # $1 = log file; exit 0 green, 1 red, 2 not a test (the caller dies)
   local rc n=1 max=${LAND_INFRA_TRIES:-3} why
   while :; do
+    ST_RUN=
     rc=0; gate_once "$1" || rc=$?
+    ST_RUN=$(sed -n 's/^signoff: waiting for ci\.yml run \([0-9][0-9]*\)$/\1/p' "$1" 2>/dev/null | tail -n 1 || true)
     [ "$rc" != 3 ] && return "$rc"
     # The words only (the exit code decided): the signoff prints its line last.
     why=$(grep -E "$infra_line" "$1" | tail -n 1 | sed 's/^signoff: //; s/: nothing pushed, nothing posted$//' || true)
@@ -1236,7 +1339,7 @@ show_queue() {
   local win_n=0 win_ok=0 win_old= win_now= close
   q=$(queue)
   [ -n "$q" ] || return 0
-  if GH_REPO=$repo "$here/freeze-open.sh" >/dev/null 2>&1; then freeze=true; fi
+  freeze_read
   failed=$(g for-each-ref --format='%(refname:lstrip=4)' refs/remotes/origin/failed/)
   units "$q" "$failed"
   n=${#N_SLUG[@]}
@@ -1326,9 +1429,9 @@ if [ "$action" = --status ]; then
 fi
 
 wt=$state/train
-waited=0 fwaited=0 fwaiting= collecting=false
+waited=0 fwaited=0 fwaiting= collecting=false fzwait=false
 while :; do
-  fetch || die "cannot fetch origin"
+  net "fetch origin" fetch || die "cannot fetch origin, in ${LAND_INFRA_TRIES:-3} tries: the queue is untouched"
   # Main's scripts changed since this lander started (a lander change landed): between two
   # trains, it resets its checkout and runs the new land.sh.
   if [ -z "${LAND_SELF:-}" ] && ! $dry && [ "$here/land.sh" -ef "$src/scripts/land.sh" ] &&
@@ -1351,6 +1454,7 @@ while :; do
       [ "$waited" -le "${LAND_OPEN_TRIES:-120}" ] ||
         die "train PR #${others%% *} is still open after the wait and is not one this lander can merge (a fork's, one not based on main, its head moved, or it cannot be closed): look at it; the queue is untouched"
       log "train PR #${others%% *} is open (not one to adopt: another lander's, or a fork's): waiting"
+      status_phase waiting-train
       sleep "$poll"; continue
     fi
     # This machine's trains ended (merged, closed, dropped before their gate) or were left by a
@@ -1398,6 +1502,7 @@ while :; do
       [ "$fwaited" -le "$fmax" ] ||
         die "$foreign is still on origin after the wait, with no open PR: another machine's lander gating it, or one that stopped (deleted once its tip is older than LAND_TRAIN_STALE; if its lander is dead: LAND_FORCE=1 make land, or delete $foreign on origin); the queue is untouched"
       log "$foreign is on origin with no open PR: another machine's lander is gating it, waiting (if that lander is dead: LAND_FORCE=1 make land, or delete $foreign on origin)"
+      status_phase waiting-train
       sleep "$poll"; continue
     fi
     fwaiting= waited=0 # each wait starts with its full budget
@@ -1406,14 +1511,25 @@ while :; do
   if $WINDOW_OPEN; then
     # The window is open: wait for company, and look again (an open or a foreign train is seen first).
     $collecting || log "collecting: $WIN_QUEUED queued, $WIN_GREEN green: composing at $(utc_of "$WIN_CLOSE") UTC or at $wmin green"
-    collecting=true
+    collecting=true ST_CLOSE=$WIN_CLOSE
+    status_phase collecting
     sleep "$poll"; continue
   fi
-  collecting=false
+  collecting=false ST_CLOSE=
   if [ -z "$TRAIN" ]; then
-    [ -n "$(queue)" ] && log "nothing landable: every queued change is held, frozen or in a chain with a rejected change" || log "the queue is empty"
+    # Frozen on a freeze state that could not be read again: wait for the listing, never stop on it.
+    if ! $dry && $FREEZE_UNKNOWN && [ "$FROZEN" -gt 0 ]; then
+      $fzwait || log "the release listing cannot be read: $FROZEN unit(s) frozen on the last freeze state read and nothing else landable, reading it again every $poll s"
+      fzwait=true
+      status_phase waiting-network
+      sleep "$poll"; continue
+    fi
+    if [ -n "$(queue)" ]; then ST_WHY="nothing landable"; log "nothing landable: every queued change is held, frozen or in a chain with a rejected change"; else ST_WHY="the queue is empty"; log "the queue is empty"; fi
     exit 0
   fi
+  fzwait=false
+  ST_TRAIN=$(cut -d' ' -f1 <<<"$TRAIN") ST_BRANCH= ST_RUN=
+  status_phase composing
 
   # The train worktree, reset to main.
   if [ ! -d "$wt/.git" ] && [ ! -f "$wt/.git" ]; then g worktree add -q --detach "$wt" "$main_ref"; fi
@@ -1421,7 +1537,7 @@ while :; do
   git cherry-pick --abort >/dev/null 2>&1 || true
   git reset -q --hard && git clean -qfd
   id=$(date -u +%Y%m%d-%H%M%S)
-  branch=train/$id
+  branch=train/$id ST_BRANCH=train/$id
   git checkout -q -B "$branch" "$main_ref"
   $dry || echo "$branch" >>"$state/branch" # this machine's train, until it is cleaned up (never by the exit trap)
   base=$(git rev-parse HEAD) # the main this train is gated on, and the only one it merges onto
@@ -1566,6 +1682,7 @@ while :; do
     continue
   fi
   log "train $branch: $k change(s): $(cut -d' ' -f1 <<<"$landed" | tr '\n' ' ' | sed 's/ $//') [gate: $gate_mode]"
+  ST_TRAIN=$(cut -d' ' -f1 <<<"$landed")
   if $dry; then
     git log --oneline "$main_ref..HEAD"
     cd "$main_repo"; g worktree remove --force "$wt" >/dev/null 2>&1 || true
@@ -1574,7 +1691,7 @@ while :; do
 
   # A train another machine pushed since the loop top: its lander is gating it, so this
   # composition is dropped before anything is pushed, and the loop top waits on it.
-  g fetch -q --no-tags --prune origin '+refs/heads/train/*:refs/remotes/origin/train/*' ||
+  net "fetch origin" g fetch -q --no-tags --prune origin '+refs/heads/train/*:refs/remotes/origin/train/*' ||
     die "cannot fetch origin before the gate of $branch: the queue is untouched"
   foreign=
   [ -n "${LAND_FORCE:-}" ] || foreign=$(young_train "")
@@ -1587,6 +1704,7 @@ while :; do
   # The gate: once; on red, again (flaky?) unless the signoff's targeted retry already
   # confirmed the failure (D1755); then bisection over prefixes.
   glog=$state/gate-$id.log
+  status_phase gate
   rc=0; gate "$glog" || rc=$?
   [ "$rc" != 2 ] || die "the gate of $branch failed for a reason that is not a test (see $glog): the queue is untouched"
   [ "$rc" != 0 ] || flaky_issue "$glog" "failed and passed on a targeted retry of the signoff"
@@ -1597,6 +1715,7 @@ while :; do
     if grep -q '^signoff: confirmed on a targeted retry:' "$glog"; then
       log "red, and red again on the signoff's targeted retry of${fails:+ $fails}: not a flake"
     else
+      status_phase rerun
       rc2=0; gate "$glog.2" || rc2=$?
       [ "$rc2" != 2 ] || die "the gate of $branch failed for a reason that is not a test (see $glog.2): the queue is untouched"
     fi
@@ -1617,6 +1736,8 @@ while :; do
       ends+=("$k")
       nu=$((${#ends[@]} - 1))
       lo=0 hi=$nu good=
+      # bisect <i>/<n> in status.json: n is the most steps a bisection of nu units takes.
+      bn=0 bi=0; while [ $((1 << bn)) -lt "$nu" ]; do bn=$((bn + 1)); done
       # The confirmed tests alone (their packages, a minute or two) find the change that
       # breaks them; the green prefix still gets its full gate below. Without a confirmed
       # retry, or with its machine gone, each prefix gets a full gate.
@@ -1624,14 +1745,15 @@ while :; do
       if [ -n "$probe" ]; then
         log "bisecting with the confirmed tests only: $probe"
         while [ $((hi - lo)) -gt 1 ]; do
-          m=$(( (lo + hi) / 2 )) c=${ends[m]}
+          m=$(( (lo + hi) / 2 )) c=${ends[m]} bi=$((bi + 1))
+          status_phase "bisect $bi/$bn"
           git reset -q --hard "${commits[c - 1]}"
           r=0
           # shellcheck disable=SC2086  # the probe is three words on purpose, checked by probe_of
           (cd "$wt" && "$here/signoff.sh" --probe $probe) >>"$glog.probe" 2>&1 || r=$?
           if [ "$r" = 75 ]; then
             log "the probe's machine is unavailable: bisecting with full gates"
-            probe= lo=0 hi=$nu
+            probe= lo=0 hi=$nu bi=0
             break
           fi
           if [ "$r" = 0 ]; then lo=$m; else hi=$m; fi
@@ -1639,7 +1761,8 @@ while :; do
       fi
       if [ -z "$probe" ]; then
         while [ $((hi - lo)) -gt 1 ]; do
-          m=$(( (lo + hi) / 2 )) c=${ends[m]}
+          m=$(( (lo + hi) / 2 )) c=${ends[m]} bi=$((bi + 1))
+          status_phase "bisect $bi/$bn"
           git reset -q --hard "${commits[c - 1]}"
           r=0; gate "$glog.p$m" || r=$?
           [ "$r" != 2 ] || die "the gate of a prefix of $branch failed for a reason that is not a test: the queue is untouched"
@@ -1679,12 +1802,13 @@ while :; do
       g push -q --force origin "$good:refs/heads/$branch"
       k=${ends[lo]}
       landed=$(head -n "$k" <<<"$landed")
+      ST_TRAIN=$(cut -d' ' -f1 <<<"$landed")
     fi
   fi
 
   # Main moved during the gate (a contributor's PR, a Dependabot merge, the release): the
   # gated tree is not the one a merge would land. Compose the train again on the new main.
-  g fetch -q --no-tags origin main || die "cannot fetch origin after the gate of $branch: the queue is untouched"
+  net "fetch origin" g fetch -q --no-tags origin main || die "cannot fetch origin after the gate of $branch: the queue is untouched"
   if [ "$(g rev-parse "$main_ref")" != "$base" ]; then
     log "main moved during the gate of $branch (${base:0:12}..$(g rev-parse --short=12 "$main_ref")): composing the train again"
     g push -q origin --delete "$branch" >/dev/null 2>&1 || true
@@ -1713,11 +1837,13 @@ while :; do
   url=$(gh pr create -R "$repo" --base main --head "$branch" --title "chore(dev): train $id, $k change(s)" --body-file "$body")
   num=${url##*/}
   log "train PR #$num opened: $url"
+  status_phase merging
   if ! merge_train "$num" "$(git rev-parse HEAD)"; then
     git checkout -q --detach && git branch -q -D "$branch" || true
     continue
   fi
   log "train PR #$num merged"
+  ST_TRAIN= ST_BRANCH= ST_RUN=
   git checkout -q --detach && git branch -q -D "$branch" || true
   g push -q origin --delete "$branch" >/dev/null 2>&1 || true
   stuck=

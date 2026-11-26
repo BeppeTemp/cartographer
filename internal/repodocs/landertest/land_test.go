@@ -205,6 +205,7 @@ case "$1 $2" in
     fi
     echo "https://github.com/up/proj/pull/42" ;;
   "pr merge")
+    cp "$LAND_STATE/status.json" "$FAKE_STATE.status-at-merge" 2>/dev/null || true
     git --git-dir="$FAKE_UP" update-ref refs/heads/main "refs/heads/$(cat "$FAKE_STATE.head")"
     echo MERGED > "$FAKE_STATE.pr" ;;
   "pr close") [ -n "${FAKE_CLOSE_FAILS:-}" ] && exit 1; echo CLOSED > "$FAKE_STATE.pr"

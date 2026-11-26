@@ -19,6 +19,10 @@
 # not "no candidate", and a caller that deletes candidates must fail on it
 # (release-train `discard`); the one that only waits (`freeze`) treats 3 as open.
 #
+# `--state` is the lander's (scripts/land.sh): it prints `open`, `closed` or `unknown` and exits 0, 1 or
+# 3, so a listing it cannot read (the network, after a wake) is neither a freeze that holds every
+# feat nor one that releases them: the lander keeps the last state it read.
+#
 # `--candidate` prints the oldest candidate tag of the pending version and exits
 # as above; nothing is printed when closed. `--candidates` prints every candidate
 # of the pending version, one per line. One place that knows the rule.
@@ -34,7 +38,7 @@ else
   releases=$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" \
     --jq '.[] | "\(.tag_name) \(.draft)"') || {
     echo "freeze-open: cannot list the releases (needs GH_TOKEN, GH_REPO, contents: read): freeze counted as open" >&2
-    case "$mode" in --candidate|--candidates) exit 3 ;; esac
+    case "$mode" in --state) echo unknown; exit 3 ;; --candidate|--candidates) exit 3 ;; esac
     exit 0
   }
 fi
@@ -59,7 +63,7 @@ while read -r tag; do
   fi
 done <<<"$cands"
 
-[ -n "$top" ] || exit 1
+[ -n "$top" ] || { [ "$mode" != --state ] || echo closed; exit 1; }
 # Oldest first: the date, then the counter of the day, both numeric; a tag without
 # a counter (the old shape) sorts before .1 of its day.
 pending=$(grep -F "$top-rc." <<<"$newer_cands" | sort -t. -k4,4n -k5,5n)
@@ -67,5 +71,6 @@ pending=$(grep -F "$top-rc." <<<"$newer_cands" | sort -t. -k4,4n -k5,5n)
 case "$mode" in
   --candidate) echo "$pending" | head -1 ;;
   --candidates) echo "$pending" ;;
+  --state) echo open ;;
 esac
 exit 0

@@ -272,7 +272,7 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
     `pr-title` and `plan-gate` would check a PR, `Size exception: <why>` included).
     `AFTER=<slug>` lands it after another queued change (a branch built on that change's
     branch is queued with its own diff only, also once that change has landed; a slug neither queued
-    nor landed is refused), `HOLD=1` keeps it queued. `REVIEW=` is required: it records the review, and the lander checks it against the tier its own triage computes.
+    nor landed is refused), `HOLD=1` keeps it queued. `REVIEW=` is required: it records the review, `make ready` refuses a record below the tier its triage computes, and the lander checks it again against the tier main's triage computes.
     `USAGE="pass, <n> entries"` (or `USAGE="waived: <reason>"`) is required when the triage prints `Usage-test: required`
     (a change to the CLI, a client, provisioning, an installer or a bundled skill): it records that the change was tried on
     its built binary (`docs/testing.md` §Usage test), `make ready` refuses without it, and the lander rejects a queued change that lacks it.
@@ -303,6 +303,11 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
     verdict and a red one's failed jobs; `make requeue SLUG=<slug>` rebuilds a queued or rejected change and the ones after it on the current `main`, keeping messages and queue places, in one atomic push (`FIRST=1`: first in the queue); `make land` runs the lander in the foreground (`DRY=1` prints the next train).
     Queued changes have no cap: a train holds at most 8 changes, and a longer chain is gated alone. On macOS the
     lander keeps the machine from idle sleep while it runs (`caffeinate -i`); a closed lid still stops it.
+  - **The network.** A failed fetch of origin is tried again (`LAND_INFRA_TRIES`, `LAND_INFRA_WAIT`) before the
+    lander stops, every `gh` call is bounded (`LAND_GH_TIMEOUT`), and a release listing it cannot read keeps the last
+    freeze state it read: while that state holds a frozen unit and nothing else is landable, the lander waits for the
+    listing instead of stopping. The running lander writes its state to `status.json` in its state directory at each
+    transition (phase, train, run, window, the units not landable and why, the last rejection; `scripts/land.sh` header).
 - **No open PR depends on another open PR**: a contributor's dependent work goes in the same
   PR, or waits for the merge. A maintainer's dependent change is queued with `AFTER=<slug>`
   and lands with that change, in one train.

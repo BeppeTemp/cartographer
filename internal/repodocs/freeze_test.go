@@ -76,12 +76,28 @@ func TestFreezeOpenFromTheCandidate(t *testing.T) {
 		default:
 			t.Errorf("%s: freeze-open.sh: %v", c.name, err)
 		}
+		// The lander's mode says the same in a word, with the same exit code.
+		if c.releases == nil {
+			continue
+		}
+		st := exec.Command(bash, "scripts/freeze-open.sh", "--state")
+		st.Dir = repoRoot(t)
+		st.Env = append(st.Environ(), "GH_REPO=example/repo", "FREEZE_RELEASES="+*c.releases)
+		got, _ := st.Output()
+		want, code := "closed\n", 1
+		if c.open {
+			want, code = "open\n", 0
+		}
+		if string(got) != want || st.ProcessState.ExitCode() != code {
+			t.Errorf("%s: --state printed %q exit %d, want %q exit %d", c.name, got, st.ProcessState.ExitCode(), want, code)
+		}
 	}
 }
 
 // An unreadable listing is open for the gate (exit 0, nothing to wait on) but is
 // never "no candidate" for a caller that deletes candidates: --candidate(s) exit 3
 // with the message on stderr and nothing on stdout (release-train `discard` fails on it).
+// For the lander (--state) it is `unknown`, exit 3: neither open nor closed.
 func TestFreezeOpenUnreadableListing(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the script runs on ubuntu only; bash on Windows may be WSL")
@@ -95,9 +111,10 @@ func TestFreezeOpenUnreadableListing(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, c := range []struct {
-		args []string
-		code int
-	}{{nil, 0}, {[]string{"--candidate"}, 3}, {[]string{"--candidates"}, 3}} {
+		args   []string
+		code   int
+		stdout string
+	}{{nil, 0, ""}, {[]string{"--candidate"}, 3, ""}, {[]string{"--candidates"}, 3, ""}, {[]string{"--state"}, 3, "unknown\n"}} {
 		cmd := exec.Command(bash, append([]string{"scripts/freeze-open.sh"}, c.args...)...)
 		cmd.Dir = repoRoot(t)
 		cmd.Env = append(cmd.Environ(), "GH_REPO=example/repo", "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -110,8 +127,8 @@ func TestFreezeOpenUnreadableListing(t *testing.T) {
 		} else if err != nil {
 			t.Fatal(err)
 		}
-		if code != c.code || stdout.Len() != 0 || !strings.Contains(stderr.String(), "cannot list the releases") {
-			t.Errorf("freeze-open.sh %v: exit %d stdout %q stderr %q, want exit %d, no stdout, the message", c.args, code, stdout.String(), stderr.String(), c.code)
+		if code != c.code || stdout.String() != c.stdout || !strings.Contains(stderr.String(), "cannot list the releases") {
+			t.Errorf("freeze-open.sh %v: exit %d stdout %q stderr %q, want exit %d, stdout %q, the message", c.args, code, stdout.String(), stderr.String(), c.code, c.stdout)
 		}
 	}
 }
