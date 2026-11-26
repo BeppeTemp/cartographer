@@ -9,6 +9,7 @@ import (
 	"crypto/ed25519"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -35,6 +36,10 @@ type tlsServer struct {
 	stop   func()
 }
 
+// startTLSServer picks its ports with Listen(:0) and closes them before
+// serveHTTP binds, so another process can take one in between: a bind error
+// that serveHTTP returns before the first answer retries the whole start with
+// new ports (3 attempts), instead of showing as seconds of connection refused.
 func startTLSServer(t *testing.T, authCfg config.AuthConfig, tlsCfg config.TLSConfig, withKB bool) *tlsServer {
 	t.Helper()
 	credDir := t.TempDir()
@@ -46,20 +51,37 @@ func startTLSServer(t *testing.T, authCfg config.AuthConfig, tlsCfg config.TLSCo
 	}
 	pool.AppendCertsFromPEM(crt)
 
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		s, err := tryStartTLSServer(t, credDir, pool, authCfg, tlsCfg, withKB)
+		if err == nil {
+			return s
+		}
+		lastErr = err
+		t.Logf("TLS server start attempt %d: %v", attempt+1, err)
+	}
+	t.Fatalf("the TLS server never started: %v", lastErr)
+	return nil
+}
+
+func freeLoopbackAddr(t *testing.T) string {
+	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	addr := ln.Addr().String()
-	ln.Close()
+	defer ln.Close()
+	return ln.Addr().String()
+}
+
+// tryStartTLSServer makes one attempt: it returns serveHTTP's own error when
+// that returns before the port answers, so the caller can retry with new ports.
+func tryStartTLSServer(t *testing.T, credDir string, pool *x509.CertPool, authCfg config.AuthConfig, tlsCfg config.TLSConfig, withKB bool) (*tlsServer, error) {
+	t.Helper()
+	addr := freeLoopbackAddr(t)
 	if tlsCfg.HealthAddr == "" {
 		// A free port of its own: the default (public port + 1) may be taken.
-		hl, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			t.Fatal(err)
-		}
-		tlsCfg.HealthAddr = hl.Addr().String()
-		hl.Close()
+		tlsCfg.HealthAddr = freeLoopbackAddr(t)
 	}
 
 	boot := func(phase func(string)) kbBootstrap {
@@ -75,9 +97,10 @@ func startTLSServer(t *testing.T, authCfg config.AuthConfig, tlsCfg config.TLSCo
 	}
 	cfg := &config.Config{CredentialsDir: credDir}
 	done := make(chan struct{})
+	serveErr := make(chan error, 1)
 	go func() {
 		defer close(done)
-		_ = serveHTTP(addr, boot, authCfg, nil, false, nil, nil, cfg, tlsCfg)
+		serveErr <- serveHTTP(addr, boot, authCfg, nil, false, nil, nil, cfg, tlsCfg)
 	}()
 	s := &tlsServer{addr: addr, health: config.TLSHealthAddr(addr, tlsCfg), client: &http.Client{
 		Timeout:   gitxtest.Deadline(5 * time.Second),
@@ -89,6 +112,11 @@ func startTLSServer(t *testing.T, authCfg config.AuthConfig, tlsCfg config.TLSCo
 			return
 		}
 		stopped = true
+		select {
+		case <-done:
+			return // already returned: nothing handles a SIGTERM now, it would end the test binary
+		default:
+		}
 		_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
 		select {
 		case <-done:
@@ -96,18 +124,30 @@ func startTLSServer(t *testing.T, authCfg config.AuthConfig, tlsCfg config.TLSCo
 			t.Error("serveHTTP did not return after SIGTERM")
 		}
 	}
-	t.Cleanup(s.stop)
 	for deadline := time.Now().Add(gitxtest.Deadline(5 * time.Second)); ; time.Sleep(20 * time.Millisecond) {
+		select {
+		case err := <-serveErr:
+			// serveHTTP returned before answering (a bind error, or a clean
+			// return that still means no server): this attempt is over.
+			s.stop()
+			if err == nil {
+				err = errors.New("serveHTTP returned before the TLS port answered")
+			}
+			return nil, err
+		default:
+		}
 		resp, err := s.client.Get("https://" + addr + "/health")
 		if err == nil {
 			resp.Body.Close()
 			break
 		}
 		if time.Now().After(deadline) {
+			s.stop()
 			t.Fatalf("the TLS port never answered: %v", err)
 		}
 	}
-	return s
+	t.Cleanup(s.stop)
+	return s, nil
 }
 
 // AC-tls-native-9: with TLS on a TLS request is served and carries
