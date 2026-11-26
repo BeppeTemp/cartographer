@@ -447,7 +447,7 @@ func RewriteLinks(body string, basePath string, moveMap map[string]string, asset
 // target concept ID is in targets is replaced by its label as plain text —
 // "[label](x.md)" becomes "label", "[[id|label]]" becomes "label", a bare
 // "[[id#section]]" becomes "id". The reader keeps the words and loses the
-// hyperlink. A cross-KB link ([[kb:...]]) is not an internal link: it is left as written. Returns the new body and
+// hyperlink. A cross-KB link ([[kb:...]]) is not an internal link: it is left as written (the cross links to a transferred page are retargeted by cross_link_rewrite, not here). Returns the new body and
 // the number of links removed.
 //
 // Trap: it must resolve exactly as ExtractLinks and RewriteLinks do — same

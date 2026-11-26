@@ -64,7 +64,9 @@ func newMoveRig(t *testing.T, o moveRigOpts) moveRig {
 	}
 	for _, n := range names {
 		k := byName[n]
-		r.multi.MountKB(n, func(s *Server) { RegisterKBTools(s, k, Deps{CallKB: call}) })
+		r.multi.MountKB(n, func(s *Server) {
+			RegisterKBTools(s, k, Deps{CallKB: call, KBByName: func(n string) (*kb.KB, bool) { k, ok := byName[n]; return k, ok }})
+		})
 	}
 	t.Cleanup(func() {
 		for _, k := range byName {
@@ -346,7 +348,7 @@ func TestOneLockAtATime(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		select {
 		case got := <-done:
-			if strings.HasPrefix(got, "move-") && strings.HasSuffix(got, "true") {
+			if strings.HasSuffix(got, "true") {
 				t.Errorf("%s failed", got)
 			}
 		case <-deadline:
