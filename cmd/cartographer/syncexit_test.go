@@ -89,3 +89,26 @@ func TestSyncRefusedExit_ARefusedInstructionsWrite(t *testing.T) {
 		t.Errorf("clean result: exit %d, line %q", code, none.String())
 	}
 }
+
+// #2422: a config whose marker block lost its begin line is refused for that
+// reason; the final line must not send the operator after a link.
+func TestCmdSync_ACorruptedMarkerBlockIsNotBlamedOnASymlink(t *testing.T) {
+	dir := syncExitFixture(t, "codex")
+	cfgPath := filepath.Join(dir, ".codex", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfgPath, []byte("model = \"x\"\n# cartographer:mcp:end\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, stderr := syncCode(t)
+	if code != exitPartiallyConnected {
+		t.Fatalf("sync = %d, want %d (stderr %q)", code, exitPartiallyConnected, stderr)
+	}
+	if strings.Contains(stderr, "allow_symlinks") {
+		t.Errorf("stderr = %q, want no symlink hint", stderr)
+	}
+	if !strings.Contains(stderr, "sync refused to write: codex (MCP entry skipped) (fix the markers by hand") {
+		t.Errorf("stderr = %q, want the markers hint", stderr)
+	}
+}

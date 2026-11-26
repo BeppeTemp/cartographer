@@ -1039,14 +1039,14 @@ func isEntryUnchangedIn(provider string, d configurator.Descriptor, entries []mc
 // D69; a duplicate table adopted from a Codex rewrite, D99), for the caller to
 // render.
 func applyMCPEntries(entriesByProvider map[string][]mcpEntry, providers []string, dir string, claudeDirs []string, auth bool, tokenEnv string, dryRun bool) (written []string, warnings []string, err error) {
-	written, warnings, _, err = applyMCPEntriesRefusals(entriesByProvider, providers, dir, claudeDirs, auth, tokenEnv, dryRun)
+	written, warnings, _, _, err = applyMCPEntriesRefusals(entriesByProvider, providers, dir, claudeDirs, auth, tokenEnv, dryRun)
 	return written, warnings, err
 }
 
 // applyMCPEntriesRefusals is applyMCPEntries that also names the providers
 // whose MCP config was refused (D148, #1693): their entry was not written, so
 // the caller must neither announce it nor call the provider connected.
-func applyMCPEntriesRefusals(entriesByProvider map[string][]mcpEntry, providers []string, dir string, claudeDirs []string, auth bool, tokenEnv string, dryRun bool) (written []string, warnings []string, refused []string, err error) {
+func applyMCPEntriesRefusals(entriesByProvider map[string][]mcpEntry, providers []string, dir string, claudeDirs []string, auth bool, tokenEnv string, dryRun bool) (written []string, warnings []string, refused, corrupt []string, err error) {
 	written = make([]string, 0, len(providers))
 	seenPaths := map[string]bool{}
 	for _, provider := range providers {
@@ -1061,7 +1061,7 @@ func applyMCPEntriesRefusals(entriesByProvider map[string][]mcpEntry, providers 
 				warnings = append(warnings, w)
 			}
 			if err != nil {
-				return nil, nil, nil, fmt.Errorf("emit %s: %w", provider, err)
+				return nil, nil, nil, nil, fmt.Errorf("emit %s: %w", provider, err)
 			}
 			if r != nil {
 				results = append(results, r)
@@ -1086,10 +1086,15 @@ func applyMCPEntriesRefusals(entriesByProvider map[string][]mcpEntry, providers 
 				// operator is told which path to replace with a real one.
 				warnings = appendUnique(warnings, refusalWarnings(err)...)
 				refused = appendUnique(refused, provider)
+				// The reason is the hint of the final line of a sync: a
+				// corrupted marker block is not a link (#2422).
+				if errors.Is(err, provisioning.ErrCorruptedBlock) && !errors.Is(err, provisioning.ErrSymlinkDestination) {
+					corrupt = appendUnique(corrupt, provider)
+				}
 				err = nil
 			}
 			if err != nil {
-				return nil, nil, nil, fmt.Errorf("write config for %s: %w", provider, err)
+				return nil, nil, nil, nil, fmt.Errorf("write config for %s: %w", provider, err)
 			}
 			for _, path := range paths {
 				if !seenPaths[path] {
@@ -1102,7 +1107,7 @@ func applyMCPEntriesRefusals(entriesByProvider map[string][]mcpEntry, providers 
 			warnings = append(warnings, r.Warnings...)
 		}
 	}
-	return written, warnings, refused, nil
+	return written, warnings, refused, corrupt, nil
 }
 
 // A config file or directory that is a symlink is refused (D148) for that

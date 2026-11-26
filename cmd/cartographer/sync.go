@@ -217,7 +217,25 @@ func syncRefusedExit(w io.Writer, res syncResult) int {
 	if len(res.Refused) == 0 {
 		return 0
 	}
-	fmt.Fprintf(w, "Error: sync refused to write: %s (replace the link, or list it under providers.<client>.allow_symlinks)\n", notWired(slices.Sorted(maps.Keys(res.Refused)), res.Refused))
+	// Grouped by cause (#2422): a corrupted marker block is no link, and the
+	// allow_symlinks hint would send the operator after one that is not there.
+	links := map[string][]string{}
+	markers := map[string][]string{}
+	for p, parts := range res.Refused {
+		for _, part := range parts {
+			if part == partMCPEntry && slices.Contains(res.CorruptMCP, p) {
+				markers[p] = append(markers[p], part)
+			} else {
+				links[p] = append(links[p], part)
+			}
+		}
+	}
+	if len(links) > 0 {
+		fmt.Fprintf(w, "Error: sync refused to write: %s (replace the link, or list it under providers.<client>.allow_symlinks)\n", notWired(slices.Sorted(maps.Keys(links)), links))
+	}
+	if len(markers) > 0 {
+		fmt.Fprintf(w, "Error: sync refused to write: %s (fix the markers by hand: `cartographer doctor` lists the file)\n", notWired(slices.Sorted(maps.Keys(markers)), markers))
+	}
 	return exitPartiallyConnected
 }
 
@@ -303,6 +321,9 @@ type syncResult struct {
 	// a kind of artifact): skippedParts, as connect reports it (#2099). Hook
 	// registrations stay warnings.
 	Refused map[string][]string
+	// CorruptMCP are the providers whose MCP entry was refused for a corrupted
+	// marker block, not a symlink: the final line gives them another hint (#2422).
+	CorruptMCP []string
 	// Unreadable are the bound workspaces this run skipped because their
 	// directory cannot be listed (#2135), sorted: every other projection was
 	// applied, and the sync exits 3.
@@ -555,7 +576,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		return syncResult{}, fmt.Errorf("%w (no configuration was modified)", partialSyncError{Failures: pullFailures, Skipped: skipped, Providers: providerFailures})
 	}
 
-	var refusedMCP []string
+	var refusedMCP, corruptMCP []string
 	if healthErr == nil {
 		// removeMCPEntries is fed the UNION of every known KB, never a
 		// provider's filtered binding (D170): managedEntryNames derives the
@@ -580,7 +601,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		}
 		authorWarnings := setEntryAuthors(cfg, entriesByProvider, globalIdentFn)
 		var warnings []string
-		_, warnings, refusedMCP, err = applyMCPEntriesRefusals(entriesByProvider, targets, dir, claudeDirs, cfg.Auth, cfg.TokenEnv(), opts.DryRun)
+		_, warnings, refusedMCP, corruptMCP, err = applyMCPEntriesRefusals(entriesByProvider, targets, dir, claudeDirs, cfg.Auth, cfg.TokenEnv(), opts.DryRun)
 		if err != nil {
 			return syncResult{}, err
 		}
@@ -744,9 +765,9 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		}
 	}
 	if len(pullFailures) > 0 || len(providerFailures) > 0 {
-		return syncResult{Revision: commonRevision(results, targets), Applied: results, Refused: refused, Unreadable: unreadable, PruneDenied: slices.Sorted(slices.Values(pruneDenied)), WriteDenied: denialLines(writeDenied)}, partialSyncError{Failures: pullFailures, Skipped: skipped, Providers: providerFailures}
+		return syncResult{Revision: commonRevision(results, targets), Applied: results, Refused: refused, CorruptMCP: corruptMCP, Unreadable: unreadable, PruneDenied: slices.Sorted(slices.Values(pruneDenied)), WriteDenied: denialLines(writeDenied)}, partialSyncError{Failures: pullFailures, Skipped: skipped, Providers: providerFailures}
 	}
-	return syncResult{Revision: commonRevision(results, targets), Applied: results, Refused: refused, Unreadable: unreadable, PruneDenied: slices.Sorted(slices.Values(pruneDenied)), WriteDenied: denialLines(writeDenied)}, nil
+	return syncResult{Revision: commonRevision(results, targets), Applied: results, Refused: refused, CorruptMCP: corruptMCP, Unreadable: unreadable, PruneDenied: slices.Sorted(slices.Values(pruneDenied)), WriteDenied: denialLines(writeDenied)}, nil
 }
 
 // partialSyncError reports a sync that went ahead without some KBs (#350):

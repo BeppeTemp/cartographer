@@ -1432,7 +1432,7 @@ func doConnectLocked(opts connectOptions) (connectResult, error) {
 		return connectResult{}, partial(err)
 	}
 	authorWarnings := setEntryAuthors(existing, entriesByProvider, globalIdentFn)
-	configsWritten, configWarnings, refusedMCP, err := applyMCPEntriesRefusals(entriesByProvider, opts.Providers, opts.Dir, claudeDirs, opts.Auth, opts.tokenEnvName(), opts.DryRun)
+	configsWritten, configWarnings, refusedMCP, _, err := applyMCPEntriesRefusals(entriesByProvider, opts.Providers, opts.Dir, claudeDirs, opts.Auth, opts.tokenEnvName(), opts.DryRun)
 	if err != nil {
 		return connectResult{}, partial(err)
 	}
