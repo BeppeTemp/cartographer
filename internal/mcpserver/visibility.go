@@ -144,6 +144,9 @@ var advancedToolNames = map[string]bool{
 	"concept_archive": true,
 	// concept_transfer (D760): moving pages between KBs is rare and whole-KB.
 	"concept_transfer": true,
+	// cross_link_rewrite: the write and retry path of the cross-KB link rewrite;
+	// the origin operation calls it, an agent only repairs with it.
+	"cross_link_rewrite": true,
 	// artifact_move (D782): the same rare, whole-KB, two-KB move for artifacts.
 	"artifact_move":        true,
 	"commit_gate":          true,

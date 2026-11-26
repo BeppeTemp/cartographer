@@ -24,7 +24,7 @@ import (
 // that assign them, so a new write tool cannot be forgotten.
 var WriteFindingsTools = []string{
 	"concept_write", "concept_new", "concept_patch", "concept_batch",
-	"concept_move", "concept_archive", "supersede", "index_patch",
+	"concept_move", "concept_archive", "supersede", "index_patch", "cross_link_rewrite",
 }
 
 // writeFindingsMatcher is the Claude Code PostToolUse matcher (a regex): the
