@@ -143,12 +143,22 @@ func bindHint(ctx context.Context, canonical string) string {
 // caller's rights: the ones k links out to and the ones with a page linking in
 // (an orphan's ClearedBy names both). Sorted, without duplicates. An error of
 // either part leaves the names the other gave (A's own graph failing fails the
-// request that follows); it never has a fingerprint value of its own.
+// request that follows); it never has a fingerprint value of its own. The KBs
+// the relations of k name or reach (relationNames) are in it too; a failing
+// relation read leaves the link names only, and the stamp carries the failure
+// (relationStampUnavailable).
 func crossNamedKBs(k *kb.KB) []string {
 	out, _ := k.CrossLinkedKBs()
 	in, _ := k.CrossInboundKBs()
+	// Trap (D214): the error of relationNames is swallowed on purpose. It is safe
+	// because a failed relation read also makes relationStamp the fixed
+	// relationStampUnavailable (the cached body is never reused as "no
+	// relations") and appendRelationFindings adds nothing then. A path that
+	// tolerates the failure must not reuse this key for a body that carries
+	// relation data.
+	rel, _ := relationNames(k)
 	set := map[string]bool{}
-	for _, n := range append(out, in...) {
+	for _, n := range append(append(out, in...), rel...) {
 		set[n] = true
 	}
 	if len(set) == 0 {
