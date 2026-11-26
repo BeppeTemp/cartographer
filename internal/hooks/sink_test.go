@@ -317,7 +317,27 @@ func TestSink_BackoffIgnoresWakeUps(t *testing.T) {
 	go func() { sk.Run(ctx); close(done) }()
 	appendN(t, l, 1)
 	ping() // the first wake-up: one failed delivery, then a 1 s backoff
-	time.Sleep(100 * time.Millisecond)
+	// No fixed sleep: a loaded host can take longer than any guess to make the
+	// first delivery. Wait for it, then for the count to hold still (a delivery
+	// may take several attempts), and only then take the baseline.
+	deadline := time.Now().Add(10 * time.Second)
+	for hits.Load() < 1 {
+		if time.Now().After(deadline) {
+			t.Fatal("no delivery attempt within 10 s of the first wake-up")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	for last := hits.Load(); ; {
+		time.Sleep(50 * time.Millisecond)
+		cur := hits.Load()
+		if cur == last {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the delivery count never settled")
+		}
+		last = cur
+	}
 	before := hits.Load()
 	for i := 0; i < 20; i++ {
 		ping()
