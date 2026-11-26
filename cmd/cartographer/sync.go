@@ -468,7 +468,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 					leaving = append(leaving, kb)
 				}
 			}
-			if len(leaving) > 0 {
+			if len(leaving) > 0 && len(followingProviders(cfg, targets)) > 0 {
 				if opts.DryRun {
 					fmt.Fprintln(out, "[dry-run] would remove: the server lists no KB for this token: every KB this client follows leaves")
 				} else {
