@@ -339,8 +339,15 @@ func Apply(results []*EmitResult, baseDir string, dryRun bool) ([]string, error)
 			migrateLegacyOpenCode(r, absoluteBaseDir, true)
 			continue
 		}
-		if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
-			return written, fmt.Errorf("mkdir %s: %w", filepath.Dir(fullPath), err)
+		// The path was checked by safewrite.CheckPath above. A root this makes is
+		// recorded in the ledger; a plugin provider's MCP directory is not a member
+		// of the root set, so it records nothing (accepted gap: it is never removed).
+		madeDirs, mkErr := safewrite.MkdirAllNoFollowCreated(absoluteBaseDir, filepath.Dir(fullPath), 0o755)
+		if len(madeDirs) > 0 {
+			_ = NoteCreatedDirs(absoluteBaseDir, madeDirs)
+		}
+		if mkErr != nil {
+			return written, fmt.Errorf("mkdir %s: %w", filepath.Dir(fullPath), mkErr)
 		}
 
 		// TOML providers (codex): merge via the marker-delimited managed block

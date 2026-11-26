@@ -212,3 +212,44 @@ func TestMkdirAllNoFollowDotDotPrefixedNames(t *testing.T) {
 		t.Fatalf("MkdirAllNoFollow of a link outside the base = %v, want ErrSymlinkDestination", err)
 	}
 }
+
+// AC-sdc-6: MkdirAllNoFollowCreated lists only what it made itself. A component
+// that exists, or that another process makes between the walk and the Mkdir, is
+// not listed.
+func TestMkdirAllNoFollowCreatedRace(t *testing.T) {
+	base := t.TempDir()
+	got, err := MkdirAllNoFollowCreated(base, filepath.Join(base, "a", "b", "c"), 0o755)
+	if err != nil || strings.Join(got, ",") != "a,a/b,a/b/c" {
+		t.Fatalf("fresh path: %v, %v", got, err)
+	}
+	got, err = MkdirAllNoFollowCreated(base, filepath.Join(base, "a", "b", "d", "e"), 0o755)
+	if err != nil || strings.Join(got, ",") != "a/b/d,a/b/d/e" {
+		t.Fatalf("partly existing path: %v, %v", got, err)
+	}
+
+	beforeMkdir = func(p string) {
+		if filepath.Base(p) == "x" {
+			_ = os.Mkdir(p, 0o755) // another process wins the race
+		}
+	}
+	t.Cleanup(func() { beforeMkdir = nil })
+	got, err = MkdirAllNoFollowCreated(base, filepath.Join(base, "x", "y"), 0o755)
+	if err != nil || strings.Join(got, ",") != "x/y" {
+		t.Fatalf("race: %v, %v (x was made by the other process)", got, err)
+	}
+}
+
+func TestMkdirAllNoFollowCreatedRefusesLink(t *testing.T) {
+	skipOnWindows(t)
+	base, target := t.TempDir(), t.TempDir()
+	if err := os.Symlink(target, filepath.Join(base, "l")); err != nil {
+		t.Skip(err)
+	}
+	got, err := MkdirAllNoFollowCreated(base, filepath.Join(base, "l", "sub"), 0o755)
+	if !errors.Is(err, ErrSymlinkDestination) || len(got) != 0 {
+		t.Fatalf("got %v, %v; want a refusal and nothing created", got, err)
+	}
+	if entries, _ := os.ReadDir(target); len(entries) != 0 {
+		t.Fatalf("link target written: %v", entries)
+	}
+}

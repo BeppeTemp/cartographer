@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/BeppeTemp/cartographer/internal/configurator"
 )
 
 // #1269: a settings file the user already had, even `{}`, survives the removal
@@ -156,6 +158,12 @@ func TestRemoveHookEntries_RetryDropsTheLedgerOfAGoneFile(t *testing.T) {
 	}
 	if _, ok, err := registerHookSettings(base, "", "notify", hookDir); err != nil || !ok {
 		t.Fatalf("register = %v, %v", ok, err)
+	}
+	// The ledger also records the .claude root register made; it would keep the
+	// ledger file alive (and writable in place) in a read-only base, which is not
+	// what this test pins, so forget it: the ledger holds the file entry only.
+	if err := configurator.ForgetCreatedDir(base, ".claude"); err != nil {
+		t.Fatal(err)
 	}
 	if err := os.Chmod(base, 0o555); err != nil {
 		t.Fatal(err)

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
@@ -51,8 +52,25 @@ func writeFileAtomicNoFollow(baseDir, path string, data []byte, perm os.FileMode
 	return safewrite.WriteFileAtomicNoFollow(baseDir, path, data, perm)
 }
 
+// mkdirAllNoFollow makes dir and records, in the created-files ledger, the
+// provisioning roots it made itself (a component that existed, or that another
+// process made first, is not recorded). Only the configurator's root set can
+// be recorded, so clinehooks.go (base: Documents) and repohygiene.go (.git/info)
+// record nothing by construction. A failure to record is ignored on purpose: the
+// directory stays unknown to the ledger, which is the safe direction (never
+// removed). Dry runs never reach it: every caller is behind !DryRun.
 func mkdirAllNoFollow(baseDir, dir string, perm os.FileMode) error {
-	return safewrite.MkdirAllNoFollow(baseDir, dir, perm)
+	created, err := safewrite.MkdirAllNoFollowCreated(baseDir, dir, perm)
+	var roots []string
+	for _, c := range created {
+		if configurator.IsRootDir(c) {
+			roots = append(roots, c)
+		}
+	}
+	if len(roots) > 0 {
+		_ = configurator.NoteCreatedDirs(baseDir, roots)
+	}
+	return err
 }
 
 // refusePrune is refuse for the removal side: a managed file that could not be

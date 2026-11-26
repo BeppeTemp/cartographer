@@ -229,6 +229,9 @@ func TestRoundTrip_ConnectDisconnect_NessunResiduo(t *testing.T) {
 		// .claude.json: never deleted by construction (absolute rule), even
 		// if reduced to "{}" once just the cartographer entry is removed.
 		".claude.json": true,
+		// The roots above are recorded in the ledger as created by this run; the
+		// prune does not remove them yet, so their entries keep the ledger.
+		configurator.CreatedLedgerName: true,
 	}
 
 	initialSet := make(map[string]bool, len(initialSnapshot))
