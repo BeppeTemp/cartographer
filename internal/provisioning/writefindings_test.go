@@ -457,7 +457,7 @@ func TestEnsureWriteFindingsHook_OpenCodeUnreadableKeepsThePlugin(t *testing.T) 
 	}
 	plugin := filepath.Join(baseDir, ".config", "opencode", "plugins", "cartographer-"+contract.WriteFindingsHookName+".js")
 
-	got, note, err := provisioning.EnsureWriteFindingsHookNote(baseDir, configurator.ProviderOpenCode, lock, true, false)
+	got, note, _, err := provisioning.EnsureWriteFindingsHookNote(baseDir, configurator.ProviderOpenCode, lock, true, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -468,14 +468,14 @@ func TestEnsureWriteFindingsHook_OpenCodeUnreadableKeepsThePlugin(t *testing.T) 
 		t.Errorf("plugin gone: %v", err)
 	}
 
-	empty, note, err := provisioning.EnsureWriteFindingsHookNote(t.TempDir(), configurator.ProviderOpenCode, provisioning.Lock{}, true, false)
+	empty, note, _, err := provisioning.EnsureWriteFindingsHookNote(t.TempDir(), configurator.ProviderOpenCode, provisioning.Lock{}, true, false)
 	if err != nil || len(empty.Managed) != 0 || note != "" {
 		t.Errorf("nothing installed expected: %v %+v %q", err, empty, note)
 	}
 
 	// A version actually read as 1.x still removes it.
 	defer provisioning.SetOpenCodeVersionForTest("1.18.34")()
-	got, note, err = provisioning.EnsureWriteFindingsHookNote(baseDir, configurator.ProviderOpenCode, lock, true, false)
+	got, note, _, err = provisioning.EnsureWriteFindingsHookNote(baseDir, configurator.ProviderOpenCode, lock, true, false)
 	if err != nil || len(got.Managed) != 0 || note != "" {
 		t.Errorf("1.x: %v %+v %q", err, got, note)
 	}

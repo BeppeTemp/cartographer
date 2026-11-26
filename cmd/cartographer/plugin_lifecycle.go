@@ -617,7 +617,7 @@ func pluginRemove(args []string) int {
 				}
 			}
 		}
-		var pruned []string
+		var pruned, removedRoots []string
 		failed := false
 		// (1) providers: MCP entry, managed files, lock section.
 		if len(providers) > 0 {
@@ -628,6 +628,9 @@ func pluginRemove(args []string) int {
 			for _, pr := range res.Providers {
 				for _, f := range pr.Pruned {
 					pruned = append(pruned, pr.Provider+": "+filepathSlash(f.Path))
+				}
+				for _, r := range pr.RemovedRoots {
+					removedRoots = append(removedRoots, fmt.Sprintf("[%s] removed empty directory %s", escapeControl(pr.Provider), escapeControl(r)))
 				}
 				for _, w := range pr.Refused {
 					failed = true
@@ -686,7 +689,11 @@ func pluginRemove(args []string) int {
 			if !key.Global() {
 				label += " (" + key.Workspace + ")"
 			}
-			done, err := provisioning.PruneManaged(own, provisioning.LockBaseDir(lock, c.dir), false)
+			rep, err := provisioning.PruneManagedReport(own, provisioning.LockBaseDir(lock, c.dir), false)
+			done := rep.Pruned
+			for _, r := range rep.RemovedRoots {
+				removedRoots = append(removedRoots, fmt.Sprintf("[%s] removed empty directory %s", escapeControl(label), escapeControl(r)))
+			}
 			var refused *provisioning.PruneRefusedError
 			if err != nil && !errors.As(err, &refused) {
 				return pluginFail(1, "prune %s for %s: %s", escapeControl(label), name, escapeControl(err.Error()))
@@ -728,6 +735,9 @@ func pluginRemove(args []string) int {
 		}
 		for _, l := range pruned {
 			fmt.Fprintf(c.out, "pruned %s\n", escapeControl(l))
+		}
+		for _, l := range removedRoots {
+			fmt.Fprintln(c.out, l)
 		}
 		if failed {
 			// Nothing after the prune is done: the next run retries the rest.

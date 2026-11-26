@@ -1248,7 +1248,8 @@ func materializeForProviders(manifests map[string]contract.Manifest, projections
 		// (D717) left in a repository is removed here, on every project
 		// projection, until it is gone.
 		if p.Scope == contract.ScopeProject && !(p.Derived && slices.Contains(p.SkipKinds, "mcp")) {
-			lock, err := provisioning.PruneServerEntry(p.BaseDir, configurator.Provider(p.Provider), applied.NewLock, dryRun)
+			lock, roots, err := provisioning.PruneServerEntry(p.BaseDir, configurator.Provider(p.Provider), applied.NewLock, dryRun)
+			applied.PrunedRoots = append(applied.PrunedRoots, roots...)
 			if err != nil {
 				return nil, fmt.Errorf("apply %s: %w", p.Label(), err)
 			}
@@ -1396,7 +1397,9 @@ func ensureBootstrap(providers []string, targetDir string, dryRun bool, denied *
 		if err != nil {
 			return nil, nil, fmt.Errorf("ensure bootstrap hook (%s): %w", p, err)
 		}
-		withFindings, note, err := provisioning.EnsureWriteFindingsHookNote(targetDir, configurator.Provider(p), newLock, true, dryRun)
+		withFindings, note, findingsRoots, err := provisioning.EnsureWriteFindingsHookNote(targetDir, configurator.Provider(p), newLock, true, dryRun)
+		// A root the write-findings removal took out is announced like any other.
+		printPrunedRoots(os.Stdout, p, findingsRoots, dryRun)
 		if note != "" {
 			warnings = append(warnings, note)
 		}
@@ -1421,6 +1424,28 @@ func ensureBootstrap(providers []string, targetDir string, dryRun bool, denied *
 		}
 	}
 	return warnings, refused, nil
+}
+
+// printPrunedRoots says which provisioning roots a prune removed (or, in a dry
+// run, would remove): one line per root, the path relative to the base directory.
+// A root never leaves a user's home or repository without one; every place that
+// prints pruned files calls it.
+func printPrunedRoots(w io.Writer, label string, roots []string, dryRun bool) {
+	verb := "removed"
+	if dryRun {
+		verb = "would remove"
+	}
+	for _, r := range roots {
+		fmt.Fprintf(w, "[%s] %s empty directory %s\n", label, verb, escapeControl(filepath.ToSlash(r)))
+	}
+}
+
+// printUnknownRoots says which recorded roots a dry run could not predict (an
+// unreadable directory): never a silent gap in the list.
+func printUnknownRoots(w io.Writer, label string, roots []string) {
+	for _, r := range roots {
+		fmt.Fprintf(w, "[%s] cannot tell whether empty directory %s would be removed (it could not be read)\n", label, escapeControl(filepath.ToSlash(r)))
+	}
 }
 
 // printApplySummary prints a one-line-per-file summary of a materialization pass.
@@ -1493,6 +1518,8 @@ func printApplySummary(wr io.Writer, dir string, results map[string]provisioning
 			reportedPruned[cleanPath] = true
 			fmt.Fprintf(wr, "[%s] %s %s\n", p, verb("pruned", "would prune"), escapeControl(cleanPath))
 		}
+		printPrunedRoots(wr, p, r.PrunedRoots, dryRun)
+		printUnknownRoots(wr, p, r.UnknownRoots)
 		// A heal means a local change was discarded (D139): say so on its own
 		// line instead of folding it into the ordinary writes above.
 		healedArtifacts := map[string]bool{}

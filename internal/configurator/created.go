@@ -100,6 +100,24 @@ func NoteCreatedDirs(baseDir string, rels []string) error {
 	return writeCreated(baseDir, l)
 }
 
+// CreatedDirs lists the root directories the ledger records as created by
+// Cartographer (slash paths, sorted).
+func CreatedDirs(baseDir string) []string {
+	return readCreated(baseDir).Dirs
+}
+
+// CreatedFiles lists the config files the ledger records as created by
+// Cartographer (slash paths, sorted).
+func CreatedFiles(baseDir string) []string {
+	l := readCreated(baseDir)
+	out := make([]string, 0, len(l.Files))
+	for f := range l.Files {
+		out = append(out, f)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // WasDirCreated reports whether rel is a root directory Cartographer created,
 // per the ledger.
 func WasDirCreated(baseDir, rel string) bool {
