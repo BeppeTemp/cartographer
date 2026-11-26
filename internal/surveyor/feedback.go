@@ -51,7 +51,7 @@ var serverToolNames = []string{
 	"asset_read", "asset_write", "atlas_overview", "changes_since", "commit_gate", "concept_archive", "concept_batch",
 	"concept_collapse", "concept_delete", "concept_expand", "concept_history", "concept_list", "concept_merge",
 	"concept_move", "concept_new", "concept_patch", "concept_read", "concept_transfer", "concept_write",
-	"conflict_resolve", "conflicts_list", "contradiction_report", "dashboard_delete", "dashboard_get", "dashboard_list", "dashboard_patch", "gate_check", "git_conflict_resolve", "graph_context",
+	"conflict_resolve", "conflicts_list", "contradiction_report", "cross_link_rewrite", "dashboard_delete", "dashboard_get", "dashboard_list", "dashboard_patch", "gate_check", "git_conflict_resolve", "graph_context",
 	"graph_neighbors", "graph_path", "index_get", "index_patch", "ingest_setup", "kb_guide", "kb_repair", "kb_review",
 	"kb_status", "link_suggest", "lint", "log_append", "log_tail", "map_create", "map_delete", "map_list", "map_update",
 	"preset_list", "reindex", "repair_revert", "search", "secret_resolve", "secret_set", "secrets_init", "service_get", "service_list",
