@@ -965,7 +965,7 @@ skips the finished entries. Removed entries are counted, never acted on. A feed 
 `model_failed` is a model call that failed (the API's error, one line, with the entry): the Source also gets
 `feed_retry_after`, 15 minutes later, and the feed is polled again then if its interval is longer; a second failure of
 the same streak waits the interval. A 401 or 403 is written too, with no early retry, and still turns the profile off
-for the run. The Atlas feeds view lists the code like any other.
+for the run. A system Source's model call, one per changed group, fails the same way (the entry is the group's key). The Atlas feeds view lists the code like any other.
 
 The **budget is per model profile** (`budget.daily_tokens` across the perimeter's KBs, `budget.run_tokens`
 for one run) and is **rebuilt from the KBs' logs**, never from local disk: each run that touched a KB

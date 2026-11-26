@@ -33,4 +33,4 @@ path as `unit_refused` and `grant_exhausted` gives the Atlas feeds view and the 
   that is not RFC 3339 is ignored, never `bad_field`, since it only shortens a wait.
 - The lease moves `feed_checked_at` past it, so a retry is spent by being tried and never leaves two replicas polling.
 - A model failure still returns the error to the runner, which counts it and turns a profile off on `ErrModelAuth`.
-- The system poll's model call is outside this decision.
+- The system poll's model call (one per changed group) takes the same path: `model_failed` with the group's key as the entry and the short retry; it is the `feed_error` the Source carries, and the reasons of groups that failed earlier in that poll are not written.

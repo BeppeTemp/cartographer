@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -790,5 +791,47 @@ func TestQuietPollScheduleIsPerKB(t *testing.T) {
 	}
 	if it, _ := s.in.Next(context.Background(), "kb-b", s.k); it == nil {
 		t.Error("a quiet poll on kb-a delayed the feed of kb-b")
+	}
+}
+
+func TestSystemPollModelFailureIsRecordedRetriedSoonAndStillReturned(t *testing.T) {
+	s := newSysEnv(t)
+	s.model.err = errors.New("model API 400: prompt is too long")
+	s.list("namespace/a", "x")
+	_, _, err := s.poll()
+	if err == nil || !strings.Contains(err.Error(), "prompt is too long") {
+		t.Fatalf("the runner no longer sees the error: %v", err)
+	}
+	fe, _ := s.feed()["feed_error"].(string)
+	if !strings.HasPrefix(fe, "model_failed: entry namespace/a: model API 400") {
+		t.Fatalf("feed_error = %q", fe)
+	}
+	if s.feed()["feed_retry_after"] != s.clock.Add(pollRetryBackoff).Format(time.RFC3339) {
+		t.Fatalf("retry = %v", s.feed()["feed_retry_after"])
+	}
+	// A 401 is recorded without an early retry and still turns the profile off.
+	a := newSysEnv(t)
+	a.model.err = fmt.Errorf("%w: 401", ErrModelAuth)
+	a.list("namespace/a", "x")
+	if _, _, err := a.poll(); !errors.Is(err, ErrModelAuth) || a.feed()["feed_retry_after"] != nil {
+		t.Fatalf("err %v, feed %v", err, a.feed())
+	}
+}
+
+func TestSystemPollModelFailureAfterARefusedGroupKeepsModelFailed(t *testing.T) {
+	s := newSysEnv(t)
+	s.k.refuseUnit = func(id string, fm map[string]any) string {
+		if fm["observed_group"] == "namespace/a-bad" {
+			return "potential_secret: found one"
+		}
+		return ""
+	}
+	s.model.answers = repeatAnswer(1) // the second group's call finds no answer left
+	s.list("namespace/a-bad", "x", "namespace/b-good", "y")
+	if _, _, err := s.poll(); err == nil {
+		t.Fatal("the failure was swallowed")
+	}
+	if fe, _ := s.feed()["feed_error"].(string); !strings.HasPrefix(fe, "model_failed: ") {
+		t.Fatalf("feed_error = %q", fe)
 	}
 }
