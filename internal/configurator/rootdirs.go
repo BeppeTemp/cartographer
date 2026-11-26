@@ -8,12 +8,12 @@ import (
 
 // rootDirs are the top-level (relative to the client base dir) directories every
 // provider's artifacts live under: the boundaries the prune never removes on its
-// own, even left completely empty (D63), and the only directories the
-// created-files ledger records (D2409). They are
+// own, even left completely empty (D63); the created-files ledger records them
+// and every level below them the client makes (D2409 amended). They are
 // provisioning's own "mount points" and, for .claude/.codex/.opencode, often hold
 // user files (settings.json, config.toml, opencode.json) the prune has no business
-// touching. Only the levels created underneath them (".claude/skills/<name>",
-// then ".claude/skills") are removed whoever made them (D63).
+// touching. The levels underneath them (".claude/skills/<name>", then
+// ".claude/skills") go when empty only if the ledger lists them as created.
 // TestEveryDestinationRootIsAPruneBoundary checks it against both destination
 // matrices: a provider or a workspace cell added later fails there until its root
 // is here. Writers outside the matrix (hook registrations, bootstrap) sit under
@@ -57,8 +57,10 @@ func RootDirs() []string {
 }
 
 // validLedgerDir reports whether a ledger entry may be acted on: a relative,
-// local slash path that is a root directory. The ledger is untrusted input, as
-// the lockfile is: a hand-edited one must not name $HOME or .ssh.
+// local slash path (D2409 amended). The ledger is
+// untrusted input, as the lockfile is: a path that climbs or is absolute is
+// dropped, and an entry only lets a prune remove an empty directory that the climb
+// from a managed file reaches.
 func validLedgerDir(rel string) bool {
 	if rel == "" || strings.HasPrefix(rel, "/") || filepath.IsAbs(rel) || strings.Contains(rel, `\`) {
 		return false
@@ -68,5 +70,5 @@ func validLedgerDir(rel string) bool {
 			return false
 		}
 	}
-	return rootDirs[rel]
+	return true
 }

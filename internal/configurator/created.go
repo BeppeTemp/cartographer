@@ -21,8 +21,8 @@ type createdLedger struct {
 	// Files maps a created file (slash path relative to baseDir) to the names
 	// of the Cartographer-owned entries it holds: MCP server names, hook names.
 	Files map[string][]string `json:"files"`
-	// Dirs lists the provisioning root directories Cartographer created (slash
-	// paths relative to baseDir, sorted, unique), only members of rootDirs. A
+	// Dirs lists every directory Cartographer created, a provisioning root or a
+	// level below one (slash paths relative to baseDir, sorted, unique). A
 	// directory that existed before, or that another process made first, is
 	// never listed; one created by an older version is unknown, so never removed.
 	Dirs []string `json:"dirs,omitempty"`
@@ -77,8 +77,8 @@ func WasCreated(baseDir, rel string) bool {
 	return ok
 }
 
-// NoteCreatedDirs records the root directories among rels (slash or OS paths
-// relative to baseDir) as created by Cartographer; the others are ignored.
+// NoteCreatedDirs records rels (slash or OS paths relative to baseDir) as
+// directories created by Cartographer; an invalid path is ignored.
 func NoteCreatedDirs(baseDir string, rels []string) error {
 	l := readCreated(baseDir)
 	have := map[string]bool{}
@@ -100,7 +100,7 @@ func NoteCreatedDirs(baseDir string, rels []string) error {
 	return writeCreated(baseDir, l)
 }
 
-// CreatedDirs lists the root directories the ledger records as created by
+// CreatedDirs lists the directories the ledger records as created by
 // Cartographer (slash paths, sorted).
 func CreatedDirs(baseDir string) []string {
 	return readCreated(baseDir).Dirs
@@ -118,8 +118,8 @@ func CreatedFiles(baseDir string) []string {
 	return out
 }
 
-// WasDirCreated reports whether rel is a root directory Cartographer created,
-// per the ledger.
+// WasDirCreated reports whether rel is a directory Cartographer created, per
+// the ledger.
 func WasDirCreated(baseDir, rel string) bool {
 	rel = filepath.ToSlash(rel)
 	for _, d := range readCreated(baseDir).Dirs {

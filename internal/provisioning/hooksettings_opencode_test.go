@@ -449,6 +449,9 @@ func TestApply_OpenCode_Hook_ProjectScopeRelocatesOldPlugin(t *testing.T) {
 	if err := os.Rename(filepath.Join(ws, filepath.FromSlash(newRel)), oldFull); err != nil {
 		t.Fatal(err)
 	}
+	if err := configurator.NoteCreatedDirs(ws, []string{".config", ".config/opencode", ".config/opencode/plugins"}); err != nil {
+		t.Fatal(err)
+	}
 	lock := res.NewLock
 	for i, mf := range lock.Managed {
 		if filepath.ToSlash(mf.Path) == newRel {

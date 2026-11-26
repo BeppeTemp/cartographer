@@ -13,6 +13,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 func ledgerDirs(t *testing.T, base string) []string {
@@ -54,9 +55,10 @@ func applySkill(t *testing.T, base string) AppliedResult {
 func TestSkillWriteRecordsCreatedRoot(t *testing.T) {
 	base := t.TempDir()
 	applySkill(t, base)
-	got := ledgerDirs(t, base)
-	if len(got) != 1 || got[0] != ".claude" {
-		t.Fatalf("ledger dirs = %v, want only .claude (no lower level)", got)
+	got := configurator.CreatedDirs(base)
+	want := []string{".claude", ".claude/skills", ".claude/skills/demo"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("ledger dirs = %v, want every level made: %v", got, want)
 	}
 	if _, err := os.Stat(filepath.Join(base, ".claude", "skills", "demo", "SKILL.md")); err != nil {
 		t.Fatalf("skill not written: %v", err)
@@ -72,30 +74,32 @@ func TestSkillWriteRecordsCreatedRoot(t *testing.T) {
 	}
 }
 
-// AC-sdc-7
+// AC-sdc-7: the writers outside the client base dir call safewrite directly
+// (clinehooks.go, repohygiene.go) and record nothing; mkdirAllNoFollow records
+// every level it makes.
 func TestUnrecordedCreators(t *testing.T) {
 	docs := t.TempDir()
-	if err := mkdirAllNoFollow(docs, filepath.Join(docs, "Cline", "Hooks"), 0o755); err != nil {
+	if err := safewrite.MkdirAllNoFollow(docs, filepath.Join(docs, "Cline", "Hooks"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if ledgerPresent(docs) {
 		t.Fatal("a Cline hook directory in Documents was recorded")
 	}
 	repo := t.TempDir()
-	if err := mkdirAllNoFollow(repo, filepath.Join(repo, ".git", "info"), 0o755); err != nil {
+	if err := safewrite.MkdirAllNoFollow(repo, filepath.Join(repo, ".git", "info"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if ledgerPresent(repo) {
 		t.Fatal(".git/info was recorded")
 	}
-	// A nested root is recorded by its own path: .config is made too.
+	// Every level is recorded by its own path, a nested root and the ones below.
 	home := t.TempDir()
 	if err := mkdirAllNoFollow(home, filepath.Join(home, ".config", "opencode", "skills"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	got := ledgerDirs(t, home)
-	if len(got) != 2 || got[0] != ".config" || got[1] != ".config/opencode" {
-		t.Fatalf("ledger dirs = %v, want .config and .config/opencode", got)
+	got := configurator.CreatedDirs(home)
+	if want := []string{".config", ".config/opencode", ".config/opencode/skills"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("ledger dirs = %v, want %v", got, want)
 	}
 }
 
@@ -137,7 +141,7 @@ func TestPruneRemovesRecordedEmptyRoot(t *testing.T) {
 	base := t.TempDir()
 	mustMkdir(t, base, ".config/opencode/skills/x")
 	mustMkdir(t, base, ".claude/skills/y")
-	if err := configurator.NoteCreatedDirs(base, []string{".config", ".config/opencode", ".claude"}); err != nil {
+	if err := configurator.NoteCreatedDirs(base, []string{".config", ".config/opencode", ".config/opencode/skills", ".config/opencode/skills/x", ".claude", ".claude/skills", ".claude/skills/y"}); err != nil {
 		t.Fatal(err)
 	}
 	got := pruneEmptyDirs(base, ".config/opencode/skills/x/SKILL.md")
@@ -398,7 +402,7 @@ func TestWriteFindingsRemovalSurfacesRoots(t *testing.T) {
 func TestRemoveEmptyDestDirStopsAtRecordedRoot(t *testing.T) {
 	base := t.TempDir()
 	mustMkdir(t, base, ".claude/skills/x")
-	if err := configurator.NoteCreatedDirs(base, []string{".claude"}); err != nil {
+	if err := configurator.NoteCreatedDirs(base, []string{".claude", ".claude/skills", ".claude/skills/x"}); err != nil {
 		t.Fatal(err)
 	}
 	removeEmptyDestDir(base, filepath.Join(base, ".claude", "skills", "x"))
@@ -452,7 +456,7 @@ func TestWouldPruneRootsUnreadableIsUnknown(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(base, ".claude", "skills", "x", "SKILL.md"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := configurator.NoteCreatedDirs(base, []string{".claude"}); err != nil {
+	if err := configurator.NoteCreatedDirs(base, []string{".claude", ".claude/skills", ".claude/skills/x"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chmod(filepath.Join(base, ".claude", "skills"), 0); err != nil {

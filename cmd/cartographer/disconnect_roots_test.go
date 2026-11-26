@@ -13,6 +13,27 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
+// noteTree records roots and every directory below them in the created-files
+// ledger, as the connect that made a hand-built fixture would have.
+func noteTree(t *testing.T, base string, roots ...string) {
+	t.Helper()
+	var rels []string
+	for _, r := range roots {
+		rels = append(rels, r)
+		_ = filepath.WalkDir(filepath.Join(base, filepath.FromSlash(r)), func(path string, d os.DirEntry, err error) error {
+			if err == nil && d.IsDir() {
+				if rel, rerr := filepath.Rel(base, path); rerr == nil {
+					rels = append(rels, filepath.ToSlash(rel))
+				}
+			}
+			return nil
+		})
+	}
+	if err := configurator.NoteCreatedDirs(base, rels); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func countLines(out, want string) int {
 	n := 0
 	for _, l := range strings.Split(out, "\n") {
@@ -28,9 +49,7 @@ func countLines(out, want string) int {
 func TestDisconnectAndUnbindAnnounceRoots(t *testing.T) {
 	t.Run("disconnect", func(t *testing.T) {
 		dir := setupDisconnectFixture(t, "claude")
-		if err := configurator.NoteCreatedDirs(dir, []string{".claude"}); err != nil {
-			t.Fatal(err)
-		}
+		noteTree(t, dir, ".claude")
 		res, err := doDisconnect(disconnectOptions{Providers: []string{"claude"}, Dir: dir, DryRun: true})
 		if err != nil {
 			t.Fatal(err)
@@ -85,9 +104,7 @@ func TestDisconnectAndUnbindAnnounceRoots(t *testing.T) {
 		runPlugin(t, "install", writePlugin(t, "team-forks", nil), "--yes")
 		mine := skillEntry(t, home, "helper", "plugin:team-forks")
 		lockWith(t, home, mine)
-		if err := configurator.NoteCreatedDirs(home, []string{".claude"}); err != nil {
-			t.Fatal(err)
-		}
+		noteTree(t, home, ".claude")
 		code, out := runPlugin(t, "remove", "team-forks")
 		if code != 0 || countLines(out, "[claude] removed empty directory .claude") != 1 {
 			t.Fatalf("exit %d\n%s", code, out)
@@ -117,9 +134,7 @@ func TestDisconnectDryRunMatchesRealRoots(t *testing.T) {
 	}
 	// The fixture makes the skill directories itself; record what a connect would.
 	roots := []string{".claude", ".codex", ".opencode", ".config", ".config/opencode"}
-	if err := configurator.NoteCreatedDirs(dir, roots); err != nil {
-		t.Fatal(err)
-	}
+	noteTree(t, dir, roots...)
 
 	collect := func(res disconnectResult) []string {
 		var out []string
@@ -158,9 +173,7 @@ func TestDisconnectDryRunMatchesRealRoots(t *testing.T) {
 func TestDisconnectDryRunSharedRoot(t *testing.T) {
 	dir := setupDisconnectFixture(t, "opencode", "crush")
 	roots := []string{".opencode", ".config", ".config/opencode", ".config/crush"}
-	if err := configurator.NoteCreatedDirs(dir, roots); err != nil {
-		t.Fatal(err)
-	}
+	noteTree(t, dir, roots...)
 	perProvider := func(res disconnectResult) map[string][]string {
 		out := map[string][]string{}
 		for _, pr := range res.Providers {

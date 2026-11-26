@@ -12,6 +12,7 @@ import (
 
 	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/procattr"
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 // repohygiene.go (D193 WP5) — generated files must not dirty the repository.
@@ -297,7 +298,7 @@ func EnsureWorkspaceExcluded(workspaceDir string, ownedPaths []string) error {
 	// The write goes through every directory below baseDir (for a plain
 	// repository .git and .git/info, for a linked one info) and the file itself:
 	// a symlink in that chain is refused (D148).
-	if err := mkdirAllNoFollow(baseDir, infoDir, 0o755); err != nil {
+	if err := safewrite.MkdirAllNoFollow(baseDir, infoDir, 0o755); err != nil {
 		return fmt.Errorf("provisioning: mkdir %s: %w", infoDir, err)
 	}
 	return writeFileAtomicNoFollow(baseDir, path, []byte(out), 0o644)

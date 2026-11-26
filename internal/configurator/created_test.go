@@ -21,16 +21,16 @@ func ledgerExists(base string) bool {
 // AC-sdc-1
 func TestNoteCreatedDirs(t *testing.T) {
 	base := t.TempDir()
-	if err := NoteCreatedDirs(base, []string{".claude", "somewhere", ".config/opencode", ".claude"}); err != nil {
+	if err := NoteCreatedDirs(base, []string{".claude", "../somewhere", ".config/opencode", ".claude", ".kiro/settings"}); err != nil {
 		t.Fatal(err)
 	}
-	for rel, want := range map[string]bool{".claude": true, ".config/opencode": true, "somewhere": false, ".config": false} {
+	for rel, want := range map[string]bool{".claude": true, ".config/opencode": true, ".kiro/settings": true, "../somewhere": false, ".config": false} {
 		if got := WasDirCreated(base, rel); got != want {
 			t.Errorf("WasDirCreated(%q) = %v, want %v", rel, got, want)
 		}
 	}
-	if got := readCreated(base).Dirs; len(got) != 2 {
-		t.Errorf("Dirs = %v, want two unique entries", got)
+	if got := readCreated(base).Dirs; len(got) != 3 {
+		t.Errorf("Dirs = %v, want three unique entries", got)
 	}
 	if err := ForgetCreatedDir(base, ".claude"); err != nil {
 		t.Fatal(err)
@@ -45,10 +45,10 @@ func TestHostileLedgerDirsAreDropped(t *testing.T) {
 	base := t.TempDir()
 	writeLedgerRaw(t, base, `{"files":{},"dirs":["../x","/etc",".ssh","",".claude/../.ssh",".claude/skills",".config/../..",".claude"]}`)
 	got := readCreated(base).Dirs
-	if len(got) != 1 || got[0] != ".claude" {
-		t.Fatalf("Dirs = %v, want only .claude", got)
+	if len(got) != 3 || got[0] != ".claude" || got[1] != ".claude/skills" || got[2] != ".ssh" {
+		t.Fatalf("Dirs = %v, want .claude, .claude/skills and .ssh (local paths only)", got)
 	}
-	for _, rel := range []string{"../x", "/etc", ".ssh", "", ".claude/skills"} {
+	for _, rel := range []string{"../x", "/etc", "", ".claude/../.ssh"} {
 		if WasDirCreated(base, rel) {
 			t.Errorf("WasDirCreated(%q) = true", rel)
 		}

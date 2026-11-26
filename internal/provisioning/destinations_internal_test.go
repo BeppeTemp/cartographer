@@ -77,6 +77,9 @@ func TestPruneEmptyDirsKeepsEveryRoot(t *testing.T) {
 		if err := os.MkdirAll(filepath.Join(base, leaf), 0o755); err != nil {
 			t.Fatal(err)
 		}
+		if err := configurator.NoteCreatedDirs(base, []string{filepath.ToSlash(filepath.Join(root, "x")), filepath.ToSlash(leaf)}); err != nil {
+			t.Fatal(err)
+		}
 		pruneEmptyDirs(base, filepath.Join(leaf, "gone.md"))
 		if _, err := os.Stat(filepath.Join(base, root, "x")); !os.IsNotExist(err) {
 			t.Errorf("%s/x survived the prune: %v", root, err)
