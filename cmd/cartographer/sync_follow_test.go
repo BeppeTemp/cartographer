@@ -307,6 +307,23 @@ func TestSyncHealthShapesChangeOnlyOnAnAnswer(t *testing.T) {
 			t.Errorf("the followed KBs did not leave: known=%q", knownKBsOf(t, dir))
 		}
 	})
+
+	// #2401: with explicit bindings no provider follows the server, so nothing
+	// leaves and the line must not be printed.
+	t.Run("listed empty with explicit bindings", func(t *testing.T) {
+		srv := newFollowServer(t, "one", "two")
+		dir := followHome(t, srv, "one,two", "one", "two")
+		if _, _, err := followSync(t, dir, syncOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		srv.set(func(f *followServer) { f.kbs = []string{} })
+		for _, dry := range []bool{true, false} {
+			out, _, _ := followSync(t, dir, syncOptions{DryRun: dry})
+			if strings.Contains(out, "every KB this client follows leaves") {
+				t.Errorf("dry=%v: a client with explicit bindings is said to follow the server:\n%s", dry, out)
+			}
+		}
+	})
 }
 
 // AC-cad-13: a KB the token cannot read is not listed, so the marker never adds
