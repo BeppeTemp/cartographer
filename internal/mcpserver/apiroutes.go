@@ -134,6 +134,8 @@ var (
 var apiRoutes = buildAPIRoutes([]apiRoute{
 	{Pattern: "/kbs", Tier: tierStable, Summary: "List the KBs the caller can see", Response: uiKBList{},
 		Handler: func(m *MultiKBServer, w http.ResponseWriter, r *http.Request, _ string, _ *Server) { m.uiListKBs(w, r) }},
+	{Pattern: "/kb-map", Tier: tierPreview, Summary: "The KBs the caller can see, with their relations and cross-KB links", Response: uiKBMap{},
+		Handler: func(m *MultiKBServer, w http.ResponseWriter, r *http.Request, _ string, _ *Server) { m.uiKBMap(w, r) }},
 	{Pattern: "/whoami", Tier: tierStable, Summary: "Describe the caller's identity and permissions", Response: uiWhoamiBody{},
 		Handler: func(m *MultiKBServer, w http.ResponseWriter, r *http.Request, _ string, _ *Server) { m.uiWhoami(w, r) }},
 	{Pattern: "/settings", Tier: tierInternal, Summary: "Read the server settings the Atlas edits",
