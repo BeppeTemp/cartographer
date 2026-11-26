@@ -196,6 +196,11 @@ type GuideOptions struct {
 	// Feedback is the feedback.destination mode ("github", "custom", "off"; ""
 	// is github): it selects the bullet that says when to offer a report.
 	Feedback string
+	// CrossLinks is true when the connection serves two or more KBs the caller
+	// reads: the guide then says how to link a page of another one. The caller
+	// decides it (initialize and kb_guide must agree), never len(kbs): kb_guide
+	// renders one KB of a connection that serves several.
+	CrossLinks bool
 }
 
 // ProcedureLine is one served procedure in the guide's list (#1316).
@@ -235,6 +240,9 @@ func RenderGuide(kbs []GuideKB, opts GuideOptions) string {
 	}
 	if !allOptOut {
 		sb.WriteString(GuideOperational(opts.ReadOnly, opts.Procedures, opts.Feedback))
+		if opts.CrossLinks && !opts.ReadOnly {
+			sb.WriteString(crossLinkBullet)
+		}
 	}
 	for _, k := range kbs {
 		if k.Curated == "" {
@@ -247,6 +255,10 @@ func RenderGuide(kbs []GuideKB, opts GuideOptions) string {
 	}
 	return sb.String()
 }
+
+// crossLinkBullet is the guide line on cross-KB links, rendered when the
+// connection serves two or more KBs.
+const crossLinkBullet = "- link a page of another mounted KB with `[[kb:<name>/<id>]]` (the mount name, then the id); it is a link only if that KB is readable and served on this connection, otherwise plain text; a link to this KB is written `[[<id>]]`\n"
 
 // procedureBullets renders the procedures list: a heading line, then one line
 // per procedure. Nothing when none is served (never a dangling reference).

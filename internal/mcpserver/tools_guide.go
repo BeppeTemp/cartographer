@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -8,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/BeppeTemp/cartographer/internal/auth"
 	"github.com/BeppeTemp/cartographer/internal/feedback"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
@@ -109,6 +111,7 @@ func renderKBGuide(ctx requestContext, k *kb.KB, bundle fs.FS, feedbackMode feed
 		sb.WriteString(contract.RenderGuide([]contract.GuideKB{g}, contract.GuideOptions{
 			Routed:     len(routedSetFrom(ctx)) >= 2,
 			ReadOnly:   !writesAnyKB(ctx, []string{name}),
+			CrossLinks: readableServed(ctx) >= 2,
 			Procedures: procedureLines(bundle),
 			Feedback:   string(feedbackMode),
 		}))
@@ -152,4 +155,16 @@ func kbSkillLines(k *kb.KB) []string {
 		out[i] = fmt.Sprintf("- `%s` — %s\n", r.dir, r.desc)
 	}
 	return out
+}
+
+// readableServed counts the KBs of the connection's routed set the caller may
+// read: what initialize decides the cross-link line of the guide from.
+func readableServed(ctx context.Context) int {
+	n := 0
+	for _, name := range routedSetFrom(ctx) {
+		if auth.PrincipalFromContext(ctx).Policy.HasKBAccess(name, false) {
+			n++
+		}
+	}
+	return n
 }

@@ -155,7 +155,7 @@ func (v *callerView) dropCross(findings []lint.Finding) []lint.Finding {
 	out := findings
 	copied := false
 	for i, f := range findings {
-		if len(f.OtherKBs) == 0 || v.crossOK(f) {
+		if !crossNamed(f) || v.crossOK(f) {
 			if copied {
 				out = append(out, f)
 			}
@@ -324,6 +324,7 @@ var conformanceChecks = map[string]bool{
 	"nonstandard_field":         true,
 	"tool_param_field":          true,
 	"broken_link":               true,
+	"broken_cross_kb_link":      true,
 	"broken_relation":           true,
 	"link_to_retired":           true,
 	"index_lists_retired":       true,
@@ -750,6 +751,10 @@ func lintInputsStamp(k *kb.KB) string {
 		if checkLocalStatePath(filepath.Join(root, ".cartographer", "usage.json")) == nil {
 			fmt.Fprintf(h, "%s\x00%d\x00%d\n", ".cartographer/usage.json", info.Size(), info.ModTime().UnixNano())
 		}
+	}
+	// The other KBs' pages and links this KB's findings depend on (crossStamp).
+	if cs := crossStamp(k); cs != "" {
+		fmt.Fprintf(h, "%s\n", cs)
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }

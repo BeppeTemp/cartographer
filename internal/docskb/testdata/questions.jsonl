@@ -38,6 +38,8 @@
 {"q": "how do bearer tokens and per-KB scopes work?", "want": ["internals-contributing/transport-auth/per-kb-scopes", "internals-contributing/transport-auth/enabling-bearer-authentication"]}
 {"q": "what are the transports of the MCP server, stdio and HTTP?", "want": ["internals-contributing/transport-auth/transports", "internals-contributing/transport-auth/transports-one-routed-topology-d288"]}
 {"q": "what is the operating loop to orient, read and write?", "want": ["internals-contributing/loop/orient-and-read", "internals-contributing/loop/write"]}
+{"q": "how does a page link a page of another mounted KB?", "want": ["internals-contributing/cross-kb-links", "internals-contributing/cross-kb-links/syntax-extraction-and-storage"]}
+{"q": "when is a link to another KB a broken_cross_kb_link finding?", "want": ["internals-contributing/cross-kb-links", "internals-contributing/cross-kb-links/the-check-and-what-clears-orphan"]}
 {"q": "why should an agent record unknowns as gaps?", "want": ["internals-contributing/loop/record-unknowns-as-gaps"]}
 {"q": "is Cartographer conformant with OKF?", "want": ["internals-contributing/interoperability/okf-conformance"]}
 {"q": "how does Cartographer handle provider behavior of each agent client?", "want": ["internals-contributing/interoperability/provider-behavior", "internals-contributing/interoperability/multi-provider-configurator"]}
