@@ -381,9 +381,13 @@ func instructionsDest(opts ApplyOptions) string {
 
 // AppliedResult is the result of Apply.
 type AppliedResult struct {
-	NewLock       Lock
-	Written       []ManagedFile
-	Pruned        []ManagedFile
+	NewLock Lock
+	Written []ManagedFile
+	Pruned  []ManagedFile
+	// PrunedRoots are the provisioning roots (slash paths relative to the base
+	// dir) this run removed because Cartographer created them and the prune left
+	// them empty; the caller announces them.
+	PrunedRoots   []string
 	NeedsApproval []contract.Artifact
 	// HeldKBsWithoutSection are the ApplyOptions.HeldKBs whose region is not in
 	// the block on disk: nothing is carried for them, so the client drops their
@@ -1400,6 +1404,10 @@ func Apply(m contract.Manifest, opts ApplyOptions) (AppliedResult, error) {
 		return AppliedResult{}, err
 	}
 	diff := ComputeDiff(m, opts.Lock)
+	if !opts.DryRun {
+		// A recorded root whose directory is gone (or was replaced) is the user's now.
+		_ = configurator.ReconcileCreatedDirs(opts.BaseDir)
+	}
 
 	var result AppliedResult
 	if opts.Provider == configurator.ProviderClaudeCode && opts.Scope == contract.ScopeProject {
@@ -1910,7 +1918,7 @@ hookLoop:
 						// previous registration firing its old entry.
 						if !registered && previous {
 							stale := ManagedFile{Kind: "hook", Name: a.Name, Path: filepath.Join(destRel, "hook.json")}
-							if err := removeHookRegistration(opts.BaseDir, stale, claudeStrip, opts.Lock.Managed); err != nil {
+							if err := removeHookRegistration(opts.BaseDir, stale, claudeStrip, opts.Lock.Managed, &result.PrunedRoots); err != nil {
 								if refuseArtifact(a, err) {
 									continue hookLoop
 								}
@@ -2021,7 +2029,7 @@ hookLoop:
 	}
 	genericRemoved = append(genericRemoved, orphaned...)
 	genericRemoved = WithoutCoOwned(genericRemoved, opts.CoOwnedPaths)
-	pruned, err := pruneManaged(genericRemoved, opts.BaseDir, opts.DryRun, keepHooks, claudeStrip)
+	pruned, err := pruneManaged(genericRemoved, opts.BaseDir, opts.DryRun, keepHooks, claudeStrip, &result.PrunedRoots)
 	var pruneRefused *PruneRefusedError
 	if errors.As(err, &pruneRefused) {
 		// A refused removal is per artifact, like a refused write: it is
@@ -2597,7 +2605,7 @@ func applyInstructionsGroup(m contract.Manifest, diff Diff, opts ApplyOptions, t
 				result.Pruned = kept
 				return nil
 			}
-			pruneEmptyDirs(opts.BaseDir, destRel)
+			result.PrunedRoots = append(result.PrunedRoots, pruneEmptyDirs(opts.BaseDir, destRel)...)
 		}
 		return nil
 	}
@@ -3665,10 +3673,16 @@ func appendBlock(content, block string) string {
 }
 
 // pruneEmptyDirs removes every directory left empty by the removal of the file at
-// baseDir/relPath, walking upward from relPath's parent — stopping (without
-// removing) at BaseDir itself or at any of configurator.RootDirs (D63). Called after
-// a ManagedFile has been os.Remove'd (or found already gone) so a disconnect/prune
+// baseDir/relPath, walking upward from relPath's parent. Called after a
+// ManagedFile has been os.Remove'd (or found already gone) so a disconnect/prune
 // leaves no empty ".claude/skills/<name>/", ".opencode/hooks/<name>/", etc. behind.
+//
+// The climb stops (without removing) at BaseDir itself and at a plugin root. A
+// provisioning root (configurator.IsRootDir) is removed only when the created-files
+// ledger lists it as made by Cartographer, it is a real directory and it is empty;
+// a root that existed before, one created by an older version (unknown to the
+// ledger) and a non-empty one stay (D63, D2409). The levels
+// below a root keep D63: removed when empty, whoever made them.
 //
 // os.Remove fails on a non-empty directory: that failure (any error other than
 // "already gone") is the guard against removing a directory that still holds other
@@ -3676,25 +3690,55 @@ func appendBlock(content, block string) string {
 // escalates to os.RemoveAll. An "already gone" parent (os.ErrNotExist, e.g. a
 // sibling ManagedFile's removal already pruned it) does not stop the climb: the
 // grandparent may now be empty too.
-func pruneEmptyDirs(baseDir, relPath string) {
+//
+// It returns the roots it removed, shallowest last: every caller must surface them
+// (AppliedResult.PrunedRoots, PruneReport.RemovedRoots) so no root leaves a user's
+// home without a line saying so; TestEveryPruneCallerSurfacesRoots pins it.
+func pruneEmptyDirs(baseDir, relPath string) (removedRoots []string) {
 	dir := filepath.Dir(relPath)
 	for dir != "." && dir != string(filepath.Separator) {
-		if configurator.IsRootDir(dir) || isPluginBoundary(dir) {
-			return
+		if isPluginBoundary(dir) {
+			return removedRoots
+		}
+		isRoot := configurator.IsRootDir(dir)
+		if isRoot && !configurator.WasDirCreated(baseDir, dir) {
+			return removedRoots
 		}
 		// A symlinked directory, or one under a symlink, is someone else's:
 		// os.Remove would unlink the first and empty the target of the second.
 		if ensureSafeDir(baseDir, dir) != nil {
-			return
+			return removedRoots
 		}
-		if fi, err := os.Lstat(filepath.Join(baseDir, dir)); err == nil && !fi.IsDir() {
-			return
+		fi, lerr := os.Lstat(filepath.Join(baseDir, dir))
+		if lerr == nil && !fi.IsDir() {
+			return removedRoots
+		}
+		if isRoot && lerr != nil {
+			return removedRoots
 		}
 		err := safewrite.RemoveEmptyDir(filepath.Join(baseDir, dir))
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return
+			return removedRoots
+		}
+		if isRoot {
+			// RemoveEmptyDir returns nil without removing a link, so only an
+			// Lstat that finds nothing proves the root is gone; a non-empty one,
+			// a link or any error keeps the entry and stops the climb.
+			if _, serr := os.Lstat(filepath.Join(baseDir, dir)); !errors.Is(serr, os.ErrNotExist) {
+				return removedRoots
+			}
+			_ = configurator.ForgetCreatedDir(baseDir, dir) // a stale entry is reconciled by the next pass
+			removedRoots = append(removedRoots, filepath.ToSlash(dir))
 		}
 		dir = filepath.Dir(dir)
+	}
+	return removedRoots
+}
+
+// noteRoots appends roots to sink when there is one.
+func noteRoots(sink *[]string, roots []string) {
+	if sink != nil {
+		*sink = append(*sink, roots...)
 	}
 }
 
@@ -3728,7 +3772,27 @@ func pruneEmptyDirs(baseDir, relPath string) {
 // hooks directory), see hookProviderFromPath. Apply removes a file dropped from
 // a hook that stays in the manifest without this strip (pruneManaged).
 func PruneManaged(managed []ManagedFile, baseDir string, dryRun bool) ([]ManagedFile, error) {
-	return pruneManaged(managed, baseDir, dryRun, nil, nil)
+	rep, err := PruneManagedReport(managed, baseDir, dryRun)
+	return rep.Pruned, err
+}
+
+// PruneReport is what PruneManagedReport did: the files pruned and the provisioning
+// roots removed because they were created by Cartographer and left empty.
+type PruneReport struct {
+	Pruned       []ManagedFile
+	RemovedRoots []string
+}
+
+// PruneManagedReport is PruneManaged with the removed roots: a caller that prints
+// what a prune did uses it, so a root never leaves silently.
+func PruneManagedReport(managed []ManagedFile, baseDir string, dryRun bool) (PruneReport, error) {
+	if !dryRun {
+		// A recorded root whose directory is gone (or was replaced) is the user's now.
+		_ = configurator.ReconcileCreatedDirs(baseDir)
+	}
+	var roots []string
+	pruned, err := pruneManaged(managed, baseDir, dryRun, nil, nil, &roots)
+	return PruneReport{Pruned: pruned, RemovedRoots: roots}, err
 }
 
 // pruneManaged is PruneManaged with the hooks that stay installed: a file of a
@@ -3736,7 +3800,7 @@ func PruneManaged(managed []ManagedFile, baseDir string, dryRun bool) ([]Managed
 // still in the manifest and its registration must go on firing. The
 // registration is stripped when the hook itself is pruned (its name no longer
 // in the manifest, or a disconnect, which passes none).
-func pruneManaged(managed []ManagedFile, baseDir string, dryRun bool, keepHooks map[string]bool, claudeSettings []string) ([]ManagedFile, error) {
+func pruneManaged(managed []ManagedFile, baseDir string, dryRun bool, keepHooks map[string]bool, claudeSettings []string, roots *[]string) ([]ManagedFile, error) {
 	pruned := make([]ManagedFile, 0, len(managed))
 	// What each shared target (an instructions file, an MCP server, a hook's
 	// registration) came to: present with a nil error once removed, with the
@@ -3788,7 +3852,7 @@ func pruneManaged(managed []ManagedFile, baseDir string, dryRun bool, keepHooks 
 					blockResult[fullPath] = err
 				}
 				if err == nil {
-					pruneEmptyDirs(baseDir, mf.Path)
+					noteRoots(roots, pruneEmptyDirs(baseDir, mf.Path))
 				}
 			}
 			if err != nil {
@@ -3812,7 +3876,7 @@ func pruneManaged(managed []ManagedFile, baseDir string, dryRun bool, keepHooks 
 			err, seen := mcpResult[mcpKey]
 			if !seen {
 				if provider := mcpProviderFromPath(mf.Path); provider != "" {
-					err = removeMCPServer(baseDir, mf.Name, provider, filepath.ToSlash(mf.Path))
+					err = removeMCPServer(baseDir, mf.Name, provider, filepath.ToSlash(mf.Path), roots)
 				}
 				if err == nil || IsRefusal(err) {
 					mcpResult[mcpKey] = err
@@ -3832,7 +3896,7 @@ func pruneManaged(managed []ManagedFile, baseDir string, dryRun bool, keepHooks 
 		if mf.Kind == "hook" && !keepHooks[mf.Name] {
 			err, seen := hookResult[mf.Name]
 			if !seen {
-				err = removeHookRegistration(baseDir, mf, claudeSettings, managed)
+				err = removeHookRegistration(baseDir, mf, claudeSettings, managed, roots)
 				if err == nil || IsRefusal(err) {
 					hookResult[mf.Name] = err
 				}
@@ -3855,7 +3919,7 @@ func pruneManaged(managed []ManagedFile, baseDir string, dryRun bool, keepHooks 
 			}
 			return nil, fmt.Errorf("provisioning: prune %s: %w", mf.Path, err)
 		}
-		pruneEmptyDirs(baseDir, mf.Path)
+		noteRoots(roots, pruneEmptyDirs(baseDir, mf.Path))
 		pruned = append(pruned, mf)
 	}
 	if len(refusals) > 0 {
@@ -3868,7 +3932,7 @@ func pruneManaged(managed []ManagedFile, baseDir string, dryRun bool, keepHooks 
 // that registered it (settings.json, hooks.json, a plugin, ...). Providers with
 // no registration to strip return nil. claudeSettings names the Claude Code
 // settings file to strip, nil for both (removeHookEntries).
-func removeHookRegistration(baseDir string, mf ManagedFile, claudeSettings []string, managed []ManagedFile) error {
+func removeHookRegistration(baseDir string, mf ManagedFile, claudeSettings []string, managed []ManagedFile, roots *[]string) error {
 	var err error
 	switch hookProviderFromPath(mf.Path) {
 	case "claude":
@@ -3884,7 +3948,7 @@ func removeHookRegistration(baseDir string, mf ManagedFile, claudeSettings []str
 			err = fmt.Errorf("provisioning: prune plugin opencode hook %s: %w", mf.Name, err)
 		}
 	case "antigravity":
-		if err = removeAntigravityHook(baseDir, mf.Name, mf.Path); err != nil {
+		if err = removeAntigravityHook(baseDir, mf.Name, mf.Path, roots); err != nil {
 			err = fmt.Errorf("provisioning: prune entry Antigravity hooks.json hook %s: %w", mf.Name, err)
 		}
 	case "copilot":
@@ -3904,7 +3968,7 @@ func removeHookRegistration(baseDir string, mf ManagedFile, claudeSettings []str
 			err = fmt.Errorf("provisioning: prune entry Crush hook %s: %w", mf.Name, err)
 		}
 	case "kiro":
-		if err = removeKiroHook(baseDir, mf.Name); err != nil {
+		if err = removeKiroHook(baseDir, mf.Name, roots); err != nil {
 			err = fmt.Errorf("provisioning: prune entry Kiro cartographer.json hook %s: %w", mf.Name, err)
 		}
 	}
@@ -4469,7 +4533,9 @@ func singleArtifactContent(a contract.Artifact, opts ApplyOptions) ([]byte, erro
 func removeEmptyDestDir(baseDir, fullDestDir string) {
 	_ = safewrite.RemoveEmptyDir(fullDestDir)
 	if rel, relErr := filepath.Rel(baseDir, fullDestDir); relErr == nil {
-		pruneEmptyDirs(baseDir, rel)
+		// A root made and undone inside one delivery was never visible to the
+		// user: nothing to announce (the one sanctioned discard of the result).
+		_ = pruneEmptyDirs(baseDir, rel)
 	}
 }
 

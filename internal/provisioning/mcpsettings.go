@@ -119,7 +119,7 @@ func registerMCPServer(baseDir, name string, spec configurator.ServerSpec, provi
 // removed instead of left as an empty shell; claude.json goes only when it is
 // left as `{}` (it is Claude Code's own shared state file: any other key keeps
 // it, #1269).
-func removeMCPServer(baseDir, name string, provider configurator.Provider, filePath string) error {
+func removeMCPServer(baseDir, name string, provider configurator.Provider, filePath string, roots *[]string) error {
 	if filePath == "" {
 		return nil
 	}
@@ -152,7 +152,7 @@ func removeMCPServer(baseDir, name string, provider configurator.Provider, fileP
 		if err := configurator.ForgetCreated(baseDir, filePath); err != nil {
 			return err
 		}
-		pruneEmptyDirs(baseDir, filePath)
+		noteRoots(roots, pruneEmptyDirs(baseDir, filePath))
 		return nil
 	}
 	if err := saveOrderedJSONObject(baseDir, fullPath, settings, layout); err != nil {
@@ -221,7 +221,9 @@ func PruneServerEntry(baseDir string, provider configurator.Provider, lock Lock,
 	for _, mf := range lock.Managed {
 		if mf.Kind == "mcp" && mf.Source == SourceClient {
 			if !dryRun {
-				if err := removeMCPServer(baseDir, mf.Name, provider, filepath.ToSlash(mf.Path)); err != nil {
+				// roots nil on purpose: what this removes is a pre-D737 leftover of a
+				// version without the ledger, so no root under it is recorded as ours.
+				if err := removeMCPServer(baseDir, mf.Name, provider, filepath.ToSlash(mf.Path), nil); err != nil {
 					return lock, fmt.Errorf("provisioning: remove workspace entry %s: %w", mf.Name, err)
 				}
 			}

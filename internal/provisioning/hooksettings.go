@@ -812,7 +812,7 @@ func antigravityHooksPath(baseDir, hookRel string) string {
 // directory it leaves empty (the same empty-shell rule as an MCP config, D63):
 // the file is a JSON object keyed by hook, so an empty one holds nothing of
 // anybody's. One that still holds another entry is only rewritten.
-func removeAntigravityHook(baseDir, hookName, hookRel string) error {
+func removeAntigravityHook(baseDir, hookName, hookRel string, roots *[]string) error {
 	path := antigravityHooksPath(baseDir, hookRel)
 	if names, err := fileNamesHook(path, hookName); err != nil || !names {
 		return err
@@ -834,7 +834,7 @@ func removeAntigravityHook(baseDir, hookName, hookRel string) error {
 			if err := safewrite.Remove(baseDir, path); err != nil && !errors.Is(err, os.ErrNotExist) {
 				return err
 			}
-			pruneEmptyDirs(baseDir, rel)
+			noteRoots(roots, pruneEmptyDirs(baseDir, rel))
 			return nil
 		}
 	}
