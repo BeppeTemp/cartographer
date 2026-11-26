@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -317,6 +318,12 @@ func TestCrossMovesNeverReachTheWire(t *testing.T) {
 // AC-cross-kb-rewrite-9
 func TestOneLockAtATime(t *testing.T) {
 	t.Parallel()
+	// Two separate clocks: how long one lock probe waits before it calls the
+	// lock held, and how long the whole scenario may take on a loaded runner.
+	const (
+		probeWait      = 5 * time.Second
+		completionWait = 60 * time.Second
+	)
 	var rig moveRig
 	probes := 0
 	var mu sync.Mutex
@@ -325,7 +332,7 @@ func TestOneLockAtATime(t *testing.T) {
 			// The origin has released its lock before a follow-up starts: taking it
 			// here, from the goroutine that made the move, must not wait forever.
 			for _, n := range []string{"kb-a", "kb-b"} {
-				if kbLockHeld(rig.kbs[n], 5*time.Second) {
+				if kbLockHeld(rig.kbs[n], probeWait) {
 					t.Errorf("%s's lock is held while the follow-up on %s starts", n, name)
 				}
 			}
@@ -348,7 +355,7 @@ func TestOneLockAtATime(t *testing.T) {
 	go func() {
 		done <- "transfer" + fmt.Sprint(rig.multi.CallKB(ctx, "kb-a", "concept_transfer", json.RawMessage(`{"target_kb":"kb-b","moves":[{"source_id":"tr","target_id":"tr"}]}`)).IsError)
 	}()
-	deadline := time.After(10 * time.Second)
+	deadline := time.After(completionWait)
 	for i := 0; i < 3; i++ {
 		select {
 		case got := <-done:
@@ -356,7 +363,10 @@ func TestOneLockAtATime(t *testing.T) {
 				t.Errorf("%s failed", got)
 			}
 		case <-deadline:
-			t.Fatal("concurrent moves and a transfer between two KBs did not finish: deadlock")
+			// The stacks tell a real lock-order deadlock from a slow runner.
+			buf := make([]byte, 1<<20)
+			buf = buf[:runtime.Stack(buf, true)]
+			t.Fatalf("concurrent moves and a transfer between two KBs did not finish in %s: deadlock or slow runner; goroutines:\n%s", completionWait, buf)
 		}
 	}
 	mu.Lock()
