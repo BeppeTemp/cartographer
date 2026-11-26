@@ -98,3 +98,31 @@ func TestCrossLinkedKBs(t *testing.T) {
 		t.Errorf("no mounts: %v", got)
 	}
 }
+
+// AC-atlas-kb-map-1
+func TestCrossLinkedFrom(t *testing.T) {
+	a, b := mountedPair(t, map[string]string{"old-b": "kb-b"})
+	if got := b.CrossLinkedFrom(); len(got) != 0 {
+		t.Errorf("no link yet: %v", got)
+	}
+	writeConcept(t, a, "p", "[[kb:old-b/x]] [[kb:kb-b/y]] [[kb:kb-b@host/x]] [[kb:bad name/x]]\n")
+	if got := b.CrossLinkedFrom(); !reflect.DeepEqual(got, []string{"kb-a"}) {
+		t.Errorf("CrossLinkedFrom = %v, want [kb-a]", got)
+	}
+	if got := a.CrossLinkedFrom(); len(got) != 0 {
+		t.Errorf("own name or reverse direction: %v", got)
+	}
+	// A link that disappears is seen by the next call.
+	writeConcept(t, a, "p", "no link\n")
+	if got := b.CrossLinkedFrom(); len(got) != 0 {
+		t.Errorf("after removal: %v", got)
+	}
+	// Only @server and malformed links: nothing.
+	writeConcept(t, a, "q", "[[kb:kb-b@host/x]] [[kb:bad name/x]]\n")
+	if got := b.CrossLinkedFrom(); len(got) != 0 {
+		t.Errorf("server and malformed links count: %v", got)
+	}
+	if got := mustInitKB(t).CrossLinkedFrom(); got != nil {
+		t.Errorf("no mounts: %v", got)
+	}
+}
