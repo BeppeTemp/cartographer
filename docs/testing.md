@@ -1495,6 +1495,13 @@ rejected <slug>`, `held`, `frozen`, or `pre-check: ok | running | red | none | u
 with its failed jobs) and, while the window is open, when it closes. The hosted signoff reads the log
 of a failed job up to `SIGNOFF_LOG_TRIES` (5) times while it is empty, so the failing Go tests are
 named even when GitHub serves the log late.
+The lander tries a failed fetch of origin again (`LAND_INFRA_TRIES`, `LAND_INFRA_WAIT`) before it stops, bounds
+every `gh` call (`LAND_GH_TIMEOUT`, 120 s, its process group killed past it) and reads the freeze with
+`freeze-open.sh --state` (`open`, `closed` or `unknown`): on `unknown` the last state read stands (open when none
+was), and while it freezes a unit and nothing else is landable the lander waits for the listing instead of
+stopping. The running lander writes `status.json` in its state directory at each transition (phase, train, run,
+window, the units not landable and why, the last rejection: the `scripts/land.sh` header). `make ready` refuses a
+`REVIEW=` tier below the one its triage computes.
 `make requeue SLUG=<slug> [FIRST=1]` (`scripts/requeue.sh`, maintainer only) rebuilds a queued change, or the commit a
 rejected one was queued as, and every queued change that follows it through `Lander-After`, on the current `main`: in a
 scratch worktree of the lander's state directory, message and author and committer dates kept (the queue place), each

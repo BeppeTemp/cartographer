@@ -44,6 +44,8 @@
 # the message then carries `Profile: <name>`, which reaches main. Any other name is refused,
 # with the declared ones.
 #
+# REVIEW=<tier> below the tier the triage computes for this change is refused, as the lander would refuse it.
+#
 # A contributor does not queue: they open a PR, and CI tests it.
 # Plain bash 3.2 (the macOS default).
 set -euo pipefail
@@ -149,6 +151,13 @@ fi
 # A maintainer must be readable to queue: the triage reads the role itself, and an answer it could not
 # read (gh failed there) must never read as a contributor's change, which has no usage test to owe.
 grep -q '^Role: maintainer$' <<<"$triage" || die "the triage did not read you as a maintainer (gh could not answer): queue again when it does"
+# The review record against the tier the triage computes over this change's own diff: the lander
+# rejects a record below main's tier at composition, after the change has waited in the queue.
+rank() { case "$1" in light) echo 1 ;; fast) echo 2 ;; standard) echo 3 ;; full) echo 4 ;; *) echo 0 ;; esac; }
+tier=$(awk '/^Tier: / { print $2; exit }' <<<"$triage")
+[ "$(rank "$tier")" != 0 ] || die "the triage printed no review tier: queue again when it does"
+[ "$(rank "${REVIEW%%,*}")" -ge "$(rank "$tier")" ] ||
+  die "REVIEW records a ${REVIEW%%,*} review, and the triage computes $tier for this change: review it as $tier, then make ready REVIEW=\"$tier, <n> rounds\""
 # The usage test: a change on the triage's list is tried on a built binary before it is queued,
 # and the commit carries the record (a pass, or a waiver with its reason).
 if [ -n "${USAGE:-}" ]; then
