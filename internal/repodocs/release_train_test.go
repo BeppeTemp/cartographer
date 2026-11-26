@@ -54,6 +54,28 @@ func TestReleaseTrainWorkflowIsOnDemandAndPinsMergeToken(t *testing.T) {
 	if got := strings.Join(dispatch.Inputs.Action.Options, ","); got != "rc,release,discard" {
 		t.Errorf("release-train.yml: action options %q, want rc,release,discard", got)
 	}
+	// A candidate is not cut while a wip/* branch is parked on origin (scripts/unlanded.sh): the
+	// listing step comes before the dispatch, and the dispatch is skipped on its output.
+	wipAt, dispatchAt := -1, -1
+	for _, job := range wf.Jobs {
+		for i, st := range job.Steps {
+			if st.ID == "wip" {
+				wipAt = i
+				if !strings.Contains(st.Run, "matching-refs/heads/wip/") {
+					t.Error("release-train.yml: the parked-branch step must list the wip/* refs of the repository")
+				}
+			}
+			if st.Name == "Dispatch the release candidate build" {
+				dispatchAt = i
+				if !strings.Contains(st.If, "steps.wip.outputs.parked != 'yes'") {
+					t.Errorf("release-train.yml: the candidate dispatch must skip while a branch is parked, if: %q", st.If)
+				}
+			}
+		}
+	}
+	if wipAt < 0 || dispatchAt < 0 || wipAt > dispatchAt {
+		t.Errorf("release-train.yml: the parked-branch check (step %d) must precede the candidate dispatch (step %d)", wipAt, dispatchAt)
+	}
 	// The freeze check is measured from the commit of the oldest candidate, never a
 	// weekday: the newest candidate is always the head of main (the gate requires it).
 	if !strings.Contains(raw, "compare/$cand_sha...main") || !strings.Contains(raw, "freeze-open.sh --candidate") {

@@ -13,7 +13,8 @@
 # lander (scripts/land.sh --daemon) unless one already runs on this machine or another
 # machine's lander is gating a train (that one takes the change). The lander runs the
 # scripts of origin/main, not this worktree's. The branch
-# itself is left as it is. Running it again replaces the queued change.
+# itself is left as it is. Running it again replaces the queued change. A `wip/<slug>` branch on
+# origin (the change parked, scripts/unlanded.sh) is deleted once `ready/<slug>` is pushed.
 #
 # A change built on another queued change (its branch holds that change's commits) is
 # queued with AFTER=<slug>: it is squashed onto the commit of the branch whose tree is
@@ -202,6 +203,13 @@ done
 sha=$(git commit-tree "$(git rev-parse 'HEAD^{tree}')" -p "$parent" -F "$full")
 out=$(git push -q --force origin "$sha:refs/heads/ready/$slug" 2>&1) || die "the push of ready/$slug failed: $out"
 echo "ready: $branch queued as ready/$slug (${sha:0:12}): $(head -n 1 "$full")"
+# The change is queued: the branch that parked it (CONTRIBUTING.md §Pull requests) is no longer
+# needed, and the release candidate refuses while one exists. Best effort: never fails the queueing.
+if git ls-remote --exit-code --heads origin "refs/heads/wip/$slug" >/dev/null 2>&1; then
+  git push -q origin ":refs/heads/wip/$slug" >/dev/null 2>&1 &&
+    echo "ready: deleted wip/$slug on origin" ||
+    echo "ready: warning: wip/$slug could not be deleted on origin: delete it by hand" >&2
+fi
 if [ -n "${after:-}" ]; then
   # ready/$AFTER is no longer its unit's tip: the lander never reads its pre-check, and this
   # change's pre-check replays it too. Its run still going is cancelled to free the runners

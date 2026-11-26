@@ -223,6 +223,7 @@ Maintainer mode only.
    in the queue, no window): it rebuilds the change and every change after it on the current
    `main`, same message and queue place, and a fresh pre-check. A conflict that is not a clean append →
    **STOP** and surface it to the user.
+5. A change that cannot be queued when the session ends (size triage, a decision, a failing check) is parked, never left in a worktree: `git push origin <branch>:refs/heads/wip/<slug>` and one `needs-maintainer` issue naming what blocks it; `make unlanded` lists it, and `make ready` deletes `wip/<slug>`.
 
 ## 5 — Close-out
 

@@ -90,6 +90,12 @@ read by others while its scope is still moving. A decision is written as pending
 time (`make decisions-new SLUG=<slug> TOPIC=<topic>`, cited as `D-new-<slug>`; the lander
 numbers both).
 
+**A session never ends with an unqueued change.** Before it ends, `make unlanded` must list
+nothing of this change: queue it (`make ready`), or park it: push `feat/<slug>` to `wip/<slug>`
+and open one `needs-maintainer` issue naming what blocks it (split, decision, failing check). A
+parked branch holds the release candidate back (`release-train` `action: rc` skips) until
+`make ready` queues it (that deletes `wip/<slug>`) or the maintainer deletes it.
+
 ### Mandate (self-contained: the subagent never sees the conversation)
 
 - Worktree: `<absolute path>`; every command runs there (`git -C`, `make -C`,

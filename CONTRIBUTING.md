@@ -250,6 +250,7 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
     trailing comment (`uses: owner/repo@<40 hex> # v1.2.3`; resolve it with
     `gh api repos/<owner>/<repo>/git/ref/tags/<tag>`). `make gate` fails on any other
     reference (D1020); Dependabot keeps the pins current.
+- **A maintainer's change not queued when its session ends is parked, never left in a worktree** (D2435): pushed to `wip/<slug>` on origin with one `needs-maintainer` issue naming what blocks it. `make unlanded` lists local branches never queued, worktrees with uncommitted changes and the `wip/*` branches; `make issues` lists each as class `parked`; `make ready` deletes `wip/<slug>` once `ready/<slug>` is pushed; `release-train` with `action: rc` skips while one exists.
 - **The fast lane** (D2315): a maintainer's change of 51 to 150 production lines that matches no path row with a tier
   floor in `scripts/profiles.tsv` (so no invariant area and no supply-chain file: nothing under `scripts/`, `.claude/`
   or `.github/`, no Makefile, installer, `.gitattributes`, `test/quarantine.tsv` or embedded Surveyor prompt), touches
@@ -406,7 +407,7 @@ dispatched by hand with one of three actions.
   when a candidate is cut and arming the open bumps after the release or a `discard`. A
   blocked commit on `main` since the oldest candidate of the pending version skips the
   release. A PR the freeze blocks waits until the release.
-- **The release candidate.** `action: rc` builds the candidate
+- **The release candidate.** `action: rc` skips, naming them on the release PR, while a `wip/*` branch exists on origin (a parked change, §Pull requests). Otherwise it builds the candidate
   `v<next>-rc.<YYYYMMDD>.<n>` (`preview.yml`; `<n>` counts the day's candidates from 1, so every candidate has a tag of its own, and the older `v<next>-rc.<YYYYMMDD>` shape is still read) and comments the tag on the release PR: one comment, edited for each new candidate (the latest tag, the earlier ones in a short list). It is a
   server image, a Surveyor image **and** a GitHub pre-release with the binaries (the same archives and
   `sha256sums.txt` as a stable release). Both images are started and smoked before anything

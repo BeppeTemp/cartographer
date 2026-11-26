@@ -146,8 +146,27 @@ jobs:
           fi
 
 
-      - name: Dispatch the release candidate build
+      # A change parked on origin (scripts/unlanded.sh) is finished work no candidate would contain:
+      # the candidate waits until the maintainer lands it or moves it out. A skip, not a failure.
+      - name: Refuse a candidate while a change is parked
+        id: wip
         if: steps.mode.outputs.mode == 'rc' && steps.pr.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ steps.pr.outputs.number }}
+        run: |
+          # An unreadable listing is not "none parked": fail rather than cut a candidate without it.
+          parked=$(gh api --paginate "repos/$GH_REPO/git/matching-refs/heads/wip/" --jq '.[].ref | ltrimstr("refs/heads/")')
+          if [ -n "$parked" ]; then
+            list=$(printf '%s\n' "$parked" | tr -d '`@' | sed 's/.*/`&`/' | paste -sd, - | sed 's/,/, /g')
+            echo "release candidate skipped: parked branches: $parked"
+            gh pr comment "$PR" --body "Release candidate skipped: a change is parked on origin ($list) and no candidate would contain it. Land it (\`make ready\`) or delete the branch, then run \`release-train\` with \`action: rc\`."
+            echo "parked=yes" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Dispatch the release candidate build
+        if: steps.mode.outputs.mode == 'rc' && steps.pr.outputs.number != '' && steps.wip.outputs.parked != 'yes'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}

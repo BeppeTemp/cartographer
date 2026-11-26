@@ -18,7 +18,10 @@
 #                     from the maintainer (CONTRIBUTING.md §Fixes without a plan)
 #   untriaged         no `accepted` label (a `ci-red` or `nightly-red` issue is accepted by its workflow)
 #   idle              accepted, nobody on it
-# The class is the issue's kind: ci-red, nightly-red, idea, bug, or `other`. Exit 0 with the
+# The class is the issue's kind: ci-red, nightly-red, idea, bug, or `other`. Each `wip/<slug>`
+# branch on origin (a change parked, not queued: scripts/unlanded.sh) is a line of class `parked`,
+# printed first because the release candidate refuses while one exists:
+# `wip/<slug> parked parked: <next action> — <subject of its tip>`. Exit 0 with the
 # list, 1 when GitHub cannot be read. The skill cartographer-fix-issues works through it.
 # internal/repodocs/landertest/issue_loop_test.go pins it. Plain bash 3.2.
 set -uo pipefail
@@ -29,7 +32,7 @@ top=$(git rev-parse --show-toplevel) || exit 1
 cd "$top" || exit 1
 repo=$("$here/upstream-repo.sh" 2>/dev/null) || { echo "issues: the upstream repository cannot be read" >&2; exit 1; }
 git fetch -q --no-tags --prune origin '+refs/heads/ready/*:refs/remotes/origin/ready/*' \
-  '+refs/heads/failed/*:refs/remotes/origin/failed/*' >/dev/null 2>&1 || true
+  '+refs/heads/failed/*:refs/remotes/origin/failed/*' '+refs/heads/wip/*:refs/remotes/origin/wip/*' >/dev/null 2>&1 || true
 # The REST list, not `gh issue list`: only it gives the author association. Pull requests are dropped.
 list=$(gh api --paginate "repos/$repo/issues?state=open&per_page=100" \
   --jq '.[] | select(.pull_request | not) | [(.number | tostring), ([.labels[].name] | join(",")), (.assignees | length | tostring),
@@ -40,7 +43,10 @@ refs=$(git for-each-ref --format='%(refname)' refs/remotes/origin/ready refs/rem
 # The main worktree's .worktrees, wherever this runs from.
 wt=$(cd "$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")" && pwd)/.worktrees
 
-[ -n "$list" ] || { echo "issues: none open"; exit 0; }
+parked=$(git for-each-ref --format='%(refname:lstrip=3)%09%(contents:subject)' refs/remotes/origin/wip |
+  awk -F'\t' '{ gsub(/[[:cntrl:]]/, "", $2); printf "%s parked parked: make ready it or move it out (its needs-maintainer issue says what blocks it) — %s\n", $1, $2 }')
+[ -z "$parked" ] || printf '%s\n' "$parked"
+[ -n "$list" ] || { [ -n "$parked" ] || echo "issues: none open"; exit 0; }
 while IFS=$'\t' read -r n labels assigned author title; do
   [[ "$n" =~ ^[0-9]+$ ]] || continue
   has() { [[ ",$labels," == *",$1,"* ]]; }
