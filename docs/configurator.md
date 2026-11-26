@@ -634,6 +634,8 @@ cartographer status
 
 Each provider also reports `bound_kbs` and `binding_origin` in `--output json` (and on its `kbs` line): `explicit` for a list of names, `all` for `kbs: all`, `default` for no binding; the last two follow the server.
 
+A provider that follows the server (`kbs: all`, or no binding) also shows `not synced yet: ...` when the server lists KBs the last sync did not apply (not drift: `sync` applies them) and `last change <date>: + kb-x, - kb-y` for the last sync that changed the mounted KBs. In `--output json` they are `kbs_pending` (`{added, removed}`, per provider) and `kb_change` (`{at, added, removed}`, top level, from the state file); both are additive and absent when nothing is pending or recorded.
+
 Exit code: `0` all providers in sync, `1` at least one provider in drift, `2` error (no
 `.cartographer.yaml`, server unreachable, ...). For every provider it also prints per-kind
 counts (`provisioning.KindCounts`), e.g. `skill 4/5 · agent 2/2 · hook 1/1`. On drift it

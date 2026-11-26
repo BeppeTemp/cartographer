@@ -13,6 +13,8 @@ import (
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
+	"github.com/BeppeTemp/cartographer/internal/provisioning"
+	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
 // followServer is a /health that a test changes between syncs, over a
@@ -26,6 +28,8 @@ type followServer struct {
 	kbs    []string // listed KBs, nil omits the key
 	listed bool
 	pulled map[string]int
+	// payload, when set, is the sync_pull answer of a KB instead of its skill.
+	payload func(kb string) string
 }
 
 func newFollowServer(t *testing.T, kbs ...string) *followServer {
@@ -61,6 +65,9 @@ func newFollowServer(t *testing.T, kbs ...string) *followServer {
 		kb := r.URL.Query().Get("kb")
 		f.pulled[kb]++
 		text, isErr := issuesPayload(t, kb, "skill-"+kb), false
+		if f.payload != nil {
+			text = f.payload(kb)
+		}
 		if !slices.Contains(f.kbs, kb) {
 			text, isErr = "no such KB", true
 		}
@@ -333,5 +340,108 @@ func TestKBListAnswerShapes(t *testing.T) {
 		if got := kbListAnswer(tc.facts, tc.err); got != tc.want {
 			t.Errorf("%s: %v, want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+// AC-cad-16: the sync says which KB it added and removed for the providers that
+// follow the server (and says it as a plan under --dry-run), and an added KB
+// counts in the closing sum line.
+func TestSyncReportsMountedAndUnmounted(t *testing.T) {
+	srv := newFollowServer(t, "one", "two")
+	dir := followHome(t, srv, "all", "one", "two")
+	if _, _, err := followSync(t, dir, syncOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	srv.set(func(f *followServer) { f.kbs = []string{"one", "three"} })
+
+	out, _, err := followSync(t, dir, syncOptions{DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"[dry-run] would add three for claude", "[dry-run] would remove two for claude", "[dry-run] this sync would widen what is bound: 1 KB(s) mounted"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("dry run lacks %q:\n%s", want, out)
+		}
+	}
+	if hasSkill(dir, "three") || !hasSkill(dir, "two") {
+		t.Error("the dry run wrote")
+	}
+
+	out, _, err = followSync(t, dir, syncOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"three mounted: added for claude\n", "two not mounted any more: removed for claude\n", "this sync widened what is bound: 1 KB(s) mounted"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("sync lacks %q:\n%s", want, out)
+		}
+	}
+	// A provider with a list sees none of it.
+	list := followHome(t, srv, "one", "one", "two")
+	srv.set(func(f *followServer) { f.kbs = []string{"one", "two", "four"} })
+	out, _, _ = followSync(t, list, syncOptions{})
+	if strings.Contains(out, "mounted: added") {
+		t.Errorf("an explicit list was told about a mount:\n%s", out)
+	}
+}
+
+// AC-cad-17: a KB mounted later that ships a hook, an executable file, a skill
+// declaring hooks and an MCP descriptor installs none of them before
+// `cartographer approve`, installs its plain skill, and the sync names how many
+// wait and the command; nothing is marked approved.
+func TestNewKBHookAndMCPNeedApproval(t *testing.T) {
+	srv := newFollowServer(t, "one")
+	dir := followHome(t, srv, "all", "one")
+	if _, _, err := followSync(t, dir, syncOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	arrival := func(kb string) string {
+		skill := func(name, body string, exec bool) contract.Artifact {
+			files := []contract.ArtifactFile{{Path: "SKILL.md", Content: []byte(body), Executable: exec}}
+			return contract.Artifact{Kind: "skill", Name: name, Source: "kb:" + kb, ContentHash: provisioning.ContentHashFiles(files), Files: files}
+		}
+		mcpFiles := []contract.ArtifactFile{{Path: "tools.json", Content: []byte(`{"type":"http","url":"https://example.com/mcp","headers":{"X":"${VAR}"}}`)}}
+		hookFiles := []contract.ArtifactFile{
+			{Path: "hook.json", Content: []byte(`{"event":"SessionStart","command":"./run.sh"}`)},
+			{Path: "run.sh", Content: []byte("#!/bin/sh\n"), Executable: true},
+		}
+		return pulledHookPayload(t, kb,
+			skill("plain", "# plain", false),
+			skill("hooked", "---\nname: hooked\ndescription: d\nhooks:\n  PreToolUse:\n    - hooks:\n        - type: command\n          command: ./x.sh\n---\n# hooked\n", false),
+			skill("runner", "# runner", true),
+			contract.Artifact{Kind: "hook", Name: "guard", Source: "kb:" + kb, ContentHash: provisioning.ContentHashFiles(hookFiles), Files: hookFiles},
+			contract.Artifact{Kind: "mcp", Name: "tools", Source: "kb:" + kb, ContentHash: provisioning.ContentHashFiles(mcpFiles), Files: mcpFiles},
+		)
+	}
+	srv.set(func(f *followServer) {
+		f.kbs = []string{"one", "newkb"}
+		f.payload = func(kb string) string {
+			if kb == "newkb" {
+				return arrival(kb)
+			}
+			return issuesPayload(t, kb, "skill-"+kb)
+		}
+	})
+	out, _, err := followSync(t, dir, syncOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	skills := filepath.Join(dir, ".claude", "skills")
+	for _, name := range []string{"hooked", "runner", "guard", "tools"} {
+		if _, err := os.Stat(filepath.Join(skills, name)); err == nil {
+			t.Errorf("%s was installed before an approval", name)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(skills, "plain", "SKILL.md")); err != nil {
+		t.Errorf("the plain skill was not installed: %v", err)
+	}
+	if hasMCPEntry(t, dir, "tools") {
+		t.Error("the MCP descriptor was registered")
+	}
+	if !strings.Contains(out, "newkb: 4 artifact(s) need approval: ") || !strings.Contains(out, "cartographer approve hook guard --kb newkb") {
+		t.Errorf("the arrival does not name what waits:\n%s", out)
+	}
+	if cfg, _ := clientconfig.Load(dir); len(cfg.ApprovedMCPHashes()) != 0 {
+		t.Errorf("the sync approved something: %v", cfg.ApprovedMCPHashes())
 	}
 }

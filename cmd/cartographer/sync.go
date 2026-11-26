@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
@@ -595,8 +596,15 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	}
 
 	approvals := cfg.ApprovedMCPHashes()
+	// followers, addedKBs and removedKBs are what a provider that follows the
+	// server saw change at this sync (printKBFollow), kept for the closing sum
+	// and the approvals line of the arrivals.
+	var followers, addedKBs, removedKBs []string
 	if healthErr == nil {
 		printKnownKBsChange(out, previousKnownKBs, kbs, opts.DryRun)
+		followers = followingProviders(cfg, targets)
+		addedKBs, removedKBs = kbDiff(previousKnownKBs, kbs)
+		printKBFollow(out, addedKBs, removedKBs, followers, opts.DryRun)
 		if opts.DryRun {
 			if lockFile, lerr := provisioning.ReadLockFile(lockFilePath(dir)); lerr == nil {
 				approvals = previewPreApprovalInstalls(out, cfg, lockFile, manifests, projections, len(pullFailures) == 0)
@@ -607,6 +615,11 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		} else {
 			mounted := cfg.KnownKBs
 			cfg.KnownKBs = withRetainedKBs(mounted, retainedKBs)
+			// The record of what changed travels with known_kbs in the same
+			// save; a sync that changed nothing keeps the previous one.
+			if rec := kbChangeRecord(previousKnownKBs, mounted, time.Now()); rec != nil && len(opts.Clients) == 0 {
+				cfg.KBChange = rec
+			}
 			if len(opts.Clients) > 0 {
 				// A run limited by --client leaves the other providers' MCP
 				// entries alone, and known_kbs is what their later syncs remove
@@ -639,7 +652,14 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 		return syncResult{}, err
 	}
 	printApplySummary(out, dir, results, opts.DryRun, mcpNotReceivedReasons(projections, manifests, approvals, dir))
-	printSyncWidening(out, syncWidening{Derived: widened.countPaths(clientconfig.LastChangeViaPaths), Lineage: widened.count(clientconfig.LastChangeViaLineage)}, opts.DryRun)
+	if len(followers) > 0 {
+		printArrivalApprovals(out, results, addedKBs)
+	}
+	mountedCount := 0
+	if len(followers) > 0 {
+		mountedCount = len(addedKBs)
+	}
+	printSyncWidening(out, syncWidening{Mounted: mountedCount, Derived: widened.countPaths(clientconfig.LastChangeViaPaths), Lineage: widened.count(clientconfig.LastChangeViaLineage)}, opts.DryRun)
 	// What the server left out of its catalogue (#1775): once per run, not once
 	// per provider.
 	for _, is := range manifestIssues(manifests) {

@@ -380,6 +380,7 @@ func printBindingLine(p providerStatus) {
 		kbs = strings.Join(p.BoundKBs, ", ")
 	}
 	fmt.Printf("  kbs %s (%s)\n", kbs, p.BindingOrigin)
+	printKBFollowLines(p)
 	printLineageLines(p.Lineage, p.LineageUnresolved)
 	for _, kb := range p.ArtifactsOff {
 		fmt.Printf("  %s artifacts: off (knowledge_bases)\n", kb)
@@ -490,5 +491,35 @@ func printInstructionsSizeWarnings(w io.Writer, dir string, results map[string]p
 				fmt.Fprintln(w, instructionsSizeLine(name, b))
 			}
 		}
+	}
+}
+
+// printKBFollowLines is the mount block of a provider that follows the server:
+// what the server lists and the last sync has not applied, then the last change
+// a sync recorded. Nothing for an explicit list, which no mount changes.
+func printKBFollowLines(p providerStatus) {
+	if p.BindingOrigin == "explicit" {
+		return
+	}
+	if pd := p.KBsPending; pd != nil {
+		var parts []string
+		for _, kb := range pd.Added {
+			parts = append(parts, escapeControl(kb)+" mounted")
+		}
+		for _, kb := range pd.Removed {
+			parts = append(parts, escapeControl(kb)+" not mounted any more")
+		}
+		fmt.Printf("  not synced yet: %s (cartographer sync applies it)\n", strings.Join(parts, ", "))
+	}
+	if c := p.kbChange; c != nil && len(c.Added)+len(c.Removed) > 0 {
+		var parts []string
+		for _, kb := range c.Added {
+			parts = append(parts, "+ "+escapeControl(kb))
+		}
+		for _, kb := range c.Removed {
+			parts = append(parts, "- "+escapeControl(kb))
+		}
+		date, _, _ := strings.Cut(c.At, "T")
+		fmt.Printf("  last change %s: %s\n", escapeControl(date), strings.Join(parts, ", "))
 	}
 }

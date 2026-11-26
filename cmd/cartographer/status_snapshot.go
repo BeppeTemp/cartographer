@@ -110,6 +110,14 @@ type providerStatus struct {
 	// list of names means two different things and the reader cannot tell.
 	BoundKBs      []string `json:"bound_kbs,omitempty"`
 	BindingOrigin string   `json:"binding_origin,omitempty"`
+	// KBsPending is what the server lists now and the last sync did not apply,
+	// for a provider that follows the server (additive); absent when nothing
+	// waits. A new KB is not drift until a sync runs.
+	KBsPending *kbsPending `json:"kbs_pending,omitempty"`
+	// kbChange is the state's record of the last mount change, for the human
+	// line of a provider that follows the server; not part of the JSON (the
+	// top level carries it).
+	kbChange *clientconfig.KBChange
 	// ArtifactsOff names the bound KBs with `knowledge_bases.<kb>.artifacts: false`
 	// (#1408): their missing skills are a setting, not a failure.
 	ArtifactsOff []string `json:"artifacts_off,omitempty"`
@@ -367,10 +375,13 @@ type statusSnapshot struct {
 	// LastChange is what the last sync that changed derived bindings or lineage
 	// added and removed (additive); absent when nothing was recorded.
 	LastChange *clientconfig.DerivedChange `json:"last_change,omitempty"`
-	Artifacts  int                         `json:"artifact_count"`
-	State      string                      `json:"state"`
-	Error      *statusError                `json:"error,omitempty"`
-	Service    *serviceSnapshot            `json:"service,omitempty"`
+	// KBChange is what the last sync that changed the mounted KBs added and
+	// removed (additive); absent when nothing was recorded.
+	KBChange  *clientconfig.KBChange `json:"kb_change,omitempty"`
+	Artifacts int                    `json:"artifact_count"`
+	State     string                 `json:"state"`
+	Error     *statusError           `json:"error,omitempty"`
+	Service   *serviceSnapshot       `json:"service,omitempty"`
 	// MountMode is the topology the server is serving right now, and
 	// ConfiguredMountMode the one this client's MCP entries were written
 	// against (D187). When they differ the entries are for the wrong endpoint
@@ -505,7 +516,7 @@ func outputFlag(args []string) (string, []string, error) {
 }
 
 func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool) statusSnapshot {
-	s := statusSnapshot{Schema: statusSchema, Client: version, State: "in_sync", Providers: providerStatuses(cfg), ServerURL: cfg.ServerURL, Update: snapshotUpdate(), Plugins: snapshotPlugins(cfg), LastChange: cfg.Derived().LastChange}
+	s := statusSnapshot{Schema: statusSchema, Client: version, State: "in_sync", Providers: providerStatuses(cfg), ServerURL: cfg.ServerURL, Update: snapshotUpdate(), Plugins: snapshotPlugins(cfg), LastChange: cfg.Derived().LastChange, KBChange: cfg.KBChange}
 	if includeService && isLoopbackURL(cfg.ServerURL) {
 		if st, err := statusServiceFn(); err == nil {
 			s.Service = newServiceSnapshot(st)
@@ -706,6 +717,12 @@ func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool
 		p.BindingOrigin = "default"
 		if cfg.FollowsServer(p.Name) {
 			p.BindingOrigin = "all"
+		}
+		if !explicit {
+			p.kbChange = cfg.KBChange
+			if health.KBs != nil {
+				p.KBsPending = pendingKBs(s.KBs, cfg.KnownKBs)
+			}
 		}
 		if explicit {
 			p.BindingOrigin = "explicit"
@@ -1359,4 +1376,20 @@ func unreadableProjection(ps []syncProjection) *syncProjection {
 		}
 	}
 	return nil
+}
+
+// kbsPending is the mount change a sync has not applied yet.
+type kbsPending struct {
+	Added   []string `json:"added,omitempty"`
+	Removed []string `json:"removed,omitempty"`
+}
+
+// pendingKBs compares the KBs the server lists now with the list of the last
+// sync (known_kbs); nil when they are the same.
+func pendingKBs(live, known []string) *kbsPending {
+	added, removed := kbDiff(known, live)
+	if len(added)+len(removed) == 0 {
+		return nil
+	}
+	return &kbsPending{Added: added, Removed: removed}
 }
