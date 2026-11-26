@@ -166,7 +166,7 @@ func TestEveryMakeTargetIsRunByCIOrDeclaredLocal(t *testing.T) {
 		// (TestNoWorkflowCallsTheUsageTest).
 		"usage-test": true,
 		// The lander queues and lands from a maintainer's machine (scripts/land.sh).
-		"ready": true, "land": true, "land-status": true, "requeue": true, "status": true,
+		"ready": true, "land": true, "land-status": true, "requeue": true, "status": true, "unlanded": true,
 		// The issue queue and a maintainer's accepted bug (scripts/issue-queue.sh, issue-new.sh).
 		"issues": true, "issue": true,
 		// The docker job builds with buildx (layer cache in the GitHub cache) and

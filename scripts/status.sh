@@ -14,6 +14,8 @@
 #              and the count of files;
 #   main:      the newest ci.yml run on main and the open `ci-red` issues;
 #   triage:    the open issues without the `accepted` label;
+#   unlanded:  scripts/unlanded.sh: local branches never queued, worktrees with uncommitted changes and
+#              the wip/* branches parked on origin;
 #   plans:     the output of the command in STATUS_PLANS, when set: plans live outside the
 #              repository, so the maintainer points it at their own lister.
 # There is no registry: state is the ready/ and failed/ refs and their trailers, the profile is
@@ -100,6 +102,10 @@ else
   echo "main: unavailable"
   echo "triage: unavailable"
 fi
+
+# unlanded
+if u=$("$here/unlanded.sh" 2>/dev/null); then :; fi
+[ -z "$u" ] || printf 'unlanded:\n%s\n' "$u"
 
 # plans
 if [ -n "${STATUS_PLANS:-}" ]; then
