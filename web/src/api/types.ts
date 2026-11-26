@@ -23,6 +23,38 @@ export interface KBSummary {
   cluster_threshold?: number;
 }
 
+/** One KB of the map: exactly a row of GET /kbs, with its layout layer. */
+export interface KBMapNode {
+  name: string;
+  ready: boolean;
+  concepts_total?: number;
+  /** 0 for a KB with no resolved dependency, else 1 + the largest layer of its dependencies. */
+  layer: number;
+  relations_unavailable?: boolean;
+}
+
+/** `from` depends on `to`. */
+export interface KBMapRelation {
+  from: string;
+  to: string;
+}
+
+/** `count` cross-KB links from `from` to `to`, both ends readable by the caller. */
+export interface KBMapLink {
+  from: string;
+  to: string;
+  count: number;
+}
+
+/** GET /kb-map: two layers over the same nodes; the Atlas draws what it says. */
+export interface KBMap {
+  nodes: KBMapNode[];
+  relations: KBMapRelation[];
+  links: KBMapLink[];
+  /** The link budget ran out: the counts are a lower bound. */
+  truncated: boolean;
+}
+
 /** An agent client an artifact is materialized for. */
 export interface ArtifactClient {
   id: string;

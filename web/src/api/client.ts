@@ -19,6 +19,7 @@ import type {
   ClusterGraph,
   GraphSnapshot,
   KBSummary,
+  KBMap,
   LintReport,
   Overview,
   ChangesResponse,
@@ -218,6 +219,10 @@ export function optional<T>(p: Promise<T>): Promise<T | null> {
 
 export function fetchKBs(signal?: AbortSignal): Promise<{ kbs: KBSummary[] }> {
   return get<{ kbs: KBSummary[] }>("/kbs", signal);
+}
+
+export function fetchKBMap(signal?: AbortSignal): Promise<KBMap> {
+  return get<KBMap>("/kb-map", signal);
 }
 
 export function fetchOverview(kb: string, signal?: AbortSignal): Promise<Overview> {
