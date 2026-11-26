@@ -1473,8 +1473,13 @@ tips is tested one path per tip; not `merge-base..HEAD`: a change queued after a
 predecessor that landed is a child of that predecessor's branch head). So a change queued before
 a fix landed on `main` is tested with the fix, and a chain that no longer applies fails with
 `ready-check: the chain does not apply on main: <files>`, a red verdict. The replay is a plain
-cherry-pick: a pick the lander rescues (an edit of a pending decision `main` holds numbered, a
-conflict in the Atlas bundle) is red here too, so the unit is gated alone. A commit that is not
+cherry-pick: a pick the lander rescues by an edit of a pending decision `main` holds numbered is
+red here too, so the unit is gated alone. A conflict in `internal/webui/dist` only is not red
+(D2414): `main`'s bundle is kept and the replay says `bundle=stale` (on stderr and in
+`$GITHUB_OUTPUT`), so the Windows shards skip `TestBundleMatchesSource` (`READY_CHECK_BUNDLE=stale`) and the
+web job runs `make web`, the budget and `make web-test` instead of `make web-check`; the lander builds the
+bundle again for every picked commit that touches `web/` (a failed build keeps the committed one, for the gate
+to judge), and `make web` refuses untracked files under `web/`. A commit that is not
 the tip of a `ready/*` ref in the checkout (the refs are missing, or the change was queued again)
 fails closed, never tested alone. On the replayed tree it runs the Windows tests of the packages
 the chain can break (`scripts/ready-check-plan.sh` reads the union of the paths of each queued
@@ -1484,11 +1489,10 @@ run. `make ready AFTER=<slug>` cancels the run still going on `ready/<slug>`, be
 warning line when GitHub refuses): that change is no longer its unit's tip. A unit's verdict is the pre-check of its tips, the others' are not
 read: red if one is red, else running if one runs, else green (green or no verdict: none started
 within `LAND_PRECHECK_START`, 5 minutes, still running past `LAND_PRECHECK_WAIT`, 20 minutes,
-cancelled, or GitHub did not answer). A train of several units takes only green ones; when none
-is, the oldest unit whose verdict is running is gated alone, else the oldest red one (the log names
-its failed jobs). Before composing, the lander waits (**collection window**) while fewer than
+cancelled, or GitHub did not answer). A train takes every unit that is not red, a running one like
+a green one; when none is, the oldest red one is gated alone (the log names its failed jobs). Before composing, the lander waits (**collection window**) while fewer than
 `LAND_WINDOW_MIN` (4) landable changes are green, the oldest landable one was queued less than
-`LAND_WINDOW` (600 s) ago and none carries `Lander-Now: yes` (`make ready NOW=1`): it logs
+`LAND_WINDOW` (900 s) ago and none carries `Lander-Now: yes` (`make ready NOW=1`): it logs
 `collecting: ...` once and looks again every `LAND_POLL`, so a change queued meanwhile joins the
 train; `LAND_WINDOW=0` turns it off. `make land-status` prints each unit with its state (`waits on
 rejected <slug>`, `held`, `frozen`, or `pre-check: ok | running | red | none | unknown`, a red one

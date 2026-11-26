@@ -72,7 +72,7 @@
 #
 # Collection window: before composing, the lander waits while fewer than LAND_WINDOW_MIN (4)
 # landable changes have a green pre-check verdict, the oldest landable change was queued (committer
-# time) less than LAND_WINDOW (600 s) ago and none carries `Lander-Now: yes` (`make ready NOW=1`):
+# time) less than LAND_WINDOW (900 s) ago and none carries `Lander-Now: yes` (`make ready NOW=1`):
 # it logs `collecting: ...` once, sleeps LAND_POLL and looks again, so a change queued meanwhile
 # lands in the same train. LAND_WINDOW=0 turns it off; a dry run never waits.
 #
@@ -83,10 +83,16 @@
 # follows through Lander-After. A unit's verdict is
 # its tips' pre-checks (the others' are not read): red if one is red, else running if one runs,
 # else green (green, or no verdict: none started within LAND_PRECHECK_START, still running past
-# LAND_PRECHECK_WAIT, cancelled, or GitHub did not answer). A train of several units takes only
-# green ones. When none is, the oldest unit whose verdict is running is gated alone, else the
-# oldest red one: no gate waits on a pre-check, and a unit that breaks a leg costs one gate of
-# its own instead of a red train and its bisection.
+# LAND_PRECHECK_WAIT, cancelled, or GitHub did not answer). A train takes every unit that is not
+# red, a running one like a green one (amending D1877): the change was reviewed with a green
+# make check-hosted, and the train gate runs every leg of the pre-check. When none is, the oldest
+# red unit is gated alone: no gate waits on a pre-check, and a unit that breaks a leg costs one gate
+# of its own instead of a red train and its bisection.
+#
+# A picked commit that touches web/ gets its Atlas bundle built again (build_bundle) before it
+# joins the train, whatever the author committed: a bundle built before a new file was added to git
+# hashes other sources than the ones that land. A build that fails keeps the committed bundle, and
+# the gate's TestBundleMatchesSource judges it.
 #
 # A rejected change moves to `refs/heads/failed/<slug>`: a commit on top of it whose
 # message is the reason, readable from any clone (`git log -1 origin/failed/<slug>`). A member
@@ -123,7 +129,7 @@
 #
 #   LAND_INFRA_TRIES (3)  LAND_INFRA_WAIT (120 s): also the retries of a failed fetch of origin
 #   LAND_GH_TIMEOUT (120 s: every gh call, and the freeze read, is killed past it)
-#   LAND_WINDOW (600 s)  LAND_WINDOW_MIN (4 green changes)
+#   LAND_WINDOW (900 s)  LAND_WINDOW_MIN (4 green changes)
 #   LAND_MAX (8)  LAND_POLL (30 s)  LAND_MERGE_TRIES (90 polls)  LAND_OPEN_TRIES (120 polls)  LAND_STATE (state dir)
 #   LAND_TRAIN_STALE (21600 s: a train's tip keeps its composition time through the gate, the
 #     re-run of a red one and a full bisection, several gates in all)  LAND_FORCE  LAND_SELF
@@ -232,7 +238,7 @@ mkdir -p "$state" && chmod 700 "$state" 2>/dev/null || true
 status_file=$state/status.json freeze_file=$state/freeze
 max=${LAND_MAX:-8}
 poll=${LAND_POLL:-30}
-window=${LAND_WINDOW:-600}
+window=${LAND_WINDOW:-900}
 wmin=${LAND_WINDOW_MIN:-4}
 
 # The checkout $state/src is reset by one starting lander at a time. The lock is a symlink,
@@ -638,12 +644,12 @@ unit_name() {
 # units, the members of each in their Lander-After order; U_SIZE, U_FIRST (the first member's
 # slug) and U_TIP (the last tip in queue order, "<slug> <sha>") describe each unit by number.
 # A blocked, held or frozen unit is not taken, nor one whose Lander-After lines loop; of the
-# others, the units whose tips' pre-checks are green, as many as LAND_MAX changes hold, else
-# one unit alone (see the header). The pre-checks of the members that are not tips are not read.
+# others, the units whose tips' pre-checks are not red, as many as LAND_MAX changes hold, else
+# the oldest red unit alone (see the header). The pre-checks of the members that are not tips are not read.
 # While the collection window is open (window_close) it composes nothing and sets WINDOW_OPEN, with
 # WIN_QUEUED and WIN_GREEN (the landable and the green changes) and WIN_CLOSE (an epoch).
 compose() {
-  local q freeze=false failed n c i j p size order done_ found tip state v pv total ok_units= wait_unit= red_unit= u=0 lines rid ct
+  local q freeze=false failed n c i j p size order done_ found tip state v pv total ok_units= red_unit= u=0 lines rid ct
   local win_n=0 win_ok=0 win_old= win_now=
   q=$(queue)
   TRAIN=
@@ -707,8 +713,7 @@ compose() {
     [ "$v" != ok ] || win_ok=$((win_ok + size))
     U_SIZE[u]=$size U_FIRST[u]=${order%% *} U_TIP[u]=$tip U_LINES[u]=$order U_RID[u]=$rid
     case "$v" in
-      ok) ok_units="$ok_units $u" ;;
-      wait) [ -n "$wait_unit" ] || wait_unit=$u ;;
+      ok | wait) ok_units="$ok_units $u" ;;
       red) [ -n "$red_unit" ] || red_unit=$u ;;
     esac
     u=$((u + 1))
@@ -735,15 +740,6 @@ compose() {
     total=$((total + size))
   done
   [ -z "$TRAIN" ] || return 0
-  if [ -n "$wait_unit" ]; then
-    TRAIN=${U_LINES[wait_unit]}
-    if [ "${U_SIZE[wait_unit]}" = 1 ]; then
-      log "${U_FIRST[wait_unit]}: its hosted pre-check is still running and nothing else is ready: gated alone"
-    else
-      log "$(unit_name "$wait_unit") (${U_SIZE[wait_unit]} changes): the hosted pre-check of its tip is still running and nothing else is ready: gated alone"
-    fi
-    return 0
-  fi
   [ -n "$red_unit" ] || return 0
   TRAIN=${U_LINES[red_unit]}
   rid=$(failed_jobs "${U_RID[red_unit]}")
@@ -1571,7 +1567,12 @@ while :; do
       $dry || g push -q origin --delete "failed/$s" >/dev/null 2>&1 || true
       continue
     fi
-    if ! git cherry-pick --allow-empty "$sha" >/dev/null 2>&1 && ! bundle_pick "$s"; then
+    pick_built=false
+    if git cherry-pick --allow-empty "$sha" >/dev/null 2>&1; then
+      :
+    elif bundle_pick "$s"; then
+      pick_built=true
+    else
       git cherry-pick --abort >/dev/null 2>&1 || true
       git reset -q --hard
       # An edit of a pending decision whose first change landed numbered: applied to D<n>-<slug>.md.
@@ -1591,6 +1592,22 @@ while :; do
         fi
         reject_member "$s" "$sha" "conflict: it does not apply on main plus the changes before it in the train$hint"
         continue
+      fi
+    fi
+    # The queued diff adds a citation under web/ (the files numbering rewrites only, not _test.go
+    # or testdata/): its bundle is built again after the numbering. Read from the queued commit,
+    # not from what the numbering rewrites: remap_pick has already rewritten a landed citation.
+    # grep without -q reads all of the diff: an early exit would SIGPIPE git show under pipefail.
+    cites=false
+    if git show "$sha" -- web/ ':(exclude)*_test.go' ':(exclude)*/testdata/*' | grep '^+.*D-new-' >/dev/null; then cites=true; fi
+    # Any other commit touching web/: its bundle is built again here, staged for the amend below.
+    if ! $pick_built && ! $cites && [ -n "$(git diff --name-only "HEAD^" HEAD -- web/)" ]; then
+      # A tree with no bundle (a toy repository of the tests) has nothing to stage.
+      if build_bundle "$s" "it touches web/:"; then
+        [ ! -d internal/webui/dist ] || git add -A internal/webui/dist
+      else
+        git checkout -q -- internal/webui/dist 2>/dev/null || true
+        git clean -qfd -- internal/webui/dist 2>/dev/null || true
       fi
     fi
     tip=$(trailer Lander-Tip "$sha")
@@ -1646,13 +1663,7 @@ while :; do
       reject_member "$s" "$sha" "$DUP"
       continue
     fi
-    # The queued diff adds a citation under web/ (the files numbering rewrites only, not _test.go
-    # or testdata/): its bundle is built again after the numbering. Read from the queued commit,
-    # not from what the numbering rewrites: remap_pick has already rewritten a landed citation.
-    # grep without -q reads all of the diff: an early exit would SIGPIPE git show under pipefail.
-    if git show "$sha" -- web/ ':(exclude)*_test.go' ':(exclude)*/testdata/*' | grep '^+.*D-new-' >/dev/null; then
-      WEBC="$WEBC ${#commits[@]}"
-    fi
+    if $cites; then WEBC="$WEBC ${#commits[@]}"; fi
     landed=${landed:+$landed$'\n'}"$s $sha"
     commits+=("$(git rev-parse HEAD)") cunit+=("$u")
   done <<<"$TRAIN"
