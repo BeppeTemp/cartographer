@@ -136,6 +136,7 @@ export function pageCategories(
 const LABELS: Record<string, string> = {
   unknown_type: "Pages with a type the KB does not declare",
   broken_link: "Broken links",
+  broken_cross_kb_link: "Broken cross-KB links",
   broken_relation: "Fields pointing to a missing page",
   orphan: "Pages nothing links to",
   junk_file: "Junk files",
@@ -282,6 +283,7 @@ const HELP: Record<string, string> = {
   template_section_order: "The template's sections in a different order.",
   // Links
   broken_link: "A link to a page that does not exist.",
+  broken_cross_kb_link: "A link to a page that does not exist in the other KB, or that names this KB itself.",
   duplicate_link: "The same link listed twice in one list.",
   reciprocal_link_item: 'A "see also" entry the graph already shows as a back-link: one more thing to keep in sync.',
   bare_link_list: "A list of links with no word on why each one matters.",
@@ -341,6 +343,7 @@ const DECIDE: Record<string, string> = {
   unknown_type: "Declare the type in the KB, or give the pages one it already has.",
   orphan: "Link each page to what it relates to, or retire it.",
   broken_link: "Point the link at the right page, or remove it.",
+  broken_cross_kb_link: "Point the link at the right page of that KB, remove it, or write `[[id]]` when it names this KB.",
   broken_relation: "Point the field at the right page, or clear it.",
   index_incomplete: "Add the page to its map's index, or let the server keep the index.",
   index_lists_retired: "Drop the retired page from the index.",

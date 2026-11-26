@@ -127,8 +127,18 @@ func plainText(s string) string {
 	for i := 0; i < len(parts); i += 2 {
 		parts[i] = tagRe.ReplaceAllString(parts[i], "")
 	}
-	s = strings.Join(parts, "`")
-	s = strings.NewReplacer("`", "", "**", "", "__", "", "*", "").Replace(s)
+	// A code span holding "[[" keeps its backticks: the sentence lands in a
+	// generated index line, and without them `[[kb:a/b]]` would read as a real
+	// (or malformed) wiki-link there, since link extraction masks only code.
+	em := strings.NewReplacer("**", "", "__", "", "*", "")
+	for i := range parts {
+		if i%2 == 1 && strings.Contains(parts[i], "[[") && i < len(parts)-1 {
+			parts[i] = "`" + parts[i] + "`"
+		} else {
+			parts[i] = em.Replace(parts[i])
+		}
+	}
+	s = strings.Join(parts, "")
 	return strings.Join(strings.Fields(s), " ")
 }
 

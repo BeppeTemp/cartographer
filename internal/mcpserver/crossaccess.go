@@ -2,6 +2,8 @@ package mcpserver
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"sort"
 	"strings"
@@ -54,26 +56,39 @@ func crossReadable(ctx context.Context, k *kb.KB, name string) bool {
 // crossFindingVisible is the threshold for a finding about other KBs: visible
 // only when the caller reads every KB it names. A finding that names none
 // follows the page, decided by the caller of this function.
+//
+// An orphan carries ClearedBy instead: the shared lint always reports it, and
+// a caller who reads whole one of the KBs whose resolved edges would clear it
+// is not shown it. A caller who reads none sees it whether or not the page it
+// links, or that links it, exists there: the verdict is no existence oracle.
 func crossFindingVisible(ctx context.Context, k *kb.KB, f lint.Finding) bool {
 	for _, n := range f.OtherKBs {
 		if !crossReadable(ctx, k, n) {
 			return false
 		}
 	}
+	for _, n := range f.ClearedBy {
+		if crossReadable(ctx, k, n) {
+			return false
+		}
+	}
 	return true
 }
+
+// crossNamed says whether a finding's visibility depends on other KBs.
+func crossNamed(f lint.Finding) bool { return len(f.OtherKBs) > 0 || len(f.ClearedBy) > 0 }
 
 // lintFilteredFor drops the findings the caller may not be told of because they
 // name another KB, before anything is counted. The unfiltered call sites of a
 // whole-KB tool (lint, gate_check, the doctor nudge) go through it.
 func lintFilteredFor(ctx context.Context, k *kb.KB, findings []lint.Finding) []lint.Finding {
 	for i, f := range findings {
-		if len(f.OtherKBs) == 0 || crossFindingVisible(ctx, k, f) {
+		if !crossNamed(f) || crossFindingVisible(ctx, k, f) {
 			continue
 		}
 		out := append([]lint.Finding(nil), findings[:i]...)
 		for _, g := range findings[i+1:] {
-			if len(g.OtherKBs) == 0 || crossFindingVisible(ctx, k, g) {
+			if !crossNamed(g) || crossFindingVisible(ctx, k, g) {
 				out = append(out, g)
 			}
 		}
@@ -125,20 +140,31 @@ func bindHint(ctx context.Context, canonical string) string {
 }
 
 // crossNamedKBs are the KBs a cached whole-KB body of k depends on for the
-// caller's rights: here the cross-linked ones. An error gives the empty list
-// (A's own graph failing fails the request that follows); it never has a
-// fingerprint value of its own.
+// caller's rights: the ones k links out to and the ones with a page linking in
+// (an orphan's ClearedBy names both). Sorted, without duplicates. An error of
+// either part leaves the names the other gave (A's own graph failing fails the
+// request that follows); it never has a fingerprint value of its own.
 func crossNamedKBs(k *kb.KB) []string {
-	names, err := k.CrossLinkedKBs()
-	if err != nil {
+	out, _ := k.CrossLinkedKBs()
+	in, _ := k.CrossInboundKBs()
+	set := map[string]bool{}
+	for _, n := range append(out, in...) {
+		set[n] = true
+	}
+	if len(set) == 0 {
 		return nil
 	}
+	names := make([]string, 0, len(set))
+	for n := range set {
+		names = append(names, n)
+	}
+	sort.Strings(names)
 	return names
 }
 
-// crossFingerprint extends the whole-KB cache key with the linked KBs the
-// caller reads, so two callers with different rights never share a body whose
-// counts depend on them. A KB with no cross link keeps the plain key.
+// crossFingerprint extends the whole-KB cache key with the linked KBs (out and
+// in) the caller reads, so two callers with different rights never share a body whose
+// counts depend on them. A KB with no cross link, in or out, keeps the plain key.
 func crossFingerprint(ctx context.Context, k *kb.KB) string {
 	named := crossNamedKBs(k)
 	if len(named) == 0 {
@@ -152,4 +178,34 @@ func crossFingerprint(ctx context.Context, k *kb.KB) string {
 	}
 	sort.Strings(read)
 	return "+x:" + strings.Join(read, ",")
+}
+
+// crossStamp is the part of the lint-cache key that other KBs move: whether
+// each page this KB links across exists there (broken_cross_kb_link), and the
+// links other KBs hold toward this one (orphan). Without cross links both are
+// empty and so is the stamp: a KB that uses none keeps its key. An unreadable
+// KB is left out (its link is no finding), except in the inbound digest, whose
+// "unknown:" value changes again when the KB recovers.
+func crossStamp(k *kb.KB) string {
+	inbound := k.CrossInboundDigest()
+	links, err := k.CrossLinks()
+	var out []string
+	if err == nil {
+		var uniq []kb.CrossLink
+		for _, ls := range links {
+			uniq = append(uniq, ls...)
+		}
+		for i, t := range k.CrossTargets(uniq) {
+			if t.Mounted && t.Err == nil {
+				out = append(out, fmt.Sprintf("%s\x00%s\x00%t", k.Mounts().Canonical(uniq[i].KB), uniq[i].ID, t.Exists))
+			}
+		}
+	}
+	if len(out) == 0 && inbound == "" {
+		return ""
+	}
+	sort.Strings(out)
+	h := sha256.New()
+	fmt.Fprintf(h, "%s\n%s", inbound, strings.Join(out, "\n"))
+	return hex.EncodeToString(h.Sum(nil))
 }

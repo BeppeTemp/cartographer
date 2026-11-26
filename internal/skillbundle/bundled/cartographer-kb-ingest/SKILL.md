@@ -103,7 +103,7 @@ with its fix. Write what the gate accepts:
   true` on its creating write, and a link to it from the page that owns the nearest subject. The
   map's index is not a link: a page no concept links to is an orphan (one at the map's top level
   escapes only by linking out).
-- **Link, don't copy**: a fact another page owns is a `[[id]]` link to that page, not a second copy.
+- **Link, don't copy**: a fact another page owns is a `[[id]]` link to that page, not a second copy; a fact owned by a page of another mounted KB is `[[kb:<name>/<id>]]` (a link only if that KB is readable and served on the connection, otherwise plain text).
 - Open work is a checkbox (`- [ ] …`) on the page that owns it, never a `TODO`/`TBD`/`FIXME`
   marker; an unknown is a `Contradiction`, or the checkbox fallback of step 7.
 - Credentials found in the source never go into a page: store them with `secret_set` (SOPS; see

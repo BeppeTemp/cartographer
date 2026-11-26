@@ -205,7 +205,7 @@ func TestOverviewCacheKeyAccountsForCrossRights(t *testing.T) {
 	t.Parallel()
 	r := newCrossRig(t)
 	callers := crossCallers()
-	if fp := crossFingerprint(callers["admin"], r.b); fp != "" {
+	if fp := crossFingerprint(callers["admin"], r.c); fp != "" {
 		t.Errorf("a KB with no cross link must keep the key whole, got %q", fp)
 	}
 	reads, hides := crossFingerprint(callers["reads-a-b"], r.a), crossFingerprint(callers["a-only"], r.a)

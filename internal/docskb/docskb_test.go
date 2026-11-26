@@ -247,3 +247,19 @@ func TestRef(t *testing.T) {
 		}
 	}
 }
+
+func TestPlainTextCodeSpanWithWikiLink(t *testing.T) {
+	if got, want := plainText("see `[[kb:a/b]]` here"), "see `[[kb:a/b]]` here"; got != want {
+		t.Errorf("plainText keeps a code span holding [[: got %q, want %q", got, want)
+	}
+	if got, want := plainText("`--flag` and **bold**"), "--flag and bold"; got != want {
+		t.Errorf("plainText = %q, want %q", got, want)
+	}
+	// An unclosed backtick is not a code span.
+	if got, want := plainText("a ` [[x]]"), "a [[x]]"; got != want {
+		t.Errorf("plainText unclosed = %q, want %q", got, want)
+	}
+	if got, want := githubAnchor(plainText("Link `[[kb:<name>/<id>]]` syntax")), "link-kbnameid-syntax"; got != want {
+		t.Errorf("anchor = %q, want %q", got, want)
+	}
+}

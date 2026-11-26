@@ -184,7 +184,7 @@ func ScopedCheck(k *kb.KB, ids []okf.ConceptID) []Finding {
 				census = newLiveCensus(lg)
 			}
 			return census.only(id, archiveSet)
-		}); ok {
+		}, func() []string { return crossEdgeIn(k, id) }, func() []string { return crossEdgeOut(k, data.Body) }); ok {
 			emit(f)
 		}
 		for _, f := range st.brokenRelation(id, relPath, lg.Facets[node]) {
