@@ -96,14 +96,20 @@ func uiStampAt(k *kb.KB, maxAge time.Duration) (string, error) {
 }
 
 // uiWholeStamp is the stamp of the routes that also read the files around the
-// concepts (collections' metadata, artifacts, usage): the graph generation and
-// the lint inputs stamp, which holds every other file (D294).
+// concepts (collections' metadata, artifacts, usage): the graph generation, the
+// lint inputs stamp, which holds every other file (D294), and the relation stamp.
 func uiWholeStamp(k *kb.KB) (string, error) {
 	g, err := uiGraphStamp(k)
 	if err != nil {
 		return "", err
 	}
-	return g + "|" + lintInputsStamp(k), nil
+	st := g + "|" + lintInputsStamp(k)
+	// The relations resolve against the server's mounts: what they resolve to
+	// moves the body. A KB that declares none keeps its stamp.
+	if rs := relationStamp(k); rs != "" {
+		st += "|" + rs
+	}
+	return st, nil
 }
 
 // uiVisibleFingerprint names the set of concepts the caller sees.

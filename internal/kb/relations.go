@@ -156,6 +156,9 @@ var relationsMaxAge = 3 * time.Second
 // NormalizedOrigin (tests only: it is how they assert the memo holds).
 var relationsGitReads atomic.Int64
 
+// RelationsGitReads is relationsGitReads for the tests of other packages.
+func RelationsGitReads() int64 { return relationsGitReads.Load() }
+
 // relationsMemo is the memory of Relations and NormalizedOrigin of one KB.
 type relationsMemo struct {
 	mu sync.Mutex

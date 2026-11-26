@@ -1,15 +1,16 @@
 package mcpserver
 
 import (
-	"github.com/BeppeTemp/cartographer/internal/kb"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/BeppeTemp/cartographer/internal/auth"
+	"github.com/BeppeTemp/cartographer/internal/kb"
 )
 
 // The four routes that open a KB answer from the body cache: a repeat computes
@@ -202,5 +203,85 @@ func TestUIAPI_BodyCacheKeysOnlyTheParametersARouteReads(t *testing.T) {
 	}
 	if bytes <= 0 || bytes > uiBodyCacheBytes {
 		t.Errorf("cache bytes %d outside (0, %d]", bytes, uiBodyCacheBytes)
+	}
+}
+
+// AC-kbrel-19
+func TestCrossNamedKBsIncludesRelations(t *testing.T) {
+	t.Parallel()
+	f := newRelFixture(t, []string{"client-kb-1", "core-kb", "base-kb", "lone-kb"}, map[string][][2]string{
+		"client-kb-1": {{"core-kb", "core-kb"}, {"gone-kb", "gone-kb"}},
+		"core-kb":     {{"base-kb", "base-kb"}},
+	})
+	named := crossNamedKBs(f.byName["client-kb-1"])
+	if strings.Join(named, ",") != "base-kb,core-kb,gone-kb" {
+		t.Errorf("crossNamedKBs = %v, want the declared and the reached KBs", named)
+	}
+	reads := crossFingerprint(readsOnly("client-kb-1", "core-kb", "base-kb"), f.byName["client-kb-1"])
+	hides := crossFingerprint(readsOnly("client-kb-1", "core-kb"), f.byName["client-kb-1"])
+	if reads == "" || hides == "" || reads == hides {
+		t.Errorf("fingerprints reads=%q hides=%q must differ by the right on a reached KB", reads, hides)
+	}
+	if fp := crossFingerprint(readsOnly("lone-kb"), f.byName["lone-kb"]); fp != "" {
+		t.Errorf("a KB with no relation and no cross link must keep the key whole, got %q", fp)
+	}
+}
+
+// AC-kbrel-20
+func TestRelationStampMovesWithTheMounts(t *testing.T) {
+	// Not parallel: it reads the process-wide git read counter.
+	f := newRelFixture(t, []string{"client-kb-1", "core-kb", "lone-kb"}, map[string][][2]string{
+		"client-kb-1": {{"core-kb", "core-kb"}},
+	})
+	c, lone := f.byName["client-kb-1"], f.byName["lone-kb"]
+	plain := func(k *kb.KB) string {
+		g, err := uiGraphStamp(k)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return g + "|" + lintInputsStamp(k)
+	}
+	if st, err := uiWholeStamp(lone); err != nil || st != plain(lone) {
+		t.Errorf("a KB with no relations changed its stamp: %q, %v", st, err)
+	}
+	// core-kb is not mounted for client-kb-1 yet.
+	c.SetMounts(kb.NewMounts(map[string]*kb.KB{"client-kb-1": c}, []string{"client-kb-1"}, nil))
+	before, err := uiWholeStamp(c)
+	if err != nil || before == plain(c) {
+		t.Fatalf("a KB with relations must carry a relation stamp: %q, %v", before, err)
+	}
+	c.SetMounts(kb.NewMounts(f.byName, []string{"client-kb-1", "core-kb", "lone-kb"}, nil))
+	after, err := uiWholeStamp(c)
+	if err != nil || after == before {
+		t.Errorf("mounting the target did not move the stamp: %q -> %q", before, after)
+	}
+	// 1000 reads within the age make no git read beyond the first.
+	reads := kb.RelationsGitReads()
+	for i := 0; i < 1000; i++ {
+		_ = relationStamp(c)
+	}
+	if got := kb.RelationsGitReads(); got != reads {
+		t.Errorf("1000 stamp reads made %d git reads", got-reads)
+	}
+}
+
+// AC-kbrel-20
+func TestRelationStampOnError(t *testing.T) {
+	t.Parallel()
+	f := newRelFixture(t, []string{"client-kb-1", "core-kb"}, map[string][][2]string{
+		"client-kb-1": {{"core-kb", "core-kb"}},
+	}, "client-kb-1") // no default branch known yet: reading its relations fails
+	c := f.byName["client-kb-1"]
+	failed := relationStamp(c)
+	if failed != relationStampUnavailable || failed == "" {
+		t.Fatalf("a failing read must give the fixed value, got %q", failed)
+	}
+	if names, err := relationNames(c); err == nil || names != nil {
+		t.Errorf("relationNames must report the error, got %v, %v", names, err)
+	}
+	relGit(t, c, "update-ref", "refs/remotes/origin/main", "HEAD")
+	relGit(t, c, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+	if ok := relationStamp(c); ok == relationStampUnavailable || ok == "" {
+		t.Errorf("after the read recovers the stamp must be a real digest, got %q", ok)
 	}
 }

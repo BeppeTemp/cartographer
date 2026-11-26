@@ -2,6 +2,10 @@ package mcpserver
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"sort"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
@@ -43,4 +47,65 @@ func pulledRelations(ctx context.Context, k *kb.KB) (contract.Relations, error) 
 		out.Unresolved = append(out.Unresolved, contract.RelationUnresolved{Name: u.Name, Remote: u.Remote, Reason: u.Reason})
 	}
 	return out, nil
+}
+
+// relationStampUnavailable is the stamp of a KB whose relations could not be
+// read. It is never "", which means "declares none", so the cached body of a
+// failed read is recomputed when the read works again and is never taken for a
+// "no relations" body.
+const relationStampUnavailable = "rel-unavailable"
+
+// relationNames are the KBs the relations of k make a cached whole-KB body
+// depend on: every KB the admin-eye resolution looked at, plus the current
+// name of each declared target (mounted or not). Sorted, without duplicates.
+func relationNames(k *kb.KB) ([]string, error) {
+	v, err := kb.ResolveRelations(kb.RelationEnv{Mounts: k.Mounts()}, k)
+	if err != nil {
+		return nil, err
+	}
+	if len(v.Declared) == 0 {
+		return nil, nil
+	}
+	set := map[string]bool{}
+	for _, n := range v.Visited() {
+		set[n] = true
+	}
+	for _, d := range v.Declared {
+		n := d.Name
+		if m := k.Mounts(); m != nil {
+			n = m.Canonical(n)
+		}
+		set[n] = true
+	}
+	names := make([]string, 0, len(set))
+	for n := range set {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
+// relationStamp is the part of the whole-KB stamp that the relations of k
+// move: a digest of the admin-eye view and the names it looked at. It is empty
+// for a KB that declares none, so such a KB keeps its stamp, and
+// relationStampUnavailable when the resolution fails. It reads memory only
+// within the relations age (kb.Relations, kb.NormalizedOrigin): no git call
+// per request.
+func relationStamp(k *kb.KB) string {
+	v, err := kb.ResolveRelations(kb.RelationEnv{Mounts: k.Mounts()}, k)
+	if err != nil {
+		return relationStampUnavailable
+	}
+	if len(v.Declared) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(struct {
+		View    kb.RelationView
+		Visited []string
+	}{v, v.Visited()})
+	if err != nil {
+		return relationStampUnavailable
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
 }
