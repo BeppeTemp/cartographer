@@ -639,7 +639,7 @@ func warnBindsHome(w io.Writer, provider, canonical string) {
 	if canonical == "" || filepath.Clean(canonical) != filepath.Clean(home) {
 		return
 	}
-	fmt.Fprintf(w, "warning: %s is bound to your home directory: everything the KB distributes now reaches every session of %s, whatever the folder; bind a narrower folder (for example $HOME/projects/<area>) to keep it there\n", provider, provider)
+	fmt.Fprintf(w, "warning: %s is bound to your home directory: everything the KB distributes now reaches every session of %s, whatever the folder; bind a narrower folder (for example $HOME/projects/<area>) to keep it there; to have only a KB's instructions and read access everywhere, run cartographer client kb <kb> --transversal=true\n", provider, provider)
 }
 
 // codexTrustStep is the Codex project-trust part of `workspace bind` (D1074),

@@ -55,6 +55,7 @@ func (e *providerEntry) UnmarshalYAML(node *yaml.Node) error {
 type kbEntry struct {
 	Access      string   `yaml:"access,omitempty"`
 	Artifacts   *bool    `yaml:"artifacts,omitempty"`
+	Transversal bool     `yaml:"transversal,omitempty"`
 	Identity    *string  `yaml:"identity,omitempty"`
 	SigningKeys []string `yaml:"signing_keys,omitempty"`
 }
@@ -103,7 +104,7 @@ func (c *Config) groups() (defaultsGroup, map[string]providerEntry, map[string]k
 	}
 	kbs := map[string]kbEntry{}
 	for kb, o := range c.KBOptions {
-		kbs[kb] = kbEntry{Access: o.Access, Artifacts: o.Artifacts}
+		kbs[kb] = kbEntry{Access: o.Access, Artifacts: o.Artifacts, Transversal: o.Transversal}
 	}
 	for kb, v := range c.Identities {
 		e := kbs[kb]
@@ -188,13 +189,16 @@ func (c *Config) applyGroups(y *yamlConfig, path string) error {
 	}
 	for _, kb := range sortedNames(y.KnowledgeBases) {
 		e := y.KnowledgeBases[kb]
-		if e.Access != "" || e.Artifacts != nil {
+		if e.Access != "" || e.Artifacts != nil || e.Transversal {
 			o := c.KBOptions[kb]
 			if e.Access != "" {
 				o.Access = e.Access
 			}
 			if e.Artifacts != nil {
 				o.Artifacts = e.Artifacts
+			}
+			if e.Transversal {
+				o.Transversal = true
 			}
 			if c.KBOptions == nil {
 				c.KBOptions = map[string]KBOption{}

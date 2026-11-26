@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -14,6 +15,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
+	"github.com/BeppeTemp/cartographer/internal/provisioning"
 )
 
 // cmdClient manages the per-provider KB binding (D169): which Knowledge Bases
@@ -89,7 +91,7 @@ func printClientUsage(w *os.File) {
 	fmt.Fprintln(w, "       cartographer client update [--check=true|false]")
 	fmt.Fprintln(w, "       cartographer client realign [--reorder]   brings the file up to date; --reorder also writes its keys in the order of the settings table")
 	fmt.Fprintln(w, "       cartographer client symlinks <provider> [--add <path>] [--remove <path>]   lists or edits the links writes may follow")
-	fmt.Fprintln(w, "       cartographer client kb <kb> [--artifacts=true|false] [--access=read|write]   shows or sets the KB's options on every provider")
+	fmt.Fprintln(w, "       cartographer client kb <kb> [--artifacts=true|false] [--access=read|write] [--transversal=true|false]   shows or sets the KB's options on every provider")
 }
 
 // clientRealign is `sync`'s realignment of the client file on demand
@@ -175,6 +177,7 @@ func clientKB(dir string, cfg *clientconfig.Config, args []string) int {
 	fs.SetOutput(os.Stderr)
 	artifacts := fs.String("artifacts", "", "Sync the KB's skills, subagents, hooks and MCP descriptors: true or false")
 	access := fs.String("access", "", "Connect the KB read-only (read) or read-write (write, the default) on every provider")
+	transversal := fs.String("transversal", "", "Give every session of a provider in workspace scope the KB's instructions and read access, wherever the folder is bound: true or false")
 	if err := fs.Parse(flagArgs); err != nil || fs.NArg() != 0 || kb == "" {
 		printClientUsage(os.Stderr)
 		return 2
@@ -202,6 +205,18 @@ func clientKB(dir string, cfg *clientconfig.Config, args []string) int {
 		}
 		changed = true
 	}
+	if *transversal != "" {
+		v, err := strconv.ParseBool(*transversal)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: invalid --transversal %q (want true or false)\n", *transversal)
+			return 2
+		}
+		if !slices.Contains(cfg.KnownKBs, kb) {
+			fmt.Fprintf(os.Stderr, "warning: %q is not among the KBs the server last advertised; the setting is saved and applies if it is mounted\n", kb)
+		}
+		cfg.SetKBTransversal(kb, v)
+		changed = true
+	}
 	if changed {
 		if code := saveClientConfig(dir, cfg); code != 0 {
 			return code
@@ -209,10 +224,30 @@ func clientKB(dir string, cfg *clientconfig.Config, args []string) int {
 	}
 	fmt.Printf("%-11s %t\n", "artifacts", cfg.KBArtifacts(kb))
 	fmt.Printf("%-11s %s\n", "access", cfg.KBAccess(kb))
+	fmt.Printf("%-11s %t\n", "transversal", cfg.KBTransversal(kb))
+	if cfg.KBTransversal(kb) {
+		printTransversalNotes(os.Stdout, cfg)
+	}
 	if changed {
 		fmt.Println("run `cartographer sync` to apply")
 	}
 	return 0
+}
+
+// printTransversalNotes prints one line per connected provider the transversal
+// flag does not apply to, so a no-op is visible and not silent: a provider in
+// provider scope already receives every KB it is bound to everywhere, and one
+// that cannot be scoped to a workspace can only be in provider scope.
+func printTransversalNotes(w io.Writer, cfg *clientconfig.Config) {
+	for _, p := range cfg.Agents {
+		if reason := provisioning.ProjectScopeUnsupportedReason(configurator.Provider(p)); reason != "" {
+			fmt.Fprintf(w, "%s: cannot be scoped to a workspace (%s)\n", p, reason)
+			continue
+		}
+		if cfg.WorkspaceScope(p) != clientconfig.ScopeWorkspace {
+			fmt.Fprintf(w, "%s: provider scope, the flag has no effect (the KB reaches it as its binding says)\n", p)
+		}
+	}
 }
 
 // bindingOrigin renders where a provider's KB list came from. It is the one

@@ -596,6 +596,7 @@ the token the way `sync` does: a literal `server.token` in `.cartographer.yaml`,
 Codex, which filters the environment of an MCP server, names the variable in `env_vars`. The command
 is the one found on `PATH`, never the path of the running binary (a versioned Cellar directory). `sync`
 removes the project entries that an earlier version wrote into repositories (D717, D737).
+Binding `$HOME` makes everything a KB distributes reach every session of the provider, so `workspace bind` warns about it and names the narrower way to get only a KB's instructions and read access everywhere: `cartographer client kb <kb> --transversal=true` (the `knowledge_bases.<kb>.transversal` key; `client kb` prints, for a transversal KB, each connected provider it has no effect on: one in provider scope, where every session already gets every KB the provider receives, and one that cannot be scoped to a workspace).
 `cartographer workspace resolve [<path>]` prints which binding wins for a folder.
 
 **A repository a KB declares is bound to it (D1019).** A KB's `paths.yaml` already declares the
