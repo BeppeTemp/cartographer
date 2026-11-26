@@ -5,9 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"os"
 	"sort"
 
 	"github.com/BeppeTemp/cartographer/internal/kb"
+	"github.com/BeppeTemp/cartographer/internal/lint"
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
 )
 
@@ -108,4 +111,30 @@ func relationStamp(k *kb.KB) string {
 	}
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:])
+}
+
+// appendRelationFindings adds the relation findings (kb_relation_unresolved,
+// kb_relation_cycle) to a whole-KB lint result, after the cached lint.Run and
+// before the caller filter: they depend on the server's mounts and on other
+// KBs, so they are never part of what lint.Run caches. It is called by the
+// whole-KB read surfaces only (lint, kb_status, the Atlas overview and lint
+// route), never by gate_check, commit_gate, the doctor nudge, the lint history
+// or the repair, so a relation finding gates nothing and enters no history.
+// Who may be told of one is Finding.OtherKBs and crossFindingVisible. The
+// settings.yaml finding is a whole-KB one: a caller who does not read the KB
+// whole gets none. A read failure leaves them out and is logged, never read
+// as "all resolved". The input slice is never modified (it may be the cache's).
+func appendRelationFindings(ctx context.Context, k *kb.KB, findings []lint.Finding) []lint.Finding {
+	if !WholeVisible(ctx, k, false) {
+		return findings
+	}
+	rel, err := lint.RelationFindings(k)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cartographer: warn: lint: relation findings left out: %v\n", err)
+		return findings
+	}
+	if len(rel) == 0 {
+		return findings
+	}
+	return append(append(make([]lint.Finding, 0, len(findings)+len(rel)), findings...), rel...)
 }

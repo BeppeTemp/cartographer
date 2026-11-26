@@ -169,4 +169,30 @@ describe("Health's categories", () => {
     await user.unhover(screen.getByText("Broken links"));
     expect(dot(container, "infra/a")).toHaveAttribute("data-n", "2");
   });
+
+  // AC-kbrel-26
+  it("lists the two relation checks under the KB category with their labels", () => {
+    const rel: LintReport = {
+      findings: [
+        { path: "settings.yaml", concept: "", check: "kb_relation_unresolved", message: "m", handler: "doctor" as const },
+        { path: "settings.yaml", concept: "", check: "kb_relation_cycle", message: "m", handler: "doctor" as const },
+      ],
+      count: 2,
+      by_check: { kb_relation_unresolved: 1, kb_relation_cycle: 1 },
+    };
+    const cat: CheckCatalog = {
+      categories: ["kb"],
+      checks: [
+        { name: "kb_relation_unresolved", category: "kb", fixable: false, auto: false },
+        { name: "kb_relation_cycle", category: "kb", fixable: false, auto: false },
+      ],
+    };
+    render(page({ report: rel, checks: cat }));
+    const group = screen.getByRole("group", { name: "KB settings" });
+    const labels = within(group)
+      .getAllByRole("listitem")
+      .filter((li) => li.classList.contains("arow-item"))
+      .map((li) => li.querySelector(".arow__label")?.textContent);
+    expect(labels.sort()).toEqual(["Dependencies no mounted KB matches", "Dependency cycles"]);
+  });
 });

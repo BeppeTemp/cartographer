@@ -216,6 +216,9 @@ func toolLint(k *kb.KB) Tool {
 			if err != nil {
 				return errorResult(fmt.Sprintf("lint: %v", err)), nil
 			}
+			if params.Scope == "" {
+				findings = appendRelationFindings(ctx, k, findings)
+			}
 			// Before any count: a finding about a KB the caller cannot read is
 			// not part of what it is told, total included.
 			findings = lintFilteredFor(ctx, k, findings)
@@ -1029,6 +1032,7 @@ func toolKBStatus(k *kb.KB, misses *searchMissLog, reads *readAccessLog, serverV
 			// filter stays outside the cache so a restricted caller never sees
 			// a hidden concept's findings from a warm cache.
 			if allFindings, lerr := cc.lintFindingsCtx(ctx, k); lerr == nil {
+				allFindings = appendRelationFindings(ctx, k, allFindings)
 				vis, _ := uiVisibleFindingsFrom(ctx, k, "", allFindings)
 				result["conformance"] = summarizeConformance(vis, reviewTotal, cc.cachedDoctorDate(k), kb.DoctorSuggestionDays, time.Now().UTC())
 				// D370: the trend of the whole-KB totals, whole-KB callers only.

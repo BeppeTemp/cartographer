@@ -511,6 +511,8 @@ projections of it. This catalogue is generated from it (a test fails when it dri
 | `mcp_invalid` | kb | yes | - | - | - |
 | `missing_registry` | kb | - | - | - | - |
 | `unused_placeholder` | kb | - | - | - | - |
+| `kb_relation_unresolved` | kb | - | - | - | - |
+| `kb_relation_cycle` | kb | - | - | - | - |
 | `duplicate_candidate` | kb | - | - | - | - |
 | `zombie_work` | kb | - | - | - | - |
 | `promotion_candidate` | kb | - | - | - | - |
@@ -549,6 +551,7 @@ Every other check is avoidable at write, and the write gate refuses a write that
 | Appears with time, not with a write | `artifact_unused` | a skill or agent is flagged by the usage reports and the clock (D1043); adding one must never be refused for not having been used yet |
 | Refused by the write path before lint | `missing_frontmatter`, `unparseable_frontmatter`, `missing_type`, `concept_too_deep` | the write is refused before it is linted, so the refusal is already the gate; `lint` reports a page that reached disk another way |
 | Whole graph, map or KB, not evaluated by the write path | `unused_placeholder` | a `paths.yaml` key no page or artifact cites: it depends on every page |
+| Depends on other KBs and on the server's mounts | `kb_relation_unresolved`, `kb_relation_cycle` | a `depends_on` entry of `settings.yaml` that no mounted KB matches (not mounted, another remote, no remote, the KB itself, a chain too long) or that depends back on this KB: nothing a write does resolves it, so neither blocks a write or enters `kb_repair`. They are appended to the whole-KB result of `lint`, `kb_status` and the Atlas after the cached run, never to `gate_check`, `commit_gate`, the doctor nudge or the lint history. A caller sees one only if it reads whole the KB and every KB it names (`Finding.OtherKBs`); the three unmatched reasons share one text |
 | Not a lint finding | the review kinds (`lint.ReviewKinds`): `duplicate_candidate`, `zombie_work`, `promotion_candidate`, `glossary_gap`, `lint_judgement`, `repeated_fact`, `read_hotspot`, `scattered_work`, `status_reclassify`, `harvest_candidate`, `lesson_unpromoted`, `index_unclassified`, `template_proposal`, `map_naming`, `observation` | a `kb_review` item of the doctor's list, not gated: each closes when the pages it names are in the state it asks for (§Review keys) |
 
 ### Observations (D947)

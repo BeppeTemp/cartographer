@@ -215,6 +215,12 @@ var registry = []CheckSpec{
 	{Name: "mcp_invalid", Level: LevelKB, Panel: true, AvoidableAtWrite: true, Category: CategoryKB},
 	{Name: "missing_registry", Level: LevelKB, Category: CategoryKB},
 	{Name: "unused_placeholder", Level: LevelKB, Category: CategoryKB},
+	// A declared dependency (settings.yaml depends_on) against what this server
+	// mounts. Nothing a write can do resolves them (another KB, or the server's
+	// mounts, change), so they are neither OnWrite nor AvoidableAtWrite and
+	// never enter kb_repair. Shown only to a caller who reads every KB they name.
+	{Name: "kb_relation_unresolved", Level: LevelKB, Panel: true, Category: CategoryKB},
+	{Name: "kb_relation_cycle", Level: LevelKB, Panel: true, Category: CategoryKB},
 
 	// kb_review kinds (D298): registered so the registry is the one list of
 	// names. They are not lint findings, except repeated_fact which a write

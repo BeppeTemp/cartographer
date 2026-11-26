@@ -224,6 +224,8 @@ const LABELS: Record<string, string> = {
   artifact_unused: "Unused skills and agents",
   hook_invalid: "Invalid hooks",
   mcp_invalid: "Invalid MCP descriptors",
+  kb_relation_unresolved: "Dependencies no mounted KB matches",
+  kb_relation_cycle: "Dependency cycles",
   unused_placeholder: "Placeholders nobody uses",
 };
 
@@ -323,6 +325,8 @@ const HELP: Record<string, string> = {
   cross_kb_path: "An artifact hard-coding another KB's location.",
   hook_invalid: "A hook definition that does not parse.",
   mcp_invalid: "An MCP descriptor that does not validate.",
+  kb_relation_unresolved: "A KB this one declares it depends on (settings.yaml) that is not mounted here, or has another remote, or the KB itself.",
+  kb_relation_cycle: "A declared dependency that depends back on this KB.",
   // KB files
   junk_file: "A system or editor file tracked in git (.DS_Store, backups).",
   symlinked_path: "A symlink under data/ or services/. Concepts and assets never follow it, so what it points to is invisible.",
@@ -359,6 +363,8 @@ const DECIDE: Record<string, string> = {
   junk_asset: "Remove the file.",
   artifact_unused: "Delete the artifact, or fix its description so a client picks it up.",
   missing_registry: "Create paths.yaml declaring the placeholders the pages cite.",
+  kb_relation_unresolved: "Mount the KB on this server, correct the name or remote in depends_on, or remove the entry.",
+  kb_relation_cycle: "Remove one of the dependencies on the cycle.",
   skill_git_command: "Rewrite the step to use the tools.",
   stale_claim: "Check the page is still true, then set a new review date.",
   stale_open: "Close the work, update it, or say who it waits on.",
