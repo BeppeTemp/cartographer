@@ -498,6 +498,22 @@ func TestSystemPollSkippedSourceIsNotPolledAndFencesSurviveBackticks(t *testing.
 	}
 }
 
+// A model failure of the system poll is recorded on the feed like a feed poll's:
+// model_failed, and a retry after the back-off (#2389).
+func TestSystemPollModelFailureIsRecordedWithARetry(t *testing.T) {
+	s := newSysEnv(t)
+	s.list("namespace/a", "one")
+	s.model.err = errors.New("model API 400: prompt is too long")
+	_, _, err := s.poll()
+	if err == nil {
+		t.Fatal("the runner no longer sees the model error")
+	}
+	fe, _ := s.feed()["feed_error"].(string)
+	if !strings.HasPrefix(fe, "model_failed: entry namespace/a: model API 400") || s.feed()["feed_retry_after"] == nil {
+		t.Fatalf("feed_error = %q, retry %v", fe, s.feed()["feed_retry_after"])
+	}
+}
+
 func TestSystemVocabulariesMatchTheServer(t *testing.T) {
 	if strings.Join(kb.IngestObservedChanges, ",") != recipe.Added+","+recipe.Modified+","+recipe.Removed {
 		t.Errorf("observed_change values: %v", kb.IngestObservedChanges)

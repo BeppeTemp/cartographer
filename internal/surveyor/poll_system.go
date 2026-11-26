@@ -465,7 +465,7 @@ func (r *pollRun) systemGroup(ctx context.Context, rec recipe.Recipe, sc *sysCtx
 		if prev == nil {
 			ans, cut, bad, merr := r.model(ctx, rec, recipe.Entry{Key: c.Key, Title: title, Change: c.Kind}, sc.planBody, sc.maps, problem)
 			if merr != nil {
-				return h, "", false, merr
+				return h, "", false, r.modelFailed(ctx, recipe.Entry{Key: c.Key, Title: title, Change: c.Kind}, merr)
 			}
 			if cut {
 				return h, "", true, nil
