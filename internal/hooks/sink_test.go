@@ -195,7 +195,9 @@ func TestSink_AwaitAndAck(t *testing.T) {
 	defer l.Close()
 	rc := &sinkReceiver{}
 	s, _ := serve(t, rc.handler)
-	r := sinkReg(t, s.URL, func(h *Hook) { h.Blocking = true })
+	// One Await timeout covers both batches (BatchSize 3, 5 events): the
+	// default 2 s is too tight on a loaded runner (#2397).
+	r := sinkReg(t, s.URL, func(h *Hook) { h.Blocking = true; h.Timeout = 10 * time.Second })
 	appendN(t, l, 5)
 	last, _ := l.TailFunc(1, nil)
 	sk, err := r.NewSink("acme/siem", auditSource(l), nil, dir)
