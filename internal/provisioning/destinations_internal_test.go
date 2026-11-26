@@ -60,8 +60,8 @@ func TestEveryDestinationRootIsAPruneBoundary(t *testing.T) {
 				if root == ".config" && len(cell.Dir) > 1 {
 					root = filepath.Join(cell.Dir[:2]...)
 				}
-				if !provisioningRootDirs[root] {
-					t.Errorf("%s %s/%s lives under %q, which is not in provisioningRootDirs", scope, kind, provider, root)
+				if !configurator.IsRootDir(root) {
+					t.Errorf("%s %s/%s lives under %q, which is not in configurator.RootDirs", scope, kind, provider, root)
 				}
 			}
 		}
@@ -71,7 +71,7 @@ func TestEveryDestinationRootIsAPruneBoundary(t *testing.T) {
 // The walk itself stops at each root: with the last file gone from
 // <root>/x/y/, x and y are removed and the root is kept, empty.
 func TestPruneEmptyDirsKeepsEveryRoot(t *testing.T) {
-	for root := range provisioningRootDirs {
+	for _, root := range configurator.RootDirs() {
 		base := t.TempDir()
 		leaf := filepath.Join(root, "x", "y")
 		if err := os.MkdirAll(filepath.Join(base, leaf), 0o755); err != nil {

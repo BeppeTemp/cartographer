@@ -21,6 +21,11 @@ type createdLedger struct {
 	// Files maps a created file (slash path relative to baseDir) to the names
 	// of the Cartographer-owned entries it holds: MCP server names, hook names.
 	Files map[string][]string `json:"files"`
+	// Dirs lists the provisioning root directories Cartographer created (slash
+	// paths relative to baseDir, sorted, unique), only members of rootDirs. A
+	// directory that existed before, or that another process made first, is
+	// never listed; one created by an older version is unknown, so never removed.
+	Dirs []string `json:"dirs,omitempty"`
 }
 
 func readCreated(baseDir string) createdLedger {
@@ -32,12 +37,24 @@ func readCreated(baseDir string) createdLedger {
 	if l.Files == nil {
 		l.Files = map[string][]string{}
 	}
+	// Untrusted input: drop what is not a valid root, keep sorted and unique.
+	set := map[string]bool{}
+	for _, d := range l.Dirs {
+		if validLedgerDir(d) {
+			set[d] = true
+		}
+	}
+	l.Dirs = nil
+	for d := range set {
+		l.Dirs = append(l.Dirs, d)
+	}
+	sort.Strings(l.Dirs)
 	return l
 }
 
 func writeCreated(baseDir string, l createdLedger) error {
 	path := filepath.Join(baseDir, CreatedLedgerName)
-	if len(l.Files) == 0 {
+	if len(l.Files) == 0 && len(l.Dirs) == 0 {
 		if err := safewrite.Remove(baseDir, path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
@@ -58,6 +75,76 @@ func writeCreated(baseDir string, l createdLedger) error {
 func WasCreated(baseDir, rel string) bool {
 	_, ok := readCreated(baseDir).Files[filepath.ToSlash(rel)]
 	return ok
+}
+
+// NoteCreatedDirs records the root directories among rels (slash or OS paths
+// relative to baseDir) as created by Cartographer; the others are ignored.
+func NoteCreatedDirs(baseDir string, rels []string) error {
+	l := readCreated(baseDir)
+	have := map[string]bool{}
+	for _, d := range l.Dirs {
+		have[d] = true
+	}
+	changed := false
+	for _, r := range rels {
+		r = filepath.ToSlash(r)
+		if validLedgerDir(r) && !have[r] {
+			have[r] = true
+			l.Dirs = append(l.Dirs, r)
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return writeCreated(baseDir, l)
+}
+
+// WasDirCreated reports whether rel is a root directory Cartographer created,
+// per the ledger.
+func WasDirCreated(baseDir, rel string) bool {
+	rel = filepath.ToSlash(rel)
+	for _, d := range readCreated(baseDir).Dirs {
+		if d == rel {
+			return true
+		}
+	}
+	return false
+}
+
+// ForgetCreatedDir drops rel from the ledger's directories.
+func ForgetCreatedDir(baseDir, rel string) error {
+	rel = filepath.ToSlash(rel)
+	l := readCreated(baseDir)
+	kept := l.Dirs[:0]
+	for _, d := range l.Dirs {
+		if d != rel {
+			kept = append(kept, d)
+		}
+	}
+	if len(kept) == len(l.Dirs) {
+		return nil
+	}
+	l.Dirs = kept
+	return writeCreated(baseDir, l)
+}
+
+// ReconcileCreatedDirs forgets the entries whose path is no longer a directory
+// by Lstat (missing, replaced by a file or by a link): the one we created is
+// gone, so whatever is there now is the user's.
+func ReconcileCreatedDirs(baseDir string) error {
+	l := readCreated(baseDir)
+	kept := l.Dirs[:0]
+	for _, d := range l.Dirs {
+		if fi, err := os.Lstat(filepath.Join(baseDir, filepath.FromSlash(d))); err == nil && fi.IsDir() {
+			kept = append(kept, d)
+		}
+	}
+	if len(kept) == len(l.Dirs) {
+		return nil
+	}
+	l.Dirs = kept
+	return writeCreated(baseDir, l)
 }
 
 // ReconcileCreated is called before a register writes rel, which already
