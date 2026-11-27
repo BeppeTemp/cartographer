@@ -754,6 +754,21 @@ func TestCheckUnboundResidues(t *testing.T) {
 			t.Errorf("findings = %+v, want none for a default binding", findings)
 		}
 	})
+
+	t.Run("a transversal KB of a workspace provider is not a residue", func(t *testing.T) {
+		cfg := &clientconfig.Config{Agents: []string{"claude"}, KnownKBs: []string{"kb-a", "kb-b"},
+			Scopes:  map[string]string{"claude": clientconfig.ScopeWorkspace},
+			Clients: map[string]clientconfig.ClientBinding{"claude": {KBs: []string{"kb-b"}}}}
+		cfg.SetKBTransversal("kb-a", true)
+		transversal := provisioning.LockFile{Providers: map[string]provisioning.Lock{
+			"claude": {Provider: "claude", Managed: []provisioning.ManagedFile{
+				{Kind: "instructions", Name: "kb-a", Path: "e", ContentHash: "h", Source: "kb:kb-a"},
+			}},
+		}}
+		if findings := checkUnboundResidues(dir, cfg, []string{"claude"}, transversal); len(findings) != 0 {
+			t.Errorf("findings = %+v, want none: kb-a is transversal to the provider", findings)
+		}
+	})
 }
 
 // TestNoLocalServiceFor pins the single combination that is actually broken

@@ -23,7 +23,7 @@ var sourceSites = map[string]struct {
 	"cmd/cartographer/approve_migration.go":          {1, "D1141 migration: InstalledBeforeApprovals refuses a non-KB source"},
 	"cmd/cartographer/clientsync.go":                 {10, "a held KB (the server could not mount it) carries the lock entries and the region of its kb: source; a plugin entry is never one; pullTarget rejects a served source that is not the bundle or the pulled KB; kb_options apply to kb: only; kbShadowsBundle: a plugin artifact is not kb:, so it is dropped when a KB ships the same kind and name and never shadows anything"},
 	"cmd/cartographer/cliskill.go":                   {1, "bundle only"},
-	"cmd/cartographer/doctor.go":                     {2, "a plugin lock entry is a residue only when its plugin is no longer configured"},
+	"cmd/cartographer/doctor.go":                     {3, "lock entries from explicitly bound or declared transversal KBs are allowed; plugin entries are residues only when the plugin is no longer configured"},
 	"cmd/cartographer/doctor_mcpvars.go":             {2, "reads the approved KB descriptors and names their KB; a plugin descriptor has no approval entry and is skipped"},
 	"cmd/cartographer/doctor_shadow.go":              {3, "a KB artifact shadowed by a workspace file: a plugin artifact is not a KB's, so it is skipped"},
 	"cmd/cartographer/kbrename.go":                   {1, "rename prefix of a KB, unrelated"},
