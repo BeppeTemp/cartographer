@@ -51,6 +51,11 @@ type renamePlan struct {
 	// server, whose KBs this rename does not touch.
 	Bindings []string
 
+	// Options is true when this machine's client config holds a
+	// knowledge_bases.<old> entry (transversal, access, artifacts): it moves to
+	// the new name with the bindings, under the same rule (#2424).
+	Options bool
+
 	// Credentials are the KB's own files of the credentials directory
 	// (<old>.ssh, .token, .age, .signing, D905), moved to <new>.<kind> with the
 	// directory: they are looked up by KB name, so left behind the renamed KB
@@ -160,7 +165,7 @@ func cmdKBRename(args []string) int {
 		fmt.Printf("updated the kbs[] entry in %s\n", plan.ConfigPath)
 	}
 	fmt.Printf("recorded the alias %s → %s in %s (restart the server to apply it)\n", plan.Old, plan.New, config.ServerStatePath(plan.DataDir))
-	if len(plan.Bindings) > 0 {
+	if len(plan.Bindings) > 0 || plan.Options {
 		if err := rewriteBindings(plan.Old, plan.New); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: the KB is renamed, but this machine's client bindings still name %q: %v\n", plan.Old, err)
 			// Fixed text: it prints when the config could not be rewritten, so the
@@ -169,7 +174,12 @@ func cmdKBRename(args []string) int {
 			fmt.Fprintf(os.Stderr, "  rebind each one by hand: `cartographer client unbind <provider> %s` then `cartographer client bind <provider> %s` (repeat its options: [--no-lineage | --exclude <kbs>]; `cartographer client show <provider>` prints them)\n", plan.Old, plan.New)
 			return 1
 		}
-		fmt.Printf("rewrote %d client binding(s) in this machine's .cartographer.yaml\n", len(plan.Bindings))
+		if len(plan.Bindings) > 0 {
+			fmt.Printf("rewrote %d client binding(s) in this machine's .cartographer.yaml\n", len(plan.Bindings))
+		}
+		if plan.Options {
+			fmt.Printf("moved knowledge_bases.%s to knowledge_bases.%s in this machine's .cartographer.yaml\n", plan.Old, plan.New)
+		}
 	}
 	fmt.Println("every connected client realigns its MCP entries on its next `cartographer sync`.")
 	return printPostCreateGuidanceFn(*configFlag, *restartFlag)
@@ -226,6 +236,7 @@ func planKBRename(old, newName, dataDir, configPath string) (*renamePlan, error)
 	}
 	p.ClientKeys = clientRefs(old)
 	p.Bindings = bindingRefs(old)
+	p.Options = hasKBOptionRef(old)
 	return p, nil
 }
 
@@ -399,6 +410,23 @@ func bindingRefs(old string) []string {
 	return refs
 }
 
+// hasKBOptionRef reports whether this machine's client config holds per-KB
+// options (knowledge_bases.<old>) for the KB. Like bindingRefs it is false when
+// the client points at a non-loopback server: the options name that server's
+// KBs.
+func hasKBOptionRef(old string) bool {
+	dir, err := clientconfig.TargetDir()
+	if err != nil {
+		return false
+	}
+	cfg, err := clientconfig.Load(dir)
+	if err != nil || (cfg.ServerURL != "" && !isLoopbackURL(cfg.ServerURL)) {
+		return false
+	}
+	_, ok := cfg.KBOptions[old]
+	return ok
+}
+
 // rewriteBindings replaces old with new in every client and workspace binding
 // of this machine's client config, keeping each list's order. A list that
 // already names new drops old instead of naming new twice.
@@ -418,6 +446,7 @@ func rewriteBindings(old, newName string) error {
 			}
 			cfg.Workspaces[p] = ws
 		}
+		cfg.RenameKBOption(old, newName)
 		if cfg.RenameDerivedKB(old, newName) {
 			if err := clientconfig.SaveDerived(dir, cfg.Derived()); err != nil {
 				return err
@@ -480,6 +509,9 @@ func printRenamePreflight(w io.Writer, p *renamePlan) {
 	fmt.Fprintf(w, "%s: recording the alias %s → %s, so a stale routed ?kbs=%s still reaches the KB\n", config.ServerStatePath(p.DataDir), p.Old, p.New, p.Old)
 	for _, b := range p.Bindings {
 		fmt.Fprintf(w, "this machine's .cartographer.yaml: rewriting the %s binding\n", b)
+	}
+	if p.Options {
+		fmt.Fprintf(w, "this machine's .cartographer.yaml: moving knowledge_bases.%s to knowledge_bases.%s\n", p.Old, p.New)
 	}
 	for _, c := range p.Credentials {
 		fmt.Fprintf(w, "credentials: renaming %s → %s\n", c.From, c.To)

@@ -165,6 +165,26 @@ func (c *Config) HeldTransversalKBs(provider string) []string {
 	return out
 }
 
+// RenameKBOption moves old's options (artifacts, access, transversal) to newName,
+// as `kb rename` renames the KB. An entry newName already has wins and old's is
+// dropped; with newName empty the entry is dropped, as `kb unmount` does. It
+// reports whether old had an entry.
+func (c *Config) RenameKBOption(old, newName string) bool {
+	if c == nil || old == "" {
+		return false
+	}
+	o, ok := c.KBOptions[old]
+	if !ok {
+		return false
+	}
+	_, taken := c.KBOptions[newName]
+	c.setKBOption(old, KBOption{})
+	if newName != "" && !taken {
+		c.setKBOption(newName, o)
+	}
+	return true
+}
+
 // ReadOnlyKBs returns, sorted, the KBs whose access is "read".
 func (c *Config) ReadOnlyKBs() []string {
 	if c == nil {

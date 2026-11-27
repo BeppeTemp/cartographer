@@ -41,6 +41,10 @@ type unmountPlan struct {
 	Scopes     []string
 	ClientKeys []string
 	Bindings   []string
+	// Options is true when the client config holds knowledge_bases.<name>:
+	// it goes with the bindings, so a KB mounted later under the name does not
+	// inherit it (#2424).
+	Options bool
 
 	// Credentials are the KB's own files of the credentials directory. They
 	// are left in place (listed), as a clone's remote stays the source of truth:
@@ -129,6 +133,9 @@ func cmdKBUnmount(args []string) int {
 	}
 
 	fmt.Printf("KB %q unmounted\n", name)
+	if plan.Options {
+		fmt.Printf("removed knowledge_bases.%s from this machine's .cartographer.yaml\n", name)
+	}
 	switch {
 	case plan.Delete:
 		fmt.Printf("deleted the local clone %s\n", plan.KBPath)
@@ -190,6 +197,7 @@ func planKBUnmount(name, dataDir, configPath string, deleteClone bool) (*unmount
 	p.Aliases = aliasesPointingAt(aliases, name)
 	p.ClientKeys = clientRefs(name)
 	p.Bindings = bindingRefs(name)
+	p.Options = hasKBOptionRef(name)
 	p.Credentials = kbCredentialFiles(kbCredentialDir(dataDir, credCfg), name)
 
 	// TRAP: a clone left in the data dir is mounted again by discovery at the
@@ -253,6 +261,9 @@ func printUnmountPreflight(w io.Writer, p *unmountPlan) {
 	}
 	for _, b := range p.Bindings {
 		fmt.Fprintf(w, "this machine's .cartographer.yaml: removing the KB from the %s binding\n", b)
+	}
+	if p.Options {
+		fmt.Fprintf(w, "this machine's .cartographer.yaml: removing knowledge_bases.%s\n", p.Name)
 	}
 	switch {
 	case p.Delete:
@@ -320,7 +331,7 @@ func applyKBUnmount(p *unmountPlan, release func()) (backup string, err error) {
 			return backup, restore(fmt.Errorf("edit the server config: %w", err))
 		}
 	}
-	if len(p.Bindings) > 0 {
+	if len(p.Bindings) > 0 || p.Options {
 		if err := removeBindings(p.Name); err != nil {
 			return backup, restore(fmt.Errorf("remove the client bindings: %w", err))
 		}
@@ -405,6 +416,7 @@ func removeBindings(name string) error {
 			}
 			cfg.Workspaces[p] = ws
 		}
+		cfg.RenameKBOption(name, "")
 		if cfg.RenameDerivedKB(name, "") {
 			if err := clientconfig.SaveDerived(dir, cfg.Derived()); err != nil {
 				return err

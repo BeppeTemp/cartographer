@@ -241,3 +241,36 @@ func TestLegacyKBOptionsRejectTransversal(t *testing.T) {
 	// The warning every command prints once, and the realignment that drops the
 	// flag, are in kboptions_legacy_test.go.
 }
+
+func TestRenameKBOption(t *testing.T) {
+	off := false
+	c := &clientconfig.Config{KBOptions: map[string]clientconfig.KBOption{
+		"a": {Artifacts: &off, Access: clientconfig.KBAccessRead, Transversal: true},
+	}}
+	if !c.RenameKBOption("a", "b") {
+		t.Fatal("RenameKBOption reported no entry")
+	}
+	if _, ok := c.KBOptions["a"]; ok {
+		t.Errorf("old entry stays: %+v", c.KBOptions)
+	}
+	if !c.KBTransversal("b") || c.KBAccess("b") != clientconfig.KBAccessRead || c.KBArtifacts("b") {
+		t.Errorf("b = %+v, want every option moved", c.KBOptions["b"])
+	}
+	if c.RenameKBOption("a", "c") {
+		t.Error("a missing entry reports true")
+	}
+
+	// An entry the new name has wins; the old one goes.
+	c = &clientconfig.Config{KBOptions: map[string]clientconfig.KBOption{"a": {Transversal: true}, "b": {Access: clientconfig.KBAccessRead}}}
+	c.RenameKBOption("a", "b")
+	if c.KBTransversal("b") || c.KBAccess("b") != clientconfig.KBAccessRead || len(c.KBOptions) != 1 {
+		t.Errorf("collision: %+v, want only b with access read", c.KBOptions)
+	}
+
+	// An empty new name drops the entry and the map once empty.
+	c = &clientconfig.Config{KBOptions: map[string]clientconfig.KBOption{"a": {Transversal: true}}}
+	c.RenameKBOption("a", "")
+	if c.KBOptions != nil {
+		t.Errorf("drop: %+v, want nil", c.KBOptions)
+	}
+}

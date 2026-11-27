@@ -188,3 +188,28 @@ func TestCmdKBUnmount_DropsAnExcludeOnlyReference(t *testing.T) {
 		t.Errorf("workspaces.kiro[0].exclude = %v, want empty", got)
 	}
 }
+
+// kb unmount drops knowledge_bases.<name> with the bindings, so a KB mounted
+// later under that name does not inherit its transversal flag (#2424).
+func TestCmdKBUnmount_DropsPerKBOptions(t *testing.T) {
+	if !hasGitBinary() {
+		t.Skip("git not available")
+	}
+	home := writeKBOptionsClient(t, "")
+	dataDir, _ := seedPushedKB(t, "wiki")
+	cfgPath := writeServerConfig(t, "data: "+dataDir+"\nkbs:\n  - remote: https://git.example.com/user/wiki.git\n    name: wiki\n")
+	code, out := runUnmount(t, "wiki", "--data", dataDir, "--config", cfgPath)
+	if code != 0 {
+		t.Fatalf("exit = %d:\n%s", code, out)
+	}
+	if !strings.Contains(out, "removing knowledge_bases.wiki") || !strings.Contains(out, "removed knowledge_bases.wiki") {
+		t.Errorf("the preflight does not list the options:\n%s", out)
+	}
+	c, err := clientconfig.Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := c.KBOptions["wiki"]; ok {
+		t.Errorf("knowledge_bases.wiki is still there: %+v", c.KBOptions)
+	}
+}

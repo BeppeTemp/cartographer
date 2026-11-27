@@ -880,7 +880,7 @@ the bootstrap script silent and deterministic.
 
 ### `cartographer kb rename <old> <new> [--data <dir>] [--config <path>] [--local] [--restart]`
 
-Renames a KB's **mount point** offline and local (D177, D754): the directory, the matching `kbs[]` entry when there is one, the KB's credential files, an alias `{from: <old>, to: <new>}` in the server state file, and this machine's client bindings, together or neither. It never contacts a server, a client or a git remote, and the git `origin` is untouched; a cross-filesystem move fails rather than copying. `--local` acts on the local data directory even though the client points at a remote server (without it `kb rename` refuses there, D177). Details, the alias rules and `--restart` are in [deployment.md](deployment.md); `kb unmount` is its inverse.
+Renames a KB's **mount point** offline and local (D177, D754): the directory, the matching `kbs[]` entry when there is one, the KB's credential files, an alias `{from: <old>, to: <new>}` in the server state file, and this machine's client bindings and per-KB options (`knowledge_bases.<old>`: transversal, access, artifacts; an entry the new name already has wins), together or neither. It never contacts a server, a client or a git remote, and the git `origin` is untouched; a cross-filesystem move fails rather than copying. `--local` acts on the local data directory even though the client points at a remote server (without it `kb rename` refuses there, D177). Details, the alias rules and `--restart` are in [deployment.md](deployment.md); `kb unmount` is its inverse.
 
 ### `cartographer kb repair <kb> [--apply] [--json | --revert <sha> [--reason <text>]]`
 
