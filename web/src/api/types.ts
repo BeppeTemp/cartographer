@@ -874,6 +874,42 @@ export interface ConceptHistory {
   note?: string;
 }
 
+/** One end of a diff span: the revision the text was read at. */
+export interface DiffRevision {
+  sha: string;
+  at: string;
+  author: string;
+  subject: string;
+}
+
+/** One file of a concept diff. */
+export interface DiffFile {
+  path: string;
+  status: "added" | "modified" | "deleted" | "renamed";
+  old_path?: string;
+  before: string;
+  after: string;
+  truncated: boolean;
+  binary: boolean;
+}
+
+/** GET /kbs/{kb}/diff?id=&from=&to=: the concept's text before and after a
+ *  time span (D2436); the client computes the line diff. */
+export interface ConceptDiff {
+  id: string;
+  path: string;
+  from: string;
+  to: string;
+  base: DiffRevision | null;
+  head: DiffRevision | null;
+  commits: number;
+  /** Every file of the concept that changed in the span, its main file first:
+   *  an expanded concept is a directory (index.md, satellites, assets). */
+  files: DiffFile[];
+  truncated: boolean;
+  note?: string;
+}
+
 /** GET /kbs/{kb}/journal?n=: the last n entries of the root log.md, as
  *  markdown ("" when there are none). Whole-KB callers only. */
 export interface JournalTail {

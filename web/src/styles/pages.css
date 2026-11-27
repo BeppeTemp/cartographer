@@ -3262,3 +3262,171 @@ button.row {
   color: var(--text-muted);
 }
 .activity-strip__readout strong { color: var(--text-primary); }
+
+/* What changed in a concept, under an Activity row: a forge's diff in the
+   app's tokens. Added and removed lines carry the ok/error hue faintly. */
+.concept-diff {
+  margin: var(--space-1) 0 var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--surface-1);
+  overflow: hidden;
+}
+.concept-diff__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-block-end: 1px solid var(--border-subtle);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.concept-diff__path { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.concept-diff__stat [data-kind="add"] { color: var(--sev-ok); }
+.concept-diff__stat [data-kind="del"] { color: var(--sev-error); }
+.concept-diff__revs { margin-inline-start: auto; }
+.concept-diff__open {
+  padding: 2px var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+.concept-diff__open:hover { color: var(--text-primary); border-color: var(--border-strong); }
+.concept-diff__note { margin: 0; padding: var(--space-2) var(--space-3); font-size: var(--text-sm); color: var(--text-muted); }
+.concept-diff__body {
+  display: block;
+  max-height: 28rem;
+  overflow: auto;
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+}
+.concept-diff__body tbody { display: table; width: 100%; }
+.concept-diff__num {
+  width: 3.5ch;
+  padding: 0 var(--space-2);
+  text-align: end;
+  color: var(--text-muted);
+  opacity: 0.6;
+  user-select: none;
+  vertical-align: top;
+}
+.concept-diff__text { padding: 0 var(--space-3) 0 0; color: var(--text-secondary); white-space: pre-wrap; word-break: break-word; }
+.concept-diff__sign { display: inline-block; width: 2ch; color: var(--text-muted); user-select: none; }
+.concept-diff__line[data-kind="add"] { background: color-mix(in srgb, var(--sev-ok) 11%, transparent); }
+.concept-diff__line[data-kind="add"] .concept-diff__sign,
+.concept-diff__line[data-kind="add"] .concept-diff__text { color: var(--text-primary); }
+.concept-diff__line[data-kind="add"] .concept-diff__sign { color: var(--sev-ok); }
+.concept-diff__line[data-kind="del"] { background: color-mix(in srgb, var(--sev-error) 11%, transparent); }
+.concept-diff__line[data-kind="del"] .concept-diff__sign { color: var(--sev-error); }
+.concept-diff__fold td {
+  padding: 2px var(--space-3);
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
+.activity-strip__plot { cursor: crosshair; }
+.timeline__diff { padding-inline-start: calc(48px + 20px + 2 * var(--space-3) + var(--space-2)); padding-inline-end: var(--space-3); }
+.activity-strip__dot {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border-radius: 50%;
+  background: var(--seg);
+  box-shadow: 0 0 0 2px var(--surface-0);
+  pointer-events: none;
+  transition: top var(--motion-instant) var(--ease-out);
+}
+@media (prefers-reduced-motion: reduce) { .activity-strip__dot { transition: none; } }
+.activity-strip__tip {
+  position: absolute;
+  z-index: 3;
+  width: 168px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-2);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  pointer-events: none;
+  transform: translate(14px, 14px);
+}
+.activity-strip__tip[data-flip] { transform: translate(calc(-100% - 14px), 14px); }
+.activity-strip__tip-when { margin-block-end: var(--space-1); font-family: var(--font-mono); color: var(--text-muted); }
+.activity-strip__tip-row { display: flex; align-items: center; gap: var(--space-2); line-height: 1.7; }
+.activity-strip__tip-swatch { flex: none; width: 10px; height: 3px; border-radius: 2px; background: var(--seg); }
+.activity-strip__tip-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.activity-strip__tip-value { font-family: var(--font-mono); color: var(--text-primary); }
+.activity-strip__tip-total { margin-block-start: var(--space-1); padding-block-start: var(--space-1); border-block-start: 1px solid var(--border-subtle); }
+.activity-strip__tip-total .activity-strip__tip-swatch { background: none; }
+.concept-diff__files { margin: 0; padding: 0; list-style: none; }
+.concept-diff__file + .concept-diff__file { border-block-start: 1px solid var(--border-subtle); }
+.concept-diff__file-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  background: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  text-align: start;
+  cursor: pointer;
+}
+.concept-diff__file-head:hover { background: var(--surface-2); color: var(--text-primary); }
+.concept-diff__chevron { display: inline-block; width: 1ch; transition: transform var(--motion-fast) var(--ease-out); }
+.concept-diff__file-head[aria-expanded="true"] .concept-diff__chevron { transform: rotate(90deg); }
+.concept-diff__file-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.concept-diff__status { color: var(--text-muted); }
+.concept-diff__status[data-status="added"] { color: var(--sev-ok); }
+.concept-diff__status[data-status="deleted"] { color: var(--sev-error); }
+.concept-diff__file .concept-diff__body { border-block-start: 1px solid var(--border-subtle); }
+
+/* An open row and its diff read as one block, and the day's rail runs on past
+   the diff instead of breaking under it. */
+.timeline__entry:has(> .timeline__item[aria-expanded="true"]) > .timeline__item { background: var(--surface-1); }
+.timeline__item[aria-expanded]:focus-visible { box-shadow: inset 0 0 0 1px var(--border-strong); }
+.timeline__diff { position: relative; padding-block-end: var(--space-2); }
+.timeline__diff::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: calc(var(--space-2) + 48px + var(--space-3) + 9px);
+  width: 2px;
+  background: var(--border-subtle);
+}
+.timeline__entry:last-child .timeline__diff::before { display: none; }
+.concept-diff__file--bone { height: 34px; }
+.concept-diff__file-row { display: flex; align-items: center; gap: var(--space-2); padding-inline-end: var(--space-3); }
+.concept-diff__file-row:hover { background: var(--surface-2); }
+.concept-diff__file-row .concept-diff__file-head { flex: 1; min-width: 0; }
+.concept-diff__file-row .concept-diff__file-head:hover { background: none; }
+.concept-diff__open[aria-pressed="true"] { color: var(--text-primary); border-color: var(--border-strong); }
+.concept-diff__actions { display: inline-flex; justify-content: flex-end; width: 50px; gap: 2px; flex: none; }
+.concept-diff__action {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.concept-diff__action:hover { background: var(--surface-3, var(--surface-1)); color: var(--text-primary); }
+.concept-diff__action[aria-pressed="true"] { color: var(--accent, var(--text-primary)); }
+.concept-diff__action:focus-visible { outline: 1px solid var(--border-strong); outline-offset: 1px; }
+.concept-diff__stat { min-width: 7ch; text-align: end; }
+.concept-diff__action:disabled { opacity: 0.35; cursor: default; }
+.concept-diff__action:disabled:hover { background: none; color: var(--text-muted); }

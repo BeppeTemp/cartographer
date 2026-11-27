@@ -1,6 +1,7 @@
 import { setServerNow } from "../lib/serverclock";
 import type {
   ExternalEdges,
+  ConceptDiff,
   Artifact,
   ArtifactList,
   SecretList,
@@ -409,6 +410,13 @@ export function fetchMaps(kb: string, signal?: AbortSignal): Promise<MapList> {
 
 export function fetchHistory(kb: string, id: string, signal?: AbortSignal): Promise<ConceptHistory> {
   return get<ConceptHistory>(`/kbs/${encodeURIComponent(kb)}/history?id=${encodeURIComponent(id)}`, signal);
+}
+
+/** A concept's text before and after a span, for the Activity diff. */
+export function fetchDiff(kb: string, id: string, from: string, to?: string, signal?: AbortSignal): Promise<ConceptDiff> {
+  const q = new URLSearchParams({ id, from });
+  if (to) q.set("to", to);
+  return get<ConceptDiff>(`/kbs/${encodeURIComponent(kb)}/diff?${q}`, signal);
 }
 
 export function fetchJournal(kb: string, signal?: AbortSignal): Promise<JournalTail> {
