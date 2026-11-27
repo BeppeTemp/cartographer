@@ -28,6 +28,25 @@ func relationViewFor(ctx context.Context, k *kb.KB) (kb.RelationView, error) {
 	}, k)
 }
 
+// Reasons a relations read failed, as the Atlas routes say them next to
+// relations_unavailable. Fixed words: the cause itself stays in the server log.
+const (
+	// relationsReasonNoOriginHead: a remote's default branch is not known yet
+	// (a KB created with a remote learns it at its first sync, or one of the
+	// KBs it depends on does not know it yet): sync first.
+	relationsReasonNoOriginHead = "no_origin_head"
+	// relationsReasonReadFailed: git could not answer, any other cause.
+	relationsReasonReadFailed = "read_failed"
+)
+
+// relationsReasonFor names why a relations read failed (err is never nil).
+func relationsReasonFor(err error) string {
+	if errors.Is(err, kb.ErrRelationsRefUnknown) {
+		return relationsReasonNoOriginHead
+	}
+	return relationsReasonReadFailed
+}
+
 // relationsUnavailableIssue is the one fixed line of sync_pull's issues when
 // the relations could not be read; the cause stays in the server log.
 const relationsUnavailableIssue = "relations unavailable: the KB's dependencies could not be read (details in the server log)"

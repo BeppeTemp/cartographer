@@ -589,6 +589,9 @@
           },
           "relations_unavailable": {
             "type": "boolean"
+          },
+          "relations_unavailable_reason": {
+            "type": "string"
           }
         },
         "required": [
@@ -643,6 +646,9 @@
           },
           "relations_unavailable": {
             "type": "boolean"
+          },
+          "relations_unavailable_reason": {
+            "type": "string"
           },
           "secrets": {
             "type": "boolean"

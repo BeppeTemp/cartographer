@@ -427,3 +427,23 @@ func TestKBMapPollsShareOneValidation(t *testing.T) {
 		}
 	}
 }
+
+// A KB whose remote has no origin/HEAD yet says why on the map, and so does a
+// KB that depends on it.
+func TestKBMapRelationsUnavailableNoOriginHead(t *testing.T) {
+	t.Parallel()
+	deps := map[string][][2]string{"kb-a": {{"core-kb", "core-kb"}}}
+	h, f := kbMapFixture(t, []string{"kb-a", "kb-b", "core-kb"}, deps)
+	kbMapPages(t, f)
+	relGit(t, f.byName["core-kb"], "symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
+	m, _ := kbMapGet(t, h, "noHidden")
+	for _, n := range m.Nodes {
+		want := ""
+		if n.Name != "kb-b" {
+			want = "no_origin_head"
+		}
+		if n.RelationsUnavailableReason != want || n.RelationsUnavailable != (want != "") {
+			t.Errorf("%s: unavailable = %v, reason = %q, want %q", n.Name, n.RelationsUnavailable, n.RelationsUnavailableReason, want)
+		}
+	}
+}

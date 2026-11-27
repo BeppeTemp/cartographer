@@ -17,6 +17,11 @@ interface Props {
   onUnavailable?(): void;
 }
 
+function unavailableText(reason?: string): string {
+  if (reason === "no_origin_head") return "the remote has not been fetched yet, sync first";
+  return "the relations could not be read";
+}
+
 /**
  * The KB map, minimal shell: the KBs the caller can read as rows by layer
  * (core first), and the two layers behind a toggle each, as lists. The server
@@ -93,6 +98,17 @@ export function KBMap({ initial, onOpenKB, onLoaded, onUnavailable }: Props) {
           </div>
         ))}
       </PageSection>
+      {map.nodes.some((n) => n.relations_unavailable) && (
+        <PageSection title="Relations unavailable" id="kbmap-unavailable">
+          <ul aria-label="Relations unavailable">
+            {map.nodes
+              .filter((n) => n.relations_unavailable)
+              .map((n) => (
+                <li key={n.name}>{`${n.name}: ${unavailableText(n.relations_unavailable_reason)}`}</li>
+              ))}
+          </ul>
+        </PageSection>
+      )}
       <PageSection title="Layers" id="kbmap-toggles">
         <label>
           <input type="checkbox" checked={showRelations} onChange={(e) => setShowRelations(e.target.checked)} />

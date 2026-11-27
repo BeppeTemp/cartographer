@@ -1499,7 +1499,7 @@ cross-linked with, in either direction, and the caller reads whole, changes; a K
 cross link keeps the same token, and a caller who reads the linked KB only in part is
 not refreshed by it (its view refreshes on the next change of this KB or a reload).
 
-With two or more KBs visible, the top bar has a *KB map* button (hidden on a server that answers 404 on `/api/ui/v1/kb-map`). The panel (`?panel=kbmap`) lists the KBs in rows by layer, core first, and two toggles show the declared relations and the cross-KB link counts as lists; a KB button opens that KB's atlas. It draws what `GET /kb-map` says and computes no visibility, and refetches while the tab is visible (a repeat is a `304`).
+With two or more KBs visible, the top bar has a *KB map* button (hidden on a server that answers 404 on `/api/ui/v1/kb-map`). The panel (`?panel=kbmap`) lists the KBs in rows by layer, core first, and two toggles show the declared relations and the cross-KB link counts as lists; a KB button opens that KB's atlas; a KB whose relations could not be read is listed with the reason (a remote not fetched yet says to sync first). It draws what `GET /kb-map` says and computes no visibility, and refetches while the tab is visible (a repeat is a `304`).
 
 Behind an SSO reverse proxy that protects `/ui` and `/api/ui` only (leave `/mcp`
 on bearer auth) and injects a read-only bearer, the Atlas opens without the token

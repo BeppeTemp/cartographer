@@ -46,6 +46,21 @@ afterEach(() => {
 
 // AC-atlas-kb-map-9
 describe("KBMap", () => {
+  it("says why a KB's relations are unavailable", async () => {
+    open("?kb=core-kb&panel=kbmap");
+    stub({
+      ...map,
+      nodes: [
+        { name: "core-kb", ready: true, layer: 0, relations_unavailable: true, relations_unavailable_reason: "no_origin_head" },
+        { name: "kb-a", ready: true, layer: 0, relations_unavailable: true, relations_unavailable_reason: "read_failed" },
+      ],
+    });
+    render(<App />);
+    const list = await screen.findByRole("list", { name: "Relations unavailable" });
+    expect(list).toHaveTextContent("core-kb: the remote has not been fetched yet, sync first");
+    expect(list).toHaveTextContent("kb-a: the relations could not be read");
+  });
+
   it("draws a node per KB in rows by layer, the layers behind their toggles, and a click opens that KB", async () => {
     open("?kb=core-kb&panel=kbmap");
     stub(map);

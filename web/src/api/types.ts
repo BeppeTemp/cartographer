@@ -31,6 +31,8 @@ export interface KBMapNode {
   /** 0 for a KB with no resolved dependency, else 1 + the largest layer of its dependencies. */
   layer: number;
   relations_unavailable?: boolean;
+  /** Why: `no_origin_head` (the remote has not been fetched yet, sync first) or `read_failed`. */
+  relations_unavailable_reason?: string;
 }
 
 /** `from` depends on `to`. */

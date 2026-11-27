@@ -149,6 +149,10 @@ type uiKBRow struct {
 	// RelationsUnavailable replaces Relations when reading them failed: the
 	// list still loads, it is a display.
 	RelationsUnavailable bool `json:"relations_unavailable,omitempty"`
+	// RelationsUnavailableReason says why, whenever RelationsUnavailable is
+	// set: no_origin_head (the remote's default branch is not known yet: sync
+	// first) or read_failed.
+	RelationsUnavailableReason string `json:"relations_unavailable_reason,omitempty"`
 }
 
 type uiKBList struct {
@@ -197,6 +201,7 @@ func (m *MultiKBServer) uiListKBs(w http.ResponseWriter, r *http.Request) {
 			if WholeVisible(ctx, srv.kbRef, false) {
 				if v, err := relationViewFor(ctx, srv.kbRef); err != nil {
 					row.RelationsUnavailable = true
+					row.RelationsUnavailableReason = relationsReasonFor(err)
 				} else if len(v.Declared) > 0 {
 					row.Relations = &v
 				}
