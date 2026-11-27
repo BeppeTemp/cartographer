@@ -1407,3 +1407,25 @@ func TestHeldServer_DeniedProbeIsNamedNotUnreachable(t *testing.T) {
 		t.Errorf("findings = %+v", fs)
 	}
 }
+
+// sync refuses a codex config.toml whose MCP marker block is not exactly one
+// begin then one end and points to `doctor` (#2450): doctor must name the file.
+func TestRunDoctor_CorruptedMCPMarkerBlock(t *testing.T) {
+	doctorStubs(t, []string{"codex"}, false)
+	dir := doctorFixture(t, "codex")
+	path := filepath.Join(dir, ".codex", "config.toml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A second begin line makes the block corrupted.
+	corrupted := configurator.CodexMCPBlockBegin + "\n" + string(data)
+	if err := os.WriteFile(path, []byte(corrupted), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f := findingsFor(runDoctor(dir, ""), "mcp-entries")
+	if len(f) != 1 || f[0].Severity != doctorError || f[0].Path != path ||
+		!strings.Contains(f[0].Message, "corrupted") || !strings.Contains(f[0].Fix, "by hand") {
+		t.Fatalf("want one error naming %s as corrupted, got %+v", path, f)
+	}
+}
