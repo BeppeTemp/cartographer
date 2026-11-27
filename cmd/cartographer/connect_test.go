@@ -1083,3 +1083,17 @@ func TestIsRefusedErrOnlyForARefusedConnection(t *testing.T) {
 		}
 	}
 }
+
+// A certificate failure means the server was reached: neither the probe nor the
+// deferral says "unreachable" (#2450).
+func TestUnknownAuthorityIsNotWordedUnreachable(t *testing.T) {
+	err := fmt.Errorf("health: %w", &tls.CertificateVerificationError{Err: x509.UnknownAuthorityError{}})
+	for name, got := range map[string]string{
+		"probe":    probeErrorMessage(probeUnreachable, err),
+		"deferral": deferralReason(err),
+	} {
+		if strings.Contains(got, "unreachable") || !strings.Contains(got, "certificate is not signed") {
+			t.Errorf("%s: %q", name, got)
+		}
+	}
+}

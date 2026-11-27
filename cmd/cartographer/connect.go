@@ -161,7 +161,7 @@ func probeErrorMessage(state probeState, err error) string {
 		return fmt.Sprintf("the server answered but the probe failed: %v", err)
 	}
 	if isUnknownAuthority(err) {
-		return fmt.Sprintf("server unreachable: %v%s", err, unknownAuthorityHint)
+		return fmt.Sprintf("%v%s", err, unknownAuthorityHint)
 	}
 	if isSlowErr(err) {
 		return fmt.Sprintf("%s: %v", slowServerText, err)
@@ -793,7 +793,7 @@ func tokenSourceName(cfg *clientconfig.Config) string {
 // only true of a transport failure.
 func deferralReason(err error) string {
 	if isUnknownAuthority(err) {
-		return "server unreachable" + unknownAuthorityHint
+		return strings.TrimPrefix(unknownAuthorityHint, "; ")
 	}
 	if isSlowErr(err) {
 		return slowServerText

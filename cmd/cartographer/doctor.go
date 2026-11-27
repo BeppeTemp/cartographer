@@ -37,6 +37,7 @@ import (
 	"time"
 
 	"github.com/BeppeTemp/cartographer/internal/agents"
+	"github.com/BeppeTemp/cartographer/internal/blocktext"
 	"github.com/BeppeTemp/cartographer/internal/client"
 	"github.com/BeppeTemp/cartographer/internal/clientconfig"
 	"github.com/BeppeTemp/cartographer/internal/configurator"
@@ -542,6 +543,19 @@ func checkMCPEntries(dir string, cfg *clientconfig.Config, providers []string) [
 		}
 		configPath := filepath.Join(dir, d.ConfigPath())
 		fix := mcpEntriesFix(dir, configPath, p)
+		if d.MCPFormat == configurator.FormatTOMLBlock {
+			// sync refuses a block that is not exactly one begin then one end and
+			// points here (#2450): name the file, and skip the missing-entry noise
+			// the unreadable block would add.
+			if cerr := blocktext.CheckFile(configPath, configurator.CodexMCPBlockBegin, configurator.CodexMCPBlockEnd); cerr != nil {
+				out = append(out, doctorFinding{
+					Check: "mcp-entries", Severity: doctorError, Path: configPath,
+					Message: fmt.Sprintf("[%s] the MCP marker block is corrupted (not exactly one begin line followed by one end line): sync leaves the file unchanged", p),
+					Fix:     "fix the markers by hand in " + escapeControl(configPath) + ": keep one \"# cartographer:mcp:begin\" line then one \"# cartographer:mcp:end\" line, then run cartographer reconnect",
+				})
+				continue
+			}
+		}
 		declared, err := provisioning.MCPServerEntryNames(dir, provider)
 		if err != nil {
 			out = append(out, doctorFinding{
