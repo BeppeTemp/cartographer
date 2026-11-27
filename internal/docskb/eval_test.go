@@ -85,8 +85,55 @@ func intersects(got, want []string) bool {
 	return false
 }
 
+// maxFallbackOnly is the size of testdata/fallback_only.txt: the questions whose wanted
+// page is among the first ten search hits only as a partial hit of the OR fallback (D343),
+// exempt from the full-match rule (#2441). The list only shrinks, and the constant with
+// it: the test fails unless the two are equal, so a line cannot be added without raising
+// this number in review, and a line removed lowers it. A new question, or one that loses
+// its full match, is fixed in the docs wording.
+const maxFallbackOnly = 23
+
+// loadFallbackOnly reads the allow-list: `<question><TAB><page>` lines, the question as in
+// questions.jsonl and the page the wanted id the fallback finds for it. The exemption is
+// for that pair: a listed question found through another page fails like an unlisted one.
+func loadFallbackOnly(t *testing.T, qs []question) map[string]string {
+	t.Helper()
+	data, err := os.ReadFile("testdata/fallback_only.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wants := map[string][]string{}
+	for _, q := range qs {
+		wants[q.Q] = q.Want
+	}
+	list := map[string]string{}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.TrimSpace(line) == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		q, page, ok := strings.Cut(line, "\t")
+		switch want, known := wants[q]; {
+		case !ok || page == "":
+			t.Errorf("fallback_only.txt: %q is not a <question><TAB><page> line", line)
+		case !known:
+			t.Errorf("fallback_only.txt: %q is not a question of questions.jsonl: remove the line and lower maxFallbackOnly", q)
+		case !intersects([]string{page}, want):
+			t.Errorf("fallback_only.txt: %q is not a page the question %q wants (%v)", page, q, want)
+		}
+		if _, dup := list[q]; dup {
+			t.Errorf("fallback_only.txt: %q is listed twice", q)
+		}
+		list[q] = page
+	}
+	if len(list) != maxFallbackOnly {
+		t.Errorf("fallback_only.txt has %d questions and maxFallbackOnly is %d: the two are equal and only go down (a question that needs the OR fallback is fixed in the docs wording, a line removed lowers the constant)", len(list), maxFallbackOnly)
+	}
+	return list
+}
+
 func TestRetrievalEval(t *testing.T) {
 	qs := loadQuestions(t)
+	fallbackOnly := loadFallbackOnly(t, qs)
 	r := sharedRunner(t) // read-only: the runner of embed_test.go is shared
 	for _, q := range qs {
 		query := keywords(q.Q)
@@ -113,17 +160,54 @@ func TestRetrievalEval(t *testing.T) {
 		// by how many full matches other pages happen to have. Put the question's
 		// words in the target page, not only the ids it is accepted under.
 		var sr struct {
-			Results []struct{ ID string } `json:"results"`
+			Results []struct {
+				ID      string
+				Partial bool `json:"partial"`
+			} `json:"results"`
 		}
 		toolJSON(t, r, "search", map[string]any{"query": query}, &sr)
-		var hits []string
-		for _, h := range sr.Results {
+		// A partial hit matched only some of the words (the OR fallback, D343): it ranks by
+		// what the other pages say, so a docs edit elsewhere pushes it out of the ten.
+		var hits, full, partial []string
+		for i, h := range sr.Results {
+			if i >= searchK {
+				break
+			}
 			hits = append(hits, h.ID)
+			if h.Partial {
+				partial = append(partial, h.ID)
+			} else {
+				full = append(full, h.ID)
+			}
 		}
-		if !intersects(firstIDs(hits, searchK), q.Want) {
-			t.Errorf("search %q: want one of %v\n  hits: %v", query, q.Want, firstIDs(hits, searchK))
+		switch {
+		case !intersects(hits, q.Want):
+			t.Errorf("search %q: want one of %v\n  hits: %v", query, q.Want, hits)
+		case intersects(full, q.Want):
+			if _, listed := fallbackOnly[q.Q]; listed {
+				t.Errorf("search %q: %v is now a full match: remove %q from testdata/fallback_only.txt and lower maxFallbackOnly", query, wanted(full, q.Want), q.Q)
+			}
+		default:
+			// Only through the fallback: allowed for the listed pair of question and page.
+			found := wanted(partial, q.Want)
+			if page, listed := fallbackOnly[q.Q]; !listed {
+				t.Errorf("search %q: %v is found only through the OR fallback (no page holds every word; %d full matches): word the page so that it holds them, the allow-list takes no new question", query, found, len(full))
+			} else if found[0] != page {
+				t.Errorf("search %q: found only through the OR fallback, now by %s and not by %s, the page testdata/fallback_only.txt lists: word %s so that it holds every word of the question", query, found[0], page, page)
+			}
 		}
 	}
+}
+
+// wanted returns the ids of got that the question wants, in rank order.
+func wanted(got, want []string) []string {
+	var out []string
+	for _, g := range got {
+		if intersects([]string{g}, want) {
+			out = append(out, g)
+		}
+	}
+	return out
 }
 
 // TestEvalCoverage keeps the question set honest: every page of the docs map

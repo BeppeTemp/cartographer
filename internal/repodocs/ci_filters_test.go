@@ -2,6 +2,7 @@ package repodocs
 
 import (
 	"bytes"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -14,6 +15,12 @@ import (
 // runFilters feeds paths to scripts/ci-filters.sh and returns its outputs.
 func runFilters(t *testing.T, headRef string, paths ...string) map[string]string {
 	t.Helper()
+	return runFiltersEnv(t, []string{"HEAD_IN_BASE_REPO=true"}, headRef, paths...)
+}
+
+// runFiltersEnv is runFilters with env added to the environment, and no HEAD_IN_BASE_REPO but env's.
+func runFiltersEnv(t *testing.T, env []string, headRef string, paths ...string) map[string]string {
+	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("the script runs on ubuntu only; bash on Windows may be WSL")
 	}
@@ -23,6 +30,12 @@ func runFilters(t *testing.T, headRef string, paths ...string) map[string]string
 	}
 	cmd := exec.Command(bash, "scripts/ci-filters.sh", headRef)
 	cmd.Dir = repoRoot(t)
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "HEAD_IN_BASE_REPO=") {
+			cmd.Env = append(cmd.Env, kv)
+		}
+	}
+	cmd.Env = append(cmd.Env, env...)
 	cmd.Stdin = strings.NewReader(strings.Join(paths, "\n") + "\n")
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
@@ -84,7 +97,17 @@ func TestCIFiltersTable(t *testing.T) {
 		{"helm install script", "feat/x", []string{"scripts/install-helm.sh"}, false, false, false, false, false, false, false, true},
 		{"Makefile", "feat/x", []string{"Makefile"}, true, true, false, false, false, false, false, true},
 		{"an unrelated Go file for helm", "feat/x", []string{"internal/kb/y.go"}, true, true, false, false, false, false, false, false},
-		{"release PR", "release-please--branches--main", []string{"CHANGELOG.md"}, true, true, true, true, true, true, true, true},
+		// The release PR runs everything, but while its diff is only what the release workflow writes
+		// `web` and `helm` follow its paths and skip; `forge` stays, the release PR being the only
+		// place the real-forge suite runs unasked (#2441).
+		{"release PR, generated files only", "release-please--branches--main", []string{"CHANGELOG.md", ".release-please-manifest.json", "docs/decisions.md"}, false, true, true, true, true, true, true, false},
+		{"release PR, the changelog alone", "release-please--branches--main", []string{"CHANGELOG.md"}, false, true, true, true, true, true, true, false},
+		{"release PR of a maintenance branch", "release-please--branches--release-0.1", []string{"CHANGELOG.md", ".release-please-manifest.json"}, false, true, true, true, true, true, true, false},
+		{"release PR that carries anything else", "release-please--branches--main", []string{"CHANGELOG.md", "docs/testing.md"}, true, true, true, true, true, true, true, true},
+		{"release PR, a file that only looks generated", "release-please--branches--main", []string{"deploy/CHANGELOG.md"}, true, true, true, true, true, true, true, true},
+		{"release PR whose files could not be listed", "release-please--branches--main", nil, true, true, true, true, true, true, true, true},
+		{"release PR, generated files and a chart", "release-please--branches--main", []string{"CHANGELOG.md", "deploy/helm/Chart.yaml"}, true, true, true, true, true, true, true, true},
+		{"generated files on an ordinary PR", "feat/x", []string{"CHANGELOG.md"}, false, false, false, false, false, false, false, false},
 	}
 	for _, c := range cases {
 		got := runFilters(t, c.head, c.paths...)
@@ -93,6 +116,28 @@ func TestCIFiltersTable(t *testing.T) {
 				t.Errorf("%s: %s=%s, want %v", c.name, k, got[k], want)
 			}
 		}
+	}
+}
+
+// The release PR's skip is for a branch of this repository: ci.yml says so in HEAD_IN_BASE_REPO, and
+// without a plain `true` there (a fork's branch named release-please--*, a caller that does not say,
+// such as scripts/signoff.sh) the release PR runs everything (#2441).
+func TestCIFiltersReleaseSkipNeedsTheBaseRepository(t *testing.T) {
+	generated := []string{"CHANGELOG.md", ".release-please-manifest.json", "docs/decisions.md"}
+	for _, env := range [][]string{nil, {"HEAD_IN_BASE_REPO=false"}, {"HEAD_IN_BASE_REPO="}, {"HEAD_IN_BASE_REPO=TRUE"}, {"HEAD_IN_BASE_REPO=1"}} {
+		got := runFiltersEnv(t, env, "release-please--branches--main", generated...)
+		for _, k := range []string{"web", "helm", "forge", "windows", "docker", "macos", "demo", "tf"} {
+			if got[k] != "true" {
+				t.Errorf("env %v: %s=%s on the release PR, want true (no skip without HEAD_IN_BASE_REPO=true)", env, k, got[k])
+			}
+		}
+	}
+	if got := runFiltersEnv(t, []string{"HEAD_IN_BASE_REPO=true"}, "release-please--branches--main", generated...); got["web"] != "false" || got["helm"] != "false" || got["forge"] != "true" {
+		t.Errorf("a release PR of this repository skips web and helm and keeps forge, got %v", got)
+	}
+	wf := readFile(t, repoRoot(t), ".github/workflows/ci.yml")
+	if !strings.Contains(wf, "          HEAD_IN_BASE_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}\n") {
+		t.Error("ci.yml's changes job does not tell ci-filters.sh whether the PR's head is a branch of this repository")
 	}
 }
 
