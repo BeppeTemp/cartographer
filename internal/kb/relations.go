@@ -49,9 +49,12 @@ func NormalizeDeclaredRemote(raw string) (string, error) {
 		raw = "https://" + raw
 	}
 	norm, err := repoindex.NormalizeRemote(raw)
-	if err != nil || strings.Count(string(norm), "/") < 2 {
-		// The declared text can carry credentials and reaches a settings finding.
+	// The declared text can carry credentials and reaches a settings finding.
+	if err != nil {
 		return "", fmt.Errorf("remote %q is not a git remote (expected host/owner/name or a clone URL)", gitx.RedactRemoteURL(declared))
+	}
+	if strings.Count(string(norm), "/") < 2 {
+		return "", fmt.Errorf("remote %q is a git remote whose path needs an owner and a name (host/owner/name)", gitx.RedactRemoteURL(declared))
 	}
 	return string(norm), nil
 }

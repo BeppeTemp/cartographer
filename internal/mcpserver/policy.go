@@ -157,6 +157,11 @@ func authorizeTool(policy auth.Policy, k *kb.KB, name, tool string, args json.Ra
 	// Whole-KB tools have no safe partial semantics. The list is deliberately
 	// conservative; adding an unclassified tool can only deny a restricted caller.
 	if resourceClassForTool(tool) == resourceWhole {
+		// A KB no scope of the token covers is not a scoped KB: say so, by the
+		// name the caller itself targeted (#2446).
+		if !policy.HasKBAccess(name, false) {
+			return deny(denyNoKBAccess, fmt.Sprintf("the token has no scope on KB %q", name))
+		}
 		if !policy.AllowsWholeKB(name, write) {
 			return deny(denyNeedsWholeKB)
 		}

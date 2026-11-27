@@ -335,3 +335,26 @@ func TestSearchOrFallbackHiddenHitsDoNotCountTowardFloor(t *testing.T) {
 		}
 	})
 }
+
+// A KB no scope of the token covers is refused as no_kb_access, naming the KB,
+// not as needs_whole_kb (#2446); a scoped KB keeps needs_whole_kb.
+func TestWholeKBToolOnAKBOutsideTheTokenScope(t *testing.T) {
+	t.Parallel()
+	k := setupTestKB(t)
+	pol := auth.Policy{Permissions: []auth.Permission{{KB: "kb-a", Maps: []string{"notes"}}}}
+	cases := []struct {
+		name, kb, code string
+	}{
+		{"unscoped kb", "kb-b", "no_kb_access"},
+		{"scoped kb", "kb-a", "needs_whole_kb"},
+	}
+	for _, c := range cases {
+		err := authorizeTool(pol, k, c.kb, "kb_status", json.RawMessage(`{}`))
+		if err == nil || !strings.HasPrefix(err.Error(), "forbidden: "+c.code+": ") {
+			t.Errorf("%s: got %v, want %s", c.name, err, c.code)
+		}
+		if c.code == "no_kb_access" && !strings.Contains(err.Error(), `"kb-b"`) {
+			t.Errorf("%s: %v does not name the KB", c.name, err)
+		}
+	}
+}

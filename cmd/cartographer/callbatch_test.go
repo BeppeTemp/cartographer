@@ -370,7 +370,7 @@ func TestCallBatchTimeoutAnswersTheRest(t *testing.T) {
 	if code != 2 || len(res) != 3 || res[0]["ok"] != true || errCode(res[1]) != 2 || errCode(res[2]) != 2 {
 		t.Fatalf("exit %d %v", code, res)
 	}
-	if m := res[1]["error"].(map[string]any)["message"].(string); !strings.Contains(m, "timed out") {
+	if m := res[1]["error"].(map[string]any)["message"].(string); !strings.Contains(m, slowCallMessage) {
 		t.Errorf("message %q", m)
 	}
 	posts := 0
@@ -394,7 +394,7 @@ func TestCallBatchTimeoutStopsOnMalformedLines(t *testing.T) {
 	})
 	in := `{"tool":"slow"}` + "\n" + "garbage\n" + "garbage\n" + "garbage"
 	code, res, _, _ := batchLines(t, in, "--provider", "claude", "--dir", ws, "--timeout", "300ms")
-	if code != 2 || len(res) != 2 || errCode(res[1]) != 2 || !strings.Contains(res[1]["error"].(map[string]any)["message"].(string), "timed out") {
+	if code != 2 || len(res) != 2 || errCode(res[1]) != 2 || !strings.Contains(res[1]["error"].(map[string]any)["message"].(string), slowCallMessage) {
 		t.Errorf("exit %d %v", code, res)
 	}
 }

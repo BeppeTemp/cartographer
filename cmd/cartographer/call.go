@@ -529,6 +529,11 @@ func newCallSession(ctx context.Context, cfg *clientconfig.Config, token, provid
 	return s
 }
 
+// slowCallMessage is the words of a request that was handed to the bridge and
+// not answered before --timeout: the same account of a server that accepted the
+// request and did not answer as every other path gives (#2425, #2446).
+const slowCallMessage = "timed out waiting for the server: it accepted the request but did not answer in time; look at its log for a KB whose git remote is slow"
+
 // Do sends one JSON-RPC request and returns the response with the same id.
 func (s *callSession) Do(ctx context.Context, method string, params map[string]any) (json.RawMessage, error) {
 	s.next++
@@ -559,7 +564,7 @@ func (s *callSession) Do(ctx context.Context, method string, params map[string]a
 	}
 	if cerr := ctx.Err(); cerr != nil {
 		if errors.Is(cerr, context.DeadlineExceeded) {
-			return nil, errors.New("timed out waiting for the server")
+			return nil, errors.New(slowCallMessage)
 		}
 		return nil, cerr
 	}
