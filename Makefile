@@ -336,14 +336,14 @@ land-status: ## The lander's queue, its open train PR, the rejected changes and 
 	@./scripts/land.sh --status
 
 # What waits for the maintainer in one read-only command (scripts/status.sh has the sections).
-status: ## What waits for the maintainer: rejected changes, the queue with verdicts, worktrees to read, main's CI, untriaged issues ([STATUS_PLANS=<command>] adds your plans)
-	@STATUS_PLANS="$(STATUS_PLANS)" ./scripts/status.sh
+status: ## What waits for the maintainer: rejected changes, the queue with verdicts, worktrees to read, main's CI, untriaged issues, ideas to export, the 24 h trend ([STATUS_PLANS=<command>] adds your plans; JSON=1 prints the state as JSON)
+	@STATUS_PLANS="$(STATUS_PLANS)" ./scripts/status.sh $(if $(JSON),--json)
 
 unlanded: ## Finished work no queue shows: local branches never queued, worktrees with uncommitted changes, wip/* branches on origin (exit 1 when any)
 	@./scripts/unlanded.sh
 
 # The open issues as a work queue (scripts/issue-queue.sh, read-only), and a maintainer's accepted bug.
-issues: ## The open issues as a work queue: class, state, next action, the fixable ones first
+issues: ## The open issues as a work queue: class, state, next action, age (late past its class threshold), the fixable ones first
 	@./scripts/issue-queue.sh
 
 issue: ## Maintainer only: open an accepted bug (TITLE="<title>" BODY=<file> FOUND_BY=<value> [INTRODUCED_BY=<ref>])

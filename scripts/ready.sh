@@ -148,6 +148,8 @@ if head -n 1 "$full" | grep -qE '^fix(\(|!|:)' && ! grep -qiE '^(found-by|introd
         echo "ready: copied \"$l\" from issue #$issue" >&2
       done < <(sed -n '2,$p' <<<"$ib" | tr -d '\r' | grep -E '^(Found-by: [a-z-]+|Introduced-by: [A-Za-z0-9#._/-]+)$' | head -n 4)
     fi
+    # Refused here, by name: the issue is where the line belongs (the escape report reads it there too).
+    grep -q '^Found-by: ' "$full" || die "issue #$issue has no \`Found-by:\` line a maintainer or github-actions[bot] wrote, and the message has none: say where the defect was found, on the issue or in the message (a value of scripts/found-by.tsv), with its \`Introduced-by:\` line"
   fi
 fi
 why=$("$here/trailers-lint.sh" "$full" 2>&1) || die "the message does not say where the defect was found (Found-by, Introduced-by), or its Cost line is malformed: $why"

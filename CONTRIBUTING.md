@@ -407,7 +407,13 @@ dispatched by hand with one of three actions.
   when a candidate is cut and arming the open bumps after the release or a `discard`. A
   blocked commit on `main` since the oldest candidate of the pending version skips the
   release. A PR the freeze blocks waits until the release.
-- **The release candidate.** `action: rc` skips, naming them on the release PR, while a `wip/*` branch exists on origin (a parked change, §Pull requests). Otherwise it builds the candidate
+- **Bugs before the next candidate.** `action: rc` also skips, naming them on the release PR,
+  while an `accepted` bug whose body says `Found-by: rc` or `Found-by: nightly` is open or a
+  `failed/fix-*` ref exists (a rejected fix): a defect the last candidate or a nightly run found
+  is fixed before the next candidate, unless a maintainer sets the `next-rc-ok` label on the
+  release PR. The label is per candidate: the run removes it when it dispatches one (best
+  effort), so the next candidate asks again. Only a line in a body a maintainer or `github-actions[bot]` wrote counts.
+- **The release candidate.** `action: rc` skips, naming them on the release PR, while a `wip/*` branch exists on origin (a parked change, §Pull requests) or a blocker is open (the item above). Otherwise it builds the candidate
   `v<next>-rc.<YYYYMMDD>.<n>` (`preview.yml`; `<n>` counts the day's candidates from 1, so every candidate has a tag of its own, and the older `v<next>-rc.<YYYYMMDD>` shape is still read) and comments the tag on the release PR: one comment, edited for each new candidate (the latest tag, the earlier ones in a short list). It is a
   server image, a Surveyor image **and** a GitHub pre-release with the binaries (the same archives and
   `sha256sums.txt` as a stable release). Both images are started and smoked before anything
@@ -514,8 +520,10 @@ from the template that fits:
 - **Bug** (label `bug`): version, transport, what happened, a reproduction. A
   question the [FAQ](docs/faq.md) and the docs do not answer is a documentation bug.
 - **Idea** (label `idea`): what should be possible and why. It is a proposal, not
-  accepted work: at triage a maintainer adds `accepted` or closes it with the
-  reason. Blank issues are disabled.
+  accepted work, and it never gets `accepted`: the maintainer records it in the
+  backlog, which is kept outside GitHub, and closes the issue saying so, or closes
+  it with the reason it is not taken. An idea that becomes work comes back as a
+  plan (§Plans). Blank issues are disabled.
 - An agent can draft a bug or idea report with the bundled `cartographer-feedback`
   skill: it files nothing and prints a prefilled URL for you to submit;
   `cartographer feedback` removes every real name before you do.
@@ -527,7 +535,7 @@ change who acts:
 | Label | Meaning |
 |---|---|
 | `bug`, `idea` | The kinds of issue |
-| `accepted` | Triaged and accepted. Not yet started while it has no assignee; assigned to a maintainer once work starts, so a contributor sees it is taken |
+| `accepted` | Triaged and accepted, a `bug` only (an idea is recorded in the backlog and closed). Not yet started while it has no assignee; assigned to a maintainer once work starts, so a contributor sees it is taken |
 | `plan`, `approved` | Mark the closed plan issues of the former process; no longer set |
 | `needs-maintainer` | A session that works the issue queue asks the maintainer one question in a comment (§Fixes without a plan); removed once answered |
 | `size-exception` | Maintainer-granted exception to the 500-line cap |
@@ -535,6 +543,7 @@ change who acts:
 | `ci-red` | Opened by CI when `main` is red |
 | `nightly-red` | Opened by `nightly.yml` when a lane of the nightly acceptance run is red, closed by the next green night; never set by hand |
 | `process` | A change to the development process itself: scripts, CI, skills, agents, the lander; worked in the process week (§Releases). The weekly `Escape report` issue carries it too |
+| `next-rc-ok` | Set by a maintainer on the release PR: `release-train` with `action: rc` cuts a candidate although a bug found by a candidate or a nightly run is open, or a fix is rejected; removed when that candidate is dispatched (§Releases) |
 | `rc-ok` | Set by a maintainer after trying the release candidate: `release-train` with `action: release` merges the release PR only with it (§Releases) |
 | `vuln-scan` | Created by `security.yml` when a vulnerability scan fails; never set by hand |
 | `dependencies`, `autorelease: pending`, `autorelease: tagged` | Set by Dependabot and release-please, never by hand |
@@ -559,13 +568,20 @@ yet. Who decides depends on the class:
 |---|---|---|
 | `bug` opened by a maintainer's session, the lander or a workflow's bot | `accepted` at creation (the lander's flaky issues carry it) | none, unless a rule of §Fixes without a plan applies |
 | `bug` from anyone else | `cartographer-investigator` reproduces it and writes cause, options and size in a comment | the `accepted` label, a design comment and an explicit `make ready`: no standing approval |
-| `idea` | never automatic | accept, park or close |
+| `idea` | none: it is never `accepted` | record it in the backlog and close it, or close it with the reason |
 | `ci-red`, `nightly-red` | accepted by the workflow that opens them | none |
 | security | a draft advisory (`SECURITY.md`), never an issue | all of it |
 
 `make issues` (`scripts/issue-queue.sh`, read-only) prints the open issues as a work queue:
 class, state (`untriaged`, `idle`, `external`, `fixing`, `queued`, `rejected`, `needs-maintainer`) and next
-action, the idle `ci-red` and flaky bugs first. There are no milestones: the
+action, the idle `ci-red` and flaky bugs first. An `idea` issue is listed as class `export`, state
+`open`: it waits to be recorded in the backlog and closed. Each line carries the issue's age and
+says `late` past the threshold of its class, because a bug is fixed before the next candidate: 2
+hours for a `ci-red` or flaky bug, 8 for a bug with `Found-by: rc`, 24 for any other bug and for a
+`needs-maintainer` question; `blocks the candidate` marks what makes `action: rc` skip
+(§Releases). `make status` adds a `trend:` line, the bugs opened and closed in the last 24 hours
+by `Found-by:` value, and `make status JSON=1` prints the same state as one JSON object with a
+fixed schema (`scripts/status.sh` documents it), for any client. There are no milestones: the
 version is not planned per issue, it is whatever the merged commits make it.
 
 A trivial fix needs no plan: a PR that says `Closes #<n>` is enough.
@@ -699,7 +715,8 @@ output or flags, config keys, an on-disk format, a decision file); when the `Pro
 (it becomes a plan); when the change is rejected a third time; and when the fix is breaking. The
 real gates stay the review tier and the train gate. `make ready` copies the issue's `Found-by:`
 and `Introduced-by:` lines into a `fix` that closes it and has none, only from a body a
-maintainer or `github-actions[bot]` wrote.
+maintainer or `github-actions[bot]` wrote, and refuses the `fix`, naming the issue, when neither
+the issue nor the message has a `Found-by:` line.
 
 A defect found on the way — a reviewer's `pre-existing` finding, a flaky or broken
 test, a doc that contradicts the code — does not wait in a backlog: it becomes an accepted
