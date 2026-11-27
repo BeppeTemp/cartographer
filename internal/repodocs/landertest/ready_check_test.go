@@ -35,7 +35,7 @@ func readyCheckPlan(t *testing.T, paths ...string) map[string]string {
 		}
 		got[k] = v
 	}
-	for _, k := range []string{"pkgs", "count", "shards", "web"} {
+	for _, k := range []string{"pkgs", "count", "shards", "web", "audit"} {
 		if _, ok := got[k]; !ok {
 			t.Fatalf("no %s line:\n%s", k, out)
 		}
@@ -58,7 +58,7 @@ func TestReadyCheckPlan(t *testing.T) {
 		{"documents have no Windows leg", []string{"docs/testing.md", "CONTRIBUTING.md"}, "", "1", "[0]", "false"},
 		{"nothing in, nothing to run", nil, "", "1", "[0]", "false"},
 		{"the module selects everything, in four shards", []string{"go.sum"}, "./...", "4", "[0,1,2,3]", "false"},
-		{"the frontend runs its unit tests", []string{"web/src/lib/health.ts"}, "-", "-", "-", "true"},
+		{"the frontend runs its unit tests and the browser suite", []string{"web/src/lib/health.ts"}, "-", "-", "-", "true"},
 		{"the bundle runs them too", []string{"internal/webui/dist/provenance.json"}, "-", "-", "-", "true"},
 		{"the control plane is the slow package", []string{"internal/mcpserver/server.go"}, "-", "4", "[0,1,2,3]", "false"},
 	}
@@ -90,6 +90,43 @@ func TestReadyCheckPlan(t *testing.T) {
 				t.Errorf("shards = %s, want %s for count %s", got["shards"], shards, got["count"])
 			}
 		})
+	}
+}
+
+// The readers job of the pre-check runs the source-site audit (internal/provisioning,
+// TestSourceSitesAreClassified) when the plan says the chain touches what it counts: a non-test Go
+// file under cmd/ or internal/, by the rule of scripts/affected-pkgs.sh. The Windows leg takes --code, which
+// leaves that reader out, so without this step only the train gate ran it (#2437).
+func TestReadyCheckRunsTheSourceSiteAudit(t *testing.T) {
+	needBash(t)
+	for _, c := range []struct {
+		path, want string
+	}{
+		{"cmd/cartographer/doctor.go", "true"},
+		{"internal/provisioning/source.go", "true"},
+		{"internal/okf/okf.go", "true"},
+		{"internal/mcpserver/tools_sync.go", "true"},
+		{"internal/okf/okf_test.go", "false"},
+		{"web/src/lib/health.ts", "false"},
+		{"go.sum", "false"}, // everything (./...): the Windows leg runs the package itself, test-shard.sh drops only repodocs
+	} {
+		if got := readyCheckPlan(t, c.path)["audit"]; got != c.want {
+			t.Errorf("audit = %q for %s, want %s", got, c.path, c.want)
+		}
+	}
+	wf := readFile(t, repoRoot(t), ".github/workflows/ready-check.yml")
+	if !strings.Contains(wf, "      audit: ${{ steps.plan.outputs.audit }}\n") {
+		t.Error("the plan job does not hand the audit output to the other jobs")
+	}
+	_, readers, ok := strings.Cut(wf, "\n  readers:\n")
+	if !ok {
+		t.Fatal("no readers job")
+	}
+	readers, _, _ = strings.Cut(readers, "\n  ready-check:\n")
+	i := strings.Index(readers, "        if: needs.plan.outputs.audit == 'true'\n")
+	j := strings.Index(readers, "-run '^TestSourceSitesAreClassified$' ./internal/provisioning\n")
+	if i < 0 || j < i || strings.Contains(readers[i:j], "\n      - ") {
+		t.Errorf("the readers job has no step that runs the audit when the plan says audit=true")
 	}
 }
 
@@ -397,6 +434,8 @@ func TestReadyCheckBaseReplaysTheQueuedChainOnMain(t *testing.T) {
 func TestReadyCheckJobsReplayTheChain(t *testing.T) {
 	var wf struct {
 		Jobs map[string]struct {
+			If    string `yaml:"if"`
+			Needs any    `yaml:"needs"`
 			Steps []struct {
 				Uses string         `yaml:"uses"`
 				Run  string         `yaml:"run"`
@@ -439,6 +478,33 @@ func TestReadyCheckJobsReplayTheChain(t *testing.T) {
 	}
 	if j, ok := wf.Jobs["readers"]; !ok || !strings.Contains(j.Steps[len(j.Steps)-1].Run, "./internal/repodocs/... ./internal/docskb ./internal/boundaries ./internal/webui") {
 		t.Errorf("the readers job runs the tests that read the repository on the replayed chain")
+	}
+	// The web job also runs the browser suite, the train gate's `web (browser)` leg: after the
+	// bundle steps (the binary embeds the bundle of this tree), with a git identity (the suite's
+	// servers commit) and a browser installed, and its red is the pre-check's (#2437).
+	web := wf.Jobs["web"]
+	if web.If != "needs.plan.outputs.web == 'true'" {
+		t.Errorf("the web job runs when the plan says web=true, got if: %q", web.If)
+	}
+	if needs := fmt.Sprint(wf.Jobs["ready-check"].Needs); !strings.Contains(needs, "web") {
+		t.Errorf("the verdict job does not read the web job: needs %s", needs)
+	}
+	at := func(prefix string) int {
+		for i, st := range web.Steps {
+			if strings.HasPrefix(strings.TrimSpace(st.Run), prefix) {
+				return i
+			}
+		}
+		return -1
+	}
+	suite := at(`make e2e-web NPM_CI= E2E_WEB_ARGS="--grep-invert @video"`)
+	if suite < 0 {
+		t.Fatal("the web job does not run the browser suite (make e2e-web without the @video test)")
+	}
+	for _, before := range []string{"make web-check NPM_CI=", "make web NPM_CI= &&", "git config --global user.name ci", "cd web && npx playwright install --with-deps chromium"} {
+		if i := at(before); i < 0 || i > suite {
+			t.Errorf("the web job must run %q before the browser suite (step %d, suite %d)", before, i, suite)
+		}
 	}
 	if checkouts != 4 {
 		t.Errorf("ready-check.yml has %d checkouts, want 4 (plan, windows, web, readers)", checkouts)

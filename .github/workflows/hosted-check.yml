@@ -12,6 +12,9 @@ name: hosted-check
 # build-host gate runs (scripts/signoff.sh): the sharded `go test` of the packages scripts/hosted-check.sh
 # puts in win_pkgs (scripts/affected-pkgs.sh --code), so a failure only Windows sees (#1935) shows
 # up before the change is queued. It is skipped when the change touches no Go code (win_pkgs empty).
+# A third, `browser`, runs when the change touches the frontend or its bundle (the `web` input,
+# scripts/hosted-check.sh): the browser suite without the @video test, the train gate's
+# `web (browser)` leg, which `make check-run` does not run (#2437).
 on:
   workflow_dispatch:
     inputs:
@@ -29,6 +32,10 @@ on:
         default: '[0, 1, 2, 3, 4, 5]'
       e2e:
         description: Also run the e2e scenarios
+        type: boolean
+        default: false
+      web:
+        description: 'Also run the browser suite (the change touches web/ or internal/webui/)'
         type: boolean
         default: false
 
@@ -72,6 +79,38 @@ jobs:
             if [[ $w == -* ]]; then bad; fi
           done
           make check-run CHECK_PKGS="$PKGS" ${E2E:+CHECK_E2E=1}
+
+  # The browser suite of the train gate's `web (browser)` leg (ci.yml), when the change touches the
+  # frontend or its bundle: `make e2e-web` builds bin/cartographer and drives it serving its
+  # embedded bundle, the committed one. The @video test stays with the train gate. No cache: the
+  # browser is installed on every run.
+  browser:
+    name: browser
+    if: startsWith(github.ref, 'refs/heads/check/') && inputs.web
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: cd web && npm ci --silent
+      # The suite's servers commit to the fixture KBs they initialise (ci.yml).
+      - name: Configure git for tests
+        run: |
+          git config --global user.name ci
+          git config --global user.email ci@local
+          git config --global init.defaultBranch master
+      - run: cd web && npx playwright install --with-deps chromium
+      - name: Browser suite
+        run: make e2e-web NPM_CI= E2E_WEB_ARGS="--grep-invert @video"
 
   # The Windows leg of the train gate on a hosted runner: same setup as ci.yml's test-windows legs,
   # one runner per shard (D785): `test-shard.sh 6 all` on one runner would only split its CPUs six

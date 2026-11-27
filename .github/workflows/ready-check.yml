@@ -5,14 +5,16 @@ name: ready-check
 # each job first replays the change's queued chain (it and the queued changes it follows) on
 # the current main (scripts/ready-check-base.sh: a chain that does not apply is red), then
 # runs the legs `make check` does not: the Windows tests of the packages the chain can
-# break, sharded as test-windows is (D785), and the frontend's unit tests and bundle checks
-# when it touches web/. A replay that conflicts only in the committed bundle is not red: the jobs
+# break, sharded as test-windows is (D785), and the frontend's unit tests, bundle checks and
+# browser suite (`make e2e-web` without the @video test, the train gate's `web (browser)` leg)
+# when it touches web/ or internal/webui/. A replay that conflicts only in the committed bundle is not red: the jobs
 # then test the sources without the bundle (`bundle=stale`, below), which the lander builds again.
 # The lander reads this run's conclusion on the commit of a unit's tip
 # (scripts/land.sh): a red unit is gated alone, so it no longer turns a whole train red and
 # costs a bisection. The `readers` job runs the tests that read the repository or the combined
-# tree (repodocs, docskb, boundaries, webui), the ones that break when main moves under a change.
-# The browser suite and the rest of the Linux tests stay with the train gate.
+# tree (repodocs, docskb, boundaries, webui, and the source-site audit of internal/provisioning
+# when the chain touches a non-test Go file), the ones that break when main moves under a change.
+# The @video browser test and the rest of the Linux tests stay with the train gate.
 #
 # Only a maintainer can push a ready/ branch, so no pull request's code runs here; the jobs
 # hold no secret and only read the repository. What to run is decided by
@@ -38,6 +40,7 @@ jobs:
       count: ${{ steps.plan.outputs.count }}
       shards: ${{ steps.plan.outputs.shards }}
       web: ${{ steps.plan.outputs.web }}
+      audit: ${{ steps.plan.outputs.audit }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -127,6 +130,19 @@ jobs:
       - if: steps.replay.outputs.bundle == 'stale'
         run: make web NPM_CI= && cd web && npm run --silent budget
       - run: make web-test NPM_CI=
+      # The browser suite, as the train gate's `web (browser)` leg runs it (ci.yml): two trains
+      # were rejected by that leg alone (#2437). It drives bin/cartographer, which commits to the
+      # fixture KBs it initialises, so git needs an identity; the binary embeds the bundle of this
+      # tree, built again above when the replay kept main's. No cache: the browser is installed
+      # on every run.
+      - name: Configure git for tests
+        run: |
+          git config --global user.name ci
+          git config --global user.email ci@local
+          git config --global init.defaultBranch master
+      - run: cd web && npx playwright install --with-deps chromium
+      - name: Browser suite
+        run: make e2e-web NPM_CI= E2E_WEB_ARGS="--grep-invert @video"
 
   # The tests that read the repository or the combined tree, on the replayed chain: they are the
   # ones a moved main reddens, and no other leg of the pre-check runs them.
@@ -150,6 +166,14 @@ jobs:
           git config --global user.name ci
           git config --global user.email ci@local
           git config --global init.defaultBranch master
+      # The source-site audit counts the comparisons of each non-test Go file under cmd/ and internal/: two
+      # queued changes that each add one are green alone and red together, and no other leg of
+      # the pre-check runs it (the Windows leg leaves the readers out, #2437).
+      - name: Source-site audit
+        if: needs.plan.outputs.audit == 'true'
+        run: |
+          re=$(scripts/quarantine.sh --skip)
+          go test -count=1 ${re:+-skip "$re"} -run '^TestSourceSitesAreClassified$' ./internal/provisioning
       - env:
           READY_CHECK_BUNDLE: ${{ steps.replay.outputs.bundle }}
         # The quarantine applies, as on every go test (test-shard.sh skips internal/repodocs).

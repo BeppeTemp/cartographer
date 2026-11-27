@@ -561,6 +561,8 @@ func TestHostedCheckWindowsLeg(t *testing.T) {
 		{"one Windows shard red: its leg and the collector", "failure", "check=success,windows (0/6)=success,windows (3/6)=failure,windows=failure", 1,
 			[]string{"(red: windows (3/6), Windows)", "--- Windows leg (windows): failure"}, []string{"red: Linux"}},
 		{"Windows timed out", "failure", "check=success,windows=timed_out", 1, []string{"(red: Windows)", "--- Windows leg (windows): timed_out"}, nil},
+		{"only the browser suite red", "failure", "check=success,browser=failure,windows=success", 1,
+			[]string{"run 101: failure (red: Browser)", "--- Browser leg (browser): failure"}, []string{"red: Linux", "Windows)"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -607,6 +609,10 @@ func TestHostedCheckWindowsLeg(t *testing.T) {
 			}
 			if got := readFileAbs(t, filepath.Join(state, "dispatch")); !strings.Contains(got, "-f pkgs=./a -f win_pkgs=./a ./b -f e2e=false") {
 				t.Errorf("the dispatch does not carry both lists: %q", got)
+			}
+			// Under the test seam no changed path is read: no browser leg is asked for.
+			if got := readFileAbs(t, filepath.Join(state, "dispatch")); !strings.HasSuffix(strings.TrimSpace(got), " -f web=false") {
+				t.Errorf("the dispatch does not say whether the browser leg runs: %q", got)
 			}
 		})
 	}
@@ -705,10 +711,65 @@ func TestHostedCheckWorkflowHasWindowsLeg(t *testing.T) {
 			t.Errorf("action %s is not pinned to a commit", m[1])
 		}
 	}
-	// The Linux job and the Windows job use the same pins.
+	// The Linux job, the browser job and the Windows job use the same pins.
 	for _, a := range []string{"actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", "actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5"} {
-		if strings.Count(wf, a) != 2 {
-			t.Errorf("%s is not used (pinned) by both jobs", a)
+		if strings.Count(wf, a) != 3 {
+			t.Errorf("%s is not used (pinned) by the three jobs", a)
+		}
+	}
+}
+
+// hosted-check.yml has a `browser` job beside `check` (#2437): the browser suite of the train gate's
+// `web (browser)` leg, which `make check-run` does not run, when the script says the change touches the
+// frontend or its bundle (the `web` input). Parallel, the same guard, permissions and pins; the
+// script and the pre-check's plan decide `web` by one pattern.
+func TestHostedCheckWorkflowHasBrowserLeg(t *testing.T) {
+	root := repoRoot(t)
+	wf := readFile(t, root, ".github/workflows/hosted-check.yml")
+	if !regexp.MustCompile(`(?m)^      web:\n(?:        .*\n)*?        type: boolean\n        default: false\n`).MatchString(wf) {
+		t.Error("no web boolean input, off by default")
+	}
+	_, rest, ok := strings.Cut(wf, "\n  browser:\n")
+	if !ok {
+		t.Fatal("no browser job")
+	}
+	job, _, ok := strings.Cut(rest, "\n  windows-shard:\n")
+	if !ok {
+		t.Fatal("the browser job is not before the windows-shard job")
+	}
+	if !strings.Contains(job, "if: startsWith(github.ref, 'refs/heads/check/') && inputs.web\n") {
+		t.Error("the browser job lacks the check/ branch guard or runs without the web input")
+	}
+	if strings.Contains(job, "needs:") {
+		t.Error("the browser job waits for another: the legs must run in parallel")
+	}
+	if strings.Contains(job, "permissions:") || strings.Contains(job, "secrets.") {
+		t.Error("the browser job widens the permissions or uses a secret")
+	}
+	steps := []string{"- run: cd web && npm ci --silent\n", "git config --global init.defaultBranch master\n",
+		"- run: cd web && npx playwright install --with-deps chromium\n", "run: make e2e-web NPM_CI= E2E_WEB_ARGS=\"--grep-invert @video\"\n"}
+	at := 0
+	for _, s := range steps {
+		i := strings.Index(job[at:], s)
+		if i < 0 {
+			t.Fatalf("the browser job lacks, in this order, the step %q", s)
+		}
+		at += i
+	}
+	for _, m := range regexp.MustCompile(`(?m)^\s*- uses: (\S+)`).FindAllStringSubmatch(job, -1) {
+		if !regexp.MustCompile(`@[0-9a-f]{40}$`).MatchString(m[1]) {
+			t.Errorf("action %s is not pinned to a commit", m[1])
+		}
+	}
+	// setup-node at the pin ready-check.yml's web job uses.
+	const node = "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1"
+	if !strings.Contains(job, node) || !strings.Contains(readFile(t, root, ".github/workflows/ready-check.yml"), node) {
+		t.Errorf("the browser job and ready-check.yml do not share the setup-node pin %s", node)
+	}
+	const pattern = `grep -qE '^(web|internal/webui)/'`
+	for _, f := range []string{"scripts/hosted-check.sh", "scripts/ready-check-plan.sh"} {
+		if !strings.Contains(readFile(t, root, f), pattern) {
+			t.Errorf("%s does not decide the browser leg with %s", f, pattern)
 		}
 	}
 }
@@ -739,13 +800,17 @@ esac`
 		wantExit         int
 		want, notWant    []string
 	}{
-		{"computed from the changed paths", "", `./a\n./b\n`, nil, 0, []string{"win_pkgs='./a ./b'", "Windows leg: 2 package(s): ./a ./b"}, []string{"test seam"}},
+		{"computed from the changed paths", "", `./a\n./b\n`, nil, 0, []string{"win_pkgs='./a ./b'", "Windows leg: 2 package(s): ./a ./b", "e2e=false web=false)"}, []string{"test seam", "browser leg"}},
+		// The browser leg (#2437): asked for when the changed paths touch the frontend or its bundle.
+		{"a frontend change asks for the browser leg", "", "", []string{`AFF_CHANGED=notes/x.txt\nweb/src/x.ts\n`}, 0, []string{"web=true)", "browser leg: the frontend or its bundle changed"}, nil},
+		{"a bundle change asks for it too", "", `./internal/webui\n`, []string{`AFF_CHANGED=internal/webui/dist/index.js\n`}, 0, []string{"web=true)"}, nil},
+		{"a path that only contains web/ does not", "", "", []string{`AFF_CHANGED=notes/web/x.txt\ninternal/webuix/a.go\n`}, 0, []string{"web=false)"}, []string{"browser leg"}},
 		{"nothing to test on Windows", "", "", nil, 0, []string{"win_pkgs=''", "no Windows leg: no Go code changed"}, nil},
 		{"a stray CHECK_WIN_PKGS in the environment is ignored", "", `./a\n./b\n`, []string{"CHECK_WIN_PKGS="}, 0, []string{"win_pkgs='./a ./b'"}, []string{"test seam"}},
 		{"the changed paths cannot be computed", "changed", `./a\n`, nil, 1, []string{"cannot compute the changed paths", "stub: no merge-base"}, []string{"would push"}},
 		{"the packages cannot be computed", "code", `./a\n`, nil, 1, []string{"cannot compute the Windows packages", "stub: go list failed"}, []string{"would push"}},
 		{"a computed flag-like word is refused", "", `./a\n-exec=/bin/x\n`, nil, 2, []string{"bad package list"}, []string{"would push"}},
-		{"the test seam replaces the computation and says so", "changed", "", []string{"HOSTED_CHECK_TEST_WIN_PKGS=./z"}, 0, []string{"win_pkgs='./z'", "HOSTED_CHECK_TEST_WIN_PKGS is set", "Windows leg: 1 package(s): ./z"}, []string{"stub:"}},
+		{"the test seam replaces the computation and says so", "changed", "", []string{"HOSTED_CHECK_TEST_WIN_PKGS=./z"}, 0, []string{"win_pkgs='./z'", "HOSTED_CHECK_TEST_WIN_PKGS is set", "Windows leg: 1 package(s): ./z", "web=false)"}, []string{"stub:"}},
 		{"an empty test seam means no Windows leg", "changed", "", []string{"HOSTED_CHECK_TEST_WIN_PKGS="}, 0, []string{"win_pkgs=''", "HOSTED_CHECK_TEST_WIN_PKGS is set", "no Windows leg"}, []string{"stub:"}},
 	}
 	for _, c := range cases {

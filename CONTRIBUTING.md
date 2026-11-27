@@ -89,7 +89,7 @@ The Kiro CLI column is the design of the generated definitions; the maintainer's
 client (listed workspace agents, a read-only role spawned, the pinned model in the client's log)
 is recorded here with its date and the client version when it is done.
 
-A maintainer's agent iterates on the targeted tests of the packages it touched and never runs `make check-hosted`: the coordinator starts one (GitHub-hosted, in parallel with every other agent's, with a Windows leg) on the tip when it starts the review, never a check that waits for a shared build host (D2040, D2311). Queueing waits for it to be green: a fix that changes any non-test, non-doc file gets one more hosted check; the change is queued only after a green hosted check of the last such commit (a doc is a Markdown file under `docs/`; a test is a test file).
+A maintainer's agent iterates on the targeted tests of the packages it touched and never runs `make check-hosted`: the coordinator starts one (GitHub-hosted, in parallel with every other agent's, with a Windows leg and, for a frontend change, the browser suite) on the tip when it starts the review, never a check that waits for a shared build host (D2040, D2311). Queueing waits for it to be green: a fix that changes any non-test, non-doc file gets one more hosted check; the change is queued only after a green hosted check of the last such commit (a doc is a Markdown file under `docs/`; a test is a test file).
 
 With any other client, have it read `AGENTS.md` and follow `.claude/skills/<name>/SKILL.md`
 as a plain procedure, spawning a subagent from the body of `.claude/agents/<name>.md`
@@ -297,7 +297,7 @@ Health coverage say "not checked here" instead of a zero; never make a check sil
     lander stops (one in `startup_failure` stops it at once: it will not turn green), and an open train
     PR on the current `main` that it did not open is adopted (one on an older `main` is closed).
   - **Pre-check and status.** Each queued change gets a hosted pre-check
-    (`ready-check.yml`: its Windows tests, the tests that read the repository and, for `web/`, the frontend unit tests, on its chain,
+    (`ready-check.yml`: its Windows tests, the tests that read the repository and, for `web/`, the frontend unit tests and the browser suite without the `@video` test, on its chain,
     the changes it follows through `AFTER=`, replayed on the current `main`; a replay conflict in the committed
     Atlas bundle only is not red): a train takes every unit whose tip is not red, one still running included,
     and a red one is gated alone (D2414). The lander builds the bundle again for every picked

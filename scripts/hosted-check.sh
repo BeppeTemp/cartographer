@@ -15,7 +15,10 @@
 # list is not empty, Windows (the sharded `go test` of the packages the train gate's Windows leg
 # covers). The script computes that list itself, from the same changed paths `make check` uses
 # (`affected-pkgs.sh --changed | affected-pkgs.sh --code`): `make check` hands it nothing but
-# CHECK_PKGS. A list that cannot be computed is exit 1 with the reason, never 75. Both legs are
+# CHECK_PKGS. A list that cannot be computed is exit 1 with the reason, never 75. A third leg,
+# the browser suite (`make e2e-web` without the @video test), runs when those changed paths touch
+# the frontend or its bundle (web/, internal/webui/: the pattern of scripts/ready-check-plan.sh),
+# as the train gate's `web (browser)` leg would (#2437). The legs are
 # read from the one poll of the run; a red check names the red leg(s) and prints each one's log
 # excerpt.
 #
@@ -27,7 +30,8 @@
 #   HOSTED_CHECK_TEST_WIN_PKGS=<list>
 #                                 TEST SEAM, never for a real run: a list in the environment (empty:
 #                                 no Windows leg) replaces the computation, which needs the checkout's
-#                                 upstream/main; a note on stderr says when it is used
+#                                 upstream/main; a note on stderr says when it is used. No changed
+#                                 paths are read then, so no browser leg either
 #   HOSTED_CHECK_DRY=1            build the commit and print the branch, push nothing
 #   HOSTED_CHECK_POLL=15          seconds before the first poll of the run; doubles after each poll
 #   HOSTED_CHECK_POLL_MAX=60      ceiling of that back-off (a run costs ~15 calls, not ~720 an hour:
@@ -131,8 +135,11 @@ fi
 # The packages of the Windows leg: what the train gate's leg runs (affected-pkgs.sh --code) over the
 # paths `make check` selects its packages from. Two steps, each status checked: a pipe into the
 # list would hide a failure as an empty list, and a check that tests nothing must not pass.
+web=false
 if [ -z "$win_given" ]; then
   changed=$("$here/affected-pkgs.sh" --changed) || { note "cannot compute the changed paths (see above): not running a check that would test nothing"; exit 1; }
+  # The browser leg: the pre-check's rule (scripts/ready-check-plan.sh, `web`), kept equal by a test.
+  if printf '%s\n' "$changed" | grep -qE '^(web|internal/webui)/'; then web=true; fi
   winpkgs=$(printf '%s\n' "$changed" | "$here/affected-pkgs.sh" --code) || { note "cannot compute the Windows packages (see above)"; exit 1; }
   winpkgs=${winpkgs//$'\n'/ }
   check_list "$winpkgs"
@@ -141,6 +148,7 @@ fi
 nwin=0
 for _ in $winpkgs; do nwin=$((nwin + 1)); done
 if [ "$nwin" = 0 ]; then note "no Windows leg: no Go code changed"; else note "Windows leg: $nwin package(s): $winpkgs"; fi
+[ "$web" = false ] || note "browser leg: the frontend or its bundle changed"
 
 tree=$(GIT_INDEX_FILE=$tmp git write-tree)
 if [ "$tree" = "$(git rev-parse 'HEAD^{tree}')" ]; then
@@ -152,7 +160,7 @@ fi
 branch=check/$slug-${sha:0:12}
 
 if [ -n "$dry" ]; then
-  note "dry run: would push $sha to $remote $branch and dispatch hosted-check.yml (pkgs='$pkgs' win_pkgs='$winpkgs' e2e=$e2e)"
+  note "dry run: would push $sha to $remote $branch and dispatch hosted-check.yml (pkgs='$pkgs' win_pkgs='$winpkgs' e2e=$e2e web=$web)"
   exit 0
 fi
 
@@ -200,7 +208,7 @@ before=${before:-0}
 # shellcheck disable=SC2086  # the packages are a word list on purpose
 nshard=$("$here/ready-check-plan.sh" --count $winpkgs) || nshard=6
 shards=[$(seq 0 $((nshard - 1)) | paste -sd, -)]
-gh workflow run hosted-check.yml -R "$repo" --ref "$branch" -f pkgs="$pkgs" -f win_pkgs="$winpkgs" -f e2e="$e2e" -f win_shards="$shards" >/dev/null ||
+gh workflow run hosted-check.yml -R "$repo" --ref "$branch" -f pkgs="$pkgs" -f win_pkgs="$winpkgs" -f e2e="$e2e" -f win_shards="$shards" -f web="$web" >/dev/null ||
   unavailable "cannot dispatch hosted-check.yml on $branch (is it on the default branch?)"
 
 # 7. Find the run.
@@ -277,7 +285,7 @@ case "$concl" in
     for leg in ${legs[@]+"${legs[@]}"}; do
       name=${leg%%=*} c=${leg#*=}
       case "$c" in success | skipped | '') continue ;; esac
-      case "$name" in check) label=Linux ;; windows) label=Windows ;; *) label=$name ;; esac
+      case "$name" in check) label=Linux ;; windows) label=Windows ;; browser) label=Browser ;; *) label=$name ;; esac
       red=${red:+$red, }$label
       excerpt=$(printf '%s\n' "$log" | awk -F'\t' -v j="$name" '$1 == j' | tail -n "$tail_n")
       note "--- $label leg ($name): $c"
