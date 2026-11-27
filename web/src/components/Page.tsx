@@ -79,14 +79,16 @@ export function Segmented<T extends string>({
   value,
   options,
   onChange,
+  className,
 }: {
   label: string;
   value: T;
   options: readonly (readonly [T, string])[];
   onChange(value: T): void;
+  className?: string;
 }) {
   return (
-    <div className="segmented" role="group" aria-label={label}>
+    <div className={className ? `segmented ${className}` : "segmented"} role="group" aria-label={label}>
       {options.map(([v, text]) => (
         <button
           key={v}
