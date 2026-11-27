@@ -433,3 +433,81 @@ func TestCmdKBRename_RewritesAnExcludeOnlyReference(t *testing.T) {
 		t.Errorf("workspaces.kiro[0].exclude = %v, want [atlas]", got)
 	}
 }
+
+const kbOptionsClientBody = "schema_version: 1\nserver_url: http://127.0.0.1:39273\n" +
+	"clients:\n  claude:\n    kbs: [kb-b, wiki]\n" +
+	"knowledge_bases:\n  wiki:\n    transversal: true\n    access: read\n    artifacts: false\n"
+
+func writeKBOptionsClient(t *testing.T, extra string) string {
+	t.Helper()
+	home := t.TempDir()
+	setHome(t, home)
+	if err := os.WriteFile(filepath.Join(home, clientconfig.FileName), []byte(kbOptionsClientBody+extra), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return home
+}
+
+// TestCmdKBRename_MovesPerKBOptions: knowledge_bases.<old> follows the new name,
+// or `client kb <new>` would report the defaults and the old entry would stay
+// behind (#2424). Even a rename with no binding of the KB moves it.
+func TestCmdKBRename_MovesPerKBOptions(t *testing.T) {
+	if !hasGitBinary() {
+		t.Skip("git not available")
+	}
+	home := writeKBOptionsClient(t, "")
+	dataDir := seedRenameKB(t, "wiki")
+
+	var code int
+	out := withStdout(t, func() {
+		withNoGuidance(t, func() {
+			code = cmdKBRename([]string{"wiki", "atlas", "--data", dataDir, "--config", filepath.Join(dataDir, "no-config.yaml")})
+		})
+	})
+	if code != 0 {
+		t.Fatalf("exit = %d:\n%s", code, out)
+	}
+	if !strings.Contains(out, "moving knowledge_bases.wiki to knowledge_bases.atlas") {
+		t.Errorf("the preflight does not list the options:\n%s", out)
+	}
+	cfg, err := clientconfig.Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.KBTransversal("atlas") || cfg.KBAccess("atlas") != clientconfig.KBAccessRead || cfg.KBArtifacts("atlas") {
+		t.Errorf("atlas options = %+v, want transversal, access read, artifacts false", cfg.KBOptions["atlas"])
+	}
+	if _, ok := cfg.KBOptions["wiki"]; ok {
+		t.Errorf("knowledge_bases.wiki is still there: %+v", cfg.KBOptions)
+	}
+}
+
+// TestCmdKBRename_KeepsTheNewNamesOptions: an entry the new name already has
+// wins and the old one is dropped (#2424).
+func TestCmdKBRename_KeepsTheNewNamesOptions(t *testing.T) {
+	if !hasGitBinary() {
+		t.Skip("git not available")
+	}
+	home := writeKBOptionsClient(t, "  atlas:\n    access: read\n")
+	dataDir := seedRenameKB(t, "wiki")
+
+	var code int
+	out := withStdout(t, func() {
+		withNoGuidance(t, func() {
+			code = cmdKBRename([]string{"wiki", "atlas", "--data", dataDir, "--config", filepath.Join(dataDir, "no-config.yaml")})
+		})
+	})
+	if code != 0 {
+		t.Fatalf("exit = %d:\n%s", code, out)
+	}
+	cfg, err := clientconfig.Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.KBTransversal("atlas") || !cfg.KBArtifacts("atlas") || cfg.KBAccess("atlas") != clientconfig.KBAccessRead {
+		t.Errorf("atlas options = %+v, want only access read", cfg.KBOptions["atlas"])
+	}
+	if _, ok := cfg.KBOptions["wiki"]; ok {
+		t.Errorf("knowledge_bases.wiki is still there: %+v", cfg.KBOptions)
+	}
+}
