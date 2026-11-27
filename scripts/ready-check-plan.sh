@@ -12,7 +12,12 @@
 #   shards  the shard indexes as a JSON array for the job matrix; never empty, as a
 #           skipped job's matrix is still parsed
 #   web     true when the change touches the frontend or its bundle (web/, internal/webui/):
-#           its unit tests and bundle checks run, the browser suite stays in the train gate
+#           its unit tests, its bundle checks and the browser suite run (`make e2e-web`
+#           without the @video test, the `web (browser)` leg of the train gate, #2437).
+#           scripts/hosted-check.sh asks for its browser leg by the same pattern
+#   audit   true when the chain selects internal/provisioning (scripts/affected-pkgs.sh: a
+#           non-test Go file under cmd/ or internal/, or the package itself): the `readers` job then runs
+#           TestSourceSitesAreClassified, a reader the Windows leg (--code) leaves out (#2437)
 #
 # `ready-check-plan.sh --count <packages...>` prints only the count for those packages: the
 # hosted check (scripts/hosted-check.sh) splits its Windows leg by the same rule.
@@ -49,7 +54,13 @@ shards=$(seq 0 $((count - 1)) | paste -sd, -)
 web=false
 if printf '%s\n' "$paths" | grep -qE '^(web|internal/webui)/'; then web=true; fi
 
+# One rule with the fast tier: the seeds of affected-pkgs.sh, before --code drops the readers.
+audit=false
+seeds=$(printf '%s\n' "$paths" | "$here/affected-pkgs.sh" --seeds)
+if printf '%s\n' "$seeds" | grep -qxF ./internal/provisioning; then audit=true; fi
+
 echo "pkgs=$pkgs"
 echo "count=$count"
 echo "shards=[$shards]"
 echo "web=$web"
+echo "audit=$audit"

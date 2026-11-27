@@ -43,17 +43,19 @@ func TestAffectedPackagesSeedTable(t *testing.T) {
 		paths []string
 		want  string
 	}{
-		{"go file also selects the tree-scanning guards", []string{"internal/kb/kb.go"}, "./internal/kb ./internal/procattr ./internal/repodocs ./internal/repodocs/landertest ./internal/boundaries"},
+		{"go file also selects the tree-scanning guards", []string{"internal/kb/kb.go"}, "./internal/kb ./internal/procattr ./internal/repodocs ./internal/repodocs/landertest ./internal/boundaries ./internal/provisioning"},
 		{"test file", []string{"internal/audit/audit_test.go"}, "./internal/audit ./internal/procattr ./internal/repodocs ./internal/repodocs/landertest ./internal/boundaries"},
 		{"testdata belongs to its package", []string{"internal/kb/testdata/x/y.md"}, "./internal/kb"},
 		{"embedded skill belongs to the embedding package", []string{"internal/skillbundle/bundled/cartographer-ops/SKILL.md"}, "./internal/skillbundle"},
-		{"nested command", []string{"internal/webui/gen/main.go"}, "./internal/webui/gen ./internal/procattr ./internal/repodocs ./internal/repodocs/landertest ./internal/boundaries"},
+		{"nested command", []string{"internal/webui/gen/main.go"}, "./internal/webui/gen ./internal/procattr ./internal/repodocs ./internal/repodocs/landertest ./internal/boundaries ./internal/provisioning"},
+		{"the command, like any non-test Go file, is counted by the source-site audit", []string{"cmd/cartographer/doctor.go"}, "./cmd/cartographer ./internal/procattr ./internal/repodocs ./internal/repodocs/landertest ./internal/boundaries ./internal/provisioning"},
+		{"a file the audit does not read selects no audit", []string{"cmd/cartographer/testdata/x.json"}, "./cmd/cartographer"},
 		{"frontend is hashed by webui", []string{"web/src/lib/health.ts"}, "./internal/webui"},
 		{"markdown is read by repodocs, the tool-citation check and the docs KB gate", []string{"docs/testing.md"}, "./internal/repodocs ./internal/repodocs/landertest ./internal/mcpserver ./internal/docskb"},
 		{"scripts and workflows are read by repodocs and by the lander tests", []string{"scripts/signoff.sh", ".github/workflows/ci.yml", "Makefile"}, "./internal/repodocs ./internal/repodocs/landertest"},
 		{"the module selects everything", []string{"docs/testing.md", "go.sum"}, "./..."},
-		{"duplicates collapse", []string{"internal/kb/a.go", "internal/kb/b.go"}, "./internal/kb ./internal/procattr ./internal/repodocs ./internal/repodocs/landertest ./internal/boundaries"},
-		{"a deleted package still selects the guards", []string{"internal/gone-for-good/x.go"}, "./internal/procattr ./internal/repodocs ./internal/repodocs/landertest ./internal/boundaries"},
+		{"duplicates collapse", []string{"internal/kb/a.go", "internal/kb/b.go"}, "./internal/kb ./internal/procattr ./internal/repodocs ./internal/repodocs/landertest ./internal/boundaries ./internal/provisioning"},
+		{"a deleted package still selects the guards", []string{"internal/gone-for-good/x.go"}, "./internal/procattr ./internal/repodocs ./internal/repodocs/landertest ./internal/boundaries ./internal/provisioning"},
 		{"nothing in, nothing out", nil, ""},
 	}
 	for _, c := range cases {
@@ -179,6 +181,32 @@ func TestAffectedPackagesAlwaysRunsTheTreeScanningGuards(t *testing.T) {
 	}
 	if got := affected(t, []string{"docs/testing.md"}); strings.Contains(got, "procattr") || strings.Contains(got, "boundaries") {
 		t.Errorf("a markdown change does not select procattr, got %q", got)
+	}
+}
+
+// TestSourceSitesAreClassified (internal/provisioning) pins, per non-test Go file under cmd/ and
+// internal/, how many times it compares an artifact source (files of the command, the control
+// plane, lint, the plugin core, the client config and the KB are pinned): such a change must
+// select the package, which no import edge does for most of them (two queued changes were
+// rejected by the train gate alone, #2437). It is a reader of repository files: the Windows
+// leg (--code) leaves it out unless a dependency edge selects it.
+func TestAffectedPackagesSelectsTheSourceSiteAuditForTheCommand(t *testing.T) {
+	needBash(t)
+	for _, p := range []string{"cmd/cartographer/doctor.go", "internal/mcpserver/tools_sync.go", "internal/lint/values.go", "internal/plugin/core/manifest.go", "internal/okf/okf.go"} {
+		for _, args := range [][]string{nil, {"--seeds"}} {
+			if got := " " + affected(t, []string{p}, args...) + " "; !strings.Contains(got, " ./internal/provisioning ") {
+				t.Errorf("%v: %s must select ./internal/provisioning, got%s", args, p, got)
+			}
+		}
+	}
+	if got := " " + affected(t, []string{"cmd/cartographer/doctor.go"}, "--code") + " "; strings.Contains(got, " ./internal/provisioning ") || !strings.Contains(got, " ./cmd/cartographer ") {
+		t.Errorf("--code keeps the command and leaves the audit (a reader) out, got%s", got)
+	}
+	// The audit skips test files, and reads nothing but Go.
+	for _, p := range []string{"internal/okf/okf_test.go", "internal/okf/testdata/x.md", "web/src/lib/health.ts"} {
+		if got := " " + affected(t, []string{p}, "--seeds") + " "; strings.Contains(got, " ./internal/provisioning ") {
+			t.Errorf("%s does not select the audit, got%s", p, got)
+		}
 	}
 }
 

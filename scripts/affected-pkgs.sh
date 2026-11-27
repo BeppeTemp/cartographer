@@ -42,7 +42,10 @@ fi
 # checks read docs, scripts, workflows and the Makefile, and internal/repodocs/landertest (the
 # tests of the lander, signoff, ready, status and the triage, apart from repodocs so that the
 # two run in parallel) the scripts and workflows; internal/mcpserver checks
-# the tool names the markdown cites; internal/webui hashes web/.
+# the tool names the markdown cites; internal/webui hashes web/; internal/provisioning
+# (TestSourceSitesAreClassified) counts the source comparisons of every non-test Go file
+# under cmd/ and internal/ (it pins files of the command, the control plane, lint, the
+# plugin core, the client config and the KB), which no import edge links to it (#2437).
 repo_readers="internal/repodocs internal/repodocs/landertest"
 md_readers="internal/repodocs internal/repodocs/landertest internal/mcpserver internal/docskb"
 # Every test that scans the source of the whole tree: internal/procattr
@@ -78,6 +81,7 @@ while IFS= read -r p; do
         *.go)
           for g in $guards_code; do guard "$g"; done
           for r in $guards_reader; do reader "$r"; done
+          case "$p" in *_test.go) ;; *) reader internal/provisioning ;; esac
           ;;
       esac
       ;;
