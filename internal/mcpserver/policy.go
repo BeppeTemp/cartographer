@@ -56,7 +56,7 @@ var denyHints = map[string]string{
 	denySecretsRestr:     "the token's rule for this KB carries secrets: none, which withholds the secret tools, secret resolution and the concept fields that point at a secret",
 	denyDeniedByHook:     "a hook the operator configured refused this write",
 	denyHookUnavailable:  "a hook the operator configured could not be reached and its failure policy is fail_closed: retry later or ask the operator",
-	denyReadOnlyKB:       "this KB is read-only on this connection (knowledge_bases access: read on the client): the other KBs of the connection stay writable",
+	denyReadOnlyKB:       "this KB is read-only on this connection: its access is read on the client (knowledge_bases access: read), or it is a transversal KB and this session's folder is not bound to it (knowledge_bases transversal, D2410); the other KBs of the connection stay writable",
 	denyReadOnlyProfile:  "this connection was opened read-only (access=read-min): connect without it to write",
 	denyUnboundFolder: "this session is read-only because the folder it was started in is bound to no KB: " +
 		"bind the folder (cartographer workspace bind <provider> <path> --kb <name>) or declare its repository in a KB's paths.yaml, then start a new agent session",

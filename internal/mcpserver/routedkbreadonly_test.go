@@ -48,6 +48,13 @@ func TestRoutedKBReadOnly_AllKBsUnlistsWrites(t *testing.T) {
 		t.Fatalf("write = %+v, want %s", res, denyReadOnlyKB)
 	}
 	assertNoCLICommand(t, "read_only_kb refusal", res.Content[0].Text)
+	// #2426: a transversal KB is read-only too, whatever its access says: the
+	// reason names both causes, not only the access setting.
+	for _, cause := range []string{"access: read", "transversal"} {
+		if !strings.Contains(res.Content[0].Text, cause) {
+			t.Errorf("read_only_kb refusal does not name %q: %s", cause, res.Content[0].Text)
+		}
+	}
 	if r := f.call(t, tokAdmin, path, "concept_read", map[string]any{"kb": "kb-a", "id": "manutenzione/marker"}); r.IsError {
 		t.Errorf("read refused: %+v", r)
 	}
