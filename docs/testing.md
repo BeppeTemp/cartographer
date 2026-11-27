@@ -1319,7 +1319,7 @@ targets and `test-install`; the web legs) and every leg `main-status` watches on
 `demo-edge`, `docker`, `helm`, `test-macos`, `test-linux-nosystemd`), so a tree signed off in CI is one `main`'s CI
 passes, Windows and macOS included, about ten minutes with every leg in parallel. The first job that completes
 other than green (failure, cancelled, skipped, timed out) ends the wait: the rest of the run is cancelled, the
-`--- FAIL:` lines of the failed jobs' logs are printed for the lander, and the signoff fails with `the jobs <names>
+`--- FAIL:` lines of the failed jobs' logs, and the `FAIL<TAB><package>` line that ends each failed package, are printed for the lander, and the signoff fails with `the jobs <names>
 of ci.yml run <id> are red`; a job of the list missing from a finished run is red too, and a run still unfinished
 after `SIGNOFF_GATE_TRIES` polls (240, every `SIGNOFF_POLL` 15 s) is cancelled and red.
 `TestSignoffHostedJobsCoverMainStatus` fails when `main-status` watches a job `HOSTED_JOBS` does not wait for. The
@@ -1411,7 +1411,8 @@ inert once defused is kept. The lines copied from the log into the body (the fir
 line of each e2e scenario) are printable ASCII without `@`, in an indented code block. Red again, the lander
 bisects over the train's prefixes that end at a unit's boundary (one signoff each, below) and rejects the
 first unit whose prefix is red: a unit of one as a change, a longer one by its last tip in queue order (`the train
-gate is red with the chain <first>..<tip> and green without it`), its other members staying queued. When the signoff confirmed the failure on named Go tests, its `signoff: probe:`
+gate is red with the chain <first>..<tip> and green without it`), its other members staying queued. Before that rejection the
+unit gets one more gate, once, when the red has another likely cause (`reprobe_why` in `scripts/land.sh`): a package the gate logs name as failed (`FAIL<TAB><package>`) holds no file the unit changes, or a failing test is a word of the title of an open `flaky` issue. The gate is a full one, of the train up to that unit: green, nothing is rejected, that prefix lands on it and a flaky issue names the tests (`failed in a train and passed when its suspect was gated once more`); red, the unit is rejected as above. The names come from the gate log, which the change writes: they can only buy that one gate, and only a green gate lands (`TestLanderGatesASuspectOnceMoreBeforeRejectingIt`). When the signoff confirmed the failure on named Go tests, its `signoff: probe:`
 line names their packages and platform; the signoff also writes those words to the file the lander passes it in
 `SIGNOFF_PROBE_FILE` (a file of that gate, `gate-<id>.log.probefile`, made empty by the lander before the gate), and the
 lander reads the probe from that file only, never from the log: the log holds the change's own output, and a test can
@@ -1473,7 +1474,8 @@ its own gate and drops the composition when one appeared (nothing pushed), and `
 lander elsewhere is gating train/<id>: not started here, the change is queued and that lander takes it (make
 land-status; if that lander is dead: LAND_FORCE=1 make land, or delete train/<id> on origin)`). With
 `LAND_FORCE=1` the daemon starts and the lander waits on no such train. An older one was left by a lander that
-died and is deleted; this machine's own leftover is deleted at once; nothing is deleted when the open PRs
+died and is deleted; this machine's own leftover (a lander that stopped after its push: a status POST that failed, a kill)
+is deleted at once, unless it can still land as it is (`resumable` in `scripts/land.sh`): with a hosted gate, built on the current `main`, each of its commits a change still queued under its `Lander-Slug` with the same non-empty `Lander-Tip` and title, whose tree is exactly the pick of that queued commit on the commit before it (the branch is on origin: trailers prove nothing, the lander rebuilds the trees with `git merge-tree`; a train whose picks were rewritten, a numbered decision or a rebuilt bundle, does not match), and whose units compose would still take whole: no member rejected (any `failed/<slug>` ref), held, frozen or left out. Such a train is gated without a new run: the signoff, given `SIGNOFF_ADOPT`, dispatches nothing, follows the newest `ci.yml` run of that branch and sha and posts the status when it is green, and the train's PR is opened and merged as usual; no run, a red one or any other failure deletes the branch and the queue is composed again, nothing rejected (`TestLanderLandsItsLeftoverTrainOnTheRunOfItsTree`, `TestSignoffAdoptsTheRunOfTheSameSha`). Nothing is deleted when the open PRs
 could not be listed in full (a failed call, or as many PRs as the limit of 1000). The guard covers the hosted
 gate, whose train branch is on origin during the whole gate: on the build host it reaches origin only after
 the gate.
@@ -1530,17 +1532,20 @@ a green one; when none is, the oldest red one is gated alone (the log names its 
 `LAND_WINDOW_MIN` (4) landable changes are green, the oldest landable one was queued less than
 `LAND_WINDOW` (900 s) ago and none carries `Lander-Now: yes` (`make ready NOW=1`): it logs
 `collecting: ...` once and looks again every `LAND_POLL`, so a change queued meanwhile joins the
-train; `LAND_WINDOW=0` turns it off. `make land-status` prints each unit with its state (`waits on
+train; `LAND_WINDOW=0` turns it off. The window closes at once when the queue holds one landable unit, the pre-check of
+each of its tips succeeded and no `hosted-check.yml` run (a `make check-hosted` on a `check/*` branch, the step before a change is queued) is in flight: no company is coming; a count GitHub does not give keeps it open (`TestLanderClosesTheWindowForALoneGreenChange`). `make land-status` prints each unit with its state (`waits on
 rejected <slug>`, `held`, `frozen`, or `pre-check: ok | running | red | none | unknown`, a red one
 with its failed jobs) and, while the window is open, when it closes. The hosted signoff reads the log
 of a failed job up to `SIGNOFF_LOG_TRIES` (5) times while it is empty, so the failing Go tests are
 named even when GitHub serves the log late.
+The signoff tries a `gh` read (the permission, the listing of the runs) and the status POST again, `LAND_INFRA_TRIES` (3) times `LAND_INFRA_WAIT` (120 s) apart, when it failed on a transport error (`gh` could not connect, or a 5xx) and only then: a 4xx is an answer, and the dispatch and a rerun are never tried again, a second one would duplicate the run (`TestSignoffRetriesAGhCallOnATransportErrorOnly`).
 The lander tries a failed fetch of origin again (`LAND_INFRA_TRIES`, `LAND_INFRA_WAIT`) before it stops, bounds
 every `gh` call (`LAND_GH_TIMEOUT`, 120 s, its process group killed past it) and reads the freeze with
 `freeze-open.sh --state` (`open`, `closed` or `unknown`): on `unknown` the last state read stands (open when none
 was), and while it freezes a unit and nothing else is landable the lander waits for the listing instead of
 stopping. The running lander writes `status.json` in its state directory at each transition (phase, train, run,
-window, the units not landable and why, the last rejection: the `scripts/land.sh` header). `make ready` refuses a
+window, the units not landable and why, the last rejection: the `scripts/land.sh` header). Its log lines start with
+`land: <ISO 8601 UTC time>`; `events.jsonl`, beside `status.json`, gets one JSON line per event, `{"at", "event", ...}`: `composed` (train, changes, slugs), `gated` (train, result, secs, log), `rejected` (slug, reason), `landed` (train, pr, changes, slugs, and the train's whole cost: `secs` from its composition, `gates`, `probes`) and `died` (why); the same total is logged when a train lands (`train <branch> landed: <k> change(s), <duration> from its composition, <n> gate(s) and <m> probe(s) in all`: the status of the head carries the last run only). `--daemon` moves a log or an `events.jsonl` past `LAND_LOG_MAX` bytes (5 MB) to `<file>.1`, keeping `LAND_LOG_KEEP` (3) older ones, before it starts a lander (`TestLanderLogsISOTimesEventsAndTheTrainsTotal`, `TestLanderDaemonRotatesItsLog`). `make ready` refuses a
 `REVIEW=` tier below the one its triage computes.
 `make requeue SLUG=<slug> [FIRST=1]` (`scripts/requeue.sh`, maintainer only) rebuilds a queued change, or the commit a
 rejected one was queued as, and every queued change that follows it through `Lander-After`, on the current `main`: in a
