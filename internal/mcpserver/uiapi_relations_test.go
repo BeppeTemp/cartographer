@@ -226,6 +226,25 @@ func TestKBListRelationsUnavailableWithoutDefaultBranch(t *testing.T) {
 	if _, ok := rowField(t, rows["lone-kb"], "relations"); ok {
 		t.Errorf("row carries relations: %s", rows["lone-kb"])
 	}
+	if v, _ := rowField(t, rows["lone-kb"], "relations_unavailable_reason"); string(v) != `"no_origin_head"` {
+		t.Errorf("reason = %s, want no_origin_head", v)
+	}
+}
+
+// A failure that is not a missing origin/HEAD says read_failed, never no reason.
+func TestKBListRelationsUnavailableReasonReadFailed(t *testing.T) {
+	t.Parallel()
+	f := newRelFixture(t, []string{"client-kb-1", "core-kb"}, map[string][][2]string{
+		"client-kb-1": {{"core-kb", "core-kb"}},
+	})
+	f.byName["core-kb"].NormalizedOrigin()
+	if err := os.RemoveAll(filepath.Join(f.byName["core-kb"].Root, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	rows := f.kbListRows(t, adminCtx)
+	if v, _ := rowField(t, rows["client-kb-1"], "relations_unavailable_reason"); string(v) != `"read_failed"` {
+		t.Errorf("reason = %s, want read_failed", v)
+	}
 }
 
 // Two callers on one KB: the one who cannot read the target gets the bytes of

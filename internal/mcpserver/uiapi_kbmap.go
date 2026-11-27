@@ -82,6 +82,8 @@ type uiKBMapNode struct {
 	// of its dependencies.
 	Layer                int  `json:"layer"`
 	RelationsUnavailable bool `json:"relations_unavailable,omitempty"`
+	// RelationsUnavailableReason is why: no_origin_head or read_failed.
+	RelationsUnavailableReason string `json:"relations_unavailable_reason,omitempty"`
 }
 
 // uiKBMapRelation says From (a client) depends on To (a dependency).
@@ -134,6 +136,7 @@ func (m *MultiKBServer) uiKBMap(w http.ResponseWriter, r *http.Request) {
 			if WholeVisible(ctx, k, false) {
 				if rv, err := relationViewFor(ctx, k); err != nil {
 					node.RelationsUnavailable = true
+					node.RelationsUnavailableReason = relationsReasonFor(err)
 				} else {
 					for _, to := range rv.Resolved {
 						if isNode[to] && to != name {
