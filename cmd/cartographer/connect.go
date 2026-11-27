@@ -14,6 +14,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	xterm "github.com/charmbracelet/x/term"
@@ -648,12 +649,39 @@ func cmdConnect(args []string) int {
 		case probeUnreachable:
 			// Only a server that did not answer: a health endpoint that
 			// replied (a 404 on a /mcp/<segment> URL, a 5xx) is running (#1299).
-			if isTransportErr(probeErr) && !printWslServerHint(os.Stderr) {
-				fmt.Fprintln(os.Stderr, "hint: the local server isn't responding — run `cartographer setup` (server, first KB and agents), or `cartographer service install` for the server alone")
+			if isRefusedErr(probeErr) && !printWslServerHint(os.Stderr) {
+				fmt.Fprintln(os.Stderr, loopbackSetupHint)
 			}
 		}
 	}
 	return printConnectResult(dir, providers, opts, res)
+}
+
+// loopbackSetupHint is the hint of a loopback server nothing listens on.
+const loopbackSetupHint = "hint: the local server isn't responding — run `cartographer setup` (server, first KB and agents), or `cartographer service install` for the server alone"
+
+// wsaeConnRefused is Windows' WSAECONNREFUSED: Go's syscall.ECONNREFUSED on
+// Windows is a different, invented number, so errors.Is would not match it.
+const wsaeConnRefused = 10061
+
+// isRefusedErr reports whether err is a refused connection: nothing listens on
+// the port. A slow server (it accepted the request) and a TLS or certificate
+// failure (it answered) are running, so `setup` is not their fix (#2444).
+func isRefusedErr(err error) bool {
+	if err == nil || isSlowErr(err) || isUnknownAuthority(err) {
+		return false
+	}
+	var cv *tls.CertificateVerificationError
+	var ua x509.UnknownAuthorityError
+	var rh tls.RecordHeaderError
+	if errors.As(err, &cv) || errors.As(err, &ua) || errors.As(err, &rh) {
+		return false
+	}
+	if !isTransportErr(err) {
+		return false
+	}
+	var errno syscall.Errno
+	return errors.Is(err, syscall.ECONNREFUSED) || (errors.As(err, &errno) && uintptr(errno) == wsaeConnRefused)
 }
 
 // slowServerText is the short reason of a server that accepted the request and
