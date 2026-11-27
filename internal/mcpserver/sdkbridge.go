@@ -63,7 +63,7 @@ const readMinInstructions = "This connection is read-only: only the minimal read
 
 // kbsReadOnlyInstructions is the instructions of a connection whose every KB is
 // read-only (#1409). Generic wording: no CLI command.
-const kbsReadOnlyInstructions = "This connection is read-only: its KBs are set read-only on the client, so no write tool is listed and every write is refused with read_only_kb."
+const kbsReadOnlyInstructions = "This connection is read-only: its KBs are read-only on the client (access: read, or a transversal KB outside a bound folder), so no write tool is listed and every write is refused with read_only_kb."
 
 // readOnlyKBsSentence is the per-handshake sentence of a connection where only
 // some KBs are read-only (#1409): the names come from the request context.

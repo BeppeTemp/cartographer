@@ -569,7 +569,7 @@ Two properties are load-bearing:
   not observable. Every other denial reads `forbidden: <code>: <hint>` (D343:
   `unclassified_tool`, `bad_arguments`, `read_only_token`, `needs_whole_kb`,
   `outside_scope`, `template_unusable`, `missing_id`, `no_kb_access`,
-  `no_principal`, `artifacts_read_only`, `secrets_restricted` (a rule with `secrets: none`, D1894), and `unbound_folder` for a read-only routed session, D1018, `read_only_profile` for `access=read-min`, D1184, `read_only_kb` for a KB Compass set read-only with `readonly=`, D1409, `denied_by_hook` and `hook_unavailable` for a write an operator's `write_veto` hook refused or could not judge under `fail_closed`, the `hooks:` block of `deployment.md`); the reason describes the caller's own token and arguments,
+  `no_principal`, `artifacts_read_only`, `secrets_restricted` (a rule with `secrets: none`, D1894), and `unbound_folder` for a read-only routed session, D1018, `read_only_profile` for `access=read-min`, D1184, `read_only_kb` for a KB Compass set read-only with `readonly=`, D1409, whose reason names both causes, `access: read` on the client and a transversal KB outside a folder bound to it (D2410), `denied_by_hook` and `hook_unavailable` for a write an operator's `write_veto` hook refused or could not judge under `fail_closed`, the `hooks:` block of `deployment.md`); the reason describes the caller's own token and arguments,
   never hidden content, and a `concept_batch` denial never names the operation.
 - **Filtering before limiting.** Collection tools apply the permission
   predicate before the result limit, in the in-memory index, in SQLite FTS
