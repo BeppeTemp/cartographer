@@ -1491,7 +1491,13 @@ freeze is open, is a `feat`, `perf`, `refactor` or breaking change (frozen). A c
 after its rejection is queued: its `failed/` ref, deleted once it lands, no longer counts.
 `LAND_MAX` counts changes: a train takes whole units in order, a unit that does not fit waits for a
 later train while a later one that fits is taken, and a unit larger than `LAND_MAX` is gated alone
-(a log line says so). A member rejected at its pick (a conflict, a pending decision, a bundle that
+(a log line says so). A `fix` queued alone whose pick conflicts only with a change picked before it in the same train (it
+merges cleanly on `main` without it, `train_conflict` in `scripts/land.sh`) is not rejected: it leaves the train, stays queued
+and is picked again after that train, when the other change has landed or was rejected by the gate; it is rejected as a
+conflict only once it does not apply on `main` itself (`TestLanderLeavesAFixThatConflictsWithItsTrainQueued`). `make ready`
+test-merges the change (`git merge-tree`) with each queued tip it does not follow and warns of a textual conflict outside
+the committed Atlas bundle, naming the slug and `AFTER=<slug>`; it queues all the same
+(`TestReadyWarnsOfAConflictWithAQueuedChange`). A member rejected at its pick (a conflict, a pending decision, a bundle that
 cannot be rebuilt) takes its unit out of the train: the train is reset to the commit before the
 unit's first pick, only that member moves to
 `failed/` (its reason ends `(chain <first>..<tip>)`), and the others stay queued, blocked, so a
