@@ -10,7 +10,8 @@ topic: transport-auth
 restart. The public listener is TLS-only: no sniffing, no redirect, a plain
 request gets Go's own `400`. Probes that must stay in clear are served by a
 separate loopback health listener (`tls.health_addr`, default public port + 1,
-`off` allowed) that answers `GET`/`HEAD` of `/health` and `/ready` only. HSTS
+`off` allowed) that answers `GET`/`HEAD` of `/health` and `/ready` only, with the
+auth rules of the public address: `/ready` needs a token when auth is on (D1096). HSTS
 (`tls.hsts_max_age`, default `4380h`, `0` off) is sent on the TLS listener only,
 without `includeSubDomains` or `preload`. The RFC 9728 base is `https://` whenever
 the connection is TLS, whatever `X-Forwarded-Proto` says, and the announced Atlas
