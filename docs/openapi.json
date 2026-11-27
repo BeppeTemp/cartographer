@@ -1570,6 +1570,94 @@
         "x-stability": "preview"
       }
     },
+    "/api/v1/kbs/{kb}/diff": {
+      "get": {
+        "operationId": "kbsDiff",
+        "parameters": [
+          {
+            "description": "KB name",
+            "in": "path",
+            "name": "kb",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The concept id",
+            "in": "query",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Start of the span, RFC 3339: the span is [from, to]; the text before is the newest revision strictly before from",
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "End of the span, RFC 3339 (default now): the text after is the newest revision at or before it",
+            "in": "query",
+            "name": "to",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "summary": "A concept's text before and after a time span",
+        "x-stability": "preview"
+      }
+    },
     "/api/v1/kbs/{kb}/events": {
       "get": {
         "operationId": "kbsEvents",

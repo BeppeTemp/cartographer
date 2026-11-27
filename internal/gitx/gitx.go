@@ -1311,6 +1311,66 @@ func TreeBlobs(dir, ref string, env ...string) ([]TreeBlob, error) {
 	return blobs, nil
 }
 
+// SizedBlob is a TreeBlob with its size in bytes.
+type SizedBlob struct {
+	TreeBlob
+	Size int64
+}
+
+// TreeBlobsUnder lists the blobs of ref's tree below the given paths (a file or
+// a folder with a trailing slash), with their sizes ("git ls-tree -r -z -l"),
+// without walking the rest of the tree. Paths are literal, not pathspecs.
+// Submodule entries are left out. env as in HeadSHA.
+func TreeBlobsUnder(dir, ref string, paths []string, env ...string) ([]SizedBlob, error) {
+	args := []string{"-C", dir, "--literal-pathspecs", "ls-tree", "-r", "-z", "-l", "--end-of-options", ref, "--"}
+	cmd := procattr.Hide(exec.Command("git", append(args, paths...)...))
+	cmd.Env = gitEnv(env)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("git ls-tree %s: %w", ref, err)
+	}
+	var blobs []SizedBlob
+	for _, rec := range strings.Split(string(out), "\x00") {
+		meta, path, ok := strings.Cut(rec, "\t")
+		f := strings.Fields(meta)
+		if !ok || len(f) != 4 || f[1] != "blob" {
+			continue
+		}
+		size, err := strconv.ParseInt(f[3], 10, 64)
+		if err != nil {
+			continue
+		}
+		blobs = append(blobs, SizedBlob{TreeBlob{Mode: f[0], ID: f[2], Path: path}, size})
+	}
+	return blobs, nil
+}
+
+// BlobPrefix returns at most n bytes of the blob id without loading the rest:
+// git is stopped once n bytes were read. env as in HeadSHA.
+func BlobPrefix(dir, id string, n int, env ...string) ([]byte, error) {
+	cmd := procattr.Hide(exec.Command("git", "-C", dir, "cat-file", "blob", "--end-of-options", id))
+	cmd.Env = gitEnv(env)
+	pipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("git cat-file %s: %w", id, err)
+	}
+	buf, rerr := io.ReadAll(io.LimitReader(pipe, int64(n)))
+	if len(buf) == n {
+		_ = cmd.Process.Kill()
+	}
+	werr := cmd.Wait()
+	if rerr != nil {
+		return nil, rerr
+	}
+	if werr != nil && len(buf) < n {
+		return nil, fmt.Errorf("git cat-file %s: %w", id, werr)
+	}
+	return buf, nil
+}
+
 // TreeChange is one path that differs between two commits. Status is A, M, D
 // or T; Mode and ID are the new ones (ID "" for D).
 type TreeChange struct{ Status, Mode, ID, Path string }

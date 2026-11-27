@@ -205,6 +205,12 @@ var apiRoutes = buildAPIRoutes([]apiRoute{
 		Handler: kbRoute(uiMaps)},
 	{Pattern: "/kbs/{kb}/history", Tier: tierPreview, Summary: "The commit history of a concept",
 		Handler: kbRoute(uiHistory)},
+	{Pattern: "/kbs/{kb}/diff", Tier: tierPreview, Summary: "A concept's text before and after a time span", Errors: errsBadRequest,
+		Query: []apiParam{
+			{Name: "id", Description: "The concept id", Required: true},
+			{Name: "from", Description: "Start of the span, RFC 3339: the span is [from, to]; the text before is the newest revision strictly before from", Required: true},
+			{Name: "to", Description: "End of the span, RFC 3339 (default now): the text after is the newest revision at or before it"}},
+		Handler: kbRoute(uiDiff)},
 	{Pattern: "/kbs/{kb}/work", Tier: tierPreview, Summary: "Open work items and unchecked items",
 		Handler: kbRoute(uiWork)},
 	{Pattern: "/kbs/{kb}/sources", Tier: tierPreview, Summary: "Registered sources",
