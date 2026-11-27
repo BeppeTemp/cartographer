@@ -287,6 +287,19 @@ func TestCallTimeout(t *testing.T) {
 	}
 }
 
+// --list against a server that accepts and never answers names it slow, as
+// every other path does (#2446).
+func TestCallListSilentServerIsSlow(t *testing.T) {
+	_, _, ws := newCallEnv(t, func(string, map[string]any) any {
+		time.Sleep(2 * time.Second)
+		return textResult("late", false)
+	})
+	code, _, e := runCall(t, "", "--provider", "claude", "--dir", ws, "--timeout", "100ms", "--list")
+	if code != 2 || !strings.Contains(e, "accepted the request but did not answer in time") {
+		t.Errorf("--list timeout: %d %q", code, e)
+	}
+}
+
 // cartographer call writes no file anywhere and works with a read-only $HOME.
 func TestCallWritesNothing(t *testing.T) {
 	reply := func(method string, p map[string]any) any {

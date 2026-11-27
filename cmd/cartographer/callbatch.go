@@ -268,7 +268,7 @@ func runBatch(ctx context.Context, start func() callTransport, in io.Reader, out
 // ctxMessage is the words of a single call for a deadline or an interrupt.
 func ctxMessage(err error) string {
 	if errors.Is(err, context.DeadlineExceeded) {
-		return "timed out waiting for the server"
+		return slowCallMessage
 	}
 	return "interrupted"
 }

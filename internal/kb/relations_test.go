@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -261,5 +262,27 @@ func TestRelationsKnownAfterTheFirstSyncIn(t *testing.T) {
 	got, err := k.Relations()
 	if err != nil || len(got) != 1 || got[0].Name != "core-kb" {
 		t.Fatalf("after the first SyncIn: %v, %v", got, err)
+	}
+}
+
+// A remote that is a git URL but has no owner and name says so, apart from a
+// text that is no git remote at all (#2446).
+func TestNormalizeDeclaredRemoteErrorWording(t *testing.T) {
+	t.Parallel()
+	cases := map[string]string{
+		"one segment":  "git://host:9418/kb.git",
+		"host only":    "https://example.com/kb",
+		"not a remote": "",
+	}
+	for name, raw := range cases {
+		_, err := NormalizeDeclaredRemote(raw)
+		if err == nil {
+			t.Errorf("%s: no error", name)
+			continue
+		}
+		wantOwner := name != "not a remote"
+		if got := strings.Contains(err.Error(), "needs an owner and a name"); got != wantOwner {
+			t.Errorf("%s: %q, owner-and-name wording = %v, want %v", name, err, got, wantOwner)
+		}
 	}
 }
