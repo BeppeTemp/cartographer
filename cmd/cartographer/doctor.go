@@ -1060,11 +1060,21 @@ func checkUnboundResidues(dir string, cfg *clientconfig.Config, providers []stri
 		for _, kb := range bound {
 			allowed["kb:"+kb] = true
 		}
+		// A transversal KB is never bound, yet sync writes its instructions into
+		// the user-level block (D2410): that entry is no residue. Its other
+		// artifacts stay tied to a binding, so a skill of it still is.
+		transversal := make(map[string]bool)
+		for _, kb := range cfg.TransversalKBs(p) {
+			transversal["kb:"+kb] = true
+		}
 		lock := lockFile.ForProvider(p)
 		baseDir := provisioning.LockBaseDir(lock, dir)
 		reported := make(map[string]bool)
 		for _, mf := range lock.Managed {
 			if mf.Source == "" || mf.Source == "bundle" || allowed[mf.Source] {
+				continue
+			}
+			if mf.Kind == "instructions" && transversal[mf.Source] {
 				continue
 			}
 			key := mf.Kind + "\x00" + mf.Name

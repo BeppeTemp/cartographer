@@ -748,6 +748,28 @@ func TestCheckUnboundResidues(t *testing.T) {
 		}
 	})
 
+	// #2432: sync writes a transversal KB's instructions into the user-level
+	// block though the KB is bound to nothing; its skills stay tied to a binding.
+	t.Run("a transversal KB's instructions are no residue, its skill is", func(t *testing.T) {
+		lf := provisioning.LockFile{Providers: map[string]provisioning.Lock{
+			"claude": {Provider: "claude", Managed: []provisioning.ManagedFile{
+				{Kind: "instructions", Name: "kb-a", Path: "e", ContentHash: "h", Source: "kb:kb-a"},
+				{Kind: "skill", Name: "s", Path: "f", ContentHash: "h", Source: "kb:kb-a"},
+			}},
+		}}
+		cfg := &clientconfig.Config{
+			Agents: []string{"claude"}, KnownKBs: []string{"kb-a", "kb-b"},
+			Clients:    map[string]clientconfig.ClientBinding{"claude": {KBs: []string{"kb-b"}}},
+			Scopes:     map[string]string{"claude": clientconfig.ScopeWorkspace},
+			Workspaces: map[string][]clientconfig.WorkspaceBinding{"claude": {{Path: t.TempDir(), KBs: []string{"kb-b"}}}},
+			KBOptions:  map[string]clientconfig.KBOption{"kb-a": {Transversal: true}},
+		}
+		findings := checkUnboundResidues(dir, cfg, []string{"claude"}, lf)
+		if len(findings) != 1 || !strings.Contains(findings[0].Message, "skill/s") {
+			t.Fatalf("findings = %+v, want only the skill of kb:kb-a", findings)
+		}
+	})
+
 	t.Run("a provider on the default binding is never a residue", func(t *testing.T) {
 		cfg := &clientconfig.Config{Agents: []string{"claude"}, KnownKBs: []string{"bound"}}
 		if findings := checkUnboundResidues(dir, cfg, []string{"claude"}, lockFile); len(findings) != 0 {
