@@ -420,3 +420,26 @@ func TestDashboardCapCountsEveryFile(t *testing.T) {
 		t.Fatal("written past the cap")
 	}
 }
+
+// TestDashboardPatchRefusalNamesTheOp: a refusal names the 1-based op and its
+// widget (docs/control-plane.md), for a missing widget and for a result that
+// does not validate, and writes nothing.
+func TestDashboardPatchRefusalNamesTheOp(t *testing.T) {
+	t.Parallel()
+	s, k := dashboardServer(t)
+	im := dashboardHashOf(t, s, "week")
+	path := filepath.Join(k.Root, "dashboards", "week.yaml")
+	before, _ := os.ReadFile(path)
+	for ops, want := range map[string]string{
+		`[{"op":"set_title","title":"X"},{"op":"update","id":"zz","widget":{"title":"x"}}]`: `op 2 (update, widget "zz"): no widget`,
+		`[{"op":"add","widget":{"id":"c","type":"stat","width":9}}]`:                        `op 1 (add, widget "c"): width 9`,
+	} {
+		res := callTool(t, s, "dashboard_patch", patchArgs("week", im, ops))
+		if !res.IsError || !strings.Contains(res.Content[0].Text, want) || strings.Contains(res.Content[0].Text, "widgets[") {
+			t.Errorf("%s: want %q, got %+v", ops, want, res)
+		}
+	}
+	if after, _ := os.ReadFile(path); string(after) != string(before) {
+		t.Fatal("the file changed")
+	}
+}

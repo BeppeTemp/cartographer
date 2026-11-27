@@ -183,7 +183,7 @@ func TestPatchRefusesToRewriteUntargetedBadWidget(t *testing.T) {
 		`[{"op":"update","id":"b","widget":{"title":"B"}}]`,
 	} {
 		_, err := ApplyDashboardOps(in, mustOps(t, ops))
-		if err == nil || !strings.Contains(err.Error(), `widgets[0] (id "a")`) || !strings.Contains(err.Error(), "bogus") {
+		if err == nil || !strings.Contains(err.Error(), `widget 1 (id "a")`) || !strings.Contains(err.Error(), "bogus") {
 			t.Errorf("%s: want a refusal naming widget a and its problem, got %v", ops, err)
 		}
 	}
@@ -208,5 +208,51 @@ func TestUpdateIDComparedAsString(t *testing.T) {
 	}
 	if _, err := ApplyDashboardOps(base, mustOps(t, `[{"op":"update","id":"a","widget":{"id":"b"}}]`)); err == nil {
 		t.Error("id change accepted")
+	}
+}
+
+// Every refusal of a patch names the 1-based op, or the 1-based widget when no
+// op touched it, in one wording (docs/control-plane.md).
+func TestPatchErrorsNameTheOpAndTheWidget(t *testing.T) {
+	t.Parallel()
+	base := []byte("widgets:\n  - id: a\n    type: stat\n  - id: b\n    type: stat\n")
+	broken := []byte("widgets:\n  - id: a\n    type: stat\n    bogus: 1\n  - id: b\n    type: stat\n")
+	cases := []struct {
+		name string
+		in   []byte
+		ops  string
+		want []string
+	}{
+		{"update of a missing widget", base, `[{"op":"set_title","title":"T"},{"op":"update","id":"zz","widget":{"title":"x"}}]`, []string{`op 2 (update, widget "zz"): no widget`}},
+		{"remove of a missing widget", base, `[{"op":"remove","id":"zz"}]`, []string{`op 1 (remove, widget "zz"): no widget`}},
+		{"move of a missing widget", base, `[{"op":"move","id":"zz","index":0}]`, []string{`op 1 (move, widget "zz"): no widget`}},
+		{"add of a bad widget", base, `[{"op":"set_title","title":"T"},{"op":"add","widget":{"id":"c","type":"stat","width":9}}]`, []string{`op 2 (add, widget "c"): width 9`}},
+		{"update that breaks a widget", base, `[{"op":"update","id":"b","widget":{"width":9}}]`, []string{`op 1 (update, widget "b"): width 9`}},
+		{"the op follows the widget through an insert", base, `[{"op":"update","id":"b","widget":{"width":9}},{"op":"add","index":0,"widget":{"id":"c","type":"stat"}}]`, []string{`op 1 (update, widget "b"): width 9`}},
+		{"the op follows the widget through a move", base, `[{"op":"update","id":"a","widget":{"width":9}},{"op":"move","id":"a","index":1}]`, []string{`op 1 (update, widget "a"): width 9`}},
+		{"a move is not the op that broke it", broken, `[{"op":"update","id":"a","widget":{"bogus":null}},{"op":"add","widget":{"id":"c","type":"stat","width":9}},{"op":"move","id":"c","index":0}]`, []string{`op 2 (add, widget "c"): width 9`}},
+		{"the op that added a duplicate id", base, `[{"op":"add","widget":{"id":"c","type":"stat"}},{"op":"add","widget":{"id":"c","type":"stat"}}]`, []string{`op 2 (add, widget "c"): duplicate widget id`}},
+		{"no op touched the widget: 1-based", []byte("widgets:\n  - id: a\n    type: stat\n  - id: a\n    type: stat\n"), `[{"op":"update","id":"a","widget":{"title":"x"}}]`, []string{`widget 2 (id "a"): duplicate widget id`}},
+		{"add out of range names the op", base, `[{"op":"add","index":9,"widget":{"id":"c","type":"stat"}}]`, []string{`op 1 (add, widget "c"): index 9 out of range 0..2`}},
+		{"untargeted problem is 1-based", broken, `[{"op":"set_title","title":"T"}]`, []string{`widget 1 (id "a") has a problem`}},
+	}
+	for _, c := range cases {
+		_, err := ApplyDashboardOps(c.in, mustOps(t, c.ops))
+		if err == nil {
+			t.Errorf("%s: accepted", c.name)
+			continue
+		}
+		for _, w := range c.want {
+			if !strings.Contains(err.Error(), w) {
+				t.Errorf("%s: %q lacks %q", c.name, err, w)
+			}
+		}
+		if strings.Contains(err.Error(), "widgets[") {
+			t.Errorf("%s: 0-based wording in a patch error: %q", c.name, err)
+		}
+	}
+	// A file or a preset keeps its 0-based wording.
+	if err := ValidateDashboard(broken); err == nil || !strings.Contains(err.Error(), `widgets[0] (id "a")`) {
+		t.Errorf("ValidateDashboard changed its wording: %v", err)
 	}
 }
