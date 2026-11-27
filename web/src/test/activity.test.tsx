@@ -277,3 +277,24 @@ describe("the Activity empty state with filters", () => {
     await waitFor(() => expect(entries()).toBe(4));
   });
 });
+
+describe("the Activity row of a page created and edited in the window", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("carries the added badge the New tile counts it under", async () => {
+    renderActivity([
+      change("notes/born", { change: "modified", added: true, ops: ["concept_write", "concept_patch"] }),
+      change("notes/plain"),
+    ]);
+    const band = await summary();
+    expect(within(band).getByRole("list", { name: "Changes in the window" }).textContent).toContain("New1");
+    await waitFor(() => expect(entries()).toBe(2));
+    const row = (id: string) => [...document.querySelectorAll(".timeline__entry")].find((e) => e.textContent?.includes(id))!;
+    expect(row("born").querySelector(".timeline__change--added")).not.toBeNull();
+    expect(row("plain").querySelector(".timeline__change--modified")).not.toBeNull();
+  });
+});

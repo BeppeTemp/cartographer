@@ -968,7 +968,7 @@ function Entry({
               <MapDot map={mapOf(c)} />
               {mapTitle}
             </span>
-            {retired ? <RetiredPill status={retired.status} /> : <ChangePill change={c.change} />}
+            {retired ? <RetiredPill status={retired.status} /> : <ChangePill change={c.added && c.change !== "deleted" ? "added" : c.change} />}
           </span>
           {first && (
             <span className="timeline__reason" title={reasons.join("\n")}>
