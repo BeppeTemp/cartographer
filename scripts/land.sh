@@ -55,7 +55,9 @@
 # train's prefixes that end at a unit's boundary finds the first failing unit, whose last tip
 # in queue order is rejected (`the train gate is red with the chain <first>..<tip> and green
 # without it`; a unit of one is the change), its other members staying queued, and the green
-# prefix before it lands; when the signoff confirmed the failure on named Go tests, each prefix runs only those
+# prefix before it lands; before that rejection the train up to the unit is gated once more, once,
+# when a failed package holds no file the unit changes or a failing test has an open flaky issue
+# (reprobe_why): green, nothing is rejected and that prefix lands, with a flaky issue; when the signoff confirmed the failure on named Go tests, each prefix runs only those
 # tests' packages (`signoff.sh --probe`, D1878) and the green prefix then gets
 # one full gate before it lands. Green: one PR, title
 # `chore(dev): train <id>, <k> changes`, rebase-merged so every change stays its own
@@ -75,7 +77,9 @@
 # landable changes have a green pre-check verdict, the oldest landable change was queued (committer
 # time) less than LAND_WINDOW (900 s) ago and none carries `Lander-Now: yes` (`make ready NOW=1`):
 # it logs `collecting: ...` once, sleeps LAND_POLL and looks again, so a change queued meanwhile
-# lands in the same train. LAND_WINDOW=0 turns it off; a dry run never waits.
+# lands in the same train. LAND_WINDOW=0 turns it off; a dry run never waits. It closes at once
+# for the only landable unit when the pre-check of each of its tips succeeded and no
+# hosted-check.yml run is in flight (window_close).
 #
 # Each queued change has a hosted pre-check (.github/workflows/ready-check.yml, run on the
 # push of its ready/ ref, D1877): the Windows tests of the packages it can
@@ -113,7 +117,9 @@
 # naming the branch), looks again right before its own gate (a composition is then dropped,
 # nothing pushed), and --daemon starts nothing. LAND_FORCE=1 starts one anyway, and a lander
 # run with it waits on no such train. Older, its lander died: the branch is deleted. This
-# machine's own leftover (a lander that died after its push) is deleted at once. Nothing is
+# machine's own leftover (a lander that died after its push) is deleted at once, unless it can
+# land as it is (resumable: a hosted gate, built on the current main, its changes still queued):
+# then the ci.yml run of its commit is its gate (resume_train), and nothing is dispatched. Nothing is
 # deleted when the open PRs could not be listed in full. Limits: on the build host the branch
 # reaches origin only after the gate, so this covers the hosted gate; two compositions pushed
 # in the same second are still caught by the main checks.
@@ -136,6 +142,7 @@
 #     re-run of a red one and a full bisection, several gates in all)  LAND_FORCE  LAND_SELF
 #   LAND_START_TIMEOUT (300 s: the start lock of $state/src)
 #   LAND_PRECHECK_START (300 s)  LAND_PRECHECK_WAIT (1200 s), from the queued commit's time
+#   LAND_LOG_MAX (5242880 bytes)  LAND_LOG_KEEP (3): --daemon rotates $state/log and events.jsonl
 #   SIGNOFF_GATE is set by the lander (its --gate); the other SIGNOFF_* are passed to
 #   signoff.sh unchanged.
 #
@@ -152,14 +159,15 @@
 # branch and train (the train's branch and slugs), run (the hosted gate's ci.yml run id, once the
 # signoff names it), window_close (an epoch, while collecting), not_landable (per unit, named by
 # its oldest member: held, frozen, blocked or loop), last_rejection (slug, reason, at) and, once
-# stopped, why. A write that fails is skipped.
+# stopped, why. A write that fails is skipped. $state/events.jsonl gets one line per event of that
+# lander (event): composed, gated, rejected, landed, died. Each log line starts `land: <ISO UTC time>`.
 #
 # Plain bash 3.2 (the macOS default): no associative arrays. No pending decision is cited in
 # this file: the tests queue copies of it, and a citation nothing in their queue adds is rejected.
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
-log() { echo "land: $(date -u +%H:%M:%S) $*" >&2; }
+log() { echo "land: $(date -u +%Y-%m-%dT%H:%M:%SZ) $*" >&2; }
 die() { log "$*"; ST_WHY=$*; exit 1; }
 
 # bounded <command...>: runs it in its own process group, killed whole past LAND_GH_TIMEOUT seconds
@@ -192,6 +200,33 @@ status_write() {
      why: ($why | str)}' 2>/dev/null | (umask 077 && cat >"$status_file.tmp") 2>/dev/null && mv -f "$status_file.tmp" "$status_file" 2>/dev/null || true
 }
 status_phase() { [ "$ST_PHASE" = "$1" ] || ST_SINCE=$(date +%s); ST_PHASE=$1; status_write; }
+
+# event <kind> [<key> <value>]...: one JSON line appended to $state/events.jsonl, `{"at": <ISO time>,
+# "event": <kind>, ...}`, by the lander that holds the pid file: composed (train, changes, slugs),
+# gated (train, result: green, red, infra or error; secs; log), rejected (slug, reason), landed (train,
+# pr, changes, slugs, secs from the composition, gates, probes) and died (why). The counts are numbers.
+# A write that fails is skipped.
+event() {
+  $status_on || return 0
+  local kind=$1 args=()
+  shift
+  while [ $# -ge 2 ]; do args+=(--arg "$1" "$2"); shift 2; done
+  jq -cn --arg event "$kind" ${args[@]+"${args[@]}"} '
+    {at: (now | todate), event: $event} + ($ARGS.named | del(.event)
+      | with_entries(if (.key | IN("changes", "secs", "pr", "gates", "probes")) and (.value | test("^[0-9]+$")) then .value |= tonumber else . end))' \
+    2>/dev/null >>"$events_file" || true
+}
+# dur <seconds>: 12m05s.
+dur() { printf '%dm%02ds' $(($1 / 60)) $(($1 % 60)); }
+# rotate <file>: past LAND_LOG_MAX bytes (5 MB) it becomes <file>.1, the older ones moving up to
+# <file>.LAND_LOG_KEEP (3). Only --daemon calls it, before it starts a lander: no lander writes then.
+rotate() {
+  local i keep=${LAND_LOG_KEEP:-3} size
+  size=$(wc -c 2>/dev/null <"$1") || return 0
+  [ "$((size))" -gt "${LAND_LOG_MAX:-5242880}" ] || return 0
+  for ((i = keep - 1; i >= 1; i--)); do [ ! -e "$1.$i" ] || mv -f "$1.$i" "$1.$((i + 1))"; done
+  mv -f "$1" "$1.1"
+}
 
 # net <what> <command...>: a read of origin, tried again up to LAND_INFRA_TRIES times LAND_INFRA_WAIT
 # apart; 1 when every try failed. One failed fetch (a DNS failure after a wake) used to stop the
@@ -236,7 +271,7 @@ state=${LAND_STATE:-${XDG_STATE_HOME:-$HOME/.local/state}/cartographer-lander/$k
 # Private to the user: the status file names trains and rejections, the gate files carry tokens.
 mkdir -p "$state" && chmod 700 "$state" 2>/dev/null || true
 # Read through these names: compose and show_queue have a local `state` of their own.
-status_file=$state/status.json freeze_file=$state/freeze
+status_file=$state/status.json freeze_file=$state/freeze events_file=$state/events.jsonl
 max=${LAND_MAX:-8}
 poll=${LAND_POLL:-30}
 window=${LAND_WINDOW:-900}
@@ -391,6 +426,8 @@ case "$action" in
     # one unchanged and decides (and logs the notice below) itself.
     set --
     ! $gate_given || set -- --gate "$gate_mode"
+    rotate "$state/log"
+    rotate "$events_file"
     LAND_EXEC_REPO=$repo nohup "$0" "$@" >>"$state/log" 2>&1 </dev/null &
     child=$!
     if held_src_lock $$; then
@@ -407,7 +444,7 @@ esac
 # The mode reaches signoff.sh through the environment, set once here: both signoff calls (the
 # gate and the bisection probe) inherit the lander's mode, whatever the shell exported.
 env_gate=${SIGNOFF_GATE:-}
-unset SIGNOFF_HOSTED
+unset SIGNOFF_HOSTED SIGNOFF_ADOPT
 export SIGNOFF_GATE=$gate_mode
 
 # The queue, oldest first: "<slug> <sha>" lines.
@@ -437,8 +474,8 @@ if ! $dry && [ "$action" != --status ]; then
   # deletes the scripts under it (scripts/lander-guard.sh, used by worktree-rm and
   # worktree-clean, reads this file).
   (cd "$here/.." && pwd -P) >"$state/root"
-  trap 'rm -f "$state/pid" "$state/root" "$state/gate"; status_phase stopped' EXIT
   status_on=true
+  trap 'rc=$?; [ "$rc" = 0 ] || event died why "${ST_WHY:-exit $rc}"; rm -f "$state/pid" "$state/root" "$state/gate"; status_phase stopped' EXIT
   # The lander mostly waits (on the gate, on GitHub). A Mac on battery sleeps when idle, and
   # asleep the lander advances only in its dark wakes, a quarter of an hour apart, waking
   # with the network still down: caffeinate keeps it awake (not a closed lid) until the
@@ -475,6 +512,7 @@ reject() {
   $dry && return 0
   ST_REJ_SLUG=$1 ST_REJ_WHY=$3 ST_REJ_AT=$(date +%s)
   status_write
+  event rejected slug "$1" reason "$3"
   local f
   f=$(git -C "$main_repo" commit-tree "$2^{tree}" -p "$2" -m "lander: $3" -m "Fix it on the branch and run make ready again: once the slug is queued again this ref is ignored, and it is deleted when the change lands.")
   g push -q --force origin "$f:refs/heads/failed/$1" "--force-with-lease=refs/heads/ready/$1:$2" ":refs/heads/ready/$1" ||
@@ -583,12 +621,23 @@ freeze_read() {
 # utc_of <epoch>: HH:MM:SS UTC (GNU date, then BSD).
 utc_of() { date -u -d "@$1" +%H:%M:%S 2>/dev/null || date -u -r "$1" +%H:%M:%S; }
 
-# window_close <oldest queued epoch> <green changes> <Lander-Now seen: non-empty>: the epoch at which
-# the collection window closes, nothing when it is closed or off (LAND_WINDOW=0). It is open while
-# fewer than LAND_WINDOW_MIN changes have a green verdict, the oldest landable change was queued
-# less than LAND_WINDOW seconds ago and none carries `Lander-Now: yes`.
+# checks_in_flight: how many hosted-check.yml runs (a `make check-hosted` on a `check/*` branch, the
+# last step before a change is queued) are not completed; `unknown` when GitHub does not answer.
+checks_in_flight() {
+  gh run list -R "$repo" --workflow hosted-check.yml --limit 50 --json status \
+    --jq '[.[] | select(.status != "completed")] | length' 2>/dev/null || echo unknown
+}
+
+# window_close <oldest queued epoch> <green changes> <Lander-Now seen: non-empty> <alone: non-empty>:
+# the epoch at which the collection window closes, nothing when it is closed or off (LAND_WINDOW=0).
+# It is open while fewer than LAND_WINDOW_MIN changes have a green verdict, the oldest landable change
+# was queued less than LAND_WINDOW seconds ago and none carries `Lander-Now: yes`. <alone> says the
+# queue holds one landable unit and the pre-check of each of its tips succeeded: the window then closes
+# at once unless a check/* run is in flight (no company is coming: four idle quarters of an hour in
+# one day, #2438); a count that cannot be read keeps it open.
 window_close() {
   if [ "$window" -gt 0 ] && [ -z "$3" ] && [ "$2" -lt "$wmin" ] && [ $(($(date +%s) - $1)) -lt "$window" ]; then
+    if [ -n "${4:-}" ] && [ "$(checks_in_flight)" = 0 ]; then return 0; fi
     echo $(($1 + window))
   fi
   return 0
@@ -651,7 +700,7 @@ unit_name() {
 # WIN_QUEUED and WIN_GREEN (the landable and the green changes) and WIN_CLOSE (an epoch).
 compose() {
   local q freeze=false failed n c i j p size order done_ found tip state v pv total ok_units= red_unit= u=0 lines rid ct
-  local win_n=0 win_ok=0 win_old= win_now=
+  local win_n=0 win_ok=0 win_old= win_now= greens=0 green alone=
   q=$(queue)
   TRAIN=
   U_SIZE=() U_FIRST=() U_TIP=() U_LINES=() U_RID=()
@@ -696,7 +745,7 @@ compose() {
       continue
     fi
     # Its tips (no member follows them) decide its verdict; the last of them is its tip.
-    v=ok tip= rid=-
+    v=ok tip= rid=- green=1
     for ((i = 0; i < n; i++)); do
       [ "${N_COMP[i]}" = "$c" ] || continue
       ct=$(g log -1 --format=%ct "${N_SHA[i]}")
@@ -705,11 +754,13 @@ compose() {
       for ((j = 0; j < n; j++)); do [ "${N_PRED[j]}" != "$i" ] || continue 2; done
       tip="${N_SLUG[i]} ${N_SHA[i]}"
       pv=$(precheck "${N_SHA[i]}")
+      [ "${pv##* }" = success ] || green=0
       case "$v:${pv%% *}" in
         *:red) v=red rid=$(cut -d' ' -f2 <<<"$pv") ;;
         ok:wait) v=wait ;;
       esac
     done
+    greens=$((greens + green))
     win_n=$((win_n + size))
     [ "$v" != ok ] || win_ok=$((win_ok + size))
     U_SIZE[u]=$size U_FIRST[u]=${order%% *} U_TIP[u]=$tip U_LINES[u]=$order U_RID[u]=$rid
@@ -721,7 +772,8 @@ compose() {
   done
   # The window: a train waits a little for company (not in a dry run, which composes at once).
   if ! $dry && [ "$u" -gt 0 ]; then
-    WIN_CLOSE=$(window_close "$win_old" "$win_ok" "$win_now")
+    if [ "$u" = 1 ] && [ "$greens" = 1 ]; then alone=yes; fi
+    WIN_CLOSE=$(window_close "$win_old" "$win_ok" "$win_now" "$alone")
     if [ -n "$WIN_CLOSE" ]; then
       WINDOW_OPEN=true WIN_QUEUED=$win_n WIN_GREEN=$win_ok
       return 0
@@ -1005,7 +1057,7 @@ gate_once() { # $1 = log file; signoff.sh on the train branch: exit 0 green, 1 r
   # Streamed to the lander's log as it runs (a gate takes minutes), and kept in $1.
   set +e
   if [ "$gate_mode" = hosted ]; then
-    (cd "$wt" && SIGNOFF_RERUN=$gate_rerun SIGNOFF_PROBE_FILE="$pf" "$here/signoff.sh" 3<<<"$gate_token") 2>&1 | tee "$1" | gate_watch >&2
+    (cd "$wt" && SIGNOFF_RERUN=$gate_rerun SIGNOFF_ADOPT=$gate_adopt SIGNOFF_PROBE_FILE="$pf" "$here/signoff.sh" 3<<<"$gate_token") 2>&1 | tee "$1" | gate_watch >&2
   else
     (cd "$wt" && SIGNOFF_PROBE_FILE="$pf" "$here/signoff.sh" 3<<<"$gate_token") 2>&1 | tee "$1" >&2
   fi
@@ -1029,12 +1081,20 @@ gate_once() { # $1 = log file; signoff.sh on the train branch: exit 0 green, 1 r
 # kept as $1.host<n>; $1 holds the last attempt, which is the one the caller reads.
 # gate_rerun: the hosted run whose failed jobs the next gate reruns (signoff.sh SIGNOFF_RERUN), set
 # for the re-run of a red train only: the legs already green are kept, the same tree, the same jobs.
-gate_rerun=
+# gate_adopt: non-empty for the gate of a train a lander that stopped left on origin (resume_train):
+# the signoff dispatches nothing and reads the run that already ran its tree (signoff.sh SIGNOFF_ADOPT).
+# train_t0, train_gates, train_probes: when the train was composed and what it has cost since, every
+# gate of it (the first, a re-run, the prefixes, one after an infrastructure failure) and every probe:
+# the status of the head carries the last run's duration only.
+gate_rerun= gate_adopt= train_t0=0 train_gates=0 train_probes=0
 gate() { # $1 = log file; exit 0 green, 1 red, 2 not a test (the caller dies)
-  local rc n=1 max=${LAND_INFRA_TRIES:-3} why
+  local rc n=1 max=${LAND_INFRA_TRIES:-3} why t
   while :; do
     ST_RUN=
+    t=$(date +%s) train_gates=$((train_gates + 1))
     rc=0; gate_once "$1" || rc=$?
+    case "$rc" in 0) why=green ;; 1) why=red ;; 3) why=infra ;; *) why=error ;; esac
+    event gated train "$branch" result "$why" secs "$(($(date +%s) - t))" log "$1"
     gate_rerun= # a gate again after an infrastructure failure dispatches a whole run
     ST_RUN=$(sed -n 's/^signoff: waiting for ci\.yml run \([0-9][0-9]*\)$/\1/p' "$1" 2>/dev/null | tail -n 1 || true)
     [ "$rc" != 3 ] && return "$rc"
@@ -1358,7 +1418,7 @@ adopt_train() {
 # closes. A read that fails says `unknown`; nothing here fails.
 show_queue() {
   local q failed freeze=false n c i j size state v pv st rid rank best best_rank first extra a ct
-  local win_n=0 win_ok=0 win_old= win_now= close
+  local win_n=0 win_ok=0 win_old= win_now= close units=0 greens=0 alone=
   q=$(queue)
   [ -n "$q" ] || return 0
   freeze_read
@@ -1396,6 +1456,8 @@ show_queue() {
       fi
       win_n=$((win_n + size))
       [ "$v" != ok ] || win_ok=$((win_ok + size))
+      units=$((units + 1))
+      [ "$best" != ok ] || greens=$((greens + 1))
     fi
     for ((i = 0; i < n; i++)); do
       [ "${N_COMP[i]}" = "$c" ] && [ "${N_REJ[i]}" = 0 ] || continue
@@ -1409,7 +1471,8 @@ show_queue() {
     done
   done
   if [ -n "$win_old" ]; then
-    close=$(window_close "$win_old" "$win_ok" "$win_now")
+    if [ "$units" = 1 ] && [ "$greens" = 1 ]; then alone=yes; fi
+    close=$(window_close "$win_old" "$win_ok" "$win_now" "$alone")
     if [ -n "$close" ]; then echo "  collecting until $(utc_of "$close") UTC or $wmin green ($win_n queued, $win_ok green)"; fi
   fi
 }
@@ -1450,9 +1513,177 @@ if [ "$action" = --status ]; then
   exit 0
 fi
 
+# land_train: the end of a train whose head is gated green (the worktree's HEAD, $branch, built on
+# $base; $landed its "<slug> <queued sha>" lines, $k of them): main must not have moved, then the
+# train PR, its merge and the queue entries. It returns to the loop, which composes again: on a main
+# that moved, on a PR closed because main moved, or with the train landed.
+land_train() {
+  # Main moved during the gate (a contributor's PR, a Dependabot merge, the release): the
+  # gated tree is not the one a merge would land. Compose the train again on the new main.
+  net "fetch origin" g fetch -q --no-tags origin main || die "cannot fetch origin after the gate of $branch: the queue is untouched"
+  if [ "$(g rev-parse "$main_ref")" != "$base" ]; then
+    log "main moved during the gate of $branch (${base:0:12}..$(g rev-parse --short=12 "$main_ref")): composing the train again"
+    g push -q origin --delete "$branch" >/dev/null 2>&1 || true
+    return 0
+  fi
+
+  # One PR for the train, rebase-merged: each change stays its own commit on main. Its third
+  # line says which gate the train had, read from the signoff status of the gated head.
+  gline=$(gate_line "$(git rev-parse HEAD)")
+  case "$gline" in "Gate: unknown"*) log "warning: $gline" ;; *) log "$gline" ;; esac
+  body=$state/body-$id.md
+  {
+    echo "Size exception: a train of $k change(s), each under the cap when it was queued (make ready)."
+    echo
+    echo "$gline"
+    echo
+    echo "Landed by scripts/land.sh after one gate of the whole train (the \`signoff\` status of the head)."
+    while read -r s sha; do
+      echo
+      echo "### \`$s\`: $(title "$sha" | sed 's/^/`/; s/$/`/')"
+      echo
+      echo "- review: $(r=$(review_of "$sha"); echo "${r:-not recorded}")"
+      g log -1 --format=%B "$sha" | grep -iE '^(closes|refs|fixes) #[0-9]+' | sed 's/^/- /' || true
+    done <<<"$landed"
+  } >"$body"
+  url=$(gh pr create -R "$repo" --base main --head "$branch" --title "chore(dev): train $id, $k change(s)" --body-file "$body")
+  num=${url##*/}
+  log "train PR #$num opened: $url"
+  status_phase merging
+  if ! merge_train "$num" "$(git rev-parse HEAD)"; then
+    git checkout -q --detach && git branch -q -D "$branch" || true
+    return 0
+  fi
+  log "train PR #$num merged"
+  secs=$(($(date +%s) - train_t0))
+  log "train $branch landed: $k change(s), $(dur "$secs") from its composition, $train_gates gate(s) and $train_probes probe(s) in all"
+  event landed train "$branch" pr "$num" changes "$k" slugs "$(cut -d' ' -f1 <<<"$landed" | tr '\n' ' ' | sed 's/ $//')" secs "$secs" gates "$train_gates" probes "$train_probes"
+  ST_TRAIN= ST_BRANCH= ST_RUN=
+  git checkout -q --detach && git branch -q -D "$branch" || true
+  g push -q origin --delete "$branch" >/dev/null 2>&1 || true
+  stuck=
+  while read -r s sha; do
+    dequeue "$s" "$sha" || stuck="$stuck $s"
+    g push -q origin --delete "failed/$s" >/dev/null 2>&1 || true
+  done <<<"$landed"
+  [ -z "$stuck" ] || die "train PR #$num landed, but the queue entries of$stuck could not be deleted (network?): delete them with git push origin :refs/heads/ready/<slug> before the lander runs again"
+}
+
+# resumable <train branch>: 0 when a train of this machine left on origin with no open PR (the lander
+# stopped after its push: a status POST that failed, a kill, a crash) can still land as it is: the
+# gate is hosted, it is built on the current main, and it is the train the lander would build now from
+# the queue. The branch is on origin, where anyone with push access writes: its trailers and titles
+# name the queued changes, they prove nothing. So each of its commits must be a queued change (its
+# Lander-Slug, the queued commit's Lander-Tip, never empty, and title) AND carry exactly the tree the
+# lander gets by picking that queued commit on the commit before it (git merge-tree, nothing checked
+# out: a train whose picks were rewritten, a numbered decision or a rebuilt bundle, does not match
+# and is composed again), the commits a linear chain on main naming each slug once; and compose must still take those units, whole: no member rejected (a
+# failed/<slug> ref, even a stale one), held, frozen, or left out of the train. Sets RES_LANDED, its
+# "<slug> <queued sha>" lines. Anything else is not resumable: the caller deletes the branch and the
+# queue is composed again.
+resumable() {
+  local head cur c s q prev tree failed slugs i comps=" " tip
+  RES_LANDED=
+  [ "$gate_mode" = hosted ] || return 1
+  head=$(g rev-parse -q --verify "refs/remotes/origin/$1") || return 1
+  cur=$(g rev-parse "$main_ref")
+  [ "$head" != "$cur" ] && [ "$(g merge-base "$cur" "$head")" = "$cur" ] || return 1
+  prev=$cur
+  for c in $(g rev-list --reverse --topo-order "$cur..$head"); do
+    # A linear chain on main, one parent each, as the lander's picks are: never a merge or a side branch.
+    [ "$(g rev-list --parents -n 1 "$c")" = "$c $prev" ] || return 1
+    s=$(trailer Lander-Slug "$c")
+    [ -n "$s" ] && q=$(g rev-parse -q --verify "refs/remotes/origin/ready/$s") || return 1
+    # A slug once: a second commit under it would pick as an empty one and pass the tree check.
+    ! grep "^$s " <<<"$RES_LANDED" >/dev/null || return 1
+    tip=$(trailer Lander-Tip "$q")
+    [ -n "$tip" ] && [ "$(trailer Lander-Tip "$c")" = "$tip" ] && [ "$(title "$c")" = "$(title "$q")" ] || return 1
+    # The pick of the queued commit on the commit before it, whose tree was proven the same way.
+    tree=$(g merge-tree --write-tree --merge-base="$q^" "$prev" "$q" 2>/dev/null) || return 1
+    [ "$tree" = "$(g rev-parse "$c^{tree}")" ] || return 1
+    prev=$c
+    RES_LANDED=${RES_LANDED:+$RES_LANDED$'\n'}"$s $q"
+  done
+  [ -n "$RES_LANDED" ] || return 1
+  # What compose would take now: the units of the train's changes, whole and landable.
+  slugs=$(cut -d' ' -f1 <<<"$RES_LANDED")
+  failed=$(g for-each-ref --format='%(refname:lstrip=4)' refs/remotes/origin/failed/)
+  freeze_read
+  units "$(queue)" "$failed"
+  for ((i = 0; i < ${#N_SLUG[@]}; i++)); do
+    if grep -xF -- "${N_SLUG[i]}" <<<"$slugs" >/dev/null; then
+      ! grep -xF -- "${N_SLUG[i]}" <<<"$failed" >/dev/null || return 1
+      comps="$comps${N_COMP[i]} "
+    fi
+  done
+  for ((i = 0; i < ${#N_SLUG[@]}; i++)); do
+    case "$comps" in *" ${N_COMP[i]} "*) ;; *) continue ;; esac
+    [ "${N_REJ[i]}" = 0 ] && grep -xF -- "${N_SLUG[i]}" <<<"$slugs" >/dev/null || return 1
+    [ -z "$(trailer Lander-Hold "${N_SHA[i]}")" ] || return 1
+    if $freeze && breaking "${N_SHA[i]}"; then return 1; fi
+  done
+  return 0
+}
+
+# resume_train <train branch>: the gate of a resumable train, without a new run: the signoff follows
+# the ci.yml run that already ran this very commit and posts the status when it is green (a green
+# run was thrown away with its train, and ten hours with it: #2438). 0: gated green, land_train
+# lands it. Anything else, a red run and no run included, is 1: the caller deletes the branch and
+# composes again, and nothing is rejected on a run this lander did not watch.
+resume_train() {
+  local rc=0
+  branch=$1 id=${1#train/} ST_BRANCH=$1 landed=$RES_LANDED
+  k=$(grep -c . <<<"$landed")
+  ST_TRAIN=$(cut -d' ' -f1 <<<"$landed") ST_RUN=
+  base=$(g rev-parse "$main_ref")
+  train_t0=$(date +%s) train_gates=1 train_probes=0
+  log "$branch is a train this machine left on origin, built on the current main, its $k change(s) still queued: its ci.yml run is its gate, nothing is composed or dispatched again"
+  if [ ! -d "$wt/.git" ] && [ ! -f "$wt/.git" ]; then g worktree add -q --detach "$wt" "$main_ref"; fi
+  cd "$wt"
+  git cherry-pick --abort >/dev/null 2>&1 || true
+  git reset -q --hard && git clean -qfd
+  git checkout -q -B "$branch" "refs/remotes/origin/$branch" || return 1
+  status_phase gate
+  gate_adopt=1
+  gate_once "$state/gate-$id.log.adopt" || rc=$?
+  gate_adopt=
+  event gated train "$branch" result "$([ "$rc" = 0 ] && echo green || echo "not adopted")" secs "$(($(date +%s) - train_t0))" log "$state/gate-$id.log.adopt"
+  [ "$rc" = 0 ]
+}
+
+# reprobe_why <i> <j>: why the unit commits[i..j-1], which the bisection is about to reject, gets one
+# more gate first, or nothing: a package the red gate names as failed (the `FAIL<TAB><package>` lines
+# of its logs) holds no file the unit changes, or a failing test is a word of the title of an open
+# flaky issue (fix-2409 and fix-2392 were rejected for known flakes, #2438). The names come from the
+# gate log, the change's own output: they only buy one more full gate, and only a green one lands.
+# A change that prints a FAIL line for a package it does not touch gets that gate: one extra gate is
+# the worst a forged line costs.
+reprobe_why() {
+  local mod touched p dir t b titles
+  mod=$(awk '$1 == "module" { print $2; exit }' go.mod 2>/dev/null || true)
+  touched=$(git diff --name-only "${commits[$1]}^" "${commits[$2 - 1]}")
+  if [ -n "$mod" ]; then
+    for p in $(cat "$glog" "$glog.2" 2>/dev/null | tr -d '\r' | awk -F'\t' '$1 == "FAIL" && $2 ~ /^[A-Za-z0-9_.\/-]+$/ { print $2 }' | sort -u); do
+      dir=${p#"$mod"/}
+      [ "$dir" != "$p" ] || continue
+      if ! grep "^$dir/" <<<"$touched" >/dev/null; then echo "$(safe_names 60 <<<"$dir") fails and it changes no file there"; return 0; fi
+    done
+  fi
+  titles=$(gh issue list -R "$repo" --label bug --state open --limit 100 --search "flaky in:title" --json title --jq '.[].title' 2>/dev/null) || return 0
+  while read -r t _; do
+    b=${t##*.}
+    case "$b" in Test*) ;; *) case "$t" in e2e.*) b=$t ;; *) continue ;; esac ;; esac
+    if T=$t B=$b awk '/^flaky( \([0-9]+(st|nd|rd|th)\))?: / { for (i = 2; i <= NF; i++) { w = $i; sub(/^.*\./, "", w); if ($i == ENVIRON["T"] || $i == ENVIRON["B"] || w == ENVIRON["B"]) f = 1 } } END { exit !f }' <<<"$titles"; then
+      echo "$t has an open flaky issue"; return 0
+    fi
+  done <<<"$fails_lines"
+  return 0
+}
+
 wt=$state/train
 waited=0 fwaited=0 fwaiting= collecting=false fzwait=false
 while :; do
+  resume=
   net "fetch origin" fetch || die "cannot fetch origin, in ${LAND_INFRA_TRIES:-3} tries: the queue is untouched"
   # Main's scripts changed since this lander started (a lander change landed): between two
   # trains, it resets its checkout and runs the new land.sh.
@@ -1489,6 +1720,8 @@ while :; do
       while read -r own; do
         if [ -z "$own" ] || ! g rev-parse -q --verify "refs/remotes/origin/$own" >/dev/null; then
           :
+        elif [ -z "$resume" ] && resumable "$own"; then
+          resume=$own keep="$keep$own"$'\n' # tried once, below: landed or deleted there
         elif g push -q origin --delete "$own" >/dev/null 2>&1; then
           log "$own is a train this machine left on origin with no open PR: deleted"
         else
@@ -1529,6 +1762,16 @@ while :; do
     fi
     fwaiting= waited=0 # each wait starts with its full budget
   fi
+  if [ -n "$resume" ]; then
+    if resume_train "$resume"; then
+      land_train
+    else
+      log "$resume has no green ci.yml run to land on: deleted, composing the train again"
+      git checkout -q --detach && git branch -q -D "$resume" || true
+      g push -q origin --delete "$resume" >/dev/null 2>&1 || log "warning: could not delete $resume"
+    fi
+    continue
+  fi
   compose
   if $WINDOW_OPEN; then
     # The window is open: wait for company, and look again (an open or a foreign train is seen first).
@@ -1560,6 +1803,7 @@ while :; do
   git reset -q --hard && git clean -qfd
   id=$(date -u +%Y%m%d-%H%M%S)
   branch=train/$id ST_BRANCH=train/$id
+  train_t0=$(date +%s) train_gates=0 train_probes=0
   git checkout -q -B "$branch" "$main_ref"
   $dry || echo "$branch" >>"$state/branch" # this machine's train, until it is cleaned up (never by the exit trap)
   base=$(git rev-parse HEAD) # the main this train is gated on, and the only one it merges onto
@@ -1720,6 +1964,7 @@ while :; do
   fi
   log "train $branch: $k change(s): $(cut -d' ' -f1 <<<"$landed" | tr '\n' ' ' | sed 's/ $//') [gate: $gate_mode]"
   ST_TRAIN=$(cut -d' ' -f1 <<<"$landed")
+  event composed train "$branch" changes "$k" slugs "$(tr '\n' ' ' <<<"$ST_TRAIN" | sed 's/ $//')"
   if $dry; then
     git log --oneline "$main_ref..HEAD"
     cd "$main_repo"; g worktree remove --force "$wt" >/dev/null 2>&1 || true
@@ -1786,7 +2031,7 @@ while :; do
           m=$(( (lo + hi) / 2 )) c=${ends[m]} bi=$((bi + 1))
           status_phase "bisect $bi/$bn"
           git reset -q --hard "${commits[c - 1]}"
-          r=0
+          r=0 train_probes=$((train_probes + 1))
           # shellcheck disable=SC2086  # the probe is three words on purpose, checked by probe_of
           (cd "$wt" && "$here/signoff.sh" --probe $probe) >>"$glog.probe" 2>&1 || r=$?
           if [ "$r" = 75 ]; then
@@ -1811,7 +2056,27 @@ while :; do
       # in queue order (the last member picked, if main held that tip), and the rest stays queued.
       first=${ends[hi - 1]} c=${ends[hi]}
       slice=$(sed -n "$((first + 1)),${c}p" <<<"$landed")
-      if [ $((c - first)) = 1 ]; then
+      # One more gate, once, before a rejection that a known flake or a test far from the change
+      # explains (reprobe_why): the train up to this unit, whole. Green: nothing is rejected, that
+      # prefix lands on this gate and a flaky issue names the tests; red: rejected as below.
+      cleared=false
+      rwhy=$(reprobe_why "$first" "$c")
+      if [ -n "$rwhy" ]; then
+        log "before rejecting ${slice%% *}: $rwhy: gating the train up to it once more"
+        status_phase rerun
+        git reset -q --hard "${commits[c - 1]}"
+        r=0; gate "$glog.again" || r=$?
+        [ "$r" != 2 ] || die "the gate of a prefix of $branch failed for a reason that is not a test: the queue is untouched"
+        if [ "$r" = 0 ]; then
+          log "green on that gate: ${slice%% *} is not rejected, a flaky test (${fails:-not named})"
+          issue_flaky "${fails_lines:-the gate of a train}" "failed in a train and passed when its suspect was gated once more" \
+            "The gate of the train \`$branch\` failed twice and the bisection named a change ($rwhy); the train up to that change then passed a full gate. Failing tests: ${fails:-none named in the log}. A re-run is not a fix: find why it fails."
+          cleared=true lo=$hi good=$(git rev-parse HEAD)
+        fi
+      fi
+      if $cleared; then
+        :
+      elif [ $((c - first)) = 1 ]; then
         bad=$slice
         reject "${bad%% *}" "${bad#* }" "the train gate is red with it and green without it (tests: ${fails:-see the gate log})"
       else
@@ -1844,50 +2109,5 @@ while :; do
     fi
   fi
 
-  # Main moved during the gate (a contributor's PR, a Dependabot merge, the release): the
-  # gated tree is not the one a merge would land. Compose the train again on the new main.
-  net "fetch origin" g fetch -q --no-tags origin main || die "cannot fetch origin after the gate of $branch: the queue is untouched"
-  if [ "$(g rev-parse "$main_ref")" != "$base" ]; then
-    log "main moved during the gate of $branch (${base:0:12}..$(g rev-parse --short=12 "$main_ref")): composing the train again"
-    g push -q origin --delete "$branch" >/dev/null 2>&1 || true
-    continue
-  fi
-
-  # One PR for the train, rebase-merged: each change stays its own commit on main. Its third
-  # line says which gate the train had, read from the signoff status of the gated head.
-  gline=$(gate_line "$(git rev-parse HEAD)")
-  case "$gline" in "Gate: unknown"*) log "warning: $gline" ;; *) log "$gline" ;; esac
-  body=$state/body-$id.md
-  {
-    echo "Size exception: a train of $k change(s), each under the cap when it was queued (make ready)."
-    echo
-    echo "$gline"
-    echo
-    echo "Landed by scripts/land.sh after one gate of the whole train (the \`signoff\` status of the head)."
-    while read -r s sha; do
-      echo
-      echo "### \`$s\`: $(title "$sha" | sed 's/^/`/; s/$/`/')"
-      echo
-      echo "- review: $(r=$(review_of "$sha"); echo "${r:-not recorded}")"
-      g log -1 --format=%B "$sha" | grep -iE '^(closes|refs|fixes) #[0-9]+' | sed 's/^/- /' || true
-    done <<<"$landed"
-  } >"$body"
-  url=$(gh pr create -R "$repo" --base main --head "$branch" --title "chore(dev): train $id, $k change(s)" --body-file "$body")
-  num=${url##*/}
-  log "train PR #$num opened: $url"
-  status_phase merging
-  if ! merge_train "$num" "$(git rev-parse HEAD)"; then
-    git checkout -q --detach && git branch -q -D "$branch" || true
-    continue
-  fi
-  log "train PR #$num merged"
-  ST_TRAIN= ST_BRANCH= ST_RUN=
-  git checkout -q --detach && git branch -q -D "$branch" || true
-  g push -q origin --delete "$branch" >/dev/null 2>&1 || true
-  stuck=
-  while read -r s sha; do
-    dequeue "$s" "$sha" || stuck="$stuck $s"
-    g push -q origin --delete "failed/$s" >/dev/null 2>&1 || true
-  done <<<"$landed"
-  [ -z "$stuck" ] || die "train PR #$num landed, but the queue entries of$stuck could not be deleted (network?): delete them with git push origin :refs/heads/ready/<slug> before the lander runs again"
+  land_train
 done

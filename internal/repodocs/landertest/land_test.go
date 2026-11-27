@@ -86,6 +86,11 @@ case "$*" in web-perf*)
   # WEBPERF75: the host is lost at the last step of the first gate (the deferred web-perf).
   if [ -e WEBPERF75 ] && [ ! -e "$FAKE_STATE.wp75" ]; then touch "$FAKE_STATE.wp75"; exit 75; fi
   [ -e WEBPERF ] && exit 2; exit 0 ;; esac
+# FLAKY2: the first two gates (FAKE_FLAKY2) fail and print the file (a test red twice in a row, then green).
+if [ -e FLAKY2 ]; then
+  n=$(cat "$FAKE_STATE.flaky2" 2>/dev/null || echo 0); echo $((n + 1)) > "$FAKE_STATE.flaky2"
+  [ "$n" -ge "${FAKE_FLAKY2:-2}" ] || { cat FLAKY2; exit 2; }
+fi
 [ -e BAD ] && exit 2
 # A test that prints a well-formed probe line while nothing was confirmed (a panic, no named Go
 # test): FORGEPROBE, every gate. The lander must bisect with full gates, not with that line.
@@ -182,6 +187,8 @@ case "$1 $2" in
         if [[ " ${FAKE_PRECHECK_RUNNING:-} " == *" $c "* ]]; then echo '[{"status":"in_progress","conclusion":""}]'
         elif [[ " ${FAKE_PRECHECK_RED:-} " == *" $c "* ]]; then echo '[{"databaseId":55,"status":"completed","conclusion":"failure"}]'
         else echo '[{"status":"completed","conclusion":"success"}]'; fi | out ;;
+      # The runs of make check-hosted (FAKE_CHECKS, a JSON array of their states): none by default.
+      *hosted-check.yml*) echo "${FAKE_CHECKS:-[]}" | out ;;
       *--status*failure*)
         # The failed run completes only after FAKE_FAILED_RUNS_AFTER listings (a failed job of a run in progress).
         n=$(cat "$FAKE_STATE.fl" 2>/dev/null || echo 0); echo $((n + 1)) > "$FAKE_STATE.fl"
@@ -3031,7 +3038,8 @@ func TestLanderWaitsForCompanyBeforeComposing(t *testing.T) {
 	e.upGit("update-ref", "-d", "refs/heads/ready/second")
 	// A wide window that closes on the second green change, not on the clock: a loaded gate
 	// cannot close it before the second change is queued, and the test waits no longer.
-	out, ok := e.land("LAND_WINDOW=600", "LAND_WINDOW_MIN=2", "LAND_POLL=1", "FAKE_SECOND_REF="+second)
+	// A check is in flight: the lone green change waits for the one being checked (#2438).
+	out, ok := e.land("LAND_WINDOW=600", "LAND_WINDOW_MIN=2", "LAND_POLL=1", "FAKE_SECOND_REF="+second, `FAKE_CHECKS=[{"status":"in_progress"}]`)
 	if !ok {
 		t.Fatalf("land failed\n%s", out)
 	}
@@ -3107,7 +3115,8 @@ func TestLanderStatusShowsThePrecheckVerdicts(t *testing.T) {
 	// A queued change inside the window: the time it closes.
 	e = newLandEnv(t)
 	e.queue("fresh", "fix(kb): fresh\n", nowDate(), map[string]string{"fr.txt": "f\n"})
-	if out, _ := e.landArgs([]string{"--status"}, "LAND_WINDOW=600"); !strings.Contains(out, "collecting until ") {
+	// A check in flight keeps it open for a lone green change (#2438).
+	if out, _ := e.landArgs([]string{"--status"}, "LAND_WINDOW=600", `FAKE_CHECKS=[{"status":"in_progress"}]`); !strings.Contains(out, "collecting until ") {
 		t.Errorf("the window's closing time is shown:\n%s", out)
 	}
 }

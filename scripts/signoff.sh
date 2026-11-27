@@ -35,6 +35,13 @@
 #                 and cancelled jobs are rerun (`gh run rerun --failed`) and the verdict is the new
 #                 attempt's, the legs that were green kept; a run of another sha, or a rerun GitHub
 #                 refuses, dispatches a whole new run as without it.
+#   SIGNOFF_ADOPT  hosted, set by the lander for a train a lander that stopped left on origin: nothing is
+#                 dispatched, the newest ci.yml run of this branch and sha is the gate (followed while
+#                 it runs, its verdict read as a dispatched run's is); no such run is a refusal.
+#   LAND_INFRA_TRIES (3)  LAND_INFRA_WAIT (120 s)  the tries of a gh read, and of the status POST, that
+#                 failed on a transport error (gh_net: the connection, or a 5xx; never a 4xx, whose
+#                 answer is definite), and the wait between two. The dispatch and a rerun are never
+#                 tried again: a second one would duplicate the run.
 #   SIGNOFF_MAKE  with SIGNOFF_GATE=host, the command that runs make targets, split on whitespace (default
 #                 `make`). A command that takes make's arguments and runs them on
 #                 another machine from the same tree (for instance a wrapper that
@@ -111,6 +118,28 @@ HOSTED_JOBS="gate test-windows web demo-edge docker helm test-macos test-linux-n
 
 die() { echo "signoff: $*" >&2; exit 1; }
 
+# gh_net <gh arguments>: a gh call tried again, up to LAND_INFRA_TRIES times LAND_INFRA_WAIT apart,
+# only when it failed on a transport error: gh could not connect, or GitHub answered 5xx. Any other
+# failure (a 4xx, a refusal) is an answer and is returned at once. For reads and for the status POST
+# (posting the same status twice changes nothing); never for a dispatch or a rerun. The output of the
+# last try is printed, its stderr too: a green gate lost its status to one dropped connection (#2438).
+transport_re='error connecting|dial tcp|no such host|network is unreachable|connection (reset|refused)|i/o timeout|TLS handshake timeout|context deadline exceeded|unexpected EOF|HTTP 5[0-9][0-9]'
+gh_net() {
+  local n=1 max=${LAND_INFRA_TRIES:-3} out err rc
+  err=$(mktemp "${TMPDIR:-/tmp}/signoff-gh.XXXXXX")
+  while :; do
+    rc=0; out=$(gh "$@" 2>"$err") || rc=$?
+    if [ "$rc" = 0 ] || [ "$n" -ge "$max" ] || ! grep -iE "$transport_re" "$err" >/dev/null; then break; fi
+    echo "signoff: GitHub did not answer (gh $1 ${2:-}): trying again ($n/$max done, in ${LAND_INFRA_WAIT:-120} s)" >&2
+    n=$((n + 1))
+    sleep "${LAND_INFRA_WAIT:-120}"
+  done
+  [ -z "$out" ] || printf '%s\n' "$out"
+  cat "$err" >&2
+  rm -f "$err"
+  return "$rc"
+}
+
 # signoff.sh --hosted-jobs: the jobs a hosted gate waits for (the lander logs their count).
 if [ "${1:-}" = --hosted-jobs ]; then echo "$HOSTED_JOBS"; exit 0; fi
 
@@ -180,7 +209,7 @@ fi
 # 2. Role: the viewer permission on the repository the PR targets.
 "$here/upstream-repo.sh" --require-remote >/dev/null || die "cannot tell the upstream repository"
 slug=$("$here/upstream-repo.sh")
-perm=$(gh repo view "$slug" --json viewerPermission --jq .viewerPermission 2>/dev/null || echo UNKNOWN)
+perm=$(gh_net repo view "$slug" --json viewerPermission --jq .viewerPermission 2>/dev/null || echo UNKNOWN)
 case "$perm" in
   ADMIN|MAINTAIN|WRITE) ;;
   *) die "permission on $slug is $perm: a contributor just pushes the branch and opens the PR, and CI tests it" ;;
@@ -214,7 +243,7 @@ push() { # explicit remote and refspec: a worktree branch tracks upstream/main, 
   out=$(git push -q --force-with-lease -u origin "$branch:$branch" 2>&1) || die "the push failed: nothing posted: $out"
 }
 post() { # $1 = the status description
-  if ! gh api -X POST "repos/$slug/statuses/$sha" -f state=success -f context=signoff \
+  if ! gh_net api -X POST "repos/$slug/statuses/$sha" -f state=success -f context=signoff \
     -f description="${1:0:140}" >/dev/null; then
     die "the branch is pushed but the status is not posted: run make signoff again (a 422 about the commit means $sha is not on $slug yet: open the PR, then run it again)"
   fi
@@ -240,13 +269,21 @@ hosted() { # $1 = why the gate runs in CI, $2 = `fallback` when the build host w
   # branch and sha. A retried signoff left a finished run there, whose verdict is not this
   # attempt's (same approach as scripts/hosted-check.sh).
   list_runs() {
-    gh run list -R "$slug" --workflow ci.yml --branch "$branch" --event workflow_dispatch --commit "$sha" \
+    gh_net run list -R "$slug" --workflow ci.yml --branch "$branch" --event workflow_dispatch --commit "$sha" \
       --json databaseId --jq '.[].databaseId'
   }
   # The second path (SIGNOFF_RERUN): the same run, its failed jobs again. A run id keeps across
   # attempts, so the run to follow is that one once its attempt number has grown: until then its
   # jobs are the red attempt's.
-  if [[ "${SIGNOFF_RERUN:-}" =~ ^[0-9]+$ ]] &&
+  if [ -n "${SIGNOFF_ADOPT:-}" ]; then
+    # The third path (SIGNOFF_ADOPT): a run of this very sha exists, dispatched by a lander that
+    # stopped before it read the verdict or posted the status. The sha is the tree and its base, so
+    # that run is this gate: it is followed and judged below as a dispatched one, never dispatched again.
+    existing=$(list_runs 2>/dev/null) || die "cannot list the ci.yml runs of $branch: nothing posted"
+    id=$(printf '%s\n' "$existing" | sort -n | tail -n 1)
+    [ -n "$id" ] || die "no ci.yml run of $sha on $branch to adopt: nothing posted"
+    echo "signoff: ci.yml run $id already ran this tree: its verdict is the gate, nothing dispatched" >&2
+  elif [[ "${SIGNOFF_RERUN:-}" =~ ^[0-9]+$ ]] &&
     att=$(gh run view "$SIGNOFF_RERUN" -R "$slug" --json attempt,headSha --jq '"\(.attempt) \(.headSha)"' 2>/dev/null) &&
     [ "${att#* }" = "$sha" ] && [[ "${att%% *}" =~ ^[0-9]+$ ]] &&
     gh run rerun "$SIGNOFF_RERUN" -R "$slug" --failed >/dev/null 2>&1; then
@@ -354,7 +391,8 @@ hosted_jobs() {
 }
 
 # hosted_failures <run JSON>: the `--- FAIL:` lines of the run's failed jobs, without the job,
-# step and time columns of `gh run view --log`, so the lander's failing() names the tests.
+# step and time columns of `gh run view --log`, so the lander's failing() names the tests, and the
+# `FAIL<TAB><package>` line that ends each failed package, which tells the lander where they live.
 # A job's log is not served for a moment after the job fails: the read is repeated up to
 # SIGNOFF_LOG_TRIES (5) times, SIGNOFF_POLL apart, while it returns no line at all; a log with
 # lines and no `--- FAIL:` is final (the failure is not a Go test).
@@ -367,7 +405,7 @@ hosted_failures() {
       [ "$try" = "${SIGNOFF_LOG_TRIES:-5}" ] || sleep "${SIGNOFF_POLL:-15}"
     done
     printf '%s\n' "$log" |
-      sed -E "s/^[^$tab]*$tab[^$tab]*$tab[^ ]+ //" | grep -E '^--- FAIL: ' | head -n 20 >&2 || true
+      sed -E "s/^[^$tab]*$tab[^$tab]*$tab[^ ]+ //" | grep -E "^(--- FAIL: |FAIL$tab[^ $tab]+)" | head -n 20 >&2 || true
   done
 }
 
