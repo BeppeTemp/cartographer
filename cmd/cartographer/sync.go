@@ -436,7 +436,7 @@ func runSync(dir string, cfg *clientconfig.Config, opts syncOptions) (syncResult
 	var held []heldKB
 	var routedPath string
 	if healthErr != nil {
-		fmt.Fprintf(errw, "Warning: MCP entry reconciliation skipped, server unreachable: %v\n", healthErr)
+		fmt.Fprint(errw, slowSyncWarning(healthErr))
 	} else {
 		// The server that answers now may not be the one this client's state
 		// was materialized against (D142): say so once, then sync normally.
@@ -1002,4 +1002,14 @@ func warnRemovedAutoTrust(passed bool) {
 	if passed {
 		fmt.Fprintln(os.Stderr, "warning: --auto-trust is removed and ignored: everything a KB ships is installed, and an MCP descriptor, a hook or an executable file needs `cartographer approve`")
 	}
+}
+
+// slowSyncWarning is the warning of a sync whose health probe failed: a server
+// that accepted the request and did not answer is "slow", never "unreachable".
+func slowSyncWarning(healthErr error) string {
+	why := "server unreachable"
+	if isSlowErr(healthErr) {
+		why = slowServerText
+	}
+	return fmt.Sprintf("Warning: MCP entry reconciliation skipped, %s: %v\n", why, healthErr)
 }

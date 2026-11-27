@@ -637,6 +637,62 @@ func TestCall_SlowServerIsNotReportedUnreachable(t *testing.T) {
 	t.Fatal("the request never reached the handler within the budget")
 }
 
+// A server that accepts a connection and never answers /health, and one that
+// holds a component route, are up but slow: one wording on every path, the
+// RemoteError says so and still counts as a transport failure (#2425).
+func TestSlowServerIsNotReportedUnreachableOnHealthAndAPI(t *testing.T) {
+	release := make(chan struct{})
+	var arrivals atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.Copy(io.Discard, r.Body)
+		arrivals.Add(1)
+		<-release
+	}))
+	defer srv.Close()
+	defer close(release)
+
+	probes := map[string]func(c *client.MCPClient, timeout time.Duration) error{
+		"health": func(c *client.MCPClient, timeout time.Duration) error { _, err := c.Health(timeout); return err },
+		"api": func(c *client.MCPClient, timeout time.Duration) error {
+			_, err := c.ReportRuns(map[string]any{}, timeout)
+			return err
+		},
+	}
+	for name, probe := range probes {
+		t.Run(name, func(t *testing.T) {
+			timeout := 200 * time.Millisecond
+			for attempt := 0; attempt < 6; attempt++ {
+				before := arrivals.Load()
+				err := probe(client.New(srv.URL+"/mcp", ""), timeout)
+				if err == nil {
+					t.Fatal("the probe succeeded against a server that never answers")
+				}
+				if arrivals.Load() == before {
+					timeout *= 2 // the deadline fell before the request arrived: says nothing
+					continue
+				}
+				var re *client.RemoteError
+				if !errors.As(err, &re) || !re.Slow {
+					t.Fatalf("error = %v, want a RemoteError with Slow set", err)
+				}
+				if msg := err.Error(); strings.Contains(msg, "could not reach") || !strings.Contains(msg, "accepted the request but did not answer in time") {
+					t.Fatalf("error = %q, want the server named as up but slow", msg)
+				}
+				return
+			}
+			t.Fatal("the request never reached the handler within the budget")
+		})
+	}
+	// A refused connection stays unreachable and not slow.
+	closed := httptest.NewServer(http.NotFoundHandler())
+	closed.Close()
+	_, err := client.New(closed.URL+"/mcp", "").Health(time.Second)
+	var re *client.RemoteError
+	if !errors.As(err, &re) || re.Slow || !strings.Contains(err.Error(), "could not reach") {
+		t.Fatalf("closed port: %v", err)
+	}
+}
+
 // A deadline that is a bare context error (no "awaiting headers" text) after
 // the whole request was written still names the server as up but slow (#2416).
 // The context ends only once the handler has read the request, so no timing

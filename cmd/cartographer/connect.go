@@ -161,6 +161,9 @@ func probeErrorMessage(state probeState, err error) string {
 	if isUnknownAuthority(err) {
 		return fmt.Sprintf("server unreachable: %v%s", err, unknownAuthorityHint)
 	}
+	if isSlowErr(err) {
+		return fmt.Sprintf("%s: %v", slowServerText, err)
+	}
 	return fmt.Sprintf("server unreachable: %v", err)
 }
 
@@ -639,6 +642,17 @@ func cmdConnect(args []string) int {
 	return printConnectResult(dir, providers, opts, res)
 }
 
+// slowServerText is the short reason of a server that accepted the request and
+// did not answer in time: it is up, so never "unreachable" (#2425). The
+// wrapped error carries the full sentence, so it is said once there.
+const slowServerText = "server slow"
+
+// isSlowErr reports whether err is that failure (client.RemoteError.Slow).
+func isSlowErr(err error) bool {
+	var re *client.RemoteError
+	return errors.As(err, &re) && re.Slow
+}
+
 // isTransportErr reports whether err is a failure to reach the server at all
 // (dial, DNS, timeout before any answer), as opposed to a server that
 // answered with something unusable (#1299). A body read failure after the
@@ -738,6 +752,9 @@ func tokenSourceName(cfg *clientconfig.Config) string {
 func deferralReason(err error) string {
 	if isUnknownAuthority(err) {
 		return "server unreachable" + unknownAuthorityHint
+	}
+	if isSlowErr(err) {
+		return slowServerText
 	}
 	if isTransportErr(err) {
 		return "server unreachable"
