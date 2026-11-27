@@ -254,6 +254,12 @@ type ApplyOptions struct {
 	// the same workspace still records (LockFile.CoOwnedPaths, D364). Apply
 	// never prunes them: the file stays for the projection that owns it too.
 	CoOwnedPaths map[string]bool
+	// InstructionsMerged, when set, is the block content of every provider of
+	// this run that resolves to the same physical instructions file (#2449, D-new
+	// shared-instructions-file): this Apply writes it in place of its own body, so
+	// the sharers converge on one block. Built by MergeInstructionsParts from the
+	// parts a dry run of each sharer reports.
+	InstructionsMerged *InstructionsParts
 
 	// SkipLockWrite, if true, computes AppliedResult.NewLock but does not persist
 	// it to <BaseDir>/LockFileName. Used by the multi-provider clients
@@ -379,11 +385,37 @@ func instructionsDest(opts ApplyOptions) string {
 	return contract.DestDirScoped("instructions", "", opts.Provider, opts.Scope)
 }
 
+// InstructionsDestRel is the instructions file of opts, relative to its base dir.
+func InstructionsDestRel(opts ApplyOptions) string { return instructionsDest(opts) }
+
+// InstructionsRealPath is the physical file the instructions block of opts
+// lives in, every link resolved (a CLAUDE.md that links to AGENTS.md names
+// AGENTS.md), or "" when the provider has no instructions destination. A file
+// that does not exist yet resolves its directory only. Read-only (#2449).
+func InstructionsRealPath(opts ApplyOptions) string {
+	rel := instructionsDest(opts)
+	if rel == "" {
+		return ""
+	}
+	full := filepath.Join(opts.BaseDir, rel)
+	if real, err := filepath.EvalSymlinks(full); err == nil {
+		return real
+	}
+	if real, err := filepath.EvalSymlinks(filepath.Dir(full)); err == nil {
+		return filepath.Join(real, filepath.Base(full))
+	}
+	return full
+}
+
 // AppliedResult is the result of Apply.
 type AppliedResult struct {
-	NewLock Lock
-	Written []ManagedFile
-	Pruned  []ManagedFile
+	// InstructionsParts is what this provider's instructions block is made of,
+	// nil when it has none (also set on a dry run: the merge of providers that
+	// share one file reads it).
+	InstructionsParts *InstructionsParts
+	NewLock           Lock
+	Written           []ManagedFile
+	Pruned            []ManagedFile
 	// PrunedRoots are the provisioning roots (slash paths relative to the base
 	// dir) this run removed because Cartographer created them and the prune left
 	// them empty; the caller announces them.
@@ -2521,55 +2553,32 @@ func applyInstructionsGroup(m contract.Manifest, diff Diff, opts ApplyOptions, t
 	// KB's instructions can end with any line, so the section is never found by
 	// what it starts with.
 	var body string
+	var parts *InstructionsParts
 	if have {
 		// Each KB's snippet is individually attributed (D182 WP1): current is
 		// already in the order applyInstructionsGroup will render (WP2's
 		// opts.KBOrder-aware sort above), so signed — a filtered copy of current —
 		// carries that same order through to the wrap. A held KB's region is
 		// spliced in at the place the same order gives it, byte for byte.
-		type section struct{ name, text string }
-		secs := make([]section, 0, len(signed)+len(heldSecs))
+		secs := make([]InstructionsSection, 0, len(signed)+len(heldSecs))
 		for _, a := range signed {
 			content := strings.TrimRight(string(expandedContent[a.Name]), "\n")
-			secs = append(secs, section{a.Name, wrapKBSection(a.Name, content)})
+			secs = append(secs, InstructionsSection{a.Name, wrapKBSection(a.Name, content)})
 		}
 		for _, name := range sortedHeldNames(heldSecs) {
-			secs = append(secs, section{name, heldSecs[name]})
+			secs = append(secs, InstructionsSection{name, heldSecs[name]})
 		}
-		sort.SliceStable(secs, func(i, j int) bool { return kbBefore(rank, secs[i].name, secs[j].name) })
-		snippets := make([]string, 0, len(secs))
-		for _, sec := range secs {
-			snippets = append(snippets, sec.text)
-		}
-		body = strings.Join(snippets, "\n\n")
-
-		// D1182: the operational bullets, once per block, after the last section.
+		sort.SliceStable(secs, func(i, j int) bool { return kbBefore(rank, secs[i].Name, secs[j].Name) })
+		parts = &InstructionsParts{Provider: opts.Provider, Sections: secs, Import: wantImport, Paths: pathsSection, Env: envSection, CLI: cliSentence,
+			WithheldKBs: opts.WithholdKBs, Restricted: opts.WithholdLocalPaths || len(opts.WithholdKBs) > 0}
 		if sharedSection != "" {
-			body += "\n\n" + strings.TrimRight(sharedSection, "\n")
+			parts.Shared = strings.TrimRight(sharedSection, "\n")
 		}
-
-		// D293: a project-scope Claude CLAUDE.md that lives alongside an
-		// AGENTS.md must import it, or creating/keeping CLAUDE.md hides the
-		// repository's own instructions from every Claude session.
-		if wantImport {
-			body = "@AGENTS.md\n\n" + body
+		result.InstructionsParts = parts
+		if opts.InstructionsMerged != nil {
+			parts = opts.InstructionsMerged
 		}
-
-		if pathsSection != "" {
-			body += "\n\n" + pathsSection
-		}
-
-		// The subagent sentence, per provider and per KB (D154): it must describe
-		// what THIS client received, not what the KB declares. A client whose "agent"
-		// cell is unsupportedDest (crush) receives none, and the sentence must not
-		// tell it to delegate to subagents that are not there; installedSubagentSentence
-		// derives it from DestDir.
-		if envSection != "" {
-			body += "\n\n" + envSection
-		}
-		if cliSentence != "" {
-			body += "\n\n" + cliSentence
-		}
+		body = parts.Render()
 	}
 	fullPath := filepath.Join(opts.BaseDir, destRel)
 	header := instructionsFileHeader(opts.Provider, destRel)
@@ -2587,7 +2596,7 @@ func applyInstructionsGroup(m contract.Manifest, diff Diff, opts ApplyOptions, t
 	if !have {
 		// A block another projection of this workspace still renders into the
 		// same file stays (D364): Codex, OpenCode and Antigravity share AGENTS.md.
-		if !opts.DryRun && !opts.CoOwnedPaths[filepath.ToSlash(destRel)] {
+		if !opts.DryRun && !opts.CoOwnedPaths[filepath.ToSlash(destRel)] && opts.InstructionsMerged == nil {
 			if err := removeInstructionsBlock(opts.BaseDir, fullPath); err != nil {
 				if !IsRefusal(err) {
 					return fmt.Errorf("provisioning: remove instructions block %s: %w", destRel, err)
@@ -2731,6 +2740,13 @@ func needsAgentsMDImport(opts ApplyOptions) bool {
 	agentsPath := filepath.Join(opts.BaseDir, "AGENTS.md")
 	if _, err := os.Lstat(agentsPath); err != nil {
 		return false
+	}
+	// A CLAUDE.md that is a link to AGENTS.md is that file: importing it from
+	// itself would be a loop (#2449).
+	if real := InstructionsRealPath(opts); real != "" {
+		if agentsReal, err := filepath.EvalSymlinks(agentsPath); err == nil && real == agentsReal {
+			return false
+		}
 	}
 	// If the target file already imports @AGENTS.md outside the managed block,
 	// skip: the user (or D213) already wrote one and a duplicate would be wrong.

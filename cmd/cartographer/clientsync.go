@@ -23,6 +23,7 @@ import (
 	"github.com/BeppeTemp/cartographer/internal/configurator"
 	"github.com/BeppeTemp/cartographer/internal/provisioning"
 	"github.com/BeppeTemp/cartographer/internal/provisioning/contract"
+	"github.com/BeppeTemp/cartographer/internal/safewrite"
 )
 
 // pulledFileJSON/pulledArtifactJSON/pulledManifestJSON mirror the sync_pull tool's
@@ -1146,11 +1147,9 @@ func materializeForProviders(manifests map[string]contract.Manifest, projections
 	// is not applied, and must not flip the requirements of the others.
 	resolved := resolveProjectionSet(projections, manifests, contract.ProjectOptions{})
 
-	var appliedSoFar []string
-	for _, p := range projections {
-		if skippedProjections[projectionKey(p)] {
-			continue
-		}
+	// plan builds what Apply of one projection takes from the lockfile as it is
+	// now: the sharers of an instructions file dry-run it first (#2449).
+	plan := func(p syncProjection) applyPlan {
 		previous := lockFile.ForProjection(p.Key())
 		manifest := manifests[projectionKey(p)]
 		opts := provisioning.ApplyOptions{
@@ -1240,6 +1239,17 @@ func materializeForProviders(manifests map[string]contract.Manifest, projections
 		// pending artifact is not announced (D1697).
 		opts.Skipped = provisioning.AuthorizedSkipped(skipped, manifests[projectionKey(p)], opts)
 		opts.Unplaced = provisioning.UnplacedArtifacts(manifests[projectionKey(p)], configurator.Provider(p.Provider), p.Scope)
+		return applyPlan{previous, opts, projected, degraded, skipped, held, heldKBEntries}
+	}
+	sharedParts := sharedInstructions(projections, skippedProjections, plan)
+	var appliedSoFar []string
+	for _, p := range projections {
+		if skippedProjections[projectionKey(p)] {
+			continue
+		}
+		pl := plan(p)
+		previous, opts, projected, degraded, skipped, held, heldKBEntries := pl.previous, pl.opts, pl.projected, pl.degraded, pl.skipped, pl.held, pl.heldKBEntries
+		opts.InstructionsMerged = sharedParts[projectionKey(p)]
 		applied, err := provisioning.Apply(projected, opts)
 		if err != nil && portability.WriteDenied != nil && isWriteDenied(err) {
 			// Nothing of this provider is recorded: its lock entry stays what
@@ -2029,4 +2039,74 @@ func mergeFeedbackMode(a, b string) string {
 		return b
 	}
 	return a
+}
+
+// applyPlan is what Apply of one projection is given.
+type applyPlan struct {
+	previous      provisioning.Lock
+	opts          provisioning.ApplyOptions
+	projected     contract.Manifest
+	degraded      []provisioning.DegradedNote
+	skipped       []provisioning.SkippedNote
+	held          []provisioning.ManagedFile
+	heldKBEntries []provisioning.ManagedFile
+}
+
+// sharedInstructions is, per projection key, the merged instructions block of
+// the projections of this run whose file is one physical file (a followed
+// CLAUDE.md link to AGENTS.md, codex and opencode on AGENTS.md) (#2449). It is
+// computed once, before anything is written. Each sharer's own block is a dry
+// Apply; a sharer whose dry Apply fails leaves its whole file out (each writer
+// then renders its own block, never a merge missing a sharer's sections), and a
+// link the allow set does not list is no sharing: its writer is refused as before.
+func sharedInstructions(projections []syncProjection, skipped map[string]bool, plan func(syncProjection) applyPlan) map[string]*provisioning.InstructionsParts {
+	type member struct {
+		key string
+		pl  applyPlan
+	}
+	groups := map[string][]member{}
+	var order []string
+	for _, q := range projections {
+		if skipped[projectionKey(q)] {
+			continue
+		}
+		pl := plan(q)
+		real := provisioning.InstructionsRealPath(pl.opts)
+		if real == "" || safewrite.CheckPath(pl.opts.BaseDir, filepath.Join(pl.opts.BaseDir, provisioning.InstructionsDestRel(pl.opts))) != nil {
+			continue
+		}
+		if _, ok := groups[real]; !ok {
+			order = append(order, real)
+		}
+		groups[real] = append(groups[real], member{projectionKey(q), pl})
+	}
+	out := map[string]*provisioning.InstructionsParts{}
+	for _, real := range order {
+		ms := groups[real]
+		if len(ms) < 2 {
+			continue
+		}
+		var parts []provisioning.InstructionsParts
+		failed := false
+		for _, m := range ms {
+			o := m.pl.opts
+			o.DryRun, o.SkipLockWrite = true, true
+			applied, err := provisioning.Apply(m.pl.projected, o)
+			if err != nil {
+				failed = true
+				break
+			}
+			if applied.InstructionsParts != nil {
+				parts = append(parts, *applied.InstructionsParts)
+			}
+		}
+		if failed || len(parts) == 0 {
+			continue
+		}
+		merged := provisioning.MergeInstructionsParts(parts)
+		for _, m := range ms {
+			out[m.key] = &merged
+		}
+	}
+	return out
 }
