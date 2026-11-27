@@ -72,3 +72,17 @@ func TestRemoteURLIfConfigured(t *testing.T) {
 		t.Fatalf("a missing repository read as %q, %v", u, exists)
 	}
 }
+
+// An absent origin/HEAD is "not known" with no error; a git failure is an error,
+// so a caller does not read a corrupt or unreadable repository as "before the
+// first sync".
+func TestRemoteHeadBranchErrTellsAbsentFromAFailure(t *testing.T) {
+	dir := headTestRepo(t)
+	if b, ok, err := RemoteHeadBranchErr(dir, "origin"); ok || b != "" || err != nil {
+		t.Fatalf("absent origin/HEAD = %q, %v, %v; want not known, no error", b, ok, err)
+	}
+	notARepo := t.TempDir()
+	if _, ok, err := RemoteHeadBranchErr(filepath.Join(notARepo, "missing"), "origin"); ok || err == nil {
+		t.Fatalf("a directory git cannot read = ok %v, err %v; want an error", ok, err)
+	}
+}

@@ -108,6 +108,10 @@ func TestRetrievalEval(t *testing.T) {
 		if !intersects(seen, q.Want) {
 			t.Errorf("graph_context %q: want one of %v\n  seen: %v", query, q.Want, seen)
 		}
+		// A question's target should be a full (AND) match of the query, not a
+		// fallback hit: a page that only matches some of the terms passes or fails
+		// by how many full matches other pages happen to have. Put the question's
+		// words in the target page, not only the ids it is accepted under.
 		var sr struct {
 			Results []struct{ ID string } `json:"results"`
 		}

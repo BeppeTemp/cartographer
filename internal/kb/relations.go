@@ -1,6 +1,7 @@
 package kb
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -185,6 +186,12 @@ func (k *KB) forgetRelationsValidation() {
 	k.relMemo.mu.Unlock()
 }
 
+// ErrRelationsRefUnknown is what Relations returns, wrapped, while a KB with a
+// remote has not learned the remote's default branch yet (it is learned at the
+// first sync). It is an expected state at startup, not a failure: a caller that
+// only reports findings stays quiet on it (errors.Is).
+var ErrRelationsRefUnknown = errors.New("the default branch of the remote is not known yet (it is learned at the first sync)")
+
 // relationsRef is the ref Relations reads: the remote's default branch when the
 // KB has a remote, HEAD only for a KB with no remote (it has no other branch to
 // widen from). The default branch is the clone's refs/remotes/<remote>/HEAD, not
@@ -201,9 +208,13 @@ func (k *KB) relationsRef() (string, error) {
 	} else if !exists {
 		return "HEAD", nil
 	}
-	def, ok := gitx.RemoteHeadBranch(k.Root, remote)
+	def, ok, err := gitx.RemoteHeadBranchErr(k.Root, remote)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cartographer: read the default branch of %s: %v\n", filepath.Base(k.Root), err)
+		return "", fmt.Errorf("could not read %s: git did not answer (details in the server log)", SettingsFile)
+	}
 	if !ok {
-		return "", fmt.Errorf("could not read %s: the default branch of the remote is not known yet (it is learned at the first sync)", SettingsFile)
+		return "", fmt.Errorf("could not read %s: %w", SettingsFile, ErrRelationsRefUnknown)
 	}
 	// Fully qualified: a tag or a local branch named origin/<def> wins over
 	// refs/remotes/ in a short name, and would be read in its place.
