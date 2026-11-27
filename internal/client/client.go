@@ -100,6 +100,9 @@ type RemoteError struct {
 	// server named when it refused the request with 426 (protocol_unsupported);
 	// zero otherwise.
 	ServerProtocol, ServerMinProtocol int
+	// Slow is true when the server accepted the request and did not answer in
+	// time: it is up, so a caller words it as slow, never as unreachable (#2425).
+	Slow bool
 }
 
 func (e *RemoteError) Error() string {
@@ -130,12 +133,34 @@ func unreachableMessage(reqURL string, err error) string {
 }
 
 func unreachableMessageSent(reqURL string, err error, sent bool) string {
-	if strings.Contains(err.Error(), "awaiting headers") ||
-		(sent && (errors.Is(err, context.DeadlineExceeded) || isTimeout(err))) {
+	if isSlowRequest(err, sent) {
 		return fmt.Sprintf("%s accepted the request but did not answer in time; "+
 			"the server is up, so look at its log for a KB whose git remote is slow or unreachable", reqURL)
 	}
 	return fmt.Sprintf("could not reach %s", reqURL)
+}
+
+// isSlowRequest reports whether err is a server that accepted the request and
+// did not answer in time (see unreachableMessage).
+func isSlowRequest(err error, sent bool) bool {
+	return strings.Contains(err.Error(), "awaiting headers") ||
+		(sent && (errors.Is(err, context.DeadlineExceeded) || isTimeout(err)))
+}
+
+// traceSent returns req with an httptrace that sets the flag once the whole
+// request was written without error.
+func traceSent(req *http.Request) (*http.Request, *atomic.Bool) {
+	var sent atomic.Bool
+	return req.WithContext(httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{
+		WroteRequest: func(i httptrace.WroteRequestInfo) { sent.Store(i.Err == nil) },
+	})), &sent
+}
+
+// unreachableError is the RemoteError of a request that got no answer, slow
+// or unreachable by unreachableMessageSent's rule.
+func unreachableError(reqURL string, err error, sent bool) *RemoteError {
+	return &RemoteError{State: RemoteUnavailable, Code: classifyDialErr(err),
+		Message: unreachableMessageSent(reqURL, err, sent), Cause: err, Slow: isSlowRequest(err, sent)}
 }
 
 func isTimeout(err error) bool {
@@ -655,14 +680,10 @@ func (c *MCPClient) doCtx(ctx context.Context, method string, params any) (json.
 		return nil, err
 	}
 
-	var sent atomic.Bool
-	httpReq = httpReq.WithContext(httptrace.WithClientTrace(httpReq.Context(), &httptrace.ClientTrace{
-		WroteRequest: func(i httptrace.WroteRequestInfo) { sent.Store(i.Err == nil) },
-	}))
+	httpReq, sent := traceSent(httpReq)
 	resp, err := HTTPClient(c.HTTP, c.AllowInsecureHTTP).Do(httpReq)
 	if err != nil {
-		return nil, &RemoteError{State: RemoteUnavailable, Code: classifyDialErr(err),
-			Message: unreachableMessageSent(reqURL, err, sent.Load()), Cause: err}
+		return nil, unreachableError(reqURL, err, sent.Load())
 	}
 	defer resp.Body.Close()
 
@@ -977,10 +998,10 @@ func (c *MCPClient) healthOnce(hcp *http.Client, u *url.URL, token string) (*Hea
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
+	req, sent := traceSent(req)
 	resp, err := hc.Do(req)
 	if err != nil {
-		return nil, nil, &RemoteError{State: RemoteUnavailable, Code: classifyDialErr(err),
-			Message: fmt.Sprintf("could not reach %s", u), Cause: err}
+		return nil, nil, unreachableError(u.String(), err, sent.Load())
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -1184,10 +1205,10 @@ func (c *MCPClient) apiCallInto(method, route, kbName string, body, out any, tim
 	if err := c.authorize(req); err != nil {
 		return err
 	}
+	req, sent := traceSent(req)
 	resp, err := hc.Do(req)
 	if err != nil {
-		return &RemoteError{State: RemoteUnavailable, Code: classifyDialErr(err),
-			Message: fmt.Sprintf("could not reach %s", u.Redacted()), Cause: err}
+		return unreachableError(u.Redacted(), err, sent.Load())
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))

@@ -469,6 +469,9 @@ func classifyNetworkError(endpoint string, err error) statusError {
 	if isLoopbackURL(endpoint) {
 		action = "check `cartographer service status`"
 	}
+	if isSlowErr(err) {
+		return statusError{Code: code, Message: fmt.Sprintf("%s accepted the request but did not answer in time; the server is up, look at its log for a KB whose git remote is slow", endpoint), Cause: err.Error()}
+	}
 	return statusError{Code: code, Message: fmt.Sprintf("could not reach %s; %s", endpoint, action), Cause: err.Error()}
 }
 

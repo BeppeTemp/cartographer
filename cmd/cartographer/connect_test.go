@@ -897,6 +897,36 @@ func TestUnknownAuthorityHint(t *testing.T) {
 	}
 }
 
+// A slow server (accepted the request, did not answer) is not "unreachable"
+// in the probe, the deferral or the status error (#2425).
+func TestSlowServerWording(t *testing.T) {
+	err := fmt.Errorf("health: %w", &client.RemoteError{State: client.RemoteUnavailable, Code: client.CodeUnreachable,
+		Message: "http://example.com/health accepted the request but did not answer in time", Slow: true})
+	if got := deferralReason(err); got != "server slow" {
+		t.Errorf("deferral: %q", got)
+	}
+	for name, got := range map[string]string{
+		"probe":  probeErrorMessage(probeUnreachable, err),
+		"status": classifyNetworkError("http://example.com/mcp", err).Message,
+	} {
+		if strings.Contains(got, "unreachable") || strings.Contains(got, "could not reach") || !strings.Contains(got, "did not answer in time") {
+			t.Errorf("%s: %q", name, got)
+		}
+	}
+	// The sentence is said once, in the wrapped error, in the probe and in sync's warning.
+	if got := probeErrorMessage(probeUnreachable, err); strings.Count(got, "did not answer in time") != 1 {
+		t.Errorf("probe repeats the sentence: %q", got)
+	}
+	sw := slowSyncWarning(err)
+	if sw != "Warning: MCP entry reconciliation skipped, server slow: "+err.Error()+"\n" {
+		t.Errorf("sync warning: %q", sw)
+	}
+	plain := &client.RemoteError{State: client.RemoteUnavailable, Code: client.CodeUnreachable, Message: "could not reach http://example.com/health"}
+	if got := deferralReason(plain); got != "server unreachable" {
+		t.Errorf("a refused connection stays unreachable: %q", got)
+	}
+}
+
 // caLoadFixture sets OnLoad to registerServerCA and returns a TLS server, a
 // writer of a CA file for the server's certificate, and a config saver.
 func caLoadFixture(t *testing.T) (srv *httptest.Server, caFor func(*httptest.Server) string, save func(dir, ca string)) {
