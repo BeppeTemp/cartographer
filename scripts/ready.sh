@@ -45,6 +45,12 @@
 # the message then carries `Profile: <name>`, which reaches main. Any other name is refused,
 # with the declared ones.
 #
+# A queued change this one conflicts with is named before the push: the commit is test-merged
+# (`git merge-tree`, nothing checked out) with each `origin/ready/*` tip it does not follow, and a
+# textual conflict outside the committed Atlas bundle (the lander builds that again) is a warning
+# with the slug and `AFTER=<slug>`: the lander picks the queue in order, and the second of two
+# changes that conflict does not apply. The change is queued all the same.
+#
 # REVIEW=<tier> below the tier the triage computes for this change is refused, as the lander would refuse it.
 #
 # A contributor does not queue: they open a PR, and CI tests it.
@@ -203,6 +209,20 @@ for ph in $(git diff -U0 "$base" HEAD -- . ':(exclude)*_test.go' ':(exclude)*/te
 done
 
 sha=$(git commit-tree "$(git rev-parse 'HEAD^{tree}')" -p "$parent" -F "$full")
+# The queued changes it conflicts with (the header): a tip this commit follows is its own base, and
+# one that follows this slug's earlier version is rebuilt after it. A git without merge-tree
+# --write-tree (exit other than 0 or 1) warns of nothing.
+mine=$(git rev-parse -q --verify "refs/remotes/origin/ready/$slug" || true)
+while read -r other tip; do
+  [ -n "$other" ] && [ "$other" != "$slug" ] || continue
+  ! git merge-base --is-ancestor "$tip" "$sha" || continue
+  [ -z "$mine" ] || ! git merge-base --is-ancestor "$mine" "$tip" || continue
+  mrc=0; merged=$(git merge-tree --write-tree --name-only --no-messages "$sha" "$tip" 2>/dev/null) || mrc=$?
+  [ "$mrc" = 1 ] || continue
+  files=$(sed 1d <<<"$merged" | grep -v '^internal/webui/dist/' | head -n 5 | tr '\n' ' ' || true)
+  [ -n "${files% }" ] || continue
+  echo "ready: warning: it conflicts with the queued change $other (${files% }): the lander rejects the one it picks second; rebase this branch on that change and queue it with AFTER=$other" >&2
+done < <(git for-each-ref --format='%(refname:lstrip=4) %(objectname)' refs/remotes/origin/ready/)
 out=$(git push -q --force origin "$sha:refs/heads/ready/$slug" 2>&1) || die "the push of ready/$slug failed: $out"
 echo "ready: $branch queued as ready/$slug (${sha:0:12}): $(head -n 1 "$full")"
 # The change is queued: the branch that parked it (CONTRIBUTING.md §Pull requests) is no longer

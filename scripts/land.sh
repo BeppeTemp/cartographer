@@ -104,7 +104,10 @@
 # rejected at its pick (a conflict, a decision) takes its unit out of the train: the train is
 # reset to the commit before the unit's first pick, only
 # that member moves to failed/ (its reason ends `(chain <first>..<tip>)`) and the others stay
-# queued, blocked until it is queued again.
+# queued, blocked until it is queued again. A `fix` queued alone that conflicts only with a change
+# picked before it in the same train (it applies on main without it: train_conflict) is not
+# rejected: it leaves this train, stays queued and is picked again after it; it is rejected once
+# it conflicts with main itself.
 # One lander at a time: per machine a lock in the state dir, across machines an open PR
 # whose head is `train/*`. A lander that finds one of the repository's own built on the current
 # main adopts it (the same merge, the same rerun-once rule) and goes on with the queue; one
@@ -906,6 +909,26 @@ pending_dup() {
     esac
   done
   PEND="$PEND $(train_adds HEAD | tr '\n' ' ')"
+}
+
+# train_conflict <sha>: for a queued change that did not pick, prints the slug of the first change
+# of the train it conflicts with and returns 0 when the conflict is with the train only: a `fix`,
+# a unit of one, that merges cleanly on main ($base) alone. Read with git merge-tree, nothing is
+# checked out. Only merge-tree's exit 1 is a conflict: any other failure (a git without --merge-base
+# there, an object it cannot read) answers 1, and the change is rejected at its pick as before.
+train_conflict() {
+  local i l rc
+  [[ "$(title "$1")" =~ ^fix(\(|!|:) ]] && [ "${U_SIZE[cur]}" = 1 ] && [ "${#commits[@]}" -gt 0 ] || return 1
+  git merge-tree --write-tree --merge-base="$1^" "$base" "$1" >/dev/null 2>&1 || return 1
+  for ((i = 0; i < ${#commits[@]}; i++)); do
+    rc=0; git merge-tree --write-tree --merge-base="$1^" "${commits[i]}" "$1" >/dev/null 2>&1 || rc=$?
+    [ "$rc" != 0 ] || continue
+    [ "$rc" = 1 ] || return 1
+    l=$(sed -n "$((i + 1))p" <<<"$landed")
+    echo "${l%% *}"
+    return 0
+  done
+  return 1
 }
 
 # reject_at <i> <reason>: the member commits[i] of a composed train is rejected after the picks:
@@ -1859,6 +1882,12 @@ while :; do
         hint= # grep without -q reads all of git log: an early exit would fail it under pipefail
         if g log --format=%s "$sha^..$main_ref" | grep -xF "$(title "$sha")" >/dev/null; then
           hint=" (main already holds a commit with its title: landed, its decision numbered?)"
+        fi
+        # A fix that conflicts with an earlier pick of this train only waits for that train (#2439):
+        # the pick was aborted above, nothing of it is in the train, and it is still queued.
+        if with=$(train_conflict "$sha"); then
+          log "$s conflicts with $with, picked before it in this train, and applies on main without it: left queued, picked again after this train"
+          continue
         fi
         reject_member "$s" "$sha" "conflict: it does not apply on main plus the changes before it in the train$hint"
         continue
