@@ -94,7 +94,7 @@ export function SurveyorActivity({
   const peak = Math.max(1, ...shownDays.flatMap(([, runs]) => runs.map((r) => r.tokens_spent ?? 0)));
   if (shownDays.length === 0) return <p className="page-note">No Surveyor run in this window.</p>;
   return (
-    <ol className="timeline__days">
+    <ol className="timeline__days" aria-label="Surveyor runs">
       {shownDays.map(([day, runs]) => (
         <li key={day} className="timeline__day">
           <h2 className="timeline__date">

@@ -1,4 +1,14 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { fetchAudit, fetchChanges, fetchJournal, fetchRetired, fetchSurveyorHistory, optional } from "../api/client";
 import type {
   AuditLog,
@@ -17,7 +27,6 @@ import {
   isSurveyorAuthor,
   journalMap,
   journalShape,
-  mostWorked,
   parseJournal,
   shownReasons,
   type ChangeKind,
@@ -25,19 +34,23 @@ import {
 import { collectionVar } from "../lib/palette";
 import { ErrorState } from "./States";
 import { ReportCandidatesSection } from "./Candidates";
-import { SurveyorRunsList, runDate, shortTokens, surveyorRuns } from "./Surveyors";
+import { age, runDate, shortTokens, surveyorRuns } from "./Surveyors";
+import { touchedByRun } from "../lib/activity";
+import { SurveyorActivity } from "./SurveyorActivity";
+import { FigureTiles, WhenStrip, useBuckets, type StripKey } from "./ActivityCharts";
+import { ConceptDiff, prefetchDiff } from "./ConceptDiff";
 import { Icon } from "./Icon";
 import {
   Avatar,
-  BoldCount,
+  FilterChip,
+  FilterChips,
   Hero,
-  MapBar,
+  HeroRow,
   MapDot,
   Page,
   PageHeader,
   PageSection,
   Segmented,
-  TitleBone,
   ActivitySkeleton,
 } from "./Page";
 
@@ -51,6 +64,26 @@ const WINDOWS = [
 ] as const;
 type Window = (typeof WINDOWS)[number][0];
 /** The window's length in days; null for the whole history. */
+/** The KB and the window start a Changes row diffs against: set once by the
+ *  page, read by every row, so the rows' props stay what they show. */
+const DiffSpan = createContext<{ kb: string; from: string; to?: string; reopen?: string | null } | null>(null);
+
+/** The kinds of change and of run on the strip, each with a hue of the wheel. */
+const CHANGE_KEYS: StripKey[] = [
+  { key: "new", word: "new", hue: "var(--hue-1)" },
+  { key: "edited", word: "edited", hue: "var(--hue-3)" },
+  { key: "reorganised", word: "reorganised", hue: "var(--hue-11)" },
+];
+const RUN_KEYS: StripKey[] = [
+  { key: "poll", word: "poll", hue: "var(--hue-3)" },
+  { key: "ingest", word: "ingest", hue: "var(--hue-1)" },
+  { key: "doctor", word: "doctor", hue: "var(--hue-5)" },
+  { key: "repair", word: "repair", hue: "var(--hue-10)" },
+  { key: "synthesis", word: "synthesis", hue: "var(--hue-11)" },
+  { key: "failed", word: "failed", hue: "var(--sev-error)" },
+];
+const hueOf = (keys: StripKey[], key: string) => keys.find((k) => k.key === key)?.hue;
+
 const DAYS: Record<Window, number | null> = {
   "1d": 1,
   "7d": 7,
@@ -89,9 +122,12 @@ export function Activity({
   live = 0,
   components = [],
   tabs,
+  reopen,
   onOpen,
 }: {
   kb: string;
+  /** The concept the reader just came back from: its row's diff is open. */
+  reopen?: string | null;
   snapshot: GraphSnapshot | null;
   collections?: CollectionSummary[];
   live?: number;
@@ -216,11 +252,23 @@ export function Activity({
   );
   const mapTitles = useMemo(() => new Map(collections.map((c) => [c.name, c.title || c.name])), [collections]);
   const all = useMemo(() => data?.concepts ?? [], [data]);
+  // The Changes tab is the people's: a change only the Surveyor made is on the
+  // Surveyor tab, and a shared one shows its human authors only.
+  const people = useMemo(
+    () =>
+      all.flatMap((c) => {
+        const authors = c.authors ?? [];
+        if (authors.length === 0) return [c];
+        const humans = authors.filter((a) => !isSurveyorAuthor(a));
+        return humans.length === 0 ? [] : [humans.length === authors.length ? c : { ...c, authors: humans }];
+      }),
+    [all],
+  );
   // What the filters and the "Where" bar count: the reader's changes, and the
   // server's upkeep only when it is on show.
   const counted = useMemo(
-    () => (showUpkeep ? all : all.filter((c) => changeKind(c) !== "maintenance")),
-    [all, showUpkeep],
+    () => (showUpkeep ? people : people.filter((c) => changeKind(c) !== "maintenance")),
+    [people, showUpkeep],
   );
 
   // Authors and Maps by how much they changed: the busiest first.
@@ -236,18 +284,45 @@ export function Activity({
   }, [map, maps]);
 
   const filtered = useMemo(
-    () =>
-      all.filter(
-        (c) =>
-          (!author || c.authors?.includes(author)) &&
-          (!map || mapOf(c) === map),
-      ),
-    [all, author, map],
+    () => people.filter((c) => (!author || c.authors?.includes(author)) && (!map || mapOf(c) === map)),
+    [people, author, map],
   );
   // The Surveyor's share of the window: its tab, and the tab exists only when
   // this KB has runs of the Surveyor's or changes made by it.
+  // The Surveyor tab's Where: the Maps of the pages it wrote in the window.
+  const [svMap, setSvMap] = useState<string | null>(null);
   const surveyorChanges = useMemo(() => all.filter((c) => bySurveyor(c) && changeKind(c) !== "maintenance"), [all]);
+  const surveyorMaps = useMemo(() => rank(surveyorChanges.map(mapOf)), [surveyorChanges]);
+  useEffect(() => {
+    if (svMap !== null && !surveyorMaps.some(([m]) => m === svMap)) setSvMap(null);
+  }, [svMap, surveyorMaps]);
   const keptRuns = useMemo(() => surveyorRuns(kb, components), [kb, components]);
+  const [task, setTask] = useState<string | null>(null);
+  const windowRuns = useMemo(() => {
+    const d = DAYS[shown];
+    const from = d === null ? 0 : Date.now() - d * DAY_MS;
+    return keptRuns.filter((r) => !(Date.parse(r.started_at) < from));
+  }, [keptRuns, shown]);
+  const surveyorTasks = useMemo(() => rank(windowRuns.map((r) => r.task)), [windowRuns]);
+  const runPoints = useMemo(
+    () =>
+      windowRuns
+        .filter((r) => !task || r.task === task)
+        .map((r) => ({
+          t: Date.parse(r.started_at),
+          key: r.outcome === "failed" || r.outcome === "budget_exhausted" ? "failed" : r.task,
+        })),
+    [windowRuns, task],
+  );
+  const idleTokens = useMemo(
+    () =>
+      windowRuns
+        .filter((r) => (r.tokens_spent ?? 0) > 0 && touchedByRun(r, all).length === 0)
+        .reduce((n, r) => n + (r.tokens_spent ?? 0), 0),
+    [windowRuns, all],
+  );
+  const lastRun = windowRuns[0] ?? keptRuns[0];
+  const runBuckets = useBuckets(runPoints, DAYS[shown] === null ? 0 : Date.now() - DAYS[shown]! * DAY_MS);
   const hasSurveyor = keptRuns.length > 0 || surveyorChanges.length > 0;
   // The persisted daily counters (surveyor-history): optional, a 404 (an older
   // server, a caller that does not see the KB whole) leaves the figures of the
@@ -276,10 +351,19 @@ export function Activity({
     () => summarizeSurveyor(keptRuns, surveyorChanges, DAYS[shown], history),
     [keptRuns, surveyorChanges, shown, history],
   );
+
   const runNote = surveyorSummary.sinceDate ? `since ${surveyorSummary.sinceDate}` : null;
-  const surveyorDays = useMemo(() => groupByDay(surveyorChanges), [surveyorChanges]);
   const kinds = useMemo(() => new Map(filtered.map((c) => [c, changeKind(c)])), [filtered]);
   const count = (k: ChangeKind) => filtered.filter((c) => kinds.get(c) === k).length;
+  const changePoints = useMemo(
+    () =>
+      filtered
+        .filter((c) => kinds.get(c) !== "maintenance")
+        .map((c) => ({ t: Date.parse(changedAt(c)), key: kinds.get(c) ?? "edited" }))
+        .filter((p) => Number.isFinite(p.t)),
+    [filtered, kinds],
+  );
+  const changeBuckets = useBuckets(changePoints, DAYS[shown] === null ? 0 : Date.now() - DAYS[shown]! * DAY_MS);
   const upkeep = count("maintenance");
   // A window of nothing but upkeep is quiet whatever the upkeep toggle says:
   // its toggle is in the summary, which the quiet notice replaces.
@@ -292,259 +376,323 @@ export function Activity({
   // keep each one once, at its newest change, so they only stand in when a
   // filter narrows the page (the series cannot be filtered) or the server is
   // older than the series (D1057).
-  const byDay = map === null && author === null ? data?.changes_by_day : undefined;
-  const histogram = useMemo(() => perDay(filtered, kinds, DAYS[shown], byDay), [filtered, kinds, shown, byDay]);
-  const top = useMemo(() => mostWorked(filtered), [filtered]);
+  const touchedCount = useMemo(
+    () => new Set(filtered.filter((c) => kinds.get(c) !== "maintenance").map((c) => c.id)).size,
+    [filtered, kinds],
+  );
   const retiredCount = useMemo(
     () => filtered.filter((c) => kinds.get(c) !== "maintenance" && retired.has(c.id)).length,
     [filtered, kinds, retired],
   );
 
   return (
-    <Page label="Recent activity" busy={loading} className="timeline">
-      <PageHeader
-        eyebrow="Activity"
-        title={
-          view === "surveyor" ? (
-            <SurveyorHeadline summary={surveyorSummary} since={shown} />
-          ) : (
-          <Headline
-            data={data}
-            failed={error !== null}
-            n={filtered.length - upkeep}
-            since={shown}
-            author={author}
-            mapTitle={map ? mapTitles.get(map) : null}
-          />
-          )
-        }
-        actions={
-          <>
-            {hasSurveyor && (
-              <Segmented<"changes" | "surveyor">
-                label="Activity of"
-                value={view}
-                options={[
-                  ["changes", "Changes"],
-                  ["surveyor", "Surveyor"],
-                ]}
-                onChange={setTab}
-              />
-            )}
-            <Segmented<Window> label="Changes since" value={since} options={WINDOWS} onChange={setSince} />
-          </>
-        }
-      />
-      {tabs}
-
-      <div className="page__body" data-loading={loading && data !== null}>
-        {view === "surveyor" && (error ? (
-          <ErrorState error={error} onRetry={() => setAttempt((n) => n + 1)} />
-        ) : !data ? (
-          <ActivitySkeleton label="Reading the Surveyor's work" />
-        ) : (
-          <>
-            <ul className="source-tiles" aria-label="The Surveyor in the window">
-              <SurveyorTile n={surveyorSummary.ok} label="runs ok" tone="ok" note={runNote} />
-              <SurveyorTile n={surveyorSummary.failed} label="failed" tone="error" note={runNote} />
-              <SurveyorTile n={surveyorSummary.ingested} label="sources ingested" note={runNote} />
-              <SurveyorTile n={surveyorSummary.created} label="pages created" />
-              <SurveyorTile n={surveyorSummary.changed} label="pages changed" />
-              <SurveyorTile n={surveyorSummary.tokens} label="tokens spent" note={runNote} tokens />
-            </ul>
-            {history && <RunTrend history={history} days={DAYS[shown]} />}
-            <PageSection title="Runs" id="activity-surveyor-runs" count={surveyorSummary.runs}>
-              <p className="page-note">Pages are matched to runs by run id when the commit carries one, else by author and time.</p>
-              <SurveyorRunsList
-                kb={kb}
-                components={components}
-                from={DAYS[shown] === null ? 0 : Date.now() - DAYS[shown]! * DAY_MS}
-                changes={all}
-                titles={titles}
-                onOpen={onOpen}
-              />
-            </PageSection>
-            <PageSection title="Changes made by the Surveyor" id="activity-surveyor-changes" count={surveyorChanges.length}>
-              {surveyorDays.length === 0 ? (
-                <p className="page-note">The Surveyor changed no page {when(shown)}.</p>
-              ) : (
-                <TimelineDays days={surveyorDays} titles={titles} mapTitles={mapTitles} retired={retired} onOpen={onOpen} />
-              )}
-            </PageSection>
-          </>
-        ))}
-        {view === "changes" && data && !windowEmpty && (
-          <Hero label="Summary and filters" className="activity-hero">
-            <div className="activity-sum">
-              <div className="activity-sum__lead">
-                <ul className="activity-stats" aria-label="Changes in the window">
-                  <Stat n={count("edited")} label="edited" />
-                  <Stat n={count("new")} label="new" tone="ok" />
-                  <Stat n={count("reorganised")} label="reorganised" />
-                  {retiredCount > 0 && <Stat n={retiredCount} label="retired" />}
-                  {authors.length > 1 && <Stat n={authors.length} label="authors" />}
-                </ul>
-                {top && top.count > 1 && (
-                  <button type="button" className="activity-top" onClick={() => onOpen(top.change.id)}>
-                    <span className="activity-top__label">Most worked on</span>
-                    <span className="activity-top__title">{titles.get(top.change.id) ?? top.change.id}</span>
-                    <span className="activity-top__count">{top.count} changes</span>
-                  </button>
-                )}
-              </div>
-              {histogram.length > 1 && <ActivityBars bars={histogram} />}
-            </div>
-            {(maps.length > 0 || authors.length > 1 || upkeep > 0) && (
-              <div className="activity-facets">
-                {maps.length > 0 && (
-                  <div className="activity-facet activity-where">
-                    <span className="activity-facet__label">Where</span>
-                    <div className="activity-where__body">
-                      <MapBar maps={maps} active={map} />
-                      <ul className="activity-legend" aria-label="Filter by Map">
-                        {maps.map(([name, n]) => (
-                          <li key={name}>
-                            <button
-                              type="button"
-                              className="activity-legend__item"
-                              aria-pressed={map === name}
-                              style={{ "--map": collectionVar(name || "(root)") } as CSSProperties}
-                              onClick={() => setMap(map === name ? null : name)}
-                            >
-                              <MapDot map={name} />
-                              <span>{mapTitles.get(name) ?? name}</span>
-                              <span className="activity-legend__count">{n}</span>
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  </div>
-                )}
-                {authors.length > 1 && (
-                  <div className="activity-facet activity-who">
-                    <span className="activity-facet__label">Who</span>
-                    <ul className="activity-people" aria-label="Filter by author">
-                      {authors.map(([name, n]) => {
-                        const label = `${name}: ${n} ${n === 1 ? "change" : "changes"}`;
-                        return (
-                          <li key={name}>
-                            <button
-                              type="button"
-                              className="activity-person"
-                              aria-pressed={author === name}
-                              aria-label={label}
-                              title={label}
-                              style={{ "--map": collectionVar(name) } as CSSProperties}
-                              onClick={() => setAuthor(author === name ? null : name)}
-                            >
-                              <Avatar name={name} />
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </div>
-                )}
-                {upkeep > 0 && (
-                  <button
-                    type="button"
-                    className="activity-upkeep"
-                    aria-pressed={showUpkeep}
-                    onClick={() => setShowUpkeep((v) => !v)}
-                  >
-                    + {upkeep} touched by automatic maintenance · {showUpkeep ? "hide" : "show"}
-                  </button>
-                )}
-              </div>
-            )}
-          </Hero>
-        )}
-
-        {view === "surveyor" ? null : error ? (
-          <ErrorState error={error} onRetry={() => setAttempt((n) => n + 1)} />
-        ) : !data ? (
-          <ActivitySkeleton label="Reading the history" />
-        ) : rows.length === 0 ? (
-          <>
-            <div className="timeline__empty">
-              <span className="timeline__empty-icon" aria-hidden="true">
-                <Icon name="moon" size={18} />
-              </span>
-              <div className="timeline__empty-text">
-                <p className="timeline__empty-title">Quiet {shown === "1d" ? "day" : "stretch"}.</p>
-                <p className="timeline__empty-note">
-                  No concept edited {map ? `in ${mapTitles.get(map) ?? map} ` : ""}
-                  {when(shown)}
-                  {author ? ` by ${author}` : ""}.
-                </p>
-              </div>
-              {(author || map) && (
-                <button
-                  type="button"
-                  className="button timeline__empty-action"
-                  onClick={() => {
-                    setAuthor(null);
-                    setMap(null);
-                  }}
-                >
-                  Clear {author && map ? "filters" : "filter"}
-                </button>
-              )}
-              {/* An empty window offers the next wider one rather than leaving the reader to guess. */}
-              {(() => {
-                const next = WINDOWS[WINDOWS.findIndex(([w]) => w === shown) + 1];
-                return next ? (
-                  <button type="button" className="button timeline__empty-action" onClick={() => setSince(next[0])}>
-                    {next[0] === "all"
-                      ? "Show the whole history"
-                      : next[0] === "1y"
-                        ? "Show the last year"
-                        : `Show the last ${DAYS[next[0]]} days`}
-                  </button>
-                ) : null;
-              })()}
-            </div>
-            {windowEmpty && earlierDays.length > 0 && (
-              <>
-                <h2 className="timeline__earlier">Earlier</h2>
-                <TimelineDays
-                  days={earlierDays}
-                  titles={titles}
-                  mapTitles={mapTitles}
-                  retired={retired}
-                  onOpen={onOpen}
+    <DiffSpan.Provider value={data ? { kb, from: data.since, reopen } : null}>
+      <Page label="Recent activity" busy={loading} className="timeline">
+        <PageHeader
+          eyebrow="Activity"
+          title={view === "surveyor" ? "What the Surveyor did" : "What users changed"}
+          actions={
+            <>
+              {hasSurveyor && (
+                <Segmented<"changes" | "surveyor">
+                  className="segmented--appear"
+                  label="Activity of"
+                  value={view}
+                  options={[
+                    ["changes", "Users"],
+                    ["surveyor", "Surveyor"],
+                  ]}
+                  onChange={setTab}
                 />
-              </>
-            )}
-          </>
-        ) : (
-          <TimelineDays days={days} titles={titles} mapTitles={mapTitles} retired={retired} onOpen={onOpen} />
-        )}
-        {view === "changes" && data?.truncated && (
-          <p className="page-note">Showing the {all.length} most recent changes: narrow the window to see the rest.</p>
-        )}
-        {view === "changes" && <ReportCandidatesSection kb={kb} live={live} />}
-        {view === "changes" && journal !== null && (data !== null || error !== null) && (
-          <PageSection title="Journal" id="activity-journal">
-            {journal.trim() === "" ? (
-              <p className="page-note">
-                The journal is the KB&apos;s log: one entry per working session, written by agents with{" "}
-                <code>log_append</code> when they close a piece of work. Nothing has been logged yet.
-              </p>
+              )}
+              <Segmented<Window> label="Changes since" value={since} options={WINDOWS} onChange={setSince} />
+            </>
+          }
+        />
+        {tabs}
+
+        <div className="page__body" data-loading={loading && data !== null}>
+          {view === "surveyor" &&
+            (error ? (
+              <ErrorState error={error} onRetry={() => setAttempt((n) => n + 1)} />
+            ) : !data ? (
+              <ActivitySkeleton label="Reading the Surveyor's work" />
             ) : (
               <>
-                <p className="page-note">
-                  The last entries of the KB&apos;s log, written by agents with <code>log_append</code>.
-                </p>
-                <JournalEntries text={journal} mapTitles={mapTitles} onOpen={onOpen} />
+                <Hero label="Summary and filters" className="activity-hero">
+                  <FigureTiles
+                    label="The Surveyor in the window"
+                    items={[
+                      {
+                        label: "Runs",
+                        value: surveyorSummary.runs,
+                        title: [surveyorSummary.failed > 0 ? `${surveyorSummary.failed} failed` : null, runNote].filter(Boolean).join(" · ") || "all ok",
+                        hue: surveyorSummary.failed > 0 ? "var(--sev-error)" : hueOf(RUN_KEYS, "poll"),
+                      },
+                      {
+                        label: "Pages written",
+                        hue: hueOf(RUN_KEYS, "ingest"),
+                        value: surveyorSummary.created + surveyorSummary.changed,
+                        title: `${surveyorSummary.created} new`,
+                      },
+                      {
+                        label: "Tokens",
+                        hue: hueOf(RUN_KEYS, "doctor"),
+                        value: shortTokens(surveyorSummary.tokens),
+                        title: `${surveyorSummary.tokens} tokens`,
+                      },
+                      {
+                        label: "Tokens wasted",
+                        hue: hueOf(RUN_KEYS, "repair"),
+                        value: shortTokens(idleTokens),
+                        title: `${idleTokens} tokens on runs that wrote no page`,
+                      },
+                      {
+                        label: "Last run",
+                        hue: lastRun
+                          ? lastRun.outcome === "failed" || lastRun.outcome === "budget_exhausted"
+                            ? "var(--sev-error)"
+                            : hueOf(RUN_KEYS, lastRun.task)
+                          : "var(--text-muted)",
+                        value: lastRun ? age(lastRun.started_at) : "—",
+                        title: lastRun ? `${lastRun.task} · ${lastRun.outcome.replace(/_/g, " ")}` : undefined,
+                      },
+                    ]}
+                  />
+                  <HeroRow label="When">
+                    <WhenStrip data={runBuckets} unit={["run", "runs"]} keys={RUN_KEYS} />
+                  </HeroRow>
+                  {history && <RunTrend history={history} days={DAYS[shown]} />}
+                  <div className="activity-facet-row activity-facet-row--even">
+                    {surveyorTasks.length > 0 && (
+                      <HeroRow label="What">
+                        <FilterChips label="Filter by task">
+                          {surveyorTasks.map(([name, n]) => (
+                            <FilterChip
+                              key={name}
+                              label={name}
+                              count={n}
+                              pressed={task === name}
+                              hue={hueOf(RUN_KEYS, name)}
+                              mark={
+                                <span
+                                  className="map-dot"
+                                  aria-hidden="true"
+                                  style={{ "--map": hueOf(RUN_KEYS, name) } as CSSProperties}
+                                />
+                              }
+                              onToggle={() => setTask(task === name ? null : name)}
+                            />
+                          ))}
+                        </FilterChips>
+                      </HeroRow>
+                    )}
+                    {surveyorMaps.length > 0 && (
+                      <HeroRow label="Where">
+                        <FilterChips label="Filter by Map">
+                          {surveyorMaps.map(([name, n]) => (
+                            <FilterChip
+                              key={name || "(root)"}
+                              label={mapTitles.get(name) ?? name}
+                              count={n}
+                              pressed={svMap === name}
+                              hue={collectionVar(name || "(root)")}
+                              mark={<MapDot map={name} />}
+                              onToggle={() => setSvMap(svMap === name ? null : name)}
+                            />
+                          ))}
+                        </FilterChips>
+                      </HeroRow>
+                    )}
+                  </div>
+                </Hero>
+                <SurveyorActivity
+                  hue={(t) => hueOf(RUN_KEYS, t)}
+                  task={task}
+                  kb={kb}
+                  components={components}
+                  from={DAYS[shown] === null ? 0 : Date.now() - DAYS[shown]! * DAY_MS}
+                  changes={all}
+                  map={svMap === null ? undefined : (c) => mapOf(c) === svMap}
+                  renderPage={(c, from, to) => (
+                    <DiffSpan.Provider key={c.id} value={{ kb, from, to, reopen }}>
+                      <Entry
+                        change={c}
+                        title={titles.get(c.id) ?? c.id}
+                        mapTitle={mapTitles.get(mapOf(c)) ?? mapOf(c)}
+                        retired={retired.get(c.id)}
+                        onOpen={onOpen}
+                      />
+                    </DiffSpan.Provider>
+                  )}
+                />
               </>
-            )}
-          </PageSection>
-        )}
-        {view === "changes" && audit !== null && (data !== null || error !== null) && <AuditSection audit={audit} />}
-      </div>
-    </Page>
+            ))}
+          {view === "changes" && data && !windowEmpty && (
+            <Hero label="Summary and filters" className="activity-hero">
+              <FigureTiles
+                label="Changes in the window"
+                items={[
+                  { label: "New", value: count("new"), hue: hueOf(CHANGE_KEYS, "new") },
+                  { label: "Edited", value: count("edited"), hue: hueOf(CHANGE_KEYS, "edited") },
+                  { label: "Reorganised", value: count("reorganised"), hue: hueOf(CHANGE_KEYS, "reorganised") },
+                  { label: "Retired", value: retiredCount, hue: "var(--hue-7)" },
+                  {
+                    label: "Touched",
+                    title: "Distinct concepts changed in the window",
+                    value: touchedCount,
+                    hue: "var(--text-muted)",
+                  },
+                ]}
+              />
+              <HeroRow label="When">
+                <WhenStrip data={changeBuckets} unit={["change", "changes"]} keys={CHANGE_KEYS} />
+              </HeroRow>
+              <div className="activity-facet-row">
+                {maps.length > 0 && (
+                  <HeroRow label="Where">
+                    <FilterChips label="Filter by Map">
+                      {maps.map(([name, n]) => (
+                        <FilterChip
+                          key={name || "(root)"}
+                          label={mapTitles.get(name) ?? name}
+                          count={n}
+                          pressed={map === name}
+                          hue={collectionVar(name || "(root)")}
+                          mark={<MapDot map={name} />}
+                          onToggle={() => setMap(map === name ? null : name)}
+                        />
+                      ))}
+                    </FilterChips>
+                  </HeroRow>
+                )}
+                {(authors.length > 1 || upkeep > 0) && (
+                  <HeroRow label="Who">
+                    {authors.length > 1 && (
+                      <ul className="activity-people" aria-label="Filter by author">
+                        {authors.map(([name, n]) => {
+                          const label = `${name.split(" <")[0]}: ${n} ${n === 1 ? "change" : "changes"}`;
+                          return (
+                            <li key={name}>
+                              <button
+                                type="button"
+                                className="activity-person"
+                                aria-pressed={author === name}
+                                aria-label={label}
+                                title={label}
+                                onClick={() => setAuthor(author === name ? null : name)}
+                              >
+                                <Avatar name={name} />
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                    {upkeep > 0 && (
+                      <label
+                        className="filter-chip filter-chip--check activity-upkeep-chip"
+                        data-checked={showUpkeep}
+                        title="Changes made by automatic maintenance"
+                      >
+                        <input type="checkbox" checked={showUpkeep} onChange={(e) => setShowUpkeep(e.target.checked)} />
+                        <span className="filter-chip__name">Maintenance</span>
+                        <span className="filter-chip__count">{upkeep}</span>
+                      </label>
+                    )}
+                  </HeroRow>
+                )}
+              </div>
+            </Hero>
+          )}
+
+          {view === "surveyor" ? null : error ? (
+            <ErrorState error={error} onRetry={() => setAttempt((n) => n + 1)} />
+          ) : !data ? (
+            <ActivitySkeleton label="Reading the history" />
+          ) : rows.length === 0 ? (
+            <>
+              <div className="timeline__empty">
+                <span className="timeline__empty-icon" aria-hidden="true">
+                  <Icon name="moon" size={18} />
+                </span>
+                <div className="timeline__empty-text">
+                  <p className="timeline__empty-title">Quiet {shown === "1d" ? "day" : "stretch"}.</p>
+                  <p className="timeline__empty-note">
+                    No concept edited {map ? `in ${mapTitles.get(map) ?? map} ` : ""}
+                    {when(shown)}
+                    {author ? ` by ${author}` : ""}.
+                  </p>
+                </div>
+                {(author || map) && (
+                  <button
+                    type="button"
+                    className="button timeline__empty-action"
+                    onClick={() => {
+                      setAuthor(null);
+                      setMap(null);
+                    }}
+                  >
+                    Clear {author && map ? "filters" : "filter"}
+                  </button>
+                )}
+                {/* An empty window offers the next wider one rather than leaving the reader to guess. */}
+                {(() => {
+                  const next = WINDOWS[WINDOWS.findIndex(([w]) => w === shown) + 1];
+                  return next ? (
+                    <button type="button" className="button timeline__empty-action" onClick={() => setSince(next[0])}>
+                      {next[0] === "all"
+                        ? "Show the whole history"
+                        : next[0] === "1y"
+                          ? "Show the last year"
+                          : `Show the last ${DAYS[next[0]]} days`}
+                    </button>
+                  ) : null;
+                })()}
+              </div>
+              {windowEmpty && earlierDays.length > 0 && (
+                <>
+                  <h2 className="timeline__earlier">Earlier</h2>
+                  <TimelineDays
+                    days={earlierDays}
+                    titles={titles}
+                    mapTitles={mapTitles}
+                    retired={retired}
+                    onOpen={onOpen}
+                  />
+                </>
+              )}
+            </>
+          ) : (
+            <TimelineDays days={days} titles={titles} mapTitles={mapTitles} retired={retired} onOpen={onOpen} />
+          )}
+          {view === "changes" && data?.truncated && (
+            <p className="page-note">
+              Showing the {people.length} most recent changes: narrow the window to see the rest.
+            </p>
+          )}
+          {view === "changes" && <ReportCandidatesSection kb={kb} live={live} />}
+          {view === "changes" && journal !== null && (data !== null || error !== null) && (
+            <PageSection title="Journal" id="activity-journal">
+              {journal.trim() === "" ? (
+                <p className="page-note">
+                  The journal is the KB&apos;s log: one entry per working session, written by agents with{" "}
+                  <code>log_append</code> when they close a piece of work. Nothing has been logged yet.
+                </p>
+              ) : (
+                <>
+                  <p className="page-note">
+                    The last entries of the KB&apos;s log, written by agents with <code>log_append</code>.
+                  </p>
+                  <JournalEntries text={journal} mapTitles={mapTitles} onOpen={onOpen} />
+                </>
+              )}
+            </PageSection>
+          )}
+          {view === "changes" && audit !== null && (data !== null || error !== null) && <AuditSection audit={audit} />}
+        </div>
+      </Page>
+    </DiffSpan.Provider>
   );
 }
 
@@ -744,7 +892,7 @@ function AuditSection({ audit }: { audit: AuditLog }) {
   if (!audit.enabled || entries.length === 0) return null;
   return (
     <PageSection title="Audit log" id="activity-audit" count={entries.length}>
-      {(
+      {
         <>
           <p className="page-note">
             The most recent tool calls on this KB, with the principal that made each one. Visible to admins only.
@@ -769,7 +917,7 @@ function AuditSection({ audit }: { audit: AuditLog }) {
             ))}
           </ul>
         </>
-      )}
+      }
     </PageSection>
   );
 }
@@ -790,9 +938,19 @@ function Entry({
 }) {
   const reasons = retired ? retiredReasons(retired) : shownReasons(c);
   const [first, ...more] = reasons;
+  const span = useContext(DiffSpan);
+  // Back from the page this row opened: its diff is open again.
+  const [open, setOpen] = useState(() => span?.reopen === c.id);
   return (
     <li className="timeline__entry" style={{ "--map": collectionVar(mapOf(c)) } as CSSProperties}>
-      <button type="button" className="timeline__item" onClick={() => onOpen(c.id)} disabled={c.change === "deleted"}>
+      <button
+        type="button"
+        className="timeline__item"
+        aria-expanded={open}
+        onPointerEnter={() => span && prefetchDiff(span.kb, c.id, span.from, span.to)}
+        onFocus={() => span && prefetchDiff(span.kb, c.id, span.from, span.to)}
+        onClick={() => (span ? setOpen((v) => !v) : onOpen(c.id))}
+      >
         <time
           className="timeline__time"
           dateTime={changedAt(c)}
@@ -806,11 +964,6 @@ function Entry({
         <span className="timeline__item-body">
           <span className="timeline__item-head">
             <span className="timeline__title">{title}</span>
-            {bySurveyor(c) && (
-              <span className="pill timeline__surveyor" title={(c.authors ?? []).filter(isSurveyorAuthor).join(", ")}>
-                Surveyor
-              </span>
-            )}
             <span className="timeline__map">
               <MapDot map={mapOf(c)} />
               {mapTitle}
@@ -834,6 +987,26 @@ function Entry({
           </span>
         ) : null}
       </button>
+      {open && span && (
+        <div className="timeline__diff">
+          <ConceptDiff
+            kb={span.kb}
+            id={c.id}
+            from={span.from}
+            to={span.to}
+            expandMain={span.reopen === c.id}
+            onOpen={c.change === "deleted" ? undefined : onOpen}
+            onUnavailable={
+              c.change === "deleted"
+                ? undefined
+                : () => {
+                    setOpen(false);
+                    onOpen(c.id);
+                  }
+            }
+          />
+        </div>
+      )}
     </li>
   );
 }
@@ -955,32 +1128,6 @@ function historyStart(history: SurveyorHistoryResponse | null, days: number | nu
 /** The server's cap of kept runs per perimeter (`maxRunsKept`). */
 const RUNS_KEPT_CAP = 20;
 
-/** One tile of the Surveyor tab's summary; `note` is a muted qualifier ("since Nov 12"). */
-function SurveyorTile({
-  n,
-  label,
-  tone,
-  note,
-  tokens,
-}: {
-  n: number;
-  label: string;
-  tone?: "ok" | "error";
-  note?: string | null;
-  /** The figure is a token count: short form on the tile, exact in the title. */
-  tokens?: boolean;
-}) {
-  return (
-    <li className="source-tile" data-zero={n === 0 ? "" : undefined} data-tone={n === 0 ? undefined : tone}>
-      <span className="source-tile__label">{label}</span>
-      <span className="source-tile__count" title={tokens ? `${n} tokens` : undefined}>
-        {tokens ? shortTokens(n) : n}
-      </span>
-      {note && <span className="source-tile__note page-note">{note}</span>}
-    </li>
-  );
-}
-
 /**
  * The runs of the window day by day, stacked ok / failed / skipped, from the
  * server's persisted counters; the same numbers sit in a table under a
@@ -1057,90 +1204,7 @@ function RunTrend({ history, days }: { history: SurveyorHistoryResponse; days: n
   );
 }
 
-/** The Surveyor tab's headline: who ran, how often, over which window. */
-function SurveyorHeadline({ summary, since }: { summary: ReturnType<typeof summarizeSurveyor>; since: Window }) {
-  const who = summary.names.length > 0 ? summary.names.join(", ") : "The Surveyor";
-  const span = summary.sinceDate ? `since ${summary.sinceDate}` : when(since);
-  if (summary.runs === 0) return <>{`${who} did not run ${span}.`}</>;
-  return (
-    <>
-      {who} ran <BoldCount>{summary.runs}</BoldCount> {summary.runs === 1 ? "time" : "times"} {span}.
-    </>
-  );
-}
 
-/** One figure of the summary line: a bold number and its word. A zero fades;
- *  the new concepts, when there are any, are the one good-news tone. */
-function Stat({ n, label, tone }: { n: number; label: string; tone?: "ok" }) {
-  return (
-    <li className="activity-stat" data-tone={n === 0 ? "muted" : tone}>
-      <strong>{n}</strong> {label}
-    </li>
-  );
-}
-
-type DayBar = { day: number; label: string; work: number; upkeep: number };
-
-/**
- * Concepts last touched per day (per week or month over a long window), as a
- * bar per stretch placed by real time -- the look of the growth replay's
- * timeline. The bar is the reader's changes, scaled on their own peak with
- * the square root, so a quiet day still shows beside a busy one; the server's
- * upkeep is a faint tick under the baseline, so a maintenance sweep never
- * dwarfs the work. Bars widen when there are few. Every bar is a labelled hit
- * target, so the numbers reach a keyboard and a screen reader. The caption
- * beside the track reads the hovered bar (the latest, at rest) and keeps a
- * fixed width, so it never moves the bars under the pointer.
- */
-function ActivityBars({ bars }: { bars: DayBar[] }) {
-  const [hover, setHover] = useState<number | null>(null);
-  const peak = Math.max(1, ...bars.map((b) => b.work));
-  const upPeak = Math.max(1, ...bars.map((b) => b.upkeep));
-  const height = (n: number) => (n === 0 ? 0 : Math.max(10, Math.sqrt(n / peak) * 100));
-  const shown = bars[hover ?? bars.length - 1]!;
-  const at = (i: number) => `${((i + 0.5) / bars.length) * 100}%`;
-  const width = Math.max(2, Math.min(10, Math.floor(300 / bars.length) - 2));
-  const daily = bars.length < 2 || bars[1]!.day - bars[0]!.day <= DAY_MS;
-  return (
-    <figure
-      className="activity-bars"
-      style={{ "--bar-w": `${width}px` } as CSSProperties}
-      onMouseLeave={() => setHover(null)}
-    >
-      <ol
-        className="activity-bars__track"
-        aria-label={`Changes per ${daily ? "day" : "stretch"}, ${bars[0]!.label} to today`}
-      >
-        {bars.map((b, i) => (
-          <li key={b.day} style={{ left: at(i) }}>
-            <button
-              type="button"
-              className="activity-bars__day"
-              data-hover={hover === i || undefined}
-              aria-label={`${b.label}: ${b.work} changed${b.upkeep ? `, ${b.upkeep} maintenance` : ""}`}
-              onMouseEnter={() => setHover(i)}
-              onFocus={() => setHover(i)}
-              onBlur={() => setHover(null)}
-              tabIndex={-1}
-            >
-              <span className="activity-bars__bar" style={{ height: `${height(b.work)}%` }} />
-              {b.upkeep > 0 && (
-                <span
-                  className="activity-bars__upkeep"
-                  style={{ opacity: 0.25 + 0.6 * Math.sqrt(b.upkeep / upPeak) }}
-                />
-              )}
-            </button>
-          </li>
-        ))}
-      </ol>
-      <figcaption className="activity-bars__caption" aria-live="polite" title={`${bars[0]!.label} – today`}>
-        {hover === null ? (daily ? "today" : "latest") : shown.label} · <strong>{shown.work}</strong> changed
-        {shown.upkeep > 0 && <> · {shown.upkeep} maintenance</>}
-      </figcaption>
-    </figure>
-  );
-}
 
 /** The top-level collection a concept lives in: its id's first segment. */
 function mapOf(c: Pick<ConceptChange, "id">): string {
@@ -1197,119 +1261,11 @@ function groupByDay(rows: ConceptChange[]): { key: string; label: string; items:
   return out;
 }
 
-/** One bar per day of the window -- or, for the whole history, from the
- *  oldest change on -- oldest first, today last. */
-export function perDay(
-  rows: ConceptChange[],
-  kinds: Map<ConceptChange, ChangeKind>,
-  days: number | null,
-  byDay?: Record<string, { work: number; upkeep?: number }>,
-): DayBar[] {
-  const today = startOfDay(Date.now());
-  // A UTC day of the server's series, at its noon: the local day it falls on
-  // for every offset within twelve hours of UTC.
-  const series = byDay
-    ? Object.entries(byDay)
-        .map(([d, n]) => ({ t: Date.parse(`${d}T12:00:00Z`), n }))
-        .filter((e) => Number.isFinite(e.t))
-    : null;
-  let span = days;
-  if (span === null) {
-    const times = series ? series.map((e) => e.t) : rows.map((c) => Date.parse(changedAt(c))).filter(Number.isFinite);
-    const oldest = Math.min(today, ...times);
-    span = Math.max(2, Math.round((today - startOfDay(oldest)) / DAY_MS) + 1);
-  }
-  const bars: DayBar[] = Array.from({ length: span }, (_, i) => {
-    // Calendar arithmetic: a day is not always 24 hours (DST), and a bar
-    // per 24 h step would miss the changeover day and label the rest a day early.
-    const d = new Date(today);
-    d.setDate(d.getDate() - (span! - 1 - i));
-    const t = d.getTime();
-    return {
-      day: t,
-      label: new Date(t).toLocaleDateString("en", {
-        day: "numeric",
-        month: "short",
-        year: span! > 365 ? "numeric" : undefined,
-      }),
-      work: 0,
-      upkeep: 0,
-    };
-  });
-  const index = new Map(bars.map((b, i) => [dayKey(b.day), i]));
-  if (series) {
-    for (const { t, n } of series) {
-      const i = index.get(dayKey(t));
-      if (i === undefined) continue;
-      bars[i]!.work += n.work;
-      bars[i]!.upkeep += n.upkeep ?? 0;
-    }
-    return bucket(bars);
-  }
-  for (const c of rows) {
-    const t = Date.parse(changedAt(c));
-    const i = Number.isFinite(t) ? index.get(dayKey(t)) : undefined;
-    if (i === undefined) continue;
-    if (kinds.get(c) === "maintenance") bars[i]!.upkeep++;
-    else bars[i]!.work++;
-  }
-  return bucket(bars);
-}
-
-/** Past six weeks a bar per day is a comb too thin to read: the days are
- *  summed into weeks, past a year into 30-day stretches, the last one ending
- *  today. A bar then says its range. */
-function bucket(days: DayBar[]): DayBar[] {
-  const step = days.length <= 45 ? 1 : days.length <= 400 ? 7 : 30;
-  if (step === 1) return days;
-  const out: DayBar[] = [];
-  for (let end = days.length; end > 0; end -= step) {
-    const part = days.slice(Math.max(0, end - step), end);
-    const first = part[0]!;
-    const last = part[part.length - 1]!;
-    out.unshift({
-      day: first.day,
-      label: part.length === 1 ? first.label : `${first.label} – ${last.label}`,
-      work: part.reduce((n, d) => n + d.work, 0),
-      upkeep: part.reduce((n, d) => n + d.upkeep, 0),
-    });
-  }
-  return out;
-}
-
 function when(since: Window): string {
   if (since === "1d") return "today";
   if (since === "1y") return "in the last year";
   if (since === "all") return "since the KB began";
   return `in the last ${since.replace("d", " days")}`;
-}
-
-/** The headline says it in words; the count leads. */
-function Headline({
-  data,
-  failed,
-  n,
-  since,
-  author,
-  mapTitle,
-}: {
-  data: ChangesResponse | null;
-  failed: boolean;
-  n: number;
-  since: Window;
-  author: string | null;
-  mapTitle: string | null | undefined;
-}) {
-  if (!data) return <>{failed ? "History unavailable" : <TitleBone label="Reading the history" />}</>;
-  const who = author ? ` by ${author}` : "";
-  const where = mapTitle ? ` in ${mapTitle}` : "";
-  if (n === 0) return <>{`Nothing edited${where}${who} ${when(since)}.`}</>;
-  return (
-    <>
-      <BoldCount>{data.truncated ? `${n}+` : n}</BoldCount> {n === 1 ? "concept" : "concepts"} edited{where}
-      {who} {when(since)}.
-    </>
-  );
 }
 
 function clock(iso: string): string {

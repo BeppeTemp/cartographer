@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Activity, perDay } from "../components/Activity";
+import { Activity } from "../components/Activity";
 import type { ChangesResponse, ConceptChange } from "../api/types";
 import { json, stubApi } from "./fixtures";
 
@@ -41,7 +41,7 @@ function renderActivity(list: ConceptChange[], onOpen: (id: string) => void = ()
 const summary = async () => screen.findByRole("region", { name: "Summary and filters" });
 const entries = () => document.querySelectorAll(".timeline__entry").length;
 
-/** The two-line summary above the timeline: figures and days, then Where and Who. */
+/** The hero above the timeline: figure tiles, the When strip, then Where and Who. */
 describe("the Activity summary", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -49,44 +49,40 @@ describe("the Activity summary", () => {
   });
   afterEach(() => vi.unstubAllGlobals());
 
-  it("says the figures in one line, a zero apart", async () => {
+  const tiles = (band: HTMLElement) =>
+    within(within(band).getByRole("list", { name: "Changes in the window" }))
+      .getAllByRole("listitem")
+      .map((li) => li.textContent);
+
+  it("says the figures as tiles, a zero faded", async () => {
     const { unmount } = renderActivity(concepts);
-    const stats = within(await summary()).getByRole("list", { name: "Changes in the window" });
-    // Upkeep is counted apart: 2 edited, 1 new, 1 reorganised, 2 authors.
-    expect(within(stats).getAllByRole("listitem").map((li) => li.textContent)).toEqual([
-      "2 edited",
-      "1 new",
-      "1 reorganised",
-      "2 authors",
-    ]);
-    expect(stats.querySelectorAll('[data-tone="muted"]')).toHaveLength(0);
-    unmount();
-
-    // A kind with nothing in it fades.
-    renderActivity([change("infra/alpha")]);
-    const quiet = within(await summary()).getByRole("list", { name: "Changes in the window" });
-    const zeroes = quiet.querySelectorAll('[data-tone="muted"]');
-    expect([...zeroes].map((z) => z.textContent)).toEqual(["0 new", "0 reorganised"]);
-  });
-
-  it("names the most worked on concept only when it was worked on more than once", async () => {
-    const onOpen = vi.fn();
-    const user = userEvent.setup();
-    const { unmount } = renderActivity(concepts, onOpen);
-    const top = within(await summary()).getByRole("button", { name: /Most worked on/ });
-    expect(top).toHaveTextContent("infra/alpha");
-    expect(top).toHaveTextContent("3 changes");
-    await user.click(top);
-    expect(onOpen).toHaveBeenCalledWith("infra/alpha");
-    unmount();
-
-    // One content operation each: nothing stands out.
-    renderActivity([change("infra/alpha"), change("infra/beta", { authors: ["bob-lee"] })]);
     const band = await summary();
-    expect(within(band).queryByRole("button", { name: /Most worked on/ })).not.toBeInTheDocument();
+    // Upkeep is counted apart: 2 edited, 1 new, 1 reorganised, 4 distinct concepts touched.
+    expect(tiles(band)).toEqual(["New1", "Edited2", "Reorganised1", "Retired0", "Touched4"]);
+    unmount();
+
+    renderActivity([change("infra/alpha")]);
+    const quiet = await summary();
+    const zeroes = [...within(quiet).getByRole("list", { name: "Changes in the window" }).querySelectorAll("[data-zero]")];
+    expect(zeroes.map((z) => z.textContent)).toEqual(["New0", "Reorganised0", "Retired0"]);
   });
 
-  it("filters by Map from the legend, and clears on a second press", async () => {
+  it("draws the When strip, and a tooltip card with its total on hover", async () => {
+    const user = userEvent.setup();
+    renderActivity(concepts);
+    const band = await summary();
+    const strip = band.querySelector(".activity-strip__plot")!;
+    // The strip names every bucket for a screen reader.
+    expect(within(band).getByRole("list", { name: "changes per day" })).toBeInTheDocument();
+    expect(document.querySelector(".activity-strip__tip")).toBeNull();
+    await user.hover(strip);
+    await user.pointer({ target: strip, coords: { clientX: 1, clientY: 1 } });
+    const tip = document.querySelector(".activity-strip__tip");
+    expect(tip).not.toBeNull();
+    expect(tip).toHaveTextContent("Total");
+  });
+
+  it("filters by Map from the chips, and clears on a second press", async () => {
     const user = userEvent.setup();
     renderActivity(concepts);
     const legend = within(await summary()).getByRole("list", { name: "Filter by Map" });
@@ -97,7 +93,6 @@ describe("the Activity summary", () => {
     await user.click(notes);
     expect(notes).toHaveAttribute("aria-pressed", "true");
     expect(entries()).toBe(2);
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("in Notes");
 
     await user.click(notes);
     expect(notes).toHaveAttribute("aria-pressed", "false");
@@ -117,7 +112,6 @@ describe("the Activity summary", () => {
     await user.click(within(people).getByRole("button", { name: /bob-lee/ }));
     expect(within(people).getByRole("button", { name: /bob-lee/ })).toHaveAttribute("aria-pressed", "true");
     expect(entries()).toBe(2);
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("by bob-lee");
 
     await user.click(within(people).getByRole("button", { name: /bob-lee/ }));
     expect(entries()).toBe(4);
@@ -127,48 +121,78 @@ describe("the Activity summary", () => {
     renderActivity([change("infra/alpha"), change("notes/beta")]);
     const band = await summary();
     expect(within(band).queryByRole("list", { name: "Filter by author" })).not.toBeInTheDocument();
-    expect(within(band).getByRole("list", { name: "Changes in the window" })).not.toHaveTextContent("authors");
   });
 
-  it("keeps the maintenance toggle at the end, and it brings the touched concepts into the timeline", async () => {
+  it("keeps the maintenance toggle in Who, and it brings the touched concepts into the timeline", async () => {
     const user = userEvent.setup();
     renderActivity(concepts);
     const band = await summary();
     await waitFor(() => expect(entries()).toBe(4));
-    const toggle = within(band).getByRole("button", { name: "+ 1 touched by automatic maintenance · show" });
-    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    const toggle = within(band).getByRole("checkbox", { name: /Maintenance/ });
+    expect(toggle).not.toBeChecked();
+    expect(toggle.closest("label")).toHaveTextContent("1");
 
     await user.click(toggle);
-    expect(toggle).toHaveTextContent("+ 1 touched by automatic maintenance · hide");
-    expect(toggle).toHaveAttribute("aria-pressed", "true");
+    expect(toggle).toBeChecked();
     expect(entries()).toBe(5);
-    // The last thing of the second line.
-    expect(band.querySelector(".activity-facets")!.lastElementChild).toBe(toggle);
+    await user.click(toggle);
+    expect(entries()).toBe(4);
   });
 
-  it("reads the days off a sparkline: today at rest, the hovered day under the pointer", async () => {
+  it("is the people's tab: a change only the Surveyor made is not on it, a shared one shows its people", async () => {
+    renderActivity([
+      change("infra/alpha", { authors: ["surveyor/team-a/w-1"] }),
+      change("infra/beta", { authors: ["surveyor/team-a/w-1", "bob-lee"] }),
+      change("notes/gamma", { authors: ["agent-a"] }),
+    ]);
+    await waitFor(() => expect(entries()).toBe(2));
+    const rows = [...document.querySelectorAll(".timeline__entry")];
+    expect(rows.map((r) => r.querySelector(".timeline__title")!.textContent).sort()).toEqual(["infra/beta", "notes/gamma"]);
+    // The shared change carries bob-lee's avatar only, and no "Surveyor" tag.
+    const beta = rows.find((r) => r.textContent?.includes("infra/beta"))!;
+    expect(beta.querySelector(".timeline__authors")).toHaveAttribute("aria-label", "By bob-lee");
+    expect(document.querySelector(".timeline__surveyor")).toBeNull();
+    // Who counts people only.
+    const people = within(await summary()).getByRole("list", { name: "Filter by author" });
+    expect(within(people).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual([
+      "agent-a: 1 change",
+      "bob-lee: 1 change",
+    ]);
+  });
+
+  it("opens a row's diff in place instead of the page", async () => {
+    const onOpen = vi.fn();
     const user = userEvent.setup();
-    renderActivity(concepts);
-    const band = await summary();
-    const caption = band.querySelector(".activity-bars__caption")!;
-    expect(caption).toHaveTextContent("today · 3 changed · 1 maintenance");
-
-    const yesterday = within(band).getByRole("button", { name: /^.*: 1 changed$/, hidden: true });
-    await user.hover(yesterday);
-    expect(caption).toHaveTextContent(/^[A-Z][a-z]{2} \d{1,2} · 1 changed$/);
-    expect(caption).not.toHaveTextContent("today");
-    await user.unhover(yesterday);
-    expect(caption).toHaveTextContent("today · 3 changed · 1 maintenance");
+    stubApi({
+      "/changes": () => json(response(concepts)),
+      "/diff": () =>
+        json({ id: "infra/alpha", path: "infra/alpha.md", commits: 1, files: [{ path: "infra/alpha.md", status: "modified", before: "a\n", after: "b\n" }] }),
+    });
+    render(<Activity kb="kb-a" snapshot={null} collections={[]} onOpen={onOpen} />);
+    await waitFor(() => expect(entries()).toBe(4));
+    const row = screen.getByRole("button", { name: /infra\/alpha/ });
+    expect(row).toHaveAttribute("aria-expanded", "false");
+    await user.click(row);
+    expect(row).toHaveAttribute("aria-expanded", "true");
+    expect(await screen.findByRole("region", { name: "What changed in infra/alpha" })).toBeInTheDocument();
+    expect(onOpen).not.toHaveBeenCalled();
+    await user.click(row);
+    expect(screen.queryByRole("region", { name: "What changed in infra/alpha" })).toBeNull();
   });
 
-  it("counts every change of the day from the server's series, not each concept once (D1057)", async () => {
-    const today = new Date(Date.now()).toISOString().slice(0, 10);
+  it("opens the concept page when the server has no diff route (404), as the static demo does", async () => {
+    const onOpen = vi.fn();
+    const user = userEvent.setup();
     stubApi({
-      "/changes": () => json({ ...response(concepts), changes_by_day: { [today]: { work: 7, upkeep: 2 } } }),
+      "/changes": () => json(response(concepts)),
+      "/diff": () => json({ error: { code: "not_found", message: "not found" } }, 404),
     });
-    render(<Activity kb="kb-a" snapshot={null} collections={[]} onOpen={() => {}} />);
-    const caption = (await summary()).querySelector(".activity-bars__caption")!;
-    expect(caption).toHaveTextContent("today · 7 changed · 2 maintenance");
+    render(<Activity kb="kb-a" snapshot={null} collections={[]} onOpen={onOpen} />);
+    await waitFor(() => expect(entries()).toBe(4));
+    const row = screen.getByRole("button", { name: /infra\/beta/ });
+    await user.click(row);
+    await waitFor(() => expect(onOpen).toHaveBeenCalledWith("infra/beta"));
+    expect(row).toHaveAttribute("aria-expanded", "false");
   });
 
   it("is absent when nothing changed in the window", async () => {
@@ -229,7 +253,8 @@ describe("the Activity timeline's empty window and retirements", () => {
     expect(reason).toHaveAttribute("title", "Replaced by Beta\nsplit in two");
     expect(document.querySelector(".timeline__retired--superseded")).toHaveTextContent("superseded");
     expect(document.querySelectorAll(".timeline__retired")).toHaveLength(1);
-    expect(await within(await summary()).findByText("retired")).toBeInTheDocument();
+    const retiredTile = within(await summary()).getByText("Retired").closest("li")!;
+    expect(retiredTile).toHaveTextContent("1");
   });
 });
 
@@ -250,31 +275,5 @@ describe("the Activity empty state with filters", () => {
     expect(screen.getByText(/No concept edited in Notes in the last 7 days by bob-lee/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Clear filters" }));
     await waitFor(() => expect(entries()).toBe(4));
-  });
-});
-
-describe("perDay across a daylight-saving change", () => {
-  const tz = process.env.TZ;
-  afterEach(() => {
-    vi.useRealTimers();
-    if (tz === undefined) delete process.env.TZ;
-    else process.env.TZ = tz;
-  });
-
-  it("makes one bar per calendar day, 29 March included, with the changes of that day", () => {
-    process.env.TZ = "Europe/Rome";
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-04-01T10:00:00+02:00"));
-    // 29 March 2026 is the 23-hour day in Rome.
-    const onChangeover = change("a/x", { last_at: "2026-03-29T15:00:00+02:00", last_edit_at: "2026-03-29T15:00:00+02:00" });
-    const kinds = new Map();
-    const bars = perDay([onChangeover], kinds, 30);
-    expect(bars).toHaveLength(30);
-    const labels = bars.map((b) => b.label);
-    expect(labels.slice(-4)).toEqual(["Mar 29", "Mar 30", "Mar 31", "Apr 1"]);
-    expect(new Set(labels).size).toBe(30);
-    expect(bars.find((b) => b.label === "Mar 29")?.work).toBe(1);
-    const series = perDay([], kinds, 30, { "2026-03-29": { work: 4, upkeep: 1 } });
-    expect(series.find((b) => b.label === "Mar 29")).toMatchObject({ work: 4, upkeep: 1 });
   });
 });
