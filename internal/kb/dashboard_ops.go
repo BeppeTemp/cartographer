@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // The ops of a dashboard patch. The JSON of one op is the wire form of
@@ -236,19 +237,58 @@ func ApplyDashboardOps(data []byte, ops []DashboardOp) ([]byte, error) {
 		return nil, err
 	}
 	d.Widgets = append([]DashboardWidget(nil), d.Widgets...)
+	// touched[i] is the 1-based number of the last op that added or updated the
+	// widget at index i (a move does not count), 0 when none did: it lets a
+	// problem of the result name the op that made it.
+	touched := make([]int, len(d.Widgets))
 	for n, op := range ops {
-		if err := applyOp(&d, op); err != nil {
-			return nil, fmt.Errorf("op %d (%s): %v", n+1, op.Op, err)
+		if err := applyOp(&d, &touched, n+1, op); err != nil {
+			return nil, fmt.Errorf("op %d (%s): %v", n+1, opSubject(op), err)
 		}
 	}
 	out, err := EncodeDashboard(d)
 	if err != nil {
 		return nil, err
 	}
-	if err := ValidateDashboard(out); err != nil {
+	issues, err := validateDashboardIssues(out)
+	if err != nil {
 		return nil, err
 	}
-	return out, nil
+	if len(issues) == 0 {
+		return out, nil
+	}
+	msgs := make([]string, 0, len(issues))
+	for _, is := range issues {
+		switch {
+		case is.idx < 0:
+			msgs = append(msgs, is.msg)
+		case is.idx < len(touched) && touched[is.idx] > 0:
+			n := touched[is.idx]
+			msgs = append(msgs, fmt.Sprintf("op %d (%s, widget %q): %s", n, ops[n-1].Op, is.id, is.msg))
+		default:
+			msgs = append(msgs, fmt.Sprintf("widget %d (id %q): %s", is.idx+1, is.id, is.msg))
+		}
+	}
+	return nil, fmt.Errorf("dashboard: %s", strings.Join(msgs, "; "))
+}
+
+// opSubject is what an op's error names after its number: the op, and the
+// widget it targets when it targets one.
+func opSubject(op DashboardOp) string {
+	id := op.ID
+	if id == "" && op.Op == DashboardOpAdd {
+		// An add names its widget inside the widget.
+		var w struct {
+			ID string `json:"id"`
+		}
+		if json.Unmarshal(op.Widget, &w) == nil {
+			id = w.ID
+		}
+	}
+	if id == "" {
+		return op.Op
+	}
+	return fmt.Sprintf("%s, widget %q", op.Op, id)
 }
 
 // refuseUntargetedProblems refuses a patch that would silently rewrite a bad
@@ -263,13 +303,15 @@ func refuseUntargetedProblems(d Dashboard, ops []DashboardOp) error {
 	}
 	for i, w := range d.Widgets {
 		if w.Problem != "" && (w.ID == "" || !targeted[w.ID]) {
-			return fmt.Errorf("widgets[%d] (id %q) has a problem that no op updates or removes: %s", i, w.ID, w.Problem)
+			return fmt.Errorf("widget %d (id %q) has a problem that no op updates or removes: %s", i+1, w.ID, w.Problem)
 		}
 	}
 	return nil
 }
 
-func applyOp(d *Dashboard, op DashboardOp) error {
+// applyOp applies op, the n-th of the patch, to d and keeps touched, the op
+// number of each widget, in step with d.Widgets.
+func applyOp(d *Dashboard, touched *[]int, n int, op DashboardOp) error {
 	// An op built in Go (not decoded) is held to the same shape.
 	have := map[string]json.RawMessage{}
 	if op.ID != "" {
@@ -304,26 +346,31 @@ func applyOp(d *Dashboard, op DashboardOp) error {
 		d.Widgets = append(d.Widgets, DashboardWidget{})
 		copy(d.Widgets[at+1:], d.Widgets[at:])
 		d.Widgets[at] = w
+		*touched = append(*touched, 0)
+		copy((*touched)[at+1:], (*touched)[at:])
+		(*touched)[at] = n
 	case DashboardOpUpdate:
 		i := findWidget(d.Widgets, op.ID)
 		if i < 0 {
-			return fmt.Errorf("no widget %q", op.ID)
+			return errors.New("no widget")
 		}
 		w, err := mergeWidget(d.Widgets[i], op.Widget)
 		if err != nil {
 			return err
 		}
 		d.Widgets[i] = w
+		(*touched)[i] = n
 	case DashboardOpRemove:
 		i := findWidget(d.Widgets, op.ID)
 		if i < 0 {
-			return fmt.Errorf("no widget %q", op.ID)
+			return errors.New("no widget")
 		}
 		d.Widgets = append(d.Widgets[:i], d.Widgets[i+1:]...)
+		*touched = append((*touched)[:i], (*touched)[i+1:]...)
 	case DashboardOpMove:
 		i := findWidget(d.Widgets, op.ID)
 		if i < 0 {
-			return fmt.Errorf("no widget %q", op.ID)
+			return errors.New("no widget")
 		}
 		to, err := checkIndex(op.Index, len(d.Widgets)-1)
 		if err != nil {
@@ -334,6 +381,11 @@ func applyOp(d *Dashboard, op DashboardOp) error {
 		d.Widgets = append(d.Widgets, DashboardWidget{})
 		copy(d.Widgets[to+1:], d.Widgets[to:])
 		d.Widgets[to] = w
+		t := (*touched)[i]
+		*touched = append((*touched)[:i], (*touched)[i+1:]...)
+		*touched = append(*touched, 0)
+		copy((*touched)[to+1:], (*touched)[to:])
+		(*touched)[to] = t
 	case DashboardOpSetTitle:
 		d.Title = *op.Title
 	case DashboardOpSetDescription:

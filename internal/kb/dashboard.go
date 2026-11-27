@@ -449,26 +449,55 @@ func ParseDashboard(data []byte) (Dashboard, error) {
 // error, each with its widget index and id. It checks the shape only, never
 // that a field or an id exists in a KB. Pure function of its bytes.
 func ValidateDashboard(data []byte) error {
-	r, err := readDashboard(data)
+	issues, err := validateDashboardIssues(data)
 	if err != nil {
 		return err
 	}
-	msgs := append([]string(nil), r.file...)
-	idx := make([]int, 0, len(r.widgets))
-	for i := range r.widgets {
-		idx = append(idx, i)
-	}
-	sort.Ints(idx)
-	for _, i := range idx {
-		id := r.dash.Widgets[i].ID
-		for _, m := range r.widgets[i] {
-			msgs = append(msgs, fmt.Sprintf("widgets[%d] (id %q): %s", i, id, m))
+	msgs := make([]string, 0, len(issues))
+	for _, is := range issues {
+		if is.idx < 0 {
+			msgs = append(msgs, is.msg)
+		} else {
+			msgs = append(msgs, fmt.Sprintf("widgets[%d] (id %q): %s", is.idx, is.id, is.msg))
 		}
 	}
 	if len(msgs) == 0 {
 		return nil
 	}
 	return fmt.Errorf("dashboard: %s", strings.Join(msgs, "; "))
+}
+
+// dashboardIssue is one problem of a dashboard: idx is the 0-based index of the
+// widget it belongs to and id that widget's id, idx -1 a problem of the file as
+// a whole. Each caller words it for its reader (a file by index, a patch by op).
+type dashboardIssue struct {
+	idx     int
+	id, msg string
+}
+
+// validateDashboardIssues is ValidateDashboard's judgement as data: the file
+// problems first, then the widgets' by index. err is non-nil only when the bytes
+// are not a YAML mapping.
+func validateDashboardIssues(data []byte) ([]dashboardIssue, error) {
+	r, err := readDashboard(data)
+	if err != nil {
+		return nil, err
+	}
+	var out []dashboardIssue
+	for _, m := range r.file {
+		out = append(out, dashboardIssue{idx: -1, msg: m})
+	}
+	idx := make([]int, 0, len(r.widgets))
+	for i := range r.widgets {
+		idx = append(idx, i)
+	}
+	sort.Ints(idx)
+	for _, i := range idx {
+		for _, m := range r.widgets[i] {
+			out = append(out, dashboardIssue{idx: i, id: r.dash.Widgets[i].ID, msg: m})
+		}
+	}
+	return out, nil
 }
 
 // EncodeDashboard writes d as canonical YAML: the key order of the structs,
