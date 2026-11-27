@@ -3190,3 +3190,75 @@ button.row {
   text-align: start;
   font-weight: normal;
 }
+
+/* The Activity figures sit on one row: five compact tiles, two per row on a
+   phone. A tile with a hue is a kind on the strip below: its dot and figure
+   carry the hue, so the row is the strip's legend. */
+.source-tiles--row {
+  grid-template-columns: repeat(var(--tiles, 5), minmax(0, 1fr));
+  gap: var(--space-2);
+}
+.source-tiles--row .source-tile {
+  gap: 0;
+  padding: var(--space-2) var(--space-3);
+}
+.source-tiles--row .source-tile__label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+.source-tiles--row .source-tile__count {
+  font-size: var(--text-lg);
+  line-height: 1.3;
+}
+.source-tile__dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tile-hue);
+}
+
+@media (max-width: 760px) {
+  .source-tiles--row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* The Activity wave: the time row of the hero, one soft stacked area per kind
+   in the kind's hue, the dates under it, the hovered column read out below. */
+.activity-strip { margin: 0; min-width: 0; flex: 1; }
+.activity-strip__plot { position: relative; height: 64px; }
+.activity-strip__wave { display: block; width: 100%; height: 100%; overflow: visible; border-block-end: 1px solid var(--border-subtle); }
+.activity-strip__area { fill: color-mix(in srgb, var(--seg) 16%, transparent); }
+.activity-strip__line { fill: none; stroke: color-mix(in srgb, var(--seg) 70%, var(--text-muted)); stroke-width: 1.25; stroke-linejoin: round; }
+.activity-strip__mark {
+  position: absolute;
+  inset-block: 0;
+  width: 1px;
+  background: var(--border-strong);
+  pointer-events: none;
+}
+.activity-strip__hits { position: absolute; inset: 0; display: flex; margin: 0; padding: 0; list-style: none; }
+.activity-strip__hits li { flex: 1 1 0; }
+.activity-strip__hits button { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: none; cursor: default; }
+.activity-strip__ticks {
+  display: flex;
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.activity-strip__ticks li { flex: 1 1 0; min-width: 0; text-align: center; white-space: nowrap; overflow: visible; }
+.activity-strip__ticks li[data-on] { color: var(--text-primary); }
+.activity-strip__readout {
+  margin: var(--space-1) 0 0;
+  min-height: 1.3em;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+.activity-strip__readout strong { color: var(--text-primary); }
