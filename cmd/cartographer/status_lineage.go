@@ -144,6 +144,32 @@ func lineageDrift(cfg *clientconfig.Config, provider string, rels map[string]con
 	return out
 }
 
+// lastChangeStillBound is the last change as `status` shows it: the KBs it
+// added that the current bindings no longer hold are dropped, so a KB that
+// `--no-lineage` or an edited `--exclude` took away is not still reported as
+// pulled in. The stored change is left as it was (nothing derived is written by
+// a bind) and what it removed stays: that is history, not a claim about now.
+func lastChangeStillBound(cfg *clientconfig.Config, c *clientconfig.DerivedChange) *clientconfig.DerivedChange {
+	if c == nil || len(c.Added) == 0 {
+		return c
+	}
+	held := map[[4]string]bool{}
+	for it := range bindingSnapshot(cfg, cfg.Agents) {
+		held[[4]string{it.KB, it.Path, it.Via, it.Provider}] = true
+	}
+	out := *c
+	out.Added = nil
+	for _, it := range c.Added {
+		if held[[4]string{it.KB, it.Path, it.Via, it.Provider}] {
+			out.Added = append(out.Added, it)
+		}
+	}
+	if len(out.Added)+len(out.Removed) == 0 {
+		return nil
+	}
+	return &out
+}
+
 // lastChangeLine is the `last change` line of `status`: the date, the vias and
 // every KB added or removed with where it went and why.
 func lastChangeLine(c *clientconfig.DerivedChange) string {

@@ -255,3 +255,73 @@ func TestLineageDriftPerSeedAndDerivedBinding(t *testing.T) {
 		t.Errorf("no drift on the derived binding of %s:\n%s", canon, got)
 	}
 }
+
+// A KB the last sync pulled in by lineage and a later `--no-lineage` or
+// `--exclude` took away is no longer reported under `last change`, in the text
+// and in the JSON; a bind writes no derived state, so the stored record is
+// untouched and what is still bound stays listed.
+func TestStatusLastChangeDropsWhatIsNoLongerBound(t *testing.T) {
+	for name, opt := range map[string]func(*clientconfig.Config) error{
+		"no-lineage": func(c *clientconfig.Config) error { return c.SetProviderLineage("claude", true, nil) },
+		"exclude":    func(c *clientconfig.Config) error { return c.SetProviderLineage("claude", false, []string{"core-kb"}) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv := newLineageServer(t, "client-kb", "core-kb")
+			srv.relations["client-kb"] = closureOf("core-kb")
+			srv.relations["core-kb"] = closureOf()
+			e := newLineageEnv(t, srv, claudeBound("client-kb"))
+			if _, err := e.sync(t, syncOptions{}); err != nil {
+				t.Fatal(err)
+			}
+			const line = "+ core-kb in provider claude (lineage of client-kb)"
+			if _, text, _ := statusOf(t, e); !strings.Contains(text, line) {
+				t.Fatalf("the sync did not record the lineage KB:\n%s", text)
+			}
+			stored, _ := os.ReadFile(derivedFile(t))
+			cfg, err := clientconfig.Load(e.dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := opt(cfg); err != nil {
+				t.Fatal(err)
+			}
+			if err := clientconfig.Save(e.dir, cfg); err != nil {
+				t.Fatal(err)
+			}
+			snap, text, js := statusOf(t, e)
+			if strings.Contains(text, "core-kb") && strings.Contains(text, "last change") || strings.Contains(js, `"kb":"core-kb"`) {
+				t.Errorf("status still reports the unbound KB:\n%s\n%s", text, js)
+			}
+			if snap.LastChange != nil {
+				t.Errorf("last change = %+v, want none: the only thing it added is unbound", snap.LastChange)
+			}
+			if after, _ := os.ReadFile(derivedFile(t)); string(after) != string(stored) {
+				t.Errorf("status rewrote the derived record")
+			}
+		})
+	}
+}
+
+// A provider-scope item of the last change is shown only while its provider is
+// still configured: one that was disconnected since holds nothing any more.
+func TestLastChangeStillBoundHidesAnItemOfAnUnconfiguredProvider(t *testing.T) {
+	srv := newLineageServer(t, "client-kb", "core-kb")
+	srv.relations["client-kb"] = closureOf("core-kb")
+	srv.relations["core-kb"] = closureOf()
+	e := newLineageEnv(t, srv, claudeBound("client-kb"))
+	if _, err := e.sync(t, syncOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := clientconfig.Load(e.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	change := cfg.Derived().LastChange
+	if got := lastChangeStillBound(cfg, change); got == nil || len(got.Added) == 0 {
+		t.Fatalf("the item of a configured provider is hidden: %+v", got)
+	}
+	cfg.Agents = nil
+	if got := lastChangeStillBound(cfg, change); got != nil {
+		t.Errorf("an item of a provider no longer configured is shown: %+v", got)
+	}
+}

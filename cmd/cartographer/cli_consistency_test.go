@@ -304,3 +304,49 @@ func TestEveryCommandHelpIsASuccess(t *testing.T) {
 		}
 	}
 }
+
+// #2430: a name in --exclude is checked like a bound KB: one the server does not
+// mount is a typo that would exclude nothing, so the bind is refused and the
+// config is left as it was, for a client bind and a workspace bind alike.
+func TestBindExcludeRefusesAKBTheServerDoesNotMount(t *testing.T) {
+	srv := multiKBServer(t, `{"status":"ok","kbs":[{"name":"kb-a"},{"name":"kb-b"}]}`)
+	defer srv.Close()
+	dir := writeClientCfg(t, []string{"claude"}, []string{"kb-a"}, nil)
+	pointClientAt(t, dir, srv.URL+"/mcp")
+	ws := t.TempDir()
+
+	var code int
+	errOut := withStderr(t, func() { code = cmdClient([]string{"bind", "claude", "kb-a", "--exclude", "nokb"}) })
+	if code != 2 || !strings.Contains(errOut, `KB "nokb" in --exclude`) {
+		t.Fatalf("client bind --exclude nokb = %d, stderr %q; want 2 and the refusal", code, errOut)
+	}
+	if _, explicit := loadClientCfg(t, dir).BoundKBs("claude"); explicit {
+		t.Error("the refused bind was saved")
+	}
+	errOut = withStderr(t, func() { code = cmdWorkspaceBind([]string{"claude", ws, "--kb", "kb-a", "--exclude", "nokb"}) })
+	if code != 2 || !strings.Contains(errOut, `KB "nokb" in --exclude`) {
+		t.Fatalf("workspace bind --exclude nokb = %d, stderr %q", code, errOut)
+	}
+	if n := len(loadClientCfg(t, dir).Workspaces["claude"]); n != 0 {
+		t.Errorf("the refused bind left %d workspace binding(s)", n)
+	}
+	// A mounted name is still accepted.
+	withStdout(t, func() { code = cmdClient([]string{"bind", "claude", "kb-a", "--exclude", "kb-b"}) })
+	if code != 0 {
+		t.Errorf("client bind --exclude kb-b = %d, want 0", code)
+	}
+}
+
+// connect checks --exclude against the server's list too.
+func TestResolveConnectKBsRefusesAnUnmountedExclude(t *testing.T) {
+	cfg := clientconfig.Default()
+	facts := serverFacts{Listed: true, Names: []string{"kb-a", "kb-b"}}
+	opts := connectOptions{Providers: []string{"claude"}, KBs: []string{"kb-a"}, Exclude: []string{"nokb"}}
+	if _, err := resolveConnectKBs(cfg, opts, facts, nil); err == nil || !strings.Contains(err.Error(), `does not mount KB "nokb" in --exclude`) {
+		t.Errorf("unmounted exclude accepted: %v", err)
+	}
+	opts.Exclude = []string{"kb-b"}
+	if _, err := resolveConnectKBs(cfg, opts, facts, nil); err != nil {
+		t.Errorf("mounted exclude refused: %v", err)
+	}
+}

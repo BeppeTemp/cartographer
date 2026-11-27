@@ -480,7 +480,7 @@ func clientBind(dir string, cfg *clientconfig.Config, args []string) int {
 		}
 	}
 
-	facts, listErr, refused := checkMountedKBs(cfg, kbs)
+	facts, listErr, refused := checkMountedKBs(cfg, kbs, exclude)
 	if refused {
 		return 2
 	}
@@ -539,6 +539,11 @@ func clientBind(dir string, cfg *clientconfig.Config, args []string) int {
 		for _, kb := range kbs {
 			if !known[kb] {
 				fmt.Fprintf(os.Stderr, "warning: KB %q is not among the KBs the server last advertised%s\n", kb, suffix)
+			}
+		}
+		for _, kb := range exclude {
+			if !known[kb] {
+				fmt.Fprintf(os.Stderr, "warning: KB %q in --exclude is not among the KBs the server last advertised%s\n", kb, suffix)
 			}
 		}
 	}
@@ -666,7 +671,11 @@ func parseBindArgs(cfg *clientconfig.Config, args []string) (provider string, kb
 // allowed, because configuring a machine must not need the network. The facts
 // are returned for a caller that wants them (listErr is the reason none were
 // read, nil when facts came back).
-func checkMountedKBs(cfg *clientconfig.Config, kbs []string) (facts serverFacts, listErr error, refused bool) {
+//
+// exclude is the --exclude list of the same command: a name there that the
+// server does not mount is a typo that would silently exclude nothing, so it is
+// refused too, as "KB x in --exclude".
+func checkMountedKBs(cfg *clientconfig.Config, kbs, exclude []string) (facts serverFacts, listErr error, refused bool) {
 	facts, listErr = enumerateKBs(cfg.ServerURL, cfg.Auth, cfg.Token, cfg.InsecureHTTPAllowed())
 	if listErr != nil || !facts.Listed {
 		return facts, listErr, false
@@ -675,6 +684,11 @@ func checkMountedKBs(cfg *clientconfig.Config, kbs []string) (facts serverFacts,
 	for _, kb := range kbs {
 		if !slices.Contains(facts.Names, kb) {
 			missing = append(missing, kb)
+		}
+	}
+	for _, kb := range exclude {
+		if !slices.Contains(facts.Names, kb) {
+			missing = append(missing, fmt.Sprintf("KB %q in --exclude", kb))
 		}
 	}
 	if len(missing) == 0 {

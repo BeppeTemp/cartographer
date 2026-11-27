@@ -1691,6 +1691,15 @@ func resolveConnectKBs(cfg *clientconfig.Config, opts connectOptions, facts serv
 	mounted := facts.Names
 	listed := healthErr == nil && facts.Listed
 	out, err := resolveKBSelection(opts.KBs, mounted, listed)
+	if err == nil && listed {
+		// A name in --exclude the server does not mount excludes nothing: a typo,
+		// refused like a bound one (#2430).
+		for _, name := range opts.Exclude {
+			if !slices.Contains(mounted, name) {
+				return nil, fmt.Errorf("the server does not mount KB %q in --exclude (mounted: %s)", name, formatKBList(mounted))
+			}
+		}
+	}
 	if err != nil && !listed && !opts.Auth && len(opts.KBs) == 1 && opts.KBs[0] == kbSelectionAll {
 		// An anonymous /health lists no KB of a server that wants a token.
 		err = fmt.Errorf("%w (a server with auth lists its KBs only to a token: pass --auth, with the token in $CARTOGRAPHER_TOKENS or the variable --token-env names)", err)
