@@ -1590,6 +1590,9 @@ button.row {
   color: var(--sev-ok);
 }
 
+.activity-stat[data-tone="error"] strong {
+  color: var(--sev-error);
+}
 .activity-stat[data-tone="muted"],
 .activity-stat[data-tone="muted"] strong {
   color: var(--text-muted);

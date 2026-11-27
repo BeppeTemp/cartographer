@@ -374,6 +374,26 @@ export function App() {
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
+  /** The page a concept was opened from, and its scroll: the inspector's ×
+   *  returns there (see closeInspector). Cleared when the inspector closes; a stale entry
+   *  (another KB, another concept) is ignored there, never applied. */
+  const openedFrom = useRef<{ panel: string; scroll: number; id: string; kb: string | null; dashboard: string | null } | null>(null);
+  /** The concept the reader came back from: the page reopens its diff. */
+  const [returnTo, setReturnTo] = useState<string | null>(null);
+  const openFromPage = useCallback(
+    (panel: string) => (conceptId: string) => {
+      openedFrom.current = { panel, scroll: mainRef.current?.querySelector<HTMLElement>(".page")?.scrollTop ?? 0,
+        id: conceptId,
+        kb: viewRef.current.kb,
+        // The Work page's selected dashboard: opening a concept leaves the page, and × must come back to it.
+        dashboard: panel === "work" ? viewRef.current.dashboard : null,
+      };
+      setReturnTo(null);
+      navigateRef.current({ panel: "atlas", concept: conceptId });
+    },
+    [],
+  );
+
   const navigate = useCallback((next: Partial<ViewState>) => {
     setView((current) => {
       const merged = { ...current, ...next };
@@ -385,6 +405,10 @@ export function App() {
       return merged;
     });
   }, []);
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
+  const viewRef = useRef(view);
+  viewRef.current = view;
 
   // --- Data loading. Every request is abortable, so a fast click sequence
   // cannot let a stale response overwrite a newer one. ---
@@ -936,6 +960,26 @@ export function App() {
    *  list, so a keyboard user continues where they were instead of starting
    *  over from the top of the page. */
   const closeInspector = useCallback(() => {
+    // Opened from a page (Activity, Work, Health): × goes back to that page,
+    // where it was scrolled, instead of leaving the reader on the graph.
+    const from = openedFrom.current;
+    openedFrom.current = null;
+    // Only while the concept opened is still the one shown: a reader who moved
+    // on through the graph closes as usual.
+    if (from && view.panel === "atlas" && view.concept === from.id && view.kb === from.kb) {
+      setSheet(null);
+      setReturnTo(from.id);
+      navigate({ panel: from.panel as ViewState["panel"], concept: null, dashboard: from.panel === "work" ? from.dashboard : null });
+      const restore = (tries: number) =>
+        window.requestAnimationFrame(() => {
+          // The page scrolls inside its own section, not the main element.
+          const pane = mainRef.current?.querySelector<HTMLElement>(".page");
+          if (pane) pane.scrollTop = from.scroll;
+          if ((!pane || Math.abs(pane.scrollTop - from.scroll) > 2) && tries > 0) restore(tries - 1);
+        });
+      restore(30);
+      return;
+    }
     const id = view.concept;
     selectConcept(null);
     setSheet(null);
@@ -943,7 +987,7 @@ export function App() {
       const row = id ? document.querySelector<HTMLElement>(`[data-concept-id="${CSS.escape(id)}"]`) : null;
       (row ?? document.getElementById("main"))?.focus();
     });
-  }, [selectConcept, view.concept]);
+  }, [navigate, selectConcept, view.concept, view.kb, view.panel]);
 
   /** The palette opened a concept: on the Atlas, whatever panel it was
    *  opened from (only the Atlas shows a selection), and focus goes to the
@@ -1177,7 +1221,8 @@ export function App() {
               collections={overview?.collections}
               components={components}
               snapshot={snapshot}
-              onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId })}
+              reopen={returnTo}
+              onOpen={openFromPage("activity")}
             />
           ) : view.panel === "work" && activeKB ? (
             <Work
@@ -1187,7 +1232,7 @@ export function App() {
               collections={overview?.collections}
               dashboard={view.dashboard}
               onDashboard={(dashboard) => navigate({ dashboard })}
-              onOpen={(conceptId) => navigate({ panel: "atlas", concept: conceptId })}
+              onOpen={openFromPage("work")}
             />
           ) : view.panel === "health" ? (
             <Health

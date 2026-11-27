@@ -42,6 +42,48 @@ describe("the dashboard selector of the Work page", () => {
     expect(window.location.search).not.toContain("dashboard=");
   });
 
+  it("returns from a concept opened on a dashboard to that dashboard", async () => {
+    window.history.replaceState(null, "", "/ui/?kb=kb-a&panel=work&dashboard=week");
+    const m = api();
+    const route = m.getMockImplementation()!;
+    const board = { name: "week", hash: "h", title: "This week", widgets: [{ id: "k1", type: "kanban", total: 1, groups: [{ key: "open", total: 1, entries: [{ id: "a/x", title: "Open item" }] }] }] };
+    m.mockImplementation(async (url: string) => (url.includes("/dashboards/week") ? json(board) : route(url)));
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /Open item/ }));
+    await waitFor(() => expect(window.location.search).toContain("concept=a%2Fx"));
+    expect(window.location.search).not.toContain("dashboard=");
+    await user.click(await screen.findByRole("button", { name: "Close inspector" }));
+    await waitFor(() => expect(window.location.search).toContain("panel=work"));
+    expect(window.location.search).toContain("dashboard=week");
+    expect(await screen.findByRole("heading", { level: 1, name: "This week" })).toBeInTheDocument();
+  });
+
+  it("does not carry a dashboard to another KB when × closes a concept opened before the switch", async () => {
+    window.history.replaceState(null, "", "/ui/?kb=kb-a&panel=work&dashboard=week");
+    const m = api();
+    const route = m.getMockImplementation()!;
+    const board = { name: "week", hash: "h", title: "This week", widgets: [{ id: "k1", type: "kanban", total: 1, groups: [{ key: "open", total: 1, entries: [{ id: "a/x", title: "Open item" }] }] }] };
+    m.mockImplementation(async (url: string) => {
+      if (url.endsWith("/kbs")) return json({ kbs: [{ name: "kb-a", status: "normal", ready: true }, { name: "kb-b", status: "normal", ready: true }] });
+      if (url.includes("/dashboards/week")) return json(board);
+      return route(url);
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /Open item/ }));
+    await waitFor(() => expect(window.location.search).toContain("concept=a%2Fx"));
+    // The reader switches KB with the same concept id selected: the stale entry is kb-a's.
+    act(() => {
+      window.history.pushState(null, "", "/ui/?kb=kb-b&concept=a%2Fx");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await user.click(await screen.findByRole("button", { name: "Close inspector" }));
+    await waitFor(() => expect(window.location.search).not.toContain("concept="));
+    expect(window.location.search).not.toContain("panel=work");
+    expect(window.location.search).not.toContain("dashboard=");
+  });
+
   it("keeps the choice across a reload and resets it on a KB change", async () => {
     window.history.replaceState(null, "", "/ui/?kb=kb-a&panel=work&dashboard=week");
     const m = api();

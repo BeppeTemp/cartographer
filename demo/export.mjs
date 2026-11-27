@@ -94,6 +94,7 @@ for (const p of ["maintenance/summary", "maintenance/review", "checks", "revisio
 // Dashboards (D745): the list, then one call per dashboard of the KB.
 const dashboards = await api(`${k}/dashboards`);
 for (const d of dashboards.dashboards) await api(`${k}/dashboards/${q(d.name)}`);
+// The diff route (GET /diff?id=&from=&to=) is live-only: its key is a time span, so no finite set of requests covers it. The static demo answers 404 and the Activity row opens the concept page instead (web/src/components/Activity.tsx, onUnavailable).
 // Per-concept history (assets are only for expanded concepts, so they stay live-only).
 for (const node of graph.nodes) await api(`${k}/history?id=${q(node.id)}`);
 

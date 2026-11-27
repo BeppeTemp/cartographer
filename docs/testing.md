@@ -940,10 +940,17 @@ toolchain (D227). What they hold:
   dropped, another KB starting folded, and the selected concept sent as `focus`,
   asked once when it is not drawn;
 - retirements on Activity's timeline (D1146, `src/test/activity.test.tsx`): a retired
-  concept's row with its status pill and "Replaced by …", the "retired" stat, the
+  concept's row with its status pill and "Replaced by …", the Retired tile, the
   empty window's quiet notice with the earlier changes under it, and
   `?panel=retired` reading as Activity (`src/test/viewstate.test.ts`); an archive map
   stays badged and listed after the live ones.
+- Activity's two tabs and diffs (D2437,
+  `src/test/activity.test.tsx`, `src/test/surveyorviews.test.tsx`,
+  `src/test/concept-diff.test.tsx`): the figure tiles, Where and Who filters and the
+  maintenance chip; Users leaving out Surveyor-only changes and stripping Surveyor authors from shared
+  ones; a row opening its diff in place; the Surveyor tab's runs by day with their pages beneath, one run
+  per page, the What and Where filters, the failed run and only this KB's runs; the diff's folded files with
+  +/− counts, hunks, whole file, and disabled actions for a binary or deleted file.
 - the release history (D862, `src/test/releases.test.tsx`): the version at the
   foot of the rail opens a sheet that fetches only then;
   newest first, one `Current` badge, scrolled to only when newer releases

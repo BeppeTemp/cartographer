@@ -52,6 +52,10 @@ async function surveyorTab() {
   return user;
 }
 const kept = [keptRun("r1", 2 * DAY), keptRun("r2", 3600_000)];
+/** One figure tile of the Surveyor tab's hero. */
+const tile = (label: string) => within(screen.getByRole("list", { name: "The Surveyor in the window" })).getByText(label).closest("li")!;
+const runs = () => tile("Runs");
+
 const serve = (history: () => Response) =>
   stubApi({
     "/changes": () => json({ since: "7d", commit_count: 0, concepts: [] }),
@@ -78,12 +82,8 @@ describe("Activity: the persisted run trend", () => {
     );
     render(<App />);
     await surveyorTab();
-    expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent("ran 30 times");
-    expect(screen.getByRole("heading", { level: 1 })).not.toHaveTextContent("since");
-    const tiles = screen.getByRole("list", { name: "The Surveyor in the window" });
-    expect(within(tiles).getByText("runs ok").closest("li")).toHaveTextContent("28");
-    expect(within(tiles).getByText("failed").closest("li")).toHaveTextContent("2");
-    expect(within(tiles).getByText("runs ok").closest("li")).not.toHaveTextContent("since");
+    await waitFor(() => expect(runs()).toHaveTextContent("30"));
+    expect(runs()).toHaveAttribute("title", "2 failed");
     const trend = screen.getByRole("region", { name: "Runs per day" });
     expect(within(trend).getByText("Runs per day as a table")).toBeInTheDocument();
     expect(within(trend).getAllByRole("row")).toHaveLength(4);
@@ -96,7 +96,8 @@ describe("Activity: the persisted run trend", () => {
     render(<App />);
     await surveyorTab();
     const since = new Date(Date.now() - 2 * DAY).toLocaleDateString("en", { month: "short", day: "numeric" });
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(`ran 2 times since ${since}.`);
+    expect(runs()).toHaveTextContent("2");
+    expect(runs()).toHaveAttribute("title", `since ${since}`);
     expect(screen.queryByRole("region", { name: "Runs per day" })).not.toBeInTheDocument();
   });
 
@@ -108,7 +109,7 @@ describe("Activity: the persisted run trend", () => {
     const [y, m, d] = first.split("-").map(Number);
     const label = new Date(y!, m! - 1, d!, 12).toLocaleDateString("en", { month: "short", day: "numeric" });
     expect(await screen.findByRole("region", { name: "Runs per day" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(`since ${label}`);
+    expect(runs()).toHaveAttribute("title", `since ${label}`);
   });
 
   it("says a memory-only history is forgotten by a restart", async () => {
@@ -127,22 +128,22 @@ describe("Activity: the persisted run trend", () => {
     );
     render(<App />);
     const user = await surveyorTab();
-    expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent("ran 5 times");
+    await waitFor(() => expect(runs()).toHaveTextContent("5"));
     await user.click(screen.getByRole("button", { name: "30d" }));
     const since = new Date(Date.now() - 2 * DAY).toLocaleDateString("en", { month: "short", day: "numeric" });
-    await waitFor(() => expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(`since ${since}`));
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(`ran 2 times since ${since}.`);
+    await waitFor(() => expect(runs()).toHaveAttribute("title", `since ${since}`));
+    expect(runs()).toHaveTextContent("2");
   });
 
   it("keeps the kept runs for a window the counters do not reach (All)", async () => {
     serve(() => json(answer([row(dayOf(DAY), { runs: 9 })])));
     render(<App />);
     const user = await surveyorTab();
-    expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent("ran 9 times");
+    await waitFor(() => expect(runs()).toHaveTextContent("9"));
     await user.click(screen.getByRole("button", { name: "All" }));
     // The counters keep 90 days: they never stand for "All", the kept runs do.
-    await waitFor(() => expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("ran 2 times"));
-    expect(screen.getByRole("heading", { level: 1 })).not.toHaveTextContent("9 times");
+    await waitFor(() => expect(runs()).toHaveTextContent("2"));
+    expect(runs()).not.toHaveTextContent("9");
     expect(screen.getByRole("region", { name: "Runs per day" })).toBeInTheDocument();
   });
 
@@ -160,10 +161,9 @@ describe("Activity: the persisted run trend", () => {
     const { rerender } = render(<Activity kb="kb-a" components={comp("kb-a")} {...props} />);
     const user = userEvent.setup();
     await user.click(within(await screen.findByRole("group", { name: "Activity of" })).getByRole("button", { name: "Surveyor" }));
-    expect(await screen.findByRole("heading", { level: 1 })).toHaveTextContent("ran 30 times");
+    await waitFor(() => expect(runs()).toHaveTextContent("30"));
     rerender(<Activity kb="kb-b" components={comp("kb-b")} {...props} />);
-    await screen.findByRole("heading", { level: 1 });
-    expect(screen.getByRole("heading", { level: 1 })).not.toHaveTextContent("30 times");
+    await waitFor(() => expect(runs()).not.toHaveTextContent("30"));
     expect(screen.queryByRole("region", { name: "Runs per day" })).not.toBeInTheDocument();
   });
 });

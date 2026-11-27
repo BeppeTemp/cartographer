@@ -1665,40 +1665,67 @@ band, a section with nothing in it is left out rather than shown empty, and an
 empty answer is said in one line with a check.
 
 The **Activity** panel is `changes_since` for the reader: the concepts changed
-in the last day, week, month, quarter, year or ever (up to 500). It tells the
-reader's changes from Meridian's upkeep: a concept is *edited*, *new* or
-*reorganised* (moved, superseded, removed) by its latest content change
-(`last_edit_at`, `added`), and one only the background repair touched is
-*maintenance*, hidden unless the reader shows it. The band counts edited, new
-and reorganised concepts (and authors, when more than one), names the concept
-worked on most, and draws one bar per day of the window, stacked by kind. It
-offers *Where* (a bar split by Map, one row per Map) and *Who* (one row per
-author) as filters. Below it the timeline groups the concepts by the day each
-one last changed, newest first, one row each on a rail in its Map's colour:
-time, title, Map, the kind of change when it is not a plain edit, the first
-recorded reason (upkeep reasons dropped when there is another) and the
-authors. Changing the window keeps the current answer on screen, dimmed,
-until the new one arrives. A row opens the concept on the atlas. A concept the KB retired (`GET .../retired`) wears its status instead of the kind of change, says what replaced it,
-why and where it was (D1146), and the summary counts them as *retired*. A window
-with no change shows a quiet notice with a button to the next wider window in place of the summary, followed
-by *Earlier*: the newest 20 earlier changes on the same timeline, read in the same round as the window.
+in the last day, week, month, quarter, year or ever (up to 500). With a Surveyor on the KB (D1985: at least one run
+reported for it in the `components` read, or a change made by a Surveyor) it has two tabs beside the window selector,
+**Users** and **Surveyor** (the control is labelled "Activity of"; the window is shared, the tab is local state and not
+in the URL); without one there is no control and the page is Users.
+
+**Users** (title "What users changed") is the people's changes. A change whose authors are all Surveyor authors
+(`surveyor/<perimeter>/<replica>`) is left out, and a shared one shows its human authors only; there is no Surveyor tag on a
+row. A concept is *edited*, *new* or *reorganised* (moved, superseded, removed) by its latest content change
+(`last_edit_at`, `added`), and one only the background repair touched is *maintenance*, hidden unless the reader
+ticks the Maintenance chip. The hero has five figure tiles (*New*, *Edited*, *Reorganised*, *Retired*, *Touched*, the
+distinct concepts changed), a **When** strip, and the filters as chips: *Where* (one per Map, with its count) and *Who*
+(one avatar per author, busiest first, when there is more than one, and the Maintenance chip). The strip is a stacked
+smooth area per kind over hours, days, weeks or months by window size, drawn from the concepts of the answer; hovering it
+shows a card with the time, one row per kind and the total. A concept the KB retired (`GET .../retired`) wears its
+status instead of the kind of change, says what replaced it, why and where it was (D1146), and is counted in *Retired*.
+Below the hero the timeline groups the concepts by the day each one last changed, newest first, one row each on a rail
+in its Map's colour: time, title, Map, the kind of change when it is not a plain edit, the first recorded reason
+(upkeep reasons dropped when there is another) and the authors. Changing the window keeps the current answer on
+screen, dimmed, until the new one arrives. A window with no change shows a quiet notice with a button to the next wider
+window in place of the hero, followed by *Earlier*: the newest 20 earlier changes on the same timeline, read in the same
+round as the window.
+
+A row does not open the page: clicking it opens, under it, the concept's diff over the window
+(`GET /api/ui/v1/kbs/{kb}/diff`, warmed when the pointer reaches the row; D2436). The diff names the
+revisions it runs between and lists each file of the concept folded to its path, status and +/− counts; a file opens its
+changed lines with three lines of context, the rest folded. Each file has two icon buttons in a fixed place: *view file*
+(the whole file as it is at the end of the span; disabled for a binary or a deleted file) and *open page* (the page in the
+inspector; disabled when the page is gone). The inspector's × returns to the page it was opened from, with the row's diff
+open again. A static export has no diff route (its key is a time span, `demo/export.mjs`): the row then opens the page, as before.
+
 Under the timeline, the *Journal* section shows the tail of the KB's log
 (`log_append`) grouped by day under the same day headings and drawn on the same rail, one entry per
 `## <timestamp>`: its time and a node coloured by the Map of the first concept ID the entry names. A tool line
 (`concept_patch: map/id`) is one compact line whose concept opens; an agent's note shows its first line as the lead,
 the rest clamped with a Show more, as written and not rendered as Markdown.
 
-When the KB has a Surveyor (D1985: at least one run reported for it in the `components` read, or a change made by a
-Surveyor), Activity has two tabs beside the window selector, **Changes** and **Surveyor**; the window is shared. Without a Surveyor there are no
-tabs and the page is the one described above. **Changes** is that page, plus a small **Surveyor** tag on a row whose change a Surveyor made
-(author `surveyor/<perimeter>/<replica>`); nothing else of the Surveyor appears on it. The **Surveyor** tab has its own headline ("<perimeter> ran N times in the last 7 days"),
-tiles for runs ok, failed, sources ingested (ok `ingest` runs), pages created, pages changed and tokens spent, the
-**Runs** list and the feed of the Surveyor's changes only. Pages created and changed are counted from the Surveyor's commits (author `surveyor/<perimeter>/<replica>`: the `Cartographer-Surveyor` trailer of the commit, or the git author of one written before it), which are durable, so they are right for every window. The run-based tiles (runs ok, failed, sources ingested, tokens) and the headline's count read the server's daily counters (`GET /api/ui/v1/kbs/{kb}/surveyor-history`, below) when they reach back to the window's start (the first day the server has counted is at or before it; the day is the UTC day, today being the first of a 1d window): they are then exact and carry no note. Otherwise (the window starts before the server began counting, the 1y and All windows, or an older server or a caller that does not see the KB whole answering 404) they count only the runs the server still keeps (the last 20 per perimeter, in memory): when the window starts before the oldest kept run, or a perimeter holds exactly 20, those tiles carry a muted "since <date>" and the headline reads "<perimeter> ran N times since <date>."; the date is the first day of the counters when the server answered them, else the oldest kept run's. Within the kept range the wording is the plain one. Under the tiles a **runs per day** trend draws one column per day of the window (All: from the counters' first day; at most 90), stacked ok, skipped and failed (failed and budget-exhausted), with the same numbers in a table under "Runs per day as a table"; a server with no data directory (a folder session) adds "Kept in memory only: a restart forgets it." The **Runs** list is grouped by day, newest first: one row per day ("Nov 12 · 12 runs · 11 ok · 1 failed · 48k tokens", the exact tokens on hover) that expands to that day's runs; today starts expanded, and failed or budget-exhausted runs show under their day even when it is collapsed. After seven days a **Show more** reveals the rest. A line under the section header says that pages are matched to runs by run id when the commit carries one (the `Surveyor-Run` trailer, returned per concept by `changes_since` as `surveyor_runs`; the change must also have a Surveyor author of the run's replica), else by author and time. A run row is its report: start (full time on hover), duration, outcome, tokens, the error when it failed,
-and the concepts it created or changed as buttons that open them. Those are the window's changes whose author is a Surveyor and whose time falls inside the run
-(start to start + duration, 5 s of slack for the two clocks); no wire field carries them, so a concept someone changed after the run is listed in the feed, not under the run (the changes
-route keeps each concept's newest change). Ages are worded against the server's clock (`server.now` of the read), not the browser's. The tab is local state, not in the URL.
-Work carries nothing of the Surveyor: its replicas, budgets and alarms are in Health.
-The daily run counters behind the trend (`GET /api/ui/v1/kbs/{kb}/surveyor-history?days=N`, kept in the data directory's `.cartographer/surveyor-history.json` for 90 days, `control-plane.md` §Surveyor runs and alarms) are read with the other Surveyor data when the tab exists; an older server answers 404 and the tab keeps the figures of the kept runs.
+**Surveyor** (title "What the Surveyor did", D2437) is the runs of this KB: the server keeps the last 20 per perimeter in memory, and its persisted
+daily counters (`GET /api/ui/v1/kbs/{kb}/surveyor-history`, `control-plane.md` §Surveyor runs and alarms) reach back 90 days. The hero has five tiles: *Runs* (failed ones named in its
+tooltip), *Pages written* (created plus changed, counted from the Surveyor's commits, which are durable, so right for
+every window), *Tokens*, *Tokens wasted* (spent by runs that wrote no page) and *Last run*; a **When** strip of the
+runs per day by task, with failed ones apart; and the chips *What* (the task: poll, ingest, doctor, repair, synthesis)
+and *Where* (the Maps of the pages it wrote). When the counters reach back to the window's start the Runs, Tokens and failed figures are exact and carry no note;
+otherwise (a window that starts before the server began counting, 1y and All, an older server, or a caller that does not see the KB whole,
+answering 404) they count the kept runs, and when the window starts before the oldest kept run or a perimeter holds exactly 20 the Runs
+tile says "since <date>" (the first day of the counters when the server answered them, else the oldest kept run), after any failed count
+in its tooltip. Under the hero, a **Runs per day** trend draws one column per day of the window (at most 90) from the counters, stacked ok,
+skipped and failed, with the same numbers in a table under "Runs per day as a table"; a server with no data directory adds "Kept in memory
+only: a restart forgets it." Below, the runs are grouped by day, newest first,
+every day open: each run is a head row on the rail in its task's colour (red when it failed or exhausted its budget)
+with "<Task> run", an outcome pill, the duration, the number of pages it wrote ("nothing written", or "N pages, M new"),
+the error when it failed, a bar for its tokens on the window's scale and its replica's avatar. The pages it wrote hang
+under it as Users rows, each with its own diff, whose span is the run (a minute of slack either side). Runs carry no
+page of their own: the pages of a run are the window's changes whose author is a Surveyor named by the run's replica
+(the exact path segment) and that carry the run's id (the `Surveyor-Run` trailer of the commit, returned per concept by
+`changes_since` as `surveyor_runs`; a change carrying other ids is never matched by time) or, when a change carries no id,
+whose time falls inside the run (start to start + duration, 5 s of slack for the two clocks); a page is listed under one
+run only, the newest that claims it. No wire field carries them, so a concept
+someone changed after the run is listed under that author on Users, not under the run (the changes route keeps each
+concept's newest change). What and Where narrow the runs (Where keeps the runs that wrote a page in that Map and only
+those pages). Ages are worded against the server's clock (`server.now` of the read), not the browser's. Work carries
+nothing of the Surveyor: its replicas, budgets and alarms are in Health.
 
 Below it, **Report candidates** (D1925) lists what the Surveyors noticed that a person might report to the
 Cartographer project, per Surveyor: the kind in words (tool error, protocol mismatch, contract mismatch), the tool and the
