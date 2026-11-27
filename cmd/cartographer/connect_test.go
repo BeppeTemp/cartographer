@@ -12,6 +12,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1045,5 +1046,40 @@ func TestLoadWithAChangedCAFileReplacesThePool(t *testing.T) {
 	}
 	if second := client.ServerRoots(host); second == nil || second == first {
 		t.Fatal("the pool was not replaced by the new ca_file")
+	}
+}
+
+// The loopback `setup` hint is for a refused connection only: a slow server
+// and an untrusted certificate are running servers (#2444).
+func TestIsRefusedErrOnlyForARefusedConnection(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	ln.Close() // nothing listens on addr now
+	_, refused := client.New("http://"+addr, "").Health(2 * time.Second)
+
+	tlsSrv := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer tlsSrv.Close()
+	_, untrusted := client.New(tlsSrv.URL, "").Health(2 * time.Second)
+
+	slow := fmt.Errorf("health: %w", &client.RemoteError{State: client.RemoteUnavailable, Code: client.CodeUnreachable,
+		Message: "x accepted the request but did not answer in time", Slow: true})
+
+	for name, tc := range map[string]struct {
+		err  error
+		want bool
+	}{
+		"refused":        {refused, true},
+		"slow":           {slow, false},
+		"untrusted cert": {untrusted, false},
+	} {
+		if tc.err == nil {
+			t.Fatalf("%s: no error to classify", name)
+		}
+		if got := isRefusedErr(tc.err); got != tc.want {
+			t.Errorf("%s: isRefusedErr(%v) = %v, want %v", name, tc.err, got, tc.want)
+		}
 	}
 }
