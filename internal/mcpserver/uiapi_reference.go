@@ -1,15 +1,20 @@
 package mcpserver
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/BeppeTemp/cartographer/internal/audit"
 	"github.com/BeppeTemp/cartographer/internal/auth"
+	"github.com/BeppeTemp/cartographer/internal/gitx"
 	"github.com/BeppeTemp/cartographer/internal/kb"
 	"github.com/BeppeTemp/cartographer/internal/okf"
 )
@@ -279,6 +284,355 @@ func uiHistory(w http.ResponseWriter, r *http.Request, srv *Server) {
 		return
 	}
 	uiRelay(w, "history", res, nil)
+}
+
+// --- diff ---
+
+// uiDiffMaxText caps each text of the diff route (256 KiB).
+const uiDiffMaxText = 256 << 10
+
+type uiDiffRev struct {
+	SHA     string `json:"sha"`
+	At      string `json:"at"`
+	Author  string `json:"author"`
+	Subject string `json:"subject"`
+}
+
+// uiDiffCut cuts s to max bytes on a rune boundary.
+func uiDiffCut(s string, max int) (string, bool) {
+	if len(s) <= max {
+		return s, false
+	}
+	for max > 0 && !utf8.RuneStart(s[max]) {
+		max--
+	}
+	return s[:max], true
+}
+
+// uiDiffMaxFiles caps the files listed by the diff route.
+const uiDiffMaxFiles = 50
+
+type uiDiffFile struct {
+	Path      string `json:"path"`
+	Status    string `json:"status"`
+	OldPath   string `json:"old_path,omitempty"`
+	Before    string `json:"before"`
+	After     string `json:"after"`
+	Truncated bool   `json:"truncated"`
+	Binary    bool   `json:"binary"`
+}
+
+// uiDiffFootprint is the folder an expanded concept owns (its index.md), "" for
+// a flat one. A map's own index.md (data/<map>/index.md) is not a concept
+// folder: it must not pull in every concept of the map. Maps do not nest (a
+// ConceptID under data/ has at most three segments, docs/data-plane.md), so a
+// two-segment directory data/<map>/<concept> is always an expanded concept and
+// the depth guard below is all that tells it from a map's own folder.
+func uiDiffFootprint(mainPath string) string {
+	if path.Base(mainPath) != "index.md" {
+		return ""
+	}
+	dir := path.Dir(mainPath)
+	if strings.Count(dir, "/") < 2 || !strings.HasPrefix(dir, "data/") {
+		return ""
+	}
+	return dir + "/"
+}
+
+// uiDiffOwnerVisible reports whether the principal may see the file rel of the
+// folder of concept id. rel lists (has) every path of the folder in the tree.
+// A satellite Markdown file is a concept of its own: Visible decides on its id,
+// as concept_read would. Any other file is an asset of the deepest satellite
+// folder above it (the concept asset_read would be asked about), else of id
+// itself, which the caller already authorized.
+func uiDiffOwnerVisible(ctx context.Context, k *kb.KB, id, rel string, has map[string]bool) bool {
+	for _, seg := range strings.Split(rel, "/") {
+		if strings.HasPrefix(seg, ".") {
+			return false
+		}
+	}
+	if strings.EqualFold(path.Ext(rel), ".md") && !okf.IsReserved(path.Base(rel)) {
+		sat := strings.TrimSuffix(rel, path.Ext(rel))
+		sat = strings.TrimSuffix(sat, "/index")
+		return Visible(ctx, k, id+"/"+sat)
+	}
+	for dir := path.Dir(rel); dir != "." && dir != "/"; dir = path.Dir(dir) {
+		if has[dir+"/index.md"] {
+			return Visible(ctx, k, id+"/"+dir)
+		}
+	}
+	return true
+}
+
+// uiDiffTree maps what a concept owns at sha, and the principal may see: its
+// main file under "" and every other file of its folder under the path
+// relative to it. Only the footprint is listed, not the whole tree. id is the
+// concept's current id: visibility of a satellite is judged on it.
+func uiDiffTree(ctx context.Context, k *kb.KB, id, sha, mainPath string) (map[string]gitx.SizedBlob, error) {
+	dir := uiDiffFootprint(mainPath)
+	paths := []string{mainPath}
+	if dir != "" {
+		paths = append(paths, dir)
+	}
+	blobs, err := gitx.TreeBlobsUnder(k.Root, sha, paths)
+	if err != nil {
+		return nil, err
+	}
+	has := map[string]bool{}
+	for _, b := range blobs {
+		if dir != "" && strings.HasPrefix(b.Path, dir) {
+			has[strings.TrimPrefix(b.Path, dir)] = true
+		}
+	}
+	out := map[string]gitx.SizedBlob{}
+	for _, b := range blobs {
+		if b.Path == mainPath {
+			out[""] = b
+			continue
+		}
+		if dir == "" || !strings.HasPrefix(b.Path, dir) {
+			continue
+		}
+		rel := strings.TrimPrefix(b.Path, dir)
+		if uiDiffOwnerVisible(ctx, k, id, rel, has) {
+			out[rel] = b
+		}
+	}
+	return out, nil
+}
+
+// uiDiffText reads one blob as text: binary (a NUL in the first 8 KiB, or not
+// UTF-8) gives no text, a long one is cut on a rune boundary. Only the first
+// uiDiffMaxText bytes are loaded, however large the blob is.
+func uiDiffText(root string, b gitx.SizedBlob) (text string, cut, binary bool, err error) {
+	raw, err := gitx.BlobPrefix(root, b.ID, uiDiffMaxText+utf8.UTFMax)
+	if err != nil {
+		return "", false, false, err
+	}
+	s := string(raw)
+	head := s
+	if len(head) > 8192 {
+		head = head[:8192]
+	}
+	text, cut = uiDiffCut(s, uiDiffMaxText)
+	if strings.IndexByte(head, 0) >= 0 || !utf8.ValidString(text) {
+		return "", false, true, nil
+	}
+	return text, cut, false, nil
+}
+
+// uiDiffFiles lists the files of the concept that differ between the trees of
+// base (nil: none) and head, main file first. The main file is paired with the
+// main file even when the concept was renamed or expanded in the span.
+func uiDiffFiles(ctx context.Context, kbr *kb.KB, id string, base, head *uiDiffRev, basePath, headPath string) ([]uiDiffFile, bool, error) {
+	var bt, ht map[string]gitx.SizedBlob
+	var err error
+	if base != nil {
+		if bt, err = uiDiffTree(ctx, kbr, id, base.SHA, basePath); err != nil {
+			return nil, false, err
+		}
+	}
+	if head != nil {
+		if ht, err = uiDiffTree(ctx, kbr, id, head.SHA, headPath); err != nil {
+			return nil, false, err
+		}
+	}
+	keys := map[string]bool{}
+	for k := range bt {
+		keys[k] = true
+	}
+	for k := range ht {
+		keys[k] = true
+	}
+	order := make([]string, 0, len(keys))
+	for k := range keys {
+		order = append(order, k)
+	}
+	sort.Slice(order, func(i, j int) bool {
+		if (order[i] == "") != (order[j] == "") {
+			return order[i] == ""
+		}
+		pi, pj := ht[order[i]].Path, ht[order[j]].Path
+		if pi == "" {
+			pi = bt[order[i]].Path
+		}
+		if pj == "" {
+			pj = bt[order[j]].Path
+		}
+		return pi < pj
+	})
+	files := []uiDiffFile{}
+	for _, k := range order {
+		b, hasB := bt[k]
+		h, hasH := ht[k]
+		if hasB && hasH && b.ID == h.ID && b.Path == h.Path {
+			continue
+		}
+		f := uiDiffFile{}
+		switch {
+		case hasB && hasH:
+			f.Path, f.Status = h.Path, "modified"
+			if b.Path != h.Path {
+				f.Status, f.OldPath = "renamed", b.Path
+			}
+		case hasH:
+			f.Path, f.Status = h.Path, "added"
+		default:
+			f.Path, f.Status = b.Path, "deleted"
+		}
+		if len(files) >= uiDiffMaxFiles {
+			return files, true, nil
+		}
+		if hasB {
+			t, cut, bin, err := uiDiffText(kbr.Root, b)
+			if err != nil {
+				return nil, false, err
+			}
+			f.Before, f.Truncated, f.Binary = t, cut, bin
+		}
+		if hasH {
+			t, cut, bin, err := uiDiffText(kbr.Root, h)
+			if err != nil {
+				return nil, false, err
+			}
+			f.After, f.Truncated, f.Binary = t, f.Truncated || cut, f.Binary || bin
+		}
+		files = append(files, f)
+	}
+	return files, false, nil
+}
+
+// GET /kbs/{kb}/diff?id=&from=&to= — the files of a concept that changed in a
+// time span, each with its text before and after, for the client to diff. A
+// concept is one file or, expanded, a folder (index.md, satellites, assets).
+// Revisions come from concept_history (its guard authorizes the main concept);
+// the file contents are read from git at those shas, and every file of the
+// folder is shown only if Visible says so for the concept that owns it (a
+// satellite is a concept of its own, an asset belongs to its folder's concept).
+// base = newest revision strictly before from, head = newest at or before to;
+// the files are those whose blob differs between the two trees (everything is
+// added when there is no base, deleted when head removed it). commits counts
+// the revisions in [from, to].
+func uiDiff(w http.ResponseWriter, r *http.Request, srv *Server) {
+	id, ok := uiConceptID(w, r, srv.kbRef)
+	if !ok {
+		return
+	}
+	q := r.URL.Query()
+	from, err := time.Parse(time.RFC3339, q.Get("from"))
+	if err != nil {
+		writeUIError(w, http.StatusBadRequest, uiCodeInvalidRequest, "from is required and must be an RFC 3339 time", "from")
+		return
+	}
+	to := time.Now().UTC()
+	if raw := q.Get("to"); raw != "" {
+		if to, err = time.Parse(time.RFC3339, raw); err != nil {
+			writeUIError(w, http.StatusBadRequest, uiCodeInvalidRequest, "to must be an RFC 3339 time", "to")
+			return
+		}
+	}
+	if to.Before(from) {
+		writeUIError(w, http.StatusBadRequest, uiCodeInvalidRequest, "to is before from", "to")
+		return
+	}
+	histTool, found := uiTool(srv, "concept_history")
+	if !found {
+		writeUINotFound(w)
+		return
+	}
+	args, _ := json.Marshal(map[string]interface{}{"id": id, "limit": conceptHistoryMaxLimit})
+	res, err := histTool.Handler(r.Context(), args)
+	if err != nil {
+		writeUIInternal(w, "diff: history", err)
+		return
+	}
+	if res.IsError || len(res.Content) == 0 {
+		writeUINotFound(w)
+		return
+	}
+	var hist struct {
+		Revisions []struct {
+			uiDiffRev
+			Path string `json:"path"`
+		} `json:"revisions"`
+		Truncated bool   `json:"truncated"`
+		Note      string `json:"note"`
+	}
+	if err := json.Unmarshal([]byte(res.Content[0].Text), &hist); err != nil {
+		writeUIInternal(w, "diff: decode", err)
+		return
+	}
+	out := map[string]interface{}{
+		"id": id, "from": from.UTC().Format(time.RFC3339), "to": to.UTC().Format(time.RFC3339),
+		"base": nil, "head": nil, "commits": 0, "truncated": hist.Truncated, "files": []uiDiffFile{},
+	}
+	mainPath := "data/" + id + ".md"
+	if hist.Note != "" {
+		// No git: the current text is all there is.
+		data, err := srv.kbRef.ReadConcept(okf.ConceptID(id))
+		if err != nil {
+			writeUINotFound(w)
+			return
+		}
+		after, cut := uiDiffCut(data.Content, uiDiffMaxText)
+		out["note"], out["path"], out["truncated"] = hist.Note, mainPath, cut
+		out["files"] = []uiDiffFile{{Path: mainPath, Status: "added", After: after, Truncated: cut}}
+		writeUIJSON(w, http.StatusOK, out)
+		return
+	}
+	// Newest first: the first revision at or before to is the head, the first
+	// strictly before from the base.
+	var base, head *uiDiffRev
+	basePath, headPath := "", ""
+	commits := 0
+	for _, rev := range hist.Revisions {
+		at, err := time.Parse(time.RFC3339, rev.At)
+		if err != nil {
+			continue
+		}
+		rv := rev.uiDiffRev
+		if !at.After(to) {
+			if head == nil {
+				head, headPath = &rv, rev.Path
+			}
+			if !at.Before(from) {
+				commits++
+			}
+		}
+		if at.Before(from) {
+			base, basePath = &rv, rev.Path
+			break
+		}
+	}
+	out["commits"] = commits
+	if base != nil {
+		out["base"] = base
+	}
+	if head != nil {
+		out["head"] = head
+	}
+	switch {
+	case headPath != "":
+		mainPath = headPath
+	case basePath != "":
+		mainPath = basePath
+	}
+	out["path"] = mainPath
+	if base != nil && head != nil && base.SHA == head.SHA {
+		writeUIJSON(w, http.StatusOK, out)
+		return
+	}
+	files, cut, err := uiDiffFiles(r.Context(), srv.kbRef, id, base, head, basePath, headPath)
+	if err != nil {
+		writeUIInternal(w, "diff: files", err)
+		return
+	}
+	for _, f := range files {
+		cut = cut || f.Truncated
+	}
+	out["files"] = files
+	out["truncated"] = hist.Truncated || cut
+	writeUIJSON(w, http.StatusOK, out)
 }
 
 // --- journal ---
