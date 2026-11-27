@@ -519,7 +519,7 @@ func outputFlag(args []string) (string, []string, error) {
 }
 
 func snapshotForConfig(dir string, cfg *clientconfig.Config, includeService bool) statusSnapshot {
-	s := statusSnapshot{Schema: statusSchema, Client: version, State: "in_sync", Providers: providerStatuses(cfg), ServerURL: cfg.ServerURL, Update: snapshotUpdate(), Plugins: snapshotPlugins(cfg), LastChange: cfg.Derived().LastChange, KBChange: cfg.KBChange}
+	s := statusSnapshot{Schema: statusSchema, Client: version, State: "in_sync", Providers: providerStatuses(cfg), ServerURL: cfg.ServerURL, Update: snapshotUpdate(), Plugins: snapshotPlugins(cfg), LastChange: lastChangeStillBound(cfg, cfg.Derived().LastChange), KBChange: cfg.KBChange}
 	if includeService && isLoopbackURL(cfg.ServerURL) {
 		if st, err := statusServiceFn(); err == nil {
 			s.Service = newServiceSnapshot(st)

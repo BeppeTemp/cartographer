@@ -469,15 +469,15 @@ func cmdWorkspaceBind(args []string) int {
 		fmt.Fprintf(os.Stderr, "Error: %s has the read-only profile (providers.%s.access with providers.%s.tools), which the workspace bridge does not carry: remove both keys from .cartographer.yaml to bind workspaces, or keep the profile and skip the binding.\n", provider, provider, provider)
 		return 2
 	}
-	if len(kbs) > 0 {
-		facts, listErr, refused := checkMountedKBs(cfg, kbs)
+	if named := append(slices.Clone(kbs), exclude...); len(named) > 0 {
+		facts, listErr, refused := checkMountedKBs(cfg, kbs, exclude)
 		if refused {
 			return 2
 		}
 		if listErr != nil {
-			fmt.Fprintf(os.Stderr, "warning: could not check that the server mounts %s (%v); binding anyway\n", strings.Join(kbs, ", "), listErr)
+			fmt.Fprintf(os.Stderr, "warning: could not check that the server mounts %s (%v); binding anyway\n", strings.Join(named, ", "), listErr)
 		} else if !facts.Listed {
-			fmt.Fprintf(os.Stderr, "warning: the server does not list its KBs; could not check that it mounts %s\n", strings.Join(kbs, ", "))
+			fmt.Fprintf(os.Stderr, "warning: the server does not list its KBs; could not check that it mounts %s\n", strings.Join(named, ", "))
 		}
 	}
 	if err := cfg.BindWorkspaceWith(provider, path, kbs, clientconfig.BindOptions{Worktrees: worktrees, NoLineage: noLineage, Exclude: exclude}); err != nil {
