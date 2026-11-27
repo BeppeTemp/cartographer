@@ -3430,3 +3430,98 @@ button.row {
 .concept-diff__stat { min-width: 7ch; text-align: end; }
 .concept-diff__action:disabled { opacity: 0.35; cursor: default; }
 .concept-diff__action:disabled:hover { background: none; color: var(--text-muted); }
+
+/* A control that only exists once the answer is in (the Surveyor toggle)
+   fades in instead of popping into place. */
+.segmented--appear {
+  animation: segmented-appear var(--motion-base) var(--ease-out);
+}
+@keyframes segmented-appear {
+  from {
+    opacity: 0;
+    transform: translateX(4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .segmented--appear {
+    animation: none;
+  }
+}
+
+/* The Surveyor's runs ride the Changes timeline (.timeline__*): what is theirs
+   is the meta after the outcome, the folded pages and the replica. A run row
+   is not a link, so it keeps no hover. */
+/* A Surveyor run: its head row says what the agent did, the pages it wrote
+   follow as the Users tab's rows, a step in, on the same rail. */
+.sv-run__head { cursor: default; grid-template-columns: 48px 20px minmax(0, 1fr) clamp(140px, 26%, 300px) auto; }
+.sv-run__head:hover { background: none; }
+.sv-run__fact { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); white-space: nowrap; }
+.sv-run__error { color: var(--sev-error); white-space: normal; }
+.sv-run__tokens {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  align-self: center;
+  min-width: 0;
+}
+.sv-run__bar { flex: 1; height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.sv-run__bar > span { display: block; height: 100%; border-radius: inherit; background: color-mix(in srgb, var(--map) 70%, transparent); }
+.sv-run__tk { flex: none; min-width: 5ch; text-align: end; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--text-muted); }
+.sv-run__pages { margin: 0; padding: 0; list-style: none; }
+/* The pages a run wrote hang from it: a thread in the run's hue, set in at the
+   body column, each page a Users row without its own time or node. The day's
+   rail runs on beside the thread. */
+.sv-run__pages {
+  position: relative;
+  margin: 0 0 var(--space-3) calc(var(--space-2) + 48px + 20px + 2 * var(--space-3));
+  border-inline-start: 2px solid color-mix(in srgb, var(--map) 55%, transparent);
+}
+.sv-run__pages::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: calc(-11px - var(--space-3) - 2px);
+  width: 2px;
+  background: var(--border-subtle);
+}
+.sv-run:last-child .sv-run__pages::before { display: none; }
+.sv-run__pages .timeline__entry { animation: none; }
+.sv-run__pages .timeline__item { grid-template-columns: minmax(0, 1fr) auto; padding-inline-start: var(--space-3); }
+.sv-run__pages .timeline__time,
+.sv-run__pages .timeline__track { display: none; }
+/* Under a run a page is one line: what and where, then why, muted; the
+   replica is on the run, so no avatars. */
+.sv-run__pages .timeline__item-body {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding-block: 6px;
+}
+.sv-run__pages .timeline__item-head { flex: none; max-width: 60%; }
+.sv-run__pages .timeline__title { font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sv-run__pages .timeline__reason { flex: 1; min-width: 0; color: var(--text-muted); }
+.sv-run__pages .timeline__authors { display: none; }
+.sv-run__pages { margin-block-end: var(--space-4); }
+.sv-run[data-empty] .timeline__title { color: var(--text-secondary); font-weight: 500; }
+.sv-run__pages .timeline__diff { padding-inline-start: var(--space-3); }
+.sv-run__pages .timeline__diff::before { display: none; }
+.sv-run__head .timeline__title { font-weight: 600; }
+
+/* Where and Who on one line: Where takes the room, Who its avatars. */
+.activity-facet-row { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-8); align-items: flex-start; }
+.activity-facet-row > .hero__row:first-child { flex: 1 1 420px; min-width: 0; }
+.activity-facet-row > .hero__row:last-child:not(:first-child) { flex: 0 1 auto; }
+.activity-facet-row--even > .hero__row,
+.activity-facet-row--even > .hero__row:last-child:not(:first-child) { flex: 1 1 360px; min-width: 0; }
+.activity-facet-row .hero__row .hero__content { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.activity-hero .filter-chip { padding-block: 2px; font-size: var(--text-xs); }
+.activity-hero .filter-chip .map-dot { width: 7px; height: 7px; }
+.source-tiles--row .source-tile__about { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.source-tiles--row .source-tile__count { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Where's chips justified: each line fills the width, the last one stays left. */
+.activity-facet-row .filter-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.activity-facet-row .filter-chips > li { flex: 1 1 auto; display: flex; }
+.activity-facet-row .filter-chips > li > .filter-chip { flex: 1; justify-content: flex-start; }
+.activity-facet-row .filter-chips > li > .filter-chip .filter-chip__count { margin-inline-start: auto; }
+.activity-facet-row .filter-chips::after { content: ""; flex: 100 1 0; }
+.source-tiles--row .source-tile__label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
