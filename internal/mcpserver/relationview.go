@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -130,6 +131,11 @@ func appendRelationFindings(ctx context.Context, k *kb.KB, findings []lint.Findi
 	}
 	rel, err := lint.RelationFindings(k)
 	if err != nil {
+		if errors.Is(err, kb.ErrRelationsRefUnknown) {
+			// A KB just created with a remote, before its first sync: nothing is
+			// wrong, so no warning; the findings appear once the ref is known.
+			return findings
+		}
 		fmt.Fprintf(os.Stderr, "cartographer: warn: lint: relation findings left out: %v\n", err)
 		return findings
 	}

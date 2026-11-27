@@ -3,7 +3,11 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -277,5 +281,50 @@ func TestRelationCycleHiddenFromACallerMissingAMember(t *testing.T) {
 		if _, cyc := f.lintCounts(t, tc.ctx, "a-kb"); cyc != tc.want {
 			t.Errorf("%s: kb_relation_cycle = %d, want %d", who, cyc, tc.want)
 		}
+	}
+}
+
+// A KB just created with a remote has not learned the remote's default branch:
+// the relation findings are left out without a warning on stderr (the state is
+// expected until the first sync), and a real read failure still warns.
+func TestRelationFindingsQuietBeforeFirstSync(t *testing.T) {
+	f := newRelFixture(t, []string{"kb-a", "kb-b"}, map[string][][2]string{
+		"kb-a": {{"kb-b", "kb-b"}},
+	}, "kb-a")
+	k := f.byName["kb-a"]
+	if _, err := k.Relations(); !errors.Is(err, kb.ErrRelationsRefUnknown) {
+		t.Fatalf("Relations error = %v, want ErrRelationsRefUnknown", err)
+	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = w
+	got := appendRelationFindings(auth.ContextWithPrincipal(context.Background(), auth.Principal{ID: "adm", Policy: auth.Policy{Admin: true}}), k, nil)
+	os.Stderr = old
+	w.Close()
+	out, _ := io.ReadAll(r)
+	if len(got) != 0 {
+		t.Errorf("findings = %+v, want none", got)
+	}
+	if len(out) != 0 {
+		t.Errorf("stderr = %q, want nothing before the first sync", out)
+	}
+}
+
+// Only an unset origin/HEAD is quiet: a git failure reading it is still warned.
+func TestRelationFindingsStillWarnOnAGitFailure(t *testing.T) {
+	f := newRelFixture(t, []string{"kb-a"}, nil)
+	k := f.byName["kb-a"]
+	if err := os.RemoveAll(filepath.Join(k.Root, ".git", "refs", "remotes", "origin")); err != nil {
+		t.Fatal(err)
+	}
+	// A symbolic origin/HEAD whose file is unreadable as a ref: git fails, not "absent".
+	if err := os.WriteFile(filepath.Join(k.Root, ".git", "HEAD"), []byte("garbage\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := k.Relations(); err == nil || errors.Is(err, kb.ErrRelationsRefUnknown) {
+		t.Fatalf("Relations error = %v, want a plain error", err)
 	}
 }

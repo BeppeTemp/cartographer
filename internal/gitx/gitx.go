@@ -1144,19 +1144,32 @@ func (e *RemoteTimeoutError) Error() string {
 // it), "" and false when it is not known. Unlike a sync's canonical branch it
 // is not moved by a configured working branch.
 func RemoteHeadBranch(dir, remote string) (string, bool) {
+	b, ok, _ := RemoteHeadBranchErr(dir, remote)
+	return b, ok
+}
+
+// RemoteHeadBranchErr is RemoteHeadBranch that tells "not known" from "git
+// failed": `symbolic-ref -q` exits 1 when the ref is absent or not symbolic,
+// which is ok=false with no error; any other failure (a corrupt repository,
+// git refusing to look, a timeout) is returned as err.
+func RemoteHeadBranchErr(dir, remote string) (branch string, ok bool, err error) {
 	if remote == "" {
 		remote = "origin"
 	}
 	prefix := "refs/remotes/" + remote + "/"
 	out, err := runGit(dir, "symbolic-ref", "-q", prefix+"HEAD")
 	if err != nil {
-		return "", false
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && ee.ExitCode() == 1 {
+			return "", false, nil
+		}
+		return "", false, err
 	}
 	b := strings.TrimPrefix(strings.TrimSpace(out), prefix)
 	if b == "" || b == strings.TrimSpace(out) {
-		return "", false
+		return "", false, nil
 	}
-	return b, true
+	return b, true, nil
 }
 
 // RemoteBranchExists reports whether refs/remotes/<remote>/<branch> exists.

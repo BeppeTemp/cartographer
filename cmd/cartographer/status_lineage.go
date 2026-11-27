@@ -30,7 +30,7 @@ func lineageReasonText(reason string) string {
 	case "remote_mismatch":
 		return "the mounted KB's origin differs from the declared remote"
 	case "no_remote":
-		return "the relation declares no remote to match a mounted KB against"
+		return "the mounted KB has no usable origin to match"
 	case "self":
 		return "the KB declares itself"
 	case "cycle":

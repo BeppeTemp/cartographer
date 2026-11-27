@@ -99,6 +99,10 @@ func TestStatusDoctorUnresolvedReason(t *testing.T) {
 	if strings.ReplaceAll(textHidden, "hidden-kb", "absent-kb") != textAbsent {
 		t.Errorf("an unreadable target reads differently from an unmounted one:\n%s\n--\n%s", textHidden, textAbsent)
 	}
+	// no_remote is about the mounted KB, not about the relation: the relation did declare a remote.
+	if got := lineageReasonText("no_remote"); got != "the mounted KB has no usable origin to match" || strings.Contains(got, "declares no remote") {
+		t.Errorf("no_remote sentence = %q", got)
+	}
 	if got := lineageReasonText("x\x1b[31m"); strings.ContainsRune(got, 0x1b) {
 		t.Errorf("an unknown reason is printed raw: %q", got)
 	}
