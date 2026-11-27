@@ -22,7 +22,18 @@
 #            release PR.
 #   forge    the real-forge tests and the hook they share (job forge, D996): not
 #            an ordinary PR, which would pay minutes of GitLab CE boot for a
-#            change that cannot touch it. The release PR runs it like everything.
+#            change that cannot touch it.
+#
+# The release PR answers true for everything, with one exception (#2441): while its
+# diff is only what the release workflow writes (CHANGELOG.md,
+# .release-please-manifest.json, docs/decisions.md), `web` and `helm` follow its paths
+# like any PR's, so those legs skip. release-please pushes that branch after every push
+# to main, whose own run (or the train gate before it) already ran both on the code
+# under it. `forge` stays true: the release PR is the only place the real-forge suite
+# runs unasked. `test`, `gate`, the strict decision index and `upgrade-e2e` do not read
+# this table and still run. The exception needs HEAD_IN_BASE_REPO=true in the environment
+# (ci.yml: the PR's head repository is this one): a fork's branch named release-please--*
+# gets no skip, and neither does a caller that does not say (scripts/signoff.sh).
 set -euo pipefail
 
 head_ref=${1:-}
@@ -37,8 +48,22 @@ paths=$(printf '%s\n' "$files" | grep -v '^internal/webui/dist/' || true)
 release=false
 [[ "$head_ref" == release-please--* ]] && release=true
 
+# Only generated release files, on a branch of this repository: a release PR that carries
+# anything else, whose file list is empty, or that comes from a fork runs everything.
+release_only=false
+if [ "$release" = true ] && [ "${HEAD_IN_BASE_REPO:-}" = true ] && [ -n "$files" ] &&
+  ! printf '%s\n' "$files" | grep -qvxE 'CHANGELOG\.md|\.release-please-manifest\.json|docs/decisions\.md'; then
+  release_only=true
+fi
+
 any() { # any <ere> [<ere to drop>]
   [ "$release" = true ] && { echo true; return; }
+  by_path "$@"
+}
+leg() { # leg <ere> [<ere to drop>]: `any` for web and helm, which a generated-only release PR skips
+  if [ "$release_only" = true ]; then by_path "$@"; else any "$@"; fi
+}
+by_path() {
   local hit
   hit=$(printf '%s\n' "$paths" | grep -E "$1" || true)
   if [ -n "${2:-}" ]; then hit=$(printf '%s\n' "$hit" | grep -vE "$2" || true); fi
@@ -49,8 +74,8 @@ any() { # any <ere> [<ere to drop>]
 # leaves the list in the change whose command imports it (the test fails if it stays listed once imported).
 not_in_binary='^internal/(changelog|gitx/gitxtest|hooks/hooktest|kbtest|testkbs|testtree|webui/gen|openapi/gen|surveyor/surveyortest|plugin/starcore/startest|boundaries|repodocs/landertest)/'
 
-web_other=$(any '^(web/|test/lib/|go\.(mod|sum)$|Makefile$|\.github/workflows/ci\.yml$|scripts/ci-filters\.sh$)')
-web_go=$(any '^(cmd|internal)/' '_test\.go$|'"$not_in_binary")
+web_other=$(leg '^(web/|test/lib/|go\.(mod|sum)$|Makefile$|\.github/workflows/ci\.yml$|scripts/ci-filters\.sh$)')
+web_go=$(leg '^(cmd|internal)/' '_test\.go$|'"$not_in_binary")
 if [ "$web_other" = true ] || [ "$web_go" = true ]; then web=true; else web=false; fi
 
 echo "web=$web"
@@ -59,5 +84,5 @@ echo "docker=$(any '^(Dockerfile|\.dockerignore|go\.(mod|sum)|test/smoke/(survey
 echo "tf=$(any '^deploy/demo/.*\.(tf|tfvars)$')"
 echo "demo=$(any '^deploy/demo/(worker\.js|worker\.test\.mjs)$|^deploy/demo/.*\.(tf|tfvars)$|^(\.github/workflows/ci\.yml|scripts/ci-filters\.sh)$')"
 echo "forge=$(any '^test/forge/|^(\.github/workflows/ci\.yml|scripts/ci-filters\.sh)$')"
-echo "helm=$(any '^(deploy/helm/|test/helm/|scripts/install-helm\.sh$|Makefile$|\.github/workflows/ci\.yml$|scripts/ci-filters\.sh$)')"
+echo "helm=$(leg '^(deploy/helm/|test/helm/|scripts/install-helm\.sh$|Makefile$|\.github/workflows/ci\.yml$|scripts/ci-filters\.sh$)')"
 echo "macos=$(any '^(internal/(service|tray)/|install\.sh$|\.goreleaser\.yaml$|test/(install|macos)/|cmd/cartographer/(service|upgraderepair)[^/]*$|\.github/workflows/ci\.yml$|scripts/ci-filters\.sh$)')"

@@ -130,7 +130,13 @@ Worker's tests (`make demo-worker-test`) and `make demo-tf-check`. A `helm` job 
 `test/helm/`, `scripts/install-helm.sh`, the Makefile, `ci.yml` or the filter script. On a PR a `changes` job decides `web`, `forge` and `helm` with
 `scripts/ci-filters.sh` (a table pinned by `internal/repodocs/ci_filters_test.go`,
 which also compares the excluded packages with `go list -deps`), failing open; where it is
-skipped (push, `merge_group`) everything runs. `gate`, `pr-title` (its own workflow, `pr-title.yml`, which re-runs when a PR title or body is edited) and `plan-gate` (`plan-gate.yml`, the size rule, D955; the docs-owner `WARN` it prints is not enforced) are the required checks (D1610); on `merge_group` `test-windows` fails if a leg was skipped or failed.
+skipped (push, `merge_group`) everything runs. The release PR answers true for every filter, except that while its
+diff is only `CHANGELOG.md`, `.release-please-manifest.json` and `docs/decisions.md` (what the release workflow
+writes, after every push to `main`) `web` and `helm` follow its paths and those legs skip: the push run of
+`main`, or the train gate before it, ran both on the same code. `forge` stays true, the release PR being the one place
+the real-forge suite runs without being asked for; `test`, `gate`, the strict decision index and `upgrade-e2e`
+still run there. A release PR that carries any other file runs everything, and so does one whose head is not a branch
+of this repository (`HEAD_IN_BASE_REPO`, set by the `changes` job: a fork can name a branch `release-please--*`) (#2441). `gate`, `pr-title` (its own workflow, `pr-title.yml`, which re-runs when a PR title or body is edited) and `plan-gate` (`plan-gate.yml`, the size rule, D955; the docs-owner `WARN` it prints is not enforced) are the required checks (D1610); on `merge_group` `test-windows` fails if a leg was skipped or failed.
 On `merge_group` `pr-title` (the same job, every step skipped) and `plan-gate` (`plan-gate-queue.yml`,
 one `echo`, pinned by `TestPlanGateQueueWorkflowDoesNothing`) report success because the PR
 already passed them. Both only matter if a queue is ever enabled. Runs on `main` coalesce (`ci.yml`, `codeql.yml`, `security.yml` and
@@ -545,7 +551,14 @@ content words, the question words (`how`, `does`, `the`) dropped, because the in
 matches whole words and ANDs them: a sentence no page holds in full falls back to an
 OR in which the question words outweigh the topic. It passes when a wanted id is among
 the ids `graph_context` shows (its seeds, the top five search hits, plus the first five
-ranked results, which exclude the seeds) and among the first ten `search` hits; both
+ranked results, which exclude the seeds) and among the first ten `search` hits, as a full match (every
+content word, not a `partial` hit of the OR fallback, which a docs edit elsewhere displaces): a question that
+passes only by fallback fails, naming the query and the page, unless it is a line of
+`internal/docskb/testdata/fallback_only.txt`, the questions exempt from the rule, each with the page the
+fallback finds for it (`<question><TAB><page>`, #2441). That list only shrinks: its size equals a constant of the
+test, so a line removed lowers the constant in the same change; a listed question whose page is a full
+match fails until its line is removed, and so do a listed question found through another page, a line
+that is no question and a page the question does not want; both
 numbers are constants of the test, and loosening one is a decision in review, never a
 per-question exception. `TestEvalCoverage` requires at least two questions for every
 page of `docs/index.md`, `README.md` and `CONTRIBUTING.md`, at least twelve about

@@ -1,0 +1,27 @@
+# The questions of questions.jsonl whose wanted page is among the first ten search hits only
+# as a partial hit of the OR fallback, each with that page: <question><TAB><page>
+# (TestRetrievalEval, #2441). The list only shrinks, and maxFallbackOnly with it: a question
+# whose page became a full match leaves it, and no question is added.
+can my agent install Cartographer for me?	using-cartographer/agent-install
+what should the agent ask the user before installing anything?	using-cartographer/agent-install/0-interview-the-user-one-message-before-any-command
+how do I back up a server and recover from a disaster?	using-cartographer/deployment/backup-and-disaster-recovery
+how does sync detect drift on the client?	using-cartographer/sync/detection-and-triggers-layered-model
+how do I keep a runbook current during an incident?	using-cartographer/use-cases/maintain-a-runbook-during-an-incident
+how do I import an existing folder of notes?	using-cartographer/use-cases/import-an-existing-notes-directory
+which principles guide the design of Cartographer?	internals-contributing/overview/principles
+how do bearer tokens and per-KB scopes work?	internals-contributing/transport-auth/per-kb-scopes
+why should an agent record unknowns as gaps?	internals-contributing/loop/record-unknowns-as-gaps
+how does Cartographer handle provider behavior of each agent client?	internals-contributing/interoperability/provider-behavior
+how do I refer to a decision in the docs or the code?	internals-contributing/decisions/referring-to-a-decision
+which Go style rules does the project enforce?	internals-contributing/conventions/go-style
+how are settings keys declared in conventions?	internals-contributing/conventions/settings
+where is the bibliography of the project?	internals-contributing/references/project-foundations
+which MCP specification does Cartographer implement?	internals-contributing/references/mcp-protocol
+what are the colors of the brand palette?	internals-contributing/brand-index/palette
+how do I contribute a fix?	internals-contributing/contributing/fixes-without-a-plan-maintainers
+why is the MCP stdio transport hand-rolled instead of using an SDK?	decisions/d2-hand-rolled-mcp-stdio-transport-no-sdk
+why does Cartographer have graph retrieval tools like graph_context?	decisions/d242-graph-retrieval-tools
+why is a plugin script written in Starlark?	decisions/d1746-plugin-scripts-starlark
+why does lint cover the artifacts of a KB and not only its concepts?	decisions/d316-lint-covers-the-kbs-artifacts
+how does a KB find the sibling KBs mounted on the same server?	internals-contributing/cross-kb-links
+does a mounted name beat a kb_aliases alias when a KB looks up a sibling?	internals-contributing/cross-kb-links

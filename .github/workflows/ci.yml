@@ -69,6 +69,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           HEAD_REF: ${{ github.head_ref }}
+          # The release PR's skip of `web` and `helm` is for a branch of this repository only:
+          # a fork can name a branch release-please--* (scripts/ci-filters.sh, #2441).
+          HEAD_IN_BASE_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
         run: |
           # GitHub answers 5xx for the files of a just-opened PR (its diff is not computed yet):
           # asked again with a backoff; any other error ends the job.
