@@ -1056,8 +1056,13 @@ func checkUnboundResidues(dir string, cfg *clientconfig.Config, providers []stri
 	var out []doctorFinding
 	for _, p := range providers {
 		bound, explicit := cfg.BoundKBs(p)
+		// A transversal KB is bound to every workspace provider by declaration
+		// (sync writes its section), so it is never a residue.
 		allowed := make(map[string]bool, len(bound))
 		for _, kb := range bound {
+			allowed["kb:"+kb] = true
+		}
+		for _, kb := range cfg.DeclaredTransversalKBs(p) {
 			allowed["kb:"+kb] = true
 		}
 		lock := lockFile.ForProvider(p)
