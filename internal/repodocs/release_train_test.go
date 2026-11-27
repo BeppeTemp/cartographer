@@ -1,6 +1,7 @@
 package repodocs
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -56,9 +57,18 @@ func TestReleaseTrainWorkflowIsOnDemandAndPinsMergeToken(t *testing.T) {
 	}
 	// A candidate is not cut while a wip/* branch is parked on origin (scripts/unlanded.sh): the
 	// listing step comes before the dispatch, and the dispatch is skipped on its output.
-	wipAt, dispatchAt := -1, -1
+	wipAt, dispatchAt, blockersAt := -1, -1, -1
 	for _, job := range wf.Jobs {
 		for i, st := range job.Steps {
+			// Nor while a bug a candidate or a nightly found is open, or a fix is rejected (#2440).
+			if st.ID == "blockers" {
+				blockersAt = i
+				for _, want := range []string{"labels=bug,accepted", "matching-refs/heads/failed/fix-", `index("next-rc-ok")`} {
+					if !strings.Contains(st.Run, want) {
+						t.Errorf("release-train.yml: the blockers step must read %s", want)
+					}
+				}
+			}
 			if st.ID == "wip" {
 				wipAt = i
 				if !strings.Contains(st.Run, "matching-refs/heads/wip/") {
@@ -70,11 +80,21 @@ func TestReleaseTrainWorkflowIsOnDemandAndPinsMergeToken(t *testing.T) {
 				if !strings.Contains(st.If, "steps.wip.outputs.parked != 'yes'") {
 					t.Errorf("release-train.yml: the candidate dispatch must skip while a branch is parked, if: %q", st.If)
 				}
+				// The waiver is one candidate's: removed after the dispatch, never failing it.
+				if d, r := strings.Index(st.Run, "gh workflow run preview.yml"), strings.Index(st.Run, `gh pr edit "$PR" --remove-label next-rc-ok || true`); d < 0 || r < d {
+					t.Error("release-train.yml: the dispatch step must remove `next-rc-ok` after it dispatches the candidate, best effort")
+				}
+				if !strings.Contains(st.If, "steps.blockers.outputs.blocked != 'yes'") {
+					t.Errorf("release-train.yml: the candidate dispatch must skip while a blocker is open, if: %q", st.If)
+				}
 			}
 		}
 	}
 	if wipAt < 0 || dispatchAt < 0 || wipAt > dispatchAt {
 		t.Errorf("release-train.yml: the parked-branch check (step %d) must precede the candidate dispatch (step %d)", wipAt, dispatchAt)
+	}
+	if blockersAt < 0 || blockersAt > dispatchAt {
+		t.Errorf("release-train.yml: the blockers check (step %d) must precede the candidate dispatch (step %d)", blockersAt, dispatchAt)
 	}
 	// The freeze check is measured from the commit of the oldest candidate, never a
 	// weekday: the newest candidate is always the head of main (the gate requires it).
@@ -858,6 +878,143 @@ func TestReleaseGateReadsTheConclusionOfTheLatestAttempt(t *testing.T) {
 	for _, want := range []string{`.conclusion == "success"`, `(\\.[0-9]+)?$`, "conclusion,headSha,updatedAt,displayTitle"} {
 		if !strings.Contains(run, want) {
 			t.Errorf("release-train.yml gate lacks %q", want)
+		}
+	}
+}
+
+// TestCandidateWaitsForTheBugsOfTheLastOne runs the blockers step of release-train.yml with a
+// fake gh (#2440): an accepted bug whose trusted body says `Found-by: rc` or `nightly`, or a
+// failed/fix-* ref, skips the candidate and names it on the release PR; the `next-rc-ok` label
+// lets it through; a listing that cannot be read fails the step. The two jq lines that read a
+// Found-by line and its author are the ones of scripts/issue-queue.sh.
+func TestCandidateWaitsForTheBugsOfTheLastOne(t *testing.T) {
+	root := repoRoot(t)
+	var wf struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				ID  string `yaml:"id"`
+				Run string `yaml:"run"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal([]byte(readFile(t, root, ".github/workflows/release-train.yml")), &wf); err != nil {
+		t.Fatal(err)
+	}
+	var run string
+	for _, job := range wf.Jobs {
+		for _, st := range job.Steps {
+			if st.ID == "blockers" {
+				run = st.Run
+			}
+		}
+	}
+	if run == "" {
+		t.Fatal("release-train.yml: no step with id blockers")
+	}
+	queue := readFile(t, root, "scripts/issue-queue.sh")
+	for _, def := range []string{"def found_by:", "def trusted:"} {
+		var mine, theirs string
+		for _, l := range strings.Split(run, "\n") {
+			if strings.Contains(l, def) {
+				mine = strings.TrimSpace(l)
+			}
+		}
+		for _, l := range strings.Split(queue, "\n") {
+			if strings.Contains(l, def) {
+				theirs = strings.TrimSpace(l)
+			}
+		}
+		if mine == "" || mine != theirs {
+			t.Errorf("release-train.yml and scripts/issue-queue.sh must read a blocker with the same `%s` line:\n%s\n%s", def, mine, theirs)
+		}
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("the script runs on ubuntu only; bash on Windows may be WSL")
+	}
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash not on PATH")
+	}
+	if _, err := exec.LookPath("jq"); err != nil {
+		t.Skip("jq not on PATH")
+	}
+	fake := `#!/bin/bash
+jq_expr=; prev=
+for a in "$@"; do [ "$prev" = --jq ] && jq_expr=$a; prev=$a; done
+[ "$FAIL" != "$1 $2 $3" ] || { echo boom >&2; exit 1; }
+case "$1 $2" in
+"pr view") printf '%s' "$LABELS" | jq -r "$jq_expr" ;;
+"pr comment") echo "$@" >> "$GH_LOG" ;;
+"api --paginate") case "$3" in
+  *"/issues?state=open&labels=bug,accepted&"*) printf '%s' "$ISSUES" | jq -r "$jq_expr" ;;
+  */git/matching-refs/heads/failed/fix-) printf '%s' "$REFS" | jq -r "$jq_expr" ;;
+  *) echo "unexpected read $3" >&2; exit 1 ;;
+  esac ;;
+esac
+`
+	issue := func(n int, body, login, assoc string) string {
+		return fmt.Sprintf(`{"number":%d,"body":%q,"user":{"login":%q},"author_association":%q}`, n, body, login, assoc)
+	}
+	const noLabels, waived = `{"labels":[{"name":"autorelease: pending"}]}`, `{"labels":[{"name":"next-rc-ok"}]}`
+	cases := []struct {
+		name, labels, issues, refs, fail string
+		blocked                          bool
+		named                            []string
+		fails                            bool
+	}{
+		{name: "nothing open", labels: noLabels, issues: `[]`, refs: `[]`},
+		{name: "a bug found by the candidate", labels: noLabels, issues: "[" + issue(12, "x\r\nFound-by: rc\r\n", "user", "MEMBER") + "]", refs: `[]`, blocked: true, named: []string{"#12"}},
+		{name: "a bug found by a nightly, the bot's", labels: noLabels, issues: "[" + issue(13, "Found-by: nightly", "github-actions[bot]", "NONE") + "]", refs: `[]`, blocked: true, named: []string{"#13"}},
+		{name: "a bug found elsewhere", labels: noLabels, issues: "[" + issue(14, "Found-by: gate\nnot Found-by: rc", "user", "OWNER") + "]", refs: `[]`},
+		{name: "an outsider's line", labels: noLabels, issues: "[" + issue(15, "Found-by: rc", "someone", "NONE") + "]", refs: `[]`},
+		{name: "a pull request", labels: noLabels, issues: `[{"number":16,"body":"Found-by: rc","pull_request":{},"user":{"login":"user"},"author_association":"OWNER"}]`, refs: `[]`},
+		{name: "a rejected fix", labels: noLabels, issues: `[]`, refs: "[{\"ref\":\"refs/heads/failed/fix-7\"}]", blocked: true, named: []string{"`failed/fix-7`"}},
+		{name: "a ref name with a backtick and a mention", labels: noLabels, issues: `[]`, refs: "[{\"ref\":\"refs/heads/failed/fix-7`@someone\"}]", blocked: true, named: []string{"`failed/fix-7someone`"}},
+		{name: "both", labels: noLabels, issues: "[" + issue(12, "Found-by: rc", "user", "MEMBER") + "]", refs: "[{\"ref\":\"refs/heads/failed/fix-7\"}]", blocked: true, named: []string{"#12, `failed/fix-7`"}},
+		{name: "waived by the label", labels: waived, issues: "[" + issue(12, "Found-by: rc", "user", "MEMBER") + "]", refs: "[{\"ref\":\"refs/heads/failed/fix-7\"}]"},
+		{name: "the issues cannot be read", labels: noLabels, issues: `[]`, refs: `[]`, fail: "api --paginate repos/example/repo/issues?state=open&labels=bug,accepted&per_page=100", fails: true},
+		{name: "the refs cannot be read", labels: noLabels, issues: `[]`, refs: `[]`, fail: "api --paginate repos/example/repo/git/matching-refs/heads/failed/fix-", fails: true},
+		{name: "the labels cannot be read", labels: noLabels, issues: `[]`, refs: `[]`, fail: "pr view 1", fails: true},
+	}
+	for _, c := range cases {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "gh"), []byte(fake), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		ghLog, output := filepath.Join(dir, "gh.log"), filepath.Join(dir, "output")
+		cmd := exec.Command(bash, "-e", "-c", run)
+		cmd.Dir = root
+		cmd.Env = append(cmd.Environ(), "GH_REPO=example/repo", "PR=1", "GH_LOG="+ghLog, "GITHUB_OUTPUT="+output,
+			"LABELS="+c.labels, "ISSUES="+c.issues, "REFS="+c.refs, "FAIL="+c.fail,
+			"PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		var buf strings.Builder
+		cmd.Stdout, cmd.Stderr = &buf, &buf
+		err := cmd.Run()
+		comment, _ := os.ReadFile(ghLog)
+		out, _ := os.ReadFile(output)
+		if c.fails {
+			if err == nil || len(comment) != 0 || len(out) != 0 {
+				t.Errorf("%s: a listing that cannot be read fails the step and says nothing, got err=%v comment=%q output=%q", c.name, err, comment, out)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("%s: the step failed: %v\n%s", c.name, err, buf.String())
+			continue
+		}
+		if strings.Contains(buf.String(), "@") || strings.Contains(buf.String(), "`") {
+			t.Errorf("%s: the log must carry no backtick or @ of a ref name: %q", c.name, buf.String())
+		}
+		if got := strings.Contains(string(out), "blocked=yes"); got != c.blocked {
+			t.Errorf("%s: blocked=%v, want %v\n%s", c.name, got, c.blocked, buf.String())
+		}
+		if !c.blocked && len(comment) != 0 {
+			t.Errorf("%s: no comment when the candidate is not skipped: %q", c.name, comment)
+		}
+		for _, n := range c.named {
+			if !strings.Contains(string(comment), "("+n+")") || !strings.Contains(string(comment), "next-rc-ok") {
+				t.Errorf("%s: the comment must name %s and the label that waives it: %q", c.name, n, comment)
+			}
 		}
 	}
 }

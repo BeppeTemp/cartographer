@@ -4,6 +4,9 @@ name: release-train
 # Run by hand with one action:
 #   rc       builds the release candidate (image and pre-release binaries, preview.yml);
 #            from then on the freeze is open (scripts/freeze-open.sh);
+#            skipped while a change is parked (wip/*), or while an accepted bug found by a
+#            candidate or a nightly is open or a fix is rejected (failed/fix-*) and the
+#            release PR has no `next-rc-ok` label (removed once a candidate is dispatched);
 #   release  merges the release PR if a maintainer ran the candidate and added the
 #            `rc-ok` label, with every check below;
 #   discard  deletes the candidate(s) of the pending version, which closes the freeze.
@@ -165,8 +168,39 @@ jobs:
             echo "parked=yes" >> "$GITHUB_OUTPUT"
           fi
 
+      # A defect a candidate's trial or a nightly run found and nobody fixed yet, or a fix the lander
+      # rejected, would be in the next candidate too: the candidate waits for the fix, unless a
+      # maintainer set `next-rc-ok` on the release PR. A skip, not a failure. The `found_by` and
+      # `trusted` lines are the ones of scripts/issue-queue.sh (release_train_test.go pins it).
+      - name: Refuse a candidate while a bug found by a candidate or a nightly is open
+        id: blockers
+        if: steps.mode.outputs.mode == 'rc' && steps.pr.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ steps.pr.outputs.number }}
+        run: |
+          # An unreadable listing is not "none open": fail rather than cut a candidate without the fix.
+          waived=$(gh pr view "$PR" --json labels --jq '[.labels[].name] | index("next-rc-ok") != null')
+          bugs=$(gh api --paginate "repos/$GH_REPO/issues?state=open&labels=bug,accepted&per_page=100" --jq '
+            def found_by: [(.body // "") | split("\n")[] | rtrimstr("\r") | select(test("^Found-by: [a-z-]+$")) | ltrimstr("Found-by: ")];
+            def trusted: .user.login == "github-actions[bot]" or (.author_association | IN("OWNER", "MEMBER", "COLLABORATOR"));
+            .[] | select(.pull_request | not) | select(trusted and (found_by | index("rc") or index("nightly"))) | "#\(.number)"')
+          failed=$(gh api --paginate "repos/$GH_REPO/git/matching-refs/heads/failed/fix-" --jq '.[].ref | ltrimstr("refs/heads/")')
+          # A ref name is anyone's text with push access: no backtick or @ reaches the log or the comment.
+          failed=$(printf '%s' "$failed" | tr -d '`@')
+          if [ "$waived" = true ]; then
+            echo "next-rc-ok is set: not blocked by: $bugs $failed"
+          elif [ -n "$bugs$failed" ]; then
+            refs=$(printf '%s' "$failed" | sed 's/.*/`&`/')
+            list=$(printf '%s\n%s\n' "$bugs" "$refs" | grep -v '^$' | paste -sd, - | sed 's/,/, /g')
+            echo "release candidate skipped: open blockers: $bugs $failed"
+            gh pr comment "$PR" --body "Release candidate skipped: a bug found by a candidate or a nightly run is open, or a fix was rejected ($list), and the candidate would carry the defect. Land the fix, or add the \`next-rc-ok\` label to this PR, then run \`release-train\` with \`action: rc\`."
+            echo "blocked=yes" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Dispatch the release candidate build
-        if: steps.mode.outputs.mode == 'rc' && steps.pr.outputs.number != '' && steps.wip.outputs.parked != 'yes'
+        if: steps.mode.outputs.mode == 'rc' && steps.pr.outputs.number != '' && steps.wip.outputs.parked != 'yes' && steps.blockers.outputs.blocked != 'yes'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -192,6 +226,8 @@ jobs:
           last=$(printf '%s\n' "$runs" | grep -E -- "-rc\.${today}\.[0-9]+$" | grep -F -- "v${version}-rc." | sed 's/.*\.//' | sort -n | tail -n 1 || true)
           tag="v${version}-rc.${today}.$(( 10#${last:-0} + 1 ))"
           gh workflow run preview.yml -f tag="$tag"
+          # `next-rc-ok` waives the blockers of one candidate, this one: the next asks again.
+          gh pr edit "$PR" --remove-label next-rc-ok || true
           # One comment for every candidate of the PR, edited in place: the marker finds it,
           # the tags of the earlier candidates are read back from its own lines.
           cur=$(gh api --paginate "repos/$GH_REPO/issues/$PR/comments" \
