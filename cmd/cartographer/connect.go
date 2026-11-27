@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"flag"
@@ -173,10 +174,23 @@ func probeErrorMessage(state probeState, err error) string {
 const unknownAuthorityHint = "; the server's certificate is not signed by a CA this machine accepts: pass --ca-file <pem> to connect, or set CARTOGRAPHER_CA_FILE"
 
 // isUnknownAuthority reports whether err comes from a TLS handshake that found
-// no root for the server's certificate.
+// no root for the server's certificate. The macOS system verifier fails with an
+// untyped error ("certificate is not trusted") inside a
+// *tls.CertificateVerificationError, so that type counts too, unless its cause
+// is a wrong name or an expired or otherwise invalid certificate: a CA file
+// would not fix those.
 func isUnknownAuthority(err error) bool {
 	var ua x509.UnknownAuthorityError
-	return errors.As(err, &ua)
+	if errors.As(err, &ua) {
+		return true
+	}
+	var cv *tls.CertificateVerificationError
+	if !errors.As(err, &cv) {
+		return false
+	}
+	var he x509.HostnameError
+	var ci x509.CertificateInvalidError
+	return !errors.As(cv.Err, &he) && !errors.As(cv.Err, &ci)
 }
 
 // isLoopbackURL reports whether rawURL's host is loopback (client.IsLoopbackHost) —

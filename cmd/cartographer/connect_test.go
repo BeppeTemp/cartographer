@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"crypto/ed25519"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
@@ -924,6 +926,32 @@ func TestSlowServerWording(t *testing.T) {
 	plain := &client.RemoteError{State: client.RemoteUnavailable, Code: client.CodeUnreachable, Message: "could not reach http://example.com/health"}
 	if got := deferralReason(plain); got != "server unreachable" {
 		t.Errorf("a refused connection stays unreachable: %q", got)
+	}
+}
+
+// The hint follows the x509 error types, not their wording: the macOS system
+// verifier's untyped "is not trusted" gets it, a wrong name or an expired
+// certificate does not.
+func TestIsUnknownAuthorityByType(t *testing.T) {
+	untyped := &tls.CertificateVerificationError{Err: errors.New(`x509: "example" certificate is not trusted`)}
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"typed", &tls.CertificateVerificationError{Err: x509.UnknownAuthorityError{}}, true},
+		{"untyped wrapped", fmt.Errorf("health: %w", untyped), true},
+		{"hostname", &tls.CertificateVerificationError{Err: x509.HostnameError{Host: "example.com"}}, false},
+		{"expired", &tls.CertificateVerificationError{Err: x509.CertificateInvalidError{Reason: x509.Expired}}, false},
+		{"plain", errors.New("certificate is not trusted"), false},
+	}
+	for _, c := range cases {
+		if got := isUnknownAuthority(c.err); got != c.want {
+			t.Errorf("%s: isUnknownAuthority = %v, want %v", c.name, got, c.want)
+		}
+	}
+	if got := deferralReason(fmt.Errorf("health: %w", untyped)); !strings.Contains(got, "--ca-file <pem>") {
+		t.Errorf("deferral of an untyped verifier failure: %q", got)
 	}
 }
 
